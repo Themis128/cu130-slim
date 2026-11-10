@@ -841,3 +841,20 @@ Leftovers:
   per session_healer) — one noVNC login per sidecar unblocks.
 - Pending: #1589 TikTok re-auth rebuild, #1588 master hygiene,
   #1590 Talk booking, #1591 warm lanes, #1592 session gitignore.
+- Instagram reconnect — EXHAUSTED automated lanes (2026-11-10):
+  aiograpi-rest 6.0.0 is pinned to aiograpi==1.0.9 (upstream dead since
+  2026-05); manual upgrade to aiograpi 2.1.9 (released same day, full
+  CAA/bloks flow) still returns ClientNeedsUpgradeError via BOTH the
+  REST layer and a direct Client.login — account/IP-level gate, not a
+  lib bug (instagrapi#2881 pattern). Stored sessionids expired,
+  browser-bridge IG session is logged out, Chrome CDP :9222 down,
+  INSTAGRAM_CLIENT_ID/SECRET empty (no OAuth app). ONLY remaining path:
+  sessionid import — user copies sessionid cookie from a logged-in
+  instagram.com browser session →
+  `.devin/skills/instagram-ops/instagram-personal-reconnect/scripts/
+  import-sessionid.py 38ddbd44-8811-4d0b-be62-a23fd2f50490 <sessionid>`.
+  Sidecar restored to pinned aiograpi 1.0.9, health ok.
+- Watchdog evolution landed as PRs: #1596 merged (dead-port probe),
+  #1598 open (EACCES chown-repair + EXTRA services + WD_PORT_PROBES,
+  17 behavioural tests green), #1599 open (SLACK_BOT_TOKEN → Infisical
+  mirror on every sync).
