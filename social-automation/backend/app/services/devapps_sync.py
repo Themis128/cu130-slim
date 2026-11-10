@@ -132,27 +132,30 @@ async def _pull_facebook(db: AsyncSession, account: SocialAccount, token: str) -
                 )
             except Exception as exc:  # noqa: BLE001
                 insights["object_error"] = str(exc)[:200]
-            try:
-                from app.services.analytics_sync import _meta_insights_get
-                from app.services.meta_graph import facebook_graph_url
+            # Page insights only exist on Page objects — user-type accounts
+            # have no /insights edge ("(#100) nonexisting field (insights)").
+            if str(getattr(account, "account_type", "") or "") == "page":
+                try:
+                    from app.services.analytics_sync import _meta_insights_get
+                    from app.services.meta_graph import facebook_graph_url
 
-                resp = await _meta_insights_get(
-                    client,
-                    facebook_graph_url(f"{account.account_id}/insights"),
-                    ["page_impressions_unique", "page_engaged_users"],
-                    params={"period": "day", "access_token": page_token},
-                )
-                if resp.status_code == 200:
-                    rows = (_resp_json(resp)).get("data") or []
-                    for row in rows:
-                        name = row.get("name")
-                        values = row.get("values") or []
-                        if values:
-                            insights[f"{name}_7d"] = values[-1].get("value") if len(values) >= 1 else None
-                            if len(values) >= 7:
-                                insights[f"{name}_30d"] = sum(v.get("value") or 0 for v in values[-30:])
-            except Exception as exc:  # noqa: BLE001
-                insights["insights_error"] = str(exc)[:200]
+                    resp = await _meta_insights_get(
+                        client,
+                        facebook_graph_url(f"{account.account_id}/insights"),
+                        ["page_views_total", "page_total_media_view_unique", "page_post_engagements", "page_daily_follows"],
+                        params={"period": "day", "access_token": page_token},
+                    )
+                    if resp.status_code == 200:
+                        rows = (_resp_json(resp)).get("data") or []
+                        for row in rows:
+                            name = row.get("name")
+                            values = row.get("values") or []
+                            if values:
+                                insights[f"{name}_7d"] = values[-1].get("value") if len(values) >= 1 else None
+                                if len(values) >= 7:
+                                    insights[f"{name}_30d"] = sum(v.get("value") or 0 for v in values[-30:])
+                except Exception as exc:  # noqa: BLE001
+                    insights["insights_error"] = str(exc)[:200]
 
             base.update({"ok": True, "health": health, "insights": insights})
             return base
@@ -646,7 +649,15 @@ def _content_hint(payload: dict[str, Any]) -> dict[str, Any]:
         "note": "text-first" if not media_ok else "media-first",
     }
     # Surface the freshest engagement counters the app returned.
-    for key in ("reach_30d", "page_impressions_unique_30d", "accounts_engaged_30d", "total_interactions_30d"):
+    for key in (
+        "reach_30d",
+        "page_views_total_30d",
+        "page_total_media_view_unique_30d",
+        "page_post_engagements_30d",
+        "page_impressions_unique_30d",
+        "accounts_engaged_30d",
+        "total_interactions_30d",
+    ):
         v = ins.get(key)
         if isinstance(v, int | float):
             hint[key] = v
