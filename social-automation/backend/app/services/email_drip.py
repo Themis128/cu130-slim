@@ -2,7 +2,9 @@
 
 Turns the two branded template campaigns into self-running loops:
 
-- **first_approach** — every EspoCRM lead that has never received the drip
+- **first_approach** — every EspoCRM lead that has never received the drip,
+  split into warm/cold lanes (``first_approach_warm`` template when present,
+  else the base copy — see ``_lead_temperature``)
   gets the first-approach campaign. New inbound leads are caught on the next
   daily sweep; the backlog is mailed once, then never again.
 - **renewal** — EspoCRM Closed-Won opportunities whose ``closeDate``
@@ -51,8 +53,25 @@ from app.services.leads import _is_synthetic_email, is_valid_email
 logger = logging.getLogger(__name__)
 
 DRIP_FIRST_APPROACH = "first_approach"
+# Warm lane — a separate drip_template ("first_approach_warm") for leads that
+# already know us. Both lanes share one dedupe family so a lead mailed via
+# either lane can never receive the other's copy.
+DRIP_FIRST_APPROACH_WARM = "first_approach_warm"
+FIRST_APPROACH_FAMILY = (DRIP_FIRST_APPROACH, DRIP_FIRST_APPROACH_WARM)
 DRIP_RENEWAL = "renewal"
 
+# Inbound/opt-in sources → the contact already came to us → warm copy.
+WARM_SOURCES = {
+    "Web Site",
+    "Newsletter",
+    "Referral",
+    "Lead Magnet",
+    "Messenger",
+    "WhatsApp Flow",
+    "Social Media",
+    "Meta Lead Ad",
+    "LinkedIn Lead Gen",
+}
 # Oxford AIE-adapted 4-week course — each step is a drip_template campaign
 # ("aie_course_1"…"aie_course_4"). Step 1 unlocks EMAIL_DRIP_AIE_GAP_DAYS
 # after first_approach; each later step unlocks the same gap after the
@@ -92,6 +111,22 @@ def _mailable(email: str, name: str | None = None) -> bool:
     return email not in internal and not email.endswith(f"@{domain}")
 
 
+def _in_active_conversation(lead: dict[str, Any]) -> bool:
+    """crm_engagement bumps replied leads to "In Process" — they are in a live
+    sales conversation, so every drip lane must exit them: continuing a
+    nurture sequence mid-conversation reads as robotic."""
+    return str(lead.get("status") or "") == "In Process"
+
+
+def _lead_temperature(lead: dict[str, Any]) -> str:
+    """'warm' when the lead already knows us — arrived via an inbound/opt-in
+    source. Everything else is cold and keeps the outreach-first copy.
+    ("In Process" leads exit entirely — see _in_active_conversation.)"""
+    if str(lead.get("source") or "") in WARM_SOURCES:
+        return "warm"
+    return "cold"
+
+
 def _parse_dt(raw: Any) -> datetime | None:
     if not raw:
         return None
@@ -109,15 +144,17 @@ def _parse_dt(raw: Any) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
-async def _already_dripped(db, team_id: uuid.UUID, key: str, cycle: str | None) -> set[str]:
-    """Emails that already received (or are queued for) this drip/cycle."""
+async def _already_dripped(db, team_id: uuid.UUID, key: str | tuple[str, ...], cycle: str | None) -> set[str]:
+    """Emails that already received (or are queued for) this drip/cycle —
+    ``key`` may be a tuple of drip_keys (dedupe family across lanes)."""
+    keys = (key,) if isinstance(key, str) else key
     q = (
         select(EmailRecipient.email)
         .join(EmailCampaign, EmailRecipient.campaign_id == EmailCampaign.id)
         .where(
             EmailRecipient.team_id == team_id,
             EmailRecipient.status.in_([RecipientStatus.pending, RecipientStatus.sent]),
-            EmailCampaign.meta_data["drip_key"].astext == key,
+            EmailCampaign.meta_data["drip_key"].astext.in_(keys),
         )
     )
     if cycle is not None:
@@ -195,7 +232,7 @@ async def _first_approach_candidates() -> list[dict[str, Any]]:
     for lead in await espocrm_client.list_leads_for_campaign():
         email = _norm_email(lead)
         name = " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName")
-        if not _mailable(email, name):
+        if not _mailable(email, name) or _in_active_conversation(lead):
             continue
         out.append(
             {
@@ -204,6 +241,7 @@ async def _first_approach_candidates() -> list[dict[str, Any]]:
                 "crm_entity": "Lead",
                 "crm_id": lead.get("id"),
                 "cycle": None,
+                "temp": _lead_temperature(lead),
             }
         )
     return out
@@ -353,7 +391,7 @@ async def _aie_course_candidates(
             continue  # previous step still cooling down
         lead = lead_map.get(email) or {}
         name = lead.get("_name")
-        if not _mailable(email, name):
+        if not _mailable(email, name) or _in_active_conversation(lead):
             continue
         out.append(
             {
@@ -377,6 +415,7 @@ async def _aie_lead_map() -> dict[str, dict[str, Any]]:
                 continue
             out[email] = {
                 "id": lead.get("id"),
+                "status": lead.get("status"),
                 "_name": " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName"),
             }
     except Exception:  # noqa: BLE001 — CRM outage degrades notes, not the sweep
@@ -392,6 +431,9 @@ async def _run_drip(
     *,
     dry_run: bool,
     now: datetime,
+    template_key: str | None = None,
+    fallback_template_key: str | None = None,
+    dedupe_keys: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "drip": key,
@@ -404,7 +446,10 @@ async def _run_drip(
     if not candidates:
         return stats
 
-    template = await _template(db, team_id, key)
+    template = await _template(db, team_id, template_key or key)
+    if template is None and fallback_template_key:
+        # lane template missing (e.g. first_approach_warm) → base copy
+        template = await _template(db, team_id, fallback_template_key)
     if template is None:
         stats["errors"].append("no drip_template campaign found")
         logger.warning("email drip %s: no template campaign for team %s", key, team_id)
@@ -417,7 +462,7 @@ async def _run_drip(
     from app.services.email_campaigns import resolve_audience
 
     for cycle, group in by_cycle.items():
-        mailed = await _already_dripped(db, team_id, key, cycle)
+        mailed = await _already_dripped(db, team_id, dedupe_keys or key, cycle)
         fresh = [c for c in group if c["email"] not in mailed]
         stats["already_sent"] += len(group) - len(fresh)
         if not fresh:
@@ -479,9 +524,11 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         teams = (await db.execute(select(Team))).scalars().all()
         for team in teams:
             team_stats: dict[str, Any] = {"team_id": str(team.id)}
-            runs: list[tuple[str, list[dict[str, Any]]]] = [
-                (DRIP_FIRST_APPROACH, await _first_approach_candidates()),
-                (DRIP_RENEWAL, await _renewal_candidates(now)),
+            fa = await _first_approach_candidates()
+            runs: list[tuple[str, list[dict[str, Any]], str | None, str | None, tuple[str, ...] | None]] = [
+                (DRIP_FIRST_APPROACH, [c for c in fa if c["temp"] != "warm"], None, None, FIRST_APPROACH_FAMILY),
+                (DRIP_FIRST_APPROACH_WARM, [c for c in fa if c["temp"] == "warm"], DRIP_FIRST_APPROACH_WARM, DRIP_FIRST_APPROACH, FIRST_APPROACH_FAMILY),
+                (DRIP_RENEWAL, await _renewal_candidates(now), None, None, None),
             ]
             if settings.EMAIL_DRIP_AIE_ENABLED:
                 for step in DRIP_AIE_STEPS:
@@ -489,11 +536,24 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                         (
                             step,
                             await _aie_course_candidates(db, team.id, step, aie_gap, now, aie_leads),
+                            None,
+                            None,
+                            None,
                         )
                     )
-            for key, candidates in runs:
+            for key, candidates, template_key, fallback_key, dedupe_keys in runs:
                 try:
-                    s = await _run_drip(db, team.id, key, candidates, dry_run=dry_run, now=now)
+                    s = await _run_drip(
+                        db,
+                        team.id,
+                        key,
+                        candidates,
+                        dry_run=dry_run,
+                        now=now,
+                        template_key=template_key,
+                        fallback_template_key=fallback_key,
+                        dedupe_keys=dedupe_keys,
+                    )
                 except Exception as exc:  # noqa: BLE001 — one drip must not kill the other
                     logger.exception("email drip %s failed for team %s", key, team.id)
                     s = {"drip": key, "errors": [str(exc)]}
@@ -526,7 +586,7 @@ async def _slack_report(report: dict[str, Any]) -> None:
 
         lines = ["*Email drip sweep*"]
         for t in report["teams"]:
-            for key in (DRIP_FIRST_APPROACH, DRIP_RENEWAL, *DRIP_AIE_STEPS):
+            for key in (DRIP_FIRST_APPROACH, DRIP_FIRST_APPROACH_WARM, DRIP_RENEWAL, *DRIP_AIE_STEPS):
                 s = t.get(key) or {}
                 if not s:
                     continue
