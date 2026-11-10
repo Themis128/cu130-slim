@@ -30,7 +30,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.core.config import settings
-from app.core.security import decrypt_token, encrypt_token
+from app.core.security import decrypt_field, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
@@ -89,12 +89,11 @@ def _get_whatsapp_client(account: SocialAccount) -> WhatsAppAPIClient:
             status_code=400,
             detail="No WhatsApp credentials found. Reconnect the WhatsApp account.",
         )
-    # access_token is stored encrypted
-    if isinstance(access_token, str) and not access_token.startswith("EA"):
-        try:
-            access_token = decrypt_token(access_token)
-        except Exception:
-            pass  # might be plaintext
+    # access_token is stored encrypted ("enc:" Fernet string via encrypt_field)
+    if isinstance(access_token, str):
+        decrypted = decrypt_field(access_token)
+        if decrypted:
+            access_token = decrypted
     return WhatsAppAPIClient(
         access_token=access_token,
         phone_number_id=phone_number_id,
@@ -1249,8 +1248,10 @@ async def _maybe_promote_flow(account: SocialAccount, sender_phone: str, intent:
         return
 
     access_token = meta.get("access_token", "")
-    if isinstance(access_token, str) and not access_token.startswith("EA"):
-        access_token = decrypt_token(access_token)
+    if isinstance(access_token, str):
+        decrypted = decrypt_field(access_token)
+        if decrypted:
+            access_token = decrypted
     from app.services.whatsapp_flows import WhatsAppFlowsClient
 
     fclient = WhatsAppFlowsClient(
