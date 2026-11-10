@@ -231,7 +231,9 @@ async def sweep(db: AsyncSession) -> dict:
     stale = (
         await db.execute(
             select(OpsIncident).where(
-                OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED]),
+                OpsIncident.status.in_(
+                    [IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]
+                ),
                 OpsIncident.last_seen < now - RESOLVE_AFTER,
             )
         )

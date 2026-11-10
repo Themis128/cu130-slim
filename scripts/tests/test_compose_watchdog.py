@@ -20,10 +20,17 @@ case "$1" in
   info) [ "${FAKE_DOCKER_DOWN:-0}" = 1 ] && exit 1; exit 0;;
   desktop) exit 0;;
   inspect)
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
+      prev="$a"
+    done
     for a in "$@"; do last="$a"; done
     if [ "$last" = "${FAKE_TARGET:-social-api}" ]; then echo "${FAKE_STATUS:-running false}"; else echo "running false"; fi;;
   logs) printf '%s\n' "${FAKE_LOGS:-}";;
   update|start|restart) exit 0;;
+  compose) exit 0;;
+  exec) exit 1;;
   *) exit 1;;
 esac
 """
@@ -123,3 +130,21 @@ def test_docker_desktop_restart_capped_twice_per_day(env):
 def test_state_not_in_tmp():
     text = SCRIPT.read_text()
     assert '"/tmp/wd-' not in text and "LKF=\"/tmp" not in text
+
+
+def test_mount_broken_exited_container_is_recreated_not_restarted(env):
+    repo, e, tmp = env
+    mount_err = ('failed to create shim task: OCI runtime create failed: '
+                 'error mounting "/run/desktop/mnt/host/wsl/..." to rootfs '
+                 'at "/entrypoint.sh": not a directory')
+    run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS=mount_err, WD_NOW=1000)
+    c = calls(tmp)
+    assert "start social-api" not in c and "restart social-api" not in c
+    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c)
+    assert "force-recreated" in log(repo)
+
+
+def test_exited_container_without_mount_error_still_restarts(env):
+    repo, e, tmp = env
+    run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS="some app error", WD_NOW=1000)
+    assert "start social-api" in calls(tmp)
