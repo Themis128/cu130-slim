@@ -1801,6 +1801,10 @@ async def oauth_callback(
     )
     account = result.scalar_one_or_none()
 
+    # Notify only on first connect or recovery from a non-active state —
+    # token refreshes on an already-active account must not spam email.
+    _notify_connect = account is None or account.status != "active"
+
     if account:
         account.access_token_enc = encrypt_token(access_token)
         if "refresh_token" in token:
@@ -2000,7 +2004,7 @@ async def oauth_callback(
         if owner:
             # Respect notification preferences — default to True if unset.
             prefs = owner.notification_preferences or {}
-            if prefs.get("email_account_connected", True):
+            if _notify_connect and prefs.get("email_account_connected", True):
                 asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
     except Exception:
         logger.warning("Failed to queue account-connected email")
