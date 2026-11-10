@@ -23,6 +23,7 @@ case "$1" in
     prev=""
     for a in "$@"; do
       if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *Health.Status* ]]; then echo "${FAKE_HEALTH:-healthy}"; exit 0; fi
       prev="$a"
     done
     for a in "$@"; do last="$a"; done
@@ -46,6 +47,11 @@ def env(tmp_path):
     fake = bindir / "docker"
     fake.write_text(FAKE_DOCKER)
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    # Port probes must not hit the real localhost — answer 200 by default;
+    # tests override with FAKE_CURL_CODE.
+    curl = bindir / "curl"
+    curl.write_text('#!/usr/bin/env bash\necho "curl $*" >> "$FAKE_CALLS"\necho "${FAKE_CURL_CODE:-200}"\n')
+    curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
     e = {
         "PATH": f"{bindir}:{os.environ['PATH']}",
         "HOME": str(tmp_path / "home"),
@@ -148,3 +154,21 @@ def test_exited_container_without_mount_error_still_restarts(env):
     repo, e, tmp = env
     run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS="some app error", WD_NOW=1000)
     assert "start social-api" in calls(tmp)
+
+
+def test_dead_port_bindings_restart_stack_ops(env):
+    repo, e, tmp = env
+    run(repo, e, FAKE_TARGET="stack-ops", FAKE_STATUS="healthy",
+        FAKE_CURL_CODE="000", WD_NOW=1000)
+    assert "start stack-ops" in calls(tmp) or "restart stack-ops" in calls(tmp)
+    assert "port-bindings" in log(repo)
+
+
+def test_live_ports_do_not_restart_stack_ops(env):
+    repo, e, tmp = env
+    run(repo, e, FAKE_TARGET="stack-ops", FAKE_STATUS="healthy", WD_NOW=1000)
+    # inspect calls legitimately name stack-ops — only start/restart counts
+    assert not any(
+        c.startswith(("start stack-ops", "restart stack-ops", "update "))
+        for c in calls(tmp)
+    )
