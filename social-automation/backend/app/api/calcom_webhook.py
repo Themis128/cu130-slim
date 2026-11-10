@@ -69,13 +69,17 @@ async def calcom_booking(request: Request) -> Any:
     )
     logger.info("calcom→linkedin conversion %s for %s → %s", event, email[:3] + "***" if email else "no-email", out)
 
-    talk_room = await _provision_talk_room(payload) if _secret() else None
+    talk_room = None
+    trigger = (payload.get("triggerEvent") or "").lower()
+    if _secret() and ("created" in trigger or "confirmed" in trigger):
+        talk_room = await _provision_talk_room(payload)
     return JSONResponse({"ok": True, "event": event, "conversion": out, "talk_room": talk_room})
 
 
 async def _provision_talk_room(payload: dict) -> str | None:
-    """Create the per-booking Talk room immediately so the join link exists
-    before the 30-min meeting-notes sweep would provision it.
+    """Provision the per-booking Talk room via the shared idempotent path —
+    the site may already have created it (booking-time endpoint), in which
+    case the Lead marker dedupes and we return the existing link.
 
     Gated on CALCOM_WEBHOOK_SECRET being set — unsigned payloads are only
     accepted in dev, and room creation is a write we don't want spoofable.
@@ -83,48 +87,15 @@ async def _provision_talk_room(payload: dict) -> str | None:
     """
     try:
         from app.services import meeting_notes
-        from app.services import nextcloud_talk as talk
 
         inner = payload.get("payload") or {}
         attendees = inner.get("attendees") or [{}]
         attendee = attendees[0] or {}
         name = str(attendee.get("name") or "").strip()
         email = str(attendee.get("email") or "").strip().lower()
-        start = str(inner.get("startTime") or inner.get("start") or "")[:10]
-        if not talk.talk_enabled():
-            return None
-        room_name = f"Consultation — {name or email or 'guest'}" + (f" — {start}" if start else "")
-        token = await talk.create_room(
-            room_name[:180],
-            description=(f"Cloudless consultation call.\nBooked via Cal.com — {email or 'guest'}.\nRecording enabled for internal meeting notes."),
-        )
-        if not token:
-            return None
-        await talk.post_to_room(
-            token,
-            "👋 Consultation room — join with the video button. The call may be recorded for internal meeting notes.",
-        )
-        link = talk.room_url(token)
-        # Marker on the Lead — the meeting-notes sweep resolves
-        # opportunity → contact email → lead notes for the room token.
-        from app.services import espocrm_client as espo
-
-        lead_id = await espo.upsert_lead(
-            {
-                "emailAddress": email,
-                "firstName": name.split(" ")[0] if name else "",
-                "lastName": " ".join(name.split(" ")[1:]) if name else "",
-                "source": "Web Site",
-                "description": f"{meeting_notes.ROOM_TAG}{token} — Cal.com booking join: {link}",
-            }
-        )
-        if lead_id:
-            await espo.add_lead_note(
-                lead_id,
-                f"{meeting_notes.ROOM_TAG}{token} — join: {link}",
-                entity="Lead",
-            )
-        return link or token
+        start = str(inner.get("startTime") or inner.get("start") or "")
+        out = await meeting_notes.provision_consult_room(name=name, email=email, start=start)
+        return (out or {}).get("url") or (out or {}).get("token")
     except Exception:  # noqa: BLE001
         logger.exception("calcom→talk room provisioning failed")
         return None

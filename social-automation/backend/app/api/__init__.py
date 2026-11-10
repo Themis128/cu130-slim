@@ -40,6 +40,7 @@ from app.api import (
     service_feed,
     support,
     talk_bot,
+    talk_rooms,
     teams,
     telegram,
     threads,
@@ -104,6 +105,8 @@ router.include_router(ops.router, prefix="/ops", tags=["ops"])
 router.include_router(support.router, prefix="/support", tags=["support"])
 
 router.include_router(talk_bot.router, prefix="/nextcloud", tags=["talk-bot"])
+
+router.include_router(talk_rooms.router, prefix="/talk", tags=["talk"])
 
 router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 

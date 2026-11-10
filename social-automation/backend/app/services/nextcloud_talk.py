@@ -318,6 +318,28 @@ async def list_room_messages(token: str, *, limit: int = 200, last_known_id: int
         return []
 
 
+async def ping() -> bool:
+    """Liveness probe — capabilities endpoint proves auth + reachability.
+    Distinguishes API-down from an empty room (unlike list_room_messages)."""
+    if not talk_enabled():
+        return False
+    base = _base_url()
+    if not base:
+        return False
+    s = get_settings()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{base}/ocs/v2.php/cloud/capabilities",
+                params={"format": "json"},
+                auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
+                headers={"OCS-APIRequest": "true"},
+            )
+            return resp.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
 _VIDEO_EXT = (".mp4", ".webm", ".mkv", ".mov", ".m4v")
 
 
