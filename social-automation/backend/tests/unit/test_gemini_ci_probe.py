@@ -9,3 +9,4 @@ is closed unmerged afterwards regardless.
 def test_gemini_probe_placeholder():
     # Deliberate failure — automation probe, not a real assertion.
     assert 1 == 2, "gemini-ci-fix probe: intentional failure"
+# re-trigger probe
