@@ -96,6 +96,7 @@ celery_app = Celery(
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.ops_agent",
+        "app.worker.tasks.workforce_audit",
     ],
 )
 
@@ -309,6 +310,7 @@ celery_app.conf.update(
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
         "app.worker.tasks.ops_agent.ops_agent_sweep": {"queue": "default"},
+        "app.worker.tasks.workforce_audit.run_workforce_audit": {"queue": "default"},
         "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -541,6 +543,13 @@ celery_app.conf.update(
         "ops-agent-sweep": {
             "task": "app.worker.tasks.ops_agent.ops_agent_sweep",
             "schedule": crontab(minute="*/5"),
+        },
+        # Agent-workforce audit — verifies every registered worker clocked
+        # in (presence + evidence freshness + escalations) and pushes the
+        # attention list to Slack. Was CLI-only; now self-running.
+        "workforce-audit": {
+            "task": "app.worker.tasks.workforce_audit.run_workforce_audit",
+            "schedule": crontab(minute="*/30"),
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
         # CI/test probes, surface stale New leads past the follow-up SLA.
