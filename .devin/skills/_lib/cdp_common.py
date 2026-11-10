@@ -69,6 +69,17 @@ class CdpClient:
         self.ws = websocket.create_connection(
             tab["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)
         self.i = 0
+        # Strip "Headless" from the UA — portals like IDIKA HTTP-500 on
+        # HeadlessChrome UAs. Harmless when the browser is already headed.
+        try:
+            ua = self.ev("navigator.userAgent") or ""
+            clean = ua.replace("HeadlessChrome", "Chrome")
+            if clean != ua:
+                self.send("Network.enable")
+                self.send("Network.setUserAgentOverride",
+                          {"userAgent": clean})
+        except Exception:
+            pass
 
     def send(self, m, p=None):
         self.i += 1

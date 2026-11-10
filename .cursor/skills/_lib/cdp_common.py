@@ -40,8 +40,8 @@ def ensure_cdp(launch=True):
     except Exception:
         pass
     if not launch:
-        sys.exit(f"CDP :9222 unreachable — launch debug Chrome")
-    r = subprocess.run([sys.executable, "-X", "utf8",
+        sys.exit("CDP :9222 unreachable — launch debug Chrome")
+    r = subprocess.run([sys.executable, "-X", "utf8",  # noqa: F841
                         os.path.normpath(ENSURE)],
                        capture_output=True, text=True, timeout=60)
     for _ in range(12):
@@ -69,6 +69,17 @@ class CdpClient:
         self.ws = websocket.create_connection(
             tab["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)
         self.i = 0
+        # Strip "Headless" from the UA — portals like IDIKA HTTP-500 on
+        # HeadlessChrome UAs. Harmless when the browser is already headed.
+        try:
+            ua = self.ev("navigator.userAgent") or ""
+            clean = ua.replace("HeadlessChrome", "Chrome")
+            if clean != ua:
+                self.send("Network.enable")
+                self.send("Network.setUserAgentOverride",
+                          {"userAgent": clean})
+        except Exception:
+            pass
 
     def send(self, m, p=None):
         self.i += 1
@@ -98,13 +109,13 @@ class CdpClient:
 
     def click_label(self, label, sleep=6):
         r = self.ev(f"""(()=>{{
-            const pat={json.dumps(label.lower())};
-            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')];
-            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase();
-                return t===pat||t.startsWith(pat)}});
+            const pat={json.dumps(label.lower())}
+            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')]
+            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase()
+                return t===pat||t.startsWith(pat)}})
             if(!b)return null;
-            b.scrollIntoView({{block:'center'}});
-            const r=b.getBoundingClientRect();
+            b.scrollIntoView({{block:'center'}})
+            const r=b.getBoundingClientRect()
             return [r.left+r.width/2,r.top+r.height/2]}})()""")
         if not r:
             return False
