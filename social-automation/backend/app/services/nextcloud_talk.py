@@ -115,7 +115,7 @@ async def post_to_talk(text: str, *, purpose: str = "digest", extra: str = "") -
                 f"{base}{_OCS}/chat/{token}",
                 json={"message": body},
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             if resp.status_code >= 300:
                 logger.warning(
@@ -230,7 +230,7 @@ async def create_room(name: str, *, description: str = "", room_type: int = 3) -
                     "description": description[:4000],
                 },
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             if resp.status_code not in (200, 201):
                 logger.warning("Talk room create failed: HTTP %s %s", resp.status_code, resp.text[:150])
@@ -255,7 +255,7 @@ async def delete_room(token: str) -> bool:
             resp = await client.delete(
                 f"{base}{_OCS_V4}/room/{token}",
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             return resp.status_code in (200, 204)
     except Exception as exc:  # noqa: BLE001
@@ -278,7 +278,7 @@ async def post_to_room(token: str, text: str) -> bool:
                 f"{base}{_OCS}/chat/{token}",
                 json={"message": text[:30000]},
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             if resp.status_code >= 300:
                 logger.warning("Talk room post failed: HTTP %s %s", resp.status_code, resp.text[:150])
@@ -306,7 +306,7 @@ async def list_room_messages(token: str, *, limit: int = 200, last_known_id: int
                 f"{base}{_OCS}/chat/{token}",
                 params=params,
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             if resp.status_code != 200:
                 logger.warning("Talk chat list failed: HTTP %s %s", resp.status_code, resp.text[:150])
@@ -333,7 +333,7 @@ async def ping() -> bool:
                 f"{base}/ocs/v2.php/cloud/capabilities",
                 params={"format": "json"},
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-                headers={"OCS-APIRequest": "true"},
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )
             return resp.status_code == 200
     except Exception:  # noqa: BLE001
