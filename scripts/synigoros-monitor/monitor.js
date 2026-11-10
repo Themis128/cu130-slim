@@ -6,6 +6,11 @@ const path = require('path');
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'state.json');
+const SESSION_FILE = path.join(DIR, 'session-state.json');
+// Min gap between browser identifies — each one emails a fresh OTP, so the
+// page poll runs at most hourly; real status changes arrive by mail anyway
+// and trigger an immediate poll below.
+const POLL_MIN_MS = (CFG.pollIntervalMinutes || 60) * 60e3;
 const LOG = path.join(DIR, 'monitor.log');
 
 const LOG_MAX_BYTES = 512 * 1024;
@@ -88,10 +93,17 @@ async function checkGmail(prevMailId) {
       if (m.id === prevMailId) break;
       const d = await gmailGet(at, `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject`);
       const subj = ((d.payload || {}).headers || []).find(h => h.name === 'Subject');
-      newSubjects.push((subj && subj.value) || '(no subject)');
+      // decode =?UTF-8?B?...?= encoded-words or the OTP filter can't see Greek
+      const raw = ((subj && subj.value) || '(no subject)').replace(/=\?UTF-8\?B\?([^?]+)\?=/gi,
+        (_, b) => { try { return Buffer.from(b, 'base64').toString('utf8'); } catch { return _; } });
+      newSubjects.push(raw);
     }
   }
-  return { mailId, newSubjects };
+  // Self-triggered OTP mails are noise, not news — they must never refresh
+  // lastNews (would starve the 3-day follow-up rule) nor force a browser poll.
+  const OTP_SUBJ = /κωδικός επιβεβαίωσης|επιβεβαίωσης σύνδεσης|verification code|OTP/i;
+  const newsSubjects = newSubjects.filter(x => !OTP_SUBJ.test(x));
+  return { mailId, newSubjects, newsSubjects };
 }
 
 // ── OTP lane: Synigoros emails a 6-digit login code after identify ────
@@ -230,48 +242,76 @@ async function notify(text) {
   // so this relays changes minutes after they happen, without the browser.
   let prev = null;
   try { prev = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
+  let g = null;
   try {
-    const g = await checkGmail(prev && prev.mailId);
+    g = await checkGmail(prev && prev.mailId);
     // Gmail lane is bookkeeping only (mailId dedupe + lastNews for the 3-day
     // follow-up rule) — notify ONLY on real status changes (2026-11-09):
     // OTP/form emails are noise, the 🔔 two-read confirmation covers changes.
-    if (g && g.newSubjects.length) {
-      log(`NEW MAIL (no notify): ${g.newSubjects.join(' | ')}`);
+    if (g && g.newSubjects.length) log(`NEW MAIL (no notify): ${g.newSubjects.join(' | ')}`);
+    if (g && g.newsSubjects.length)
       prev = { ...(prev || {}), lastNews: new Date().toISOString() };
-    }
     if (g) prev = { ...(prev || {}), mailId: g.mailId };
   } catch (e) { log('gmail check skip: ' + e.message); }
 
+  // Browser-poll throttle: each identify emails a fresh OTP. Poll only when
+  // real mail arrived, a status change is awaiting its confirmation read,
+  // or the last browser check is older than POLL_MIN_MS. Otherwise skip —
+  // the Ombudsman emails on every real change, so nothing is missed.
+  const hadNews = !!(g && g.newsSubjects && g.newsSubjects.length);
+  const pendingConfirm = !!(prev && prev.candidate);
+  const lastBrowser = prev && prev.browserAt ? Date.parse(prev.browserAt) : 0;
+  if (!hadNews && !pendingConfirm && lastBrowser && Date.now() - lastBrowser < POLL_MIN_MS) {
+    try {
+      fs.writeFileSync(STATE_FILE, JSON.stringify({
+        ...(prev || {}),
+        checked: new Date().toISOString() }, null, 2));
+    } catch {}
+    log(`browser poll throttled (last ${Math.round((Date.now() - lastBrowser) / 60000)}m ago, no new mail)`);
+    return;
+  }
+
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
-    const page = await browser.newPage();
+    // Reuse the saved session when it still authenticates — a live session
+    // renders the status directly and skips identify+OTP entirely.
+    const ctxOpts = {};
+    try { if (fs.existsSync(SESSION_FILE)) ctxOpts.storageState = SESSION_FILE; } catch {}
+    const context = await browser.newContext(ctxOpts);
+    const page = await context.newPage();
     await page.goto('https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForSelector('#webMail', { timeout: 20000 });
     await page.waitForTimeout(5000);
-    await page.locator('#webMail').fill(CFG.email);
-    await page.locator('#webCode').fill(CFG.kpa);
-    await page.getByText('Ταυτοποίηση', { exact: true }).click({ force: true });
-    // Synigoros now gates identify behind an emailed 6-digit OTP — the
-    // status never renders until it's submitted. Poll for either outcome;
-    // on an OTP prompt, fetch the fresh code from Gmail and feed it back.
-    const identifyAt = Date.now();
-    let otpAttempts = 0, lastOtpAt = -10, lastSubmitAt = 0;
-    for (let i = 0; i < 40; i++) {
-      await page.waitForTimeout(2000);
-      const hasStatus = await page.evaluate(() => document.body.innerText.includes('Κατάσταση'));
-      if (hasStatus) break;
-      const otpSel = await findOtpSelector(page);
-      // Retry the OTP up to 3×, ~20s apart — a rejected/stale code leaves
-      // the prompt up; retries demand a NEWER email than the last submit.
-      if (otpSel && otpAttempts < 3 && i - lastOtpAt >= 10) {
-        otpAttempts++; lastOtpAt = i;
-        log(`OTP prompt detected (attempt ${otpAttempts}) — fetching code`);
-        const code = await fetchSynigorosOtp(identifyAt, 90000, lastSubmitAt);
-        if (!code) { log('OTP fetch failed/timed out'); continue; }
-        log('OTP acquired — submitting');
-        await page.fill(otpSel, code);
-        await submitOtp(page);
-        lastSubmitAt = Date.now();
+    const warm = await page.evaluate(() =>
+      document.body.innerText.includes('Κατάσταση') && !document.querySelector('#webMail'));
+    if (warm) {
+      log('session warm — skipped identify/OTP');
+    } else {
+      await page.waitForSelector('#webMail', { timeout: 20000 });
+      await page.locator('#webMail').fill(CFG.email);
+      await page.locator('#webCode').fill(CFG.kpa);
+      await page.getByText('Ταυτοποίηση', { exact: true }).click({ force: true });
+      // Synigoros now gates identify behind an emailed 6-digit OTP — the
+      // status never renders until it's submitted. Poll for either outcome;
+      // on an OTP prompt, fetch the fresh code from Gmail and feed it back.
+      const identifyAt = Date.now();
+      let otpAttempts = 0, lastOtpAt = -10, lastSubmitAt = 0;
+      for (let i = 0; i < 40; i++) {
+        await page.waitForTimeout(2000);
+        const hasStatus = await page.evaluate(() => document.body.innerText.includes('Κατάσταση'));
+        if (hasStatus) break;
+        const otpSel = await findOtpSelector(page);
+        // Retry the OTP up to 3×, ~20s apart — a rejected/stale code leaves
+        // the prompt up; retries demand a NEWER email than the last submit.
+        if (otpSel && otpAttempts < 3 && i - lastOtpAt >= 10) {
+          otpAttempts++; lastOtpAt = i;
+          log(`OTP prompt detected (attempt ${otpAttempts}) — fetching code`);
+          const code = await fetchSynigorosOtp(identifyAt, 90000, lastSubmitAt);
+          if (!code) { log('OTP fetch failed/timed out'); continue; }
+          log('OTP acquired — submitting');
+          await page.fill(otpSel, code);
+          await submitOtp(page);
+          lastSubmitAt = Date.now();
+        }
       }
     }
     // The info panel renders a template placeholder status first
@@ -279,6 +319,7 @@ async function notify(text) {
     // ~1s later — reading immediately captures the placeholder.
     await page.waitForTimeout(1500);
 
+    try { await context.storageState({ path: SESSION_FILE }); } catch {}
     const text = await page.evaluate(() => document.body.innerText);
     const m = [...text.matchAll(/Κατάσταση\s*\n\s*([^\n]+)/g)];
     const status = m.length ? m[m.length - 1][1].trim() : 'UNKNOWN';
@@ -326,7 +367,7 @@ async function notify(text) {
     }
     fs.writeFileSync(STATE_FILE, JSON.stringify({ status: prev ? prev.status : status, candidate: prev && prev.candidate, updates, mailId: prev && prev.mailId,
       lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
-      errorStreak: 0, errorAlerted: false,
+      errorStreak: 0, errorAlerted: false, browserAt: new Date().toISOString(),
       checked: new Date().toISOString() }, null, 2));
     // Dated follow-up scheduler (ΔΥΠΑ/ΣΕΠΕ/Συνήγορος cadence) — fire-and-forget.
     try {
@@ -345,6 +386,7 @@ async function notify(text) {
         updates: prev && prev.updates, mailId: prev && prev.mailId,
         lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
         errorStreak: streak, errorAlerted: alertNow || (prev && prev.errorAlerted) || false,
+        browserAt: prev && prev.browserAt,
         lastError: String(e.message).slice(0, 300),
         checked: new Date().toISOString() }, null, 2));
     } catch {}
