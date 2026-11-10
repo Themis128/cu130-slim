@@ -24,6 +24,9 @@ case "$1" in
     for a in "$@"; do
       if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Health.Status* ]]; then echo "${FAKE_HEALTH:-healthy}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Status}}' ]; then echo "${FAKE_CSTATE:-running}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *Mounts* ]]; then printf '%s' "${FAKE_MOUNTS:-}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *Config.Image* ]]; then echo "fake-img"; exit 0; fi
       prev="$a"
     done
     for a in "$@"; do last="$a"; done
@@ -32,6 +35,12 @@ case "$1" in
   update|start|restart) exit 0;;
   compose) exit 0;;
   exec) exit 1;;
+  run)
+    # container_uid_gid fallback: docker run --rm --entrypoint id IMG -u|-g
+    if [[ "$*" == *entrypoint*id* ]]; then
+      case "$*" in *-u) echo "${FAKE_UID:-1000}";; *) echo "${FAKE_GID:-1000}";; esac
+    fi
+    exit 0;;
   *) exit 1;;
 esac
 """
@@ -172,3 +181,67 @@ def test_live_ports_do_not_restart_stack_ops(env):
         c.startswith(("start stack-ops", "restart stack-ops", "update "))
         for c in calls(tmp)
     )
+
+
+def test_eacces_crashloop_chowns_mount_and_recreates(env, tmp_path):
+    """EACCES on a bind mount → chown host dir to container uid + recreate."""
+    repo, e, tmp = env
+    host_dir = tmp_path / "n8n-data"
+    host_dir.mkdir()
+    run(repo, e,
+        FAKE_TARGET="n8n",
+        FAKE_STATUS="restarting false",
+        FAKE_LOGS="Error: EACCES: permission denied, open '/home/node/.n8n/config'",
+        FAKE_MOUNTS="/home/node/.n8n|" + str(host_dir) + "\n",
+        FAKE_UID="1000", FAKE_GID="1000")
+    c = calls(tmp)
+    assert any("chown" in x for x in c), c
+    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+    assert "eacces" in log(repo)
+
+
+def test_eacces_cap_stops_after_two_attempts(env, tmp_path):
+    repo, e, tmp = env
+    host_dir = tmp_path / "n8n-data"
+    host_dir.mkdir()
+    kw = dict(FAKE_TARGET="n8n", FAKE_STATUS="restarting false",
+              FAKE_LOGS="EACCES: permission denied, open '/home/node/.n8n/config'",
+              FAKE_MOUNTS="/home/node/.n8n|" + str(host_dir) + "\n")
+    run(repo, e, **kw)
+    run(repo, e, **kw)
+    run(repo, e, **kw)  # third run must hit the cap — no third chown
+    chowns = [x for x in calls(tmp) if x.startswith("run ") and " chown " in x]
+    assert len(chowns) == 2, chowns
+
+
+def test_dead_published_port_recreates_owner(env, tmp_path):
+    """Port probe: dead localhost port on a running container → recreate."""
+    repo, e, tmp = env
+    run(repo, e, WD_PORT_PROBES="n8n:5678", FAKE_CURL_CODE="000")
+    c = calls(tmp)
+    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+
+
+def test_live_published_port_does_not_recreate(env, tmp_path):
+    repo, e, tmp = env
+    run(repo, e, WD_PORT_PROBES="n8n:5678", FAKE_CURL_CODE="200")
+    c = calls(tmp)
+    assert not any("compose up" in x for x in c), c
+
+
+def test_port_probe_skips_stopped_container(env, tmp_path):
+    repo, e, tmp = env
+    run(repo, e, WD_PORT_PROBES="n8n:5678", FAKE_CURL_CODE="000", FAKE_CSTATE="exited")
+    # exited n8n goes through the stuck-container path instead — but the
+    # port probe itself must not fire a second recreate for it
+    c = calls(tmp)
+    portfix = [x for x in (tmp / "state").glob("portfix-*")]
+    assert portfix == [], "portfix marker written for a non-running container"
+
+
+def test_extra_service_exited_is_restarted(env, tmp_path):
+    """n8n is monitored even though it is not in CORE."""
+    repo, e, tmp = env
+    run(repo, e, FAKE_TARGET="n8n", FAKE_STATUS="exited false")
+    c = calls(tmp)
+    assert any(x.startswith("start n8n") or x.startswith("restart n8n") for x in c), c
