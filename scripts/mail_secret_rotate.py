@@ -75,8 +75,13 @@ def _fp(v: str) -> str:
 def _http(method: str, url: str, body: dict | None, headers: dict,
           timeout: int = 30) -> tuple[int, dict | str]:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"Content-Type": "application/json", **headers})
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Content-Type": "application/json",
+        # workers.dev / secrets.cloudless.gr sit behind CF bot protection —
+        # the default python-urllib UA gets HTTP 403 error 1010.
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        **headers})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()
@@ -92,31 +97,85 @@ def step(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def infisical_token() -> str:
-    site = _env("INFISICAL_SITE_URL").rstrip("/")
+def _infisical_docker(method: str, path: str, body: dict | None,
+                      token: str = "") -> tuple[int, dict | str] | None:
+    """Call the Infisical API through the local `infisical` container.
+
+    secrets.cloudless.gr sits behind authentik SSO — the public URL
+    302s API calls to the login page, so the only programmatic lane is
+    the container-local backend at http://localhost:8080. Returns None
+    when docker/container is unavailable (caller falls back to public).
+    """
+    if subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}",
+                       "infisical"], capture_output=True, text=True
+                      ).stdout.strip() != "true":
+        return None
+    env = ["-e", f"TOK={token}", "-e", f"JSON={json.dumps(body) if body is not None else ''}"]
+    auth = f'-H "Authorization: Bearer $TOK" ' if token else ""
+    inner = (f'curl -s -o /tmp/.inf-resp -w "%{{http_code}}" -X {method} '
+             f'"http://localhost:8080{path}" '
+             f'{auth}-H "Content-Type: application/json" '
+             "-d \"$JSON\"")
+    r = subprocess.run(["docker", "exec", *env, "infisical", "sh", "-c", inner],
+                       capture_output=True, text=True, timeout=60)
+    try:
+        code = int(r.stdout.strip() or 0)
+    except ValueError:
+        return None
+    out = subprocess.run(["docker", "exec", "infisical", "cat",
+                          "/tmp/.inf-resp"], capture_output=True, text=True,
+                         timeout=30).stdout
+    try:
+        return code, json.loads(out)
+    except json.JSONDecodeError:
+        return code, out[:300]
+
+
+def infisical_login_body() -> dict:
     cid, csec = _env("INFISICAL_UA_CLIENT_ID"), _env("INFISICAL_UA_CLIENT_SECRET")
-    if not (site and cid and csec):
-        raise RuntimeError("missing INFISICAL_SITE_URL/UA_CLIENT_ID/UA_CLIENT_SECRET")
+    if not (cid and csec):
+        raise RuntimeError("missing INFISICAL_UA_CLIENT_ID/CLIENT_SECRET")
+    return {"clientId": cid, "clientSecret": csec}
+
+
+def infisical_token() -> str:
+    # Preferred: container-local login — secrets.cloudless.gr sits behind
+    # authentik SSO and 302s public API calls to the login page.
+    res = _infisical_docker("POST", "/api/v1/auth/universal-auth/login",
+                            infisical_login_body())
+    if res and res[0] == 200 and isinstance(res[1], dict) \
+            and "accessToken" in res[1]:
+        return res[1]["accessToken"]
+    site = _env("INFISICAL_SITE_URL").rstrip("/")
     status, resp = _http("POST", f"{site}/api/v1/auth/universal-auth/login",
-                         {"clientId": cid, "clientSecret": csec}, {})
+                         infisical_login_body(), {})
     if status != 200 or not isinstance(resp, dict) or "accessToken" not in resp:
         raise RuntimeError(f"infisical login failed: HTTP {status} {str(resp)[:140]}")
     return resp["accessToken"]
 
 
 def infisical_upsert(key: str, value: str, token: str) -> None:
-    site = _env("INFISICAL_SITE_URL").rstrip("/")
     body = {"workspaceId": INFISICAL_WS, "environment": INFISICAL_ENV,
             "secretPath": INFISICAL_PATH, "secretValue": value, "type": "shared"}
-    url = f"{site}/api/v3/secrets/raw/{urllib.parse.quote(key, safe='')}"
-    status, resp = _http("PATCH", url, body,
-                         {"Authorization": f"Bearer {token}"})
-    if status not in (200, 201):
+    path = f"/api/v3/secrets/raw/{urllib.parse.quote(key, safe='')}"
+    res = _infisical_docker("PATCH", path, body, token)
+    if res is None or res[0] not in (200, 201):
         # key may not exist yet — create it
-        status, resp = _http("POST", url, body,
+        res = _infisical_docker("POST", path, body, token) if res else None
+    if res and res[0] in (200, 201):
+        return
+    if res is None:
+        site = _env("INFISICAL_SITE_URL").rstrip("/")
+        url = f"{site}{path}"
+        status, resp = _http("PATCH", url, body,
                              {"Authorization": f"Bearer {token}"})
-    if status not in (200, 201):
-        raise RuntimeError(f"infisical upsert {key}: HTTP {status} {str(resp)[:160]}")
+        if status not in (200, 201):
+            status, resp = _http("POST", url, body,
+                                 {"Authorization": f"Bearer {token}"})
+        if status not in (200, 201):
+            raise RuntimeError(f"infisical upsert {key}: HTTP {status} {str(resp)[:160]}")
+        return
+    raise RuntimeError(f"infisical upsert {key}: HTTP {res[0]} {str(res[1])[:160]}")
 
 
 def update_env_files(key: str, value: str) -> list[str]:
