@@ -234,6 +234,7 @@ async def sync_deploy_events() -> dict:
                 text = f"🚀 {label} deploy — {sha7} {msg}"
                 if talk_enabled():
                     await post_to_talk(text, purpose="digest")
+                    await post_to_talk(text, purpose="changelog")
                 await _announce(nc, f"{label} deployed", f"{sha7} — {msg}")
                 posted.append(f"{label}:{sha7}")
             await _set_cursor(key, new[0]["sha"])
