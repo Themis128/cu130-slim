@@ -19,6 +19,7 @@ from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.services.db_sync import sync_after_worker_task
 from app.services.duplicate_detector import is_duplicate
+from app.services.error_taxonomy import UNKNOWN, classify_publish_error
 from app.services.instagram_api import InstagramAPIClient
 from app.services.media_dedup import media_duplicate_reason
 from app.services.publishing import (
@@ -814,6 +815,7 @@ async def _process_publish_queue_async() -> None:
                         if target:
                             target.status = "failed"
                             target.error_message = pub.error
+                            target.error_class = classify_publish_error(pub.error, account.platform)
                             if pub.platform_post_id:
                                 target.platform_post_id = pub.platform_post_id
                         if getattr(pub, "platform_meta", None):
@@ -901,6 +903,7 @@ async def _process_publish_queue_async() -> None:
                                 err_prev_error = (err_target.error_message or "").strip()
                                 err_target.status = "failed"
                                 err_target.error_message = "Unhandled exception while publishing (see worker logs)"
+                                err_target.error_class = UNKNOWN
                     except Exception:  # noqa: BLE001
                         err_post = None
                         err_account = None

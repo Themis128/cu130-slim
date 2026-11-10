@@ -165,6 +165,8 @@ class PostTarget(Base):
     platform_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, published, failed
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # transient | terminal | unknown — see app/services/error_taxonomy.py
+    error_class: Mapped[str | None] = mapped_column(String(20), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
