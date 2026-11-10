@@ -31,14 +31,13 @@ Exit codes: 0 ok/nothing-to-do, 2 lane-down, 3 human-gate-needed,
             4 flow-failed.
 """
 
-import base64
 import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 BRIDGE = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
