@@ -1,34 +1,32 @@
 name: pr-sweep
-# Autonomous PR-landing sweep — rebase + arm auto-merge on every open PR.
-# Kills the merge-treadmill's manual grind: the strict-protected master
-# invalidates every branch on merge, this keeps the queue current without
-# a human grinding the worktree pattern.
+
+# Scheduled full PR sweep — superset of pr-watch: update-branch on BEHIND,
+# arm squash auto-merge on every open PR, and API-only rebuild of DIRTY
+# heads (pr_rebuild). Runs the repo's own skill scripts so logic stays
+# in one place. Complements the WSL pr-sweep-cron.sh (survives WSL down).
 on:
   schedule:
-    - cron: "*/30 * * * *"     # every 30 min — the queue stays green-eligible
+    - cron: "13,43 * * * *"
   workflow_dispatch:
-    inputs: {}
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  REPO: ${{ github.workspace }}
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
 
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: sweep open PRs (rebase + arm auto-merge)
-        run: |
-          git config user.email "devin-ai-integration[bot]@users.noreply.github.com"
-          git config user.name "Devin AI"
-          git fetch origin master -q
-          python .devin/skills/pr-landing-ops/scripts/pr_sweep.py
+          python-version: "3.11"
+      - name: Run pr_sweep_all
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py
