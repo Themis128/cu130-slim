@@ -26,6 +26,13 @@ celery_app = Celery(
         "app.worker.tasks.crm_engagement",
         "app.worker.tasks.mautic_winback",
         "app.worker.tasks.engagement",
+        "app.worker.tasks.engagement_ingest",
+        "app.worker.tasks.engagement_ingest_li",
+        "app.worker.tasks.engagement_ingest_tt",
+        "app.worker.tasks.engagement_ingest_ig",
+        "app.worker.tasks.engagement_ingest_fb",
+        "app.worker.tasks.engagement_tiers",
+        "app.worker.tasks.engagement_archive",
         "app.worker.tasks.email_drip",
         "app.worker.tasks.lead_research",
         "app.worker.tasks.token_refresh",
@@ -334,6 +341,14 @@ celery_app.conf.update(
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
         "app.worker.tasks.funnel_audit.run_funnel_audit": {"queue": "default"},
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
+        "app.worker.tasks.engagement.dispatch_engagements": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest.ingest_x_feed": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_ig.ingest_ig_feed": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_fb.ingest_fb_groups": {"queue": "default"},
+        "app.worker.tasks.engagement_tiers.update_connection_tiers": {"queue": "default"},
+        "app.worker.tasks.engagement_archive.compact_ledger": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
@@ -571,6 +586,42 @@ celery_app.conf.update(
             "task": "app.worker.tasks.engagement.engagement_ingest",
             "schedule": crontab(minute=15),
             "options": {"queue": "default"},
+        },
+        # Engagement pipeline — the tasks existed but were never scheduled:
+        # per-platform feed ingestion feeds engagement_candidates, the
+        # dispatcher executes queued/pending actions through the actors,
+        # tiers recompute RYR weights, archive compacts the ledger.
+        "engagement-dispatch": {
+            "task": "app.worker.tasks.engagement.dispatch_engagements",
+            "schedule": crontab(minute="*/10"),
+        },
+        "engagement-ingest-x-feed": {
+            "task": "app.worker.tasks.engagement_ingest.ingest_x_feed",
+            "schedule": crontab(minute=45),
+        },
+        "engagement-ingest-li-feed": {
+            "task": "app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed",
+            "schedule": crontab(minute=20),
+        },
+        "engagement-ingest-ig-feed": {
+            "task": "app.worker.tasks.engagement_ingest_ig.ingest_ig_feed",
+            "schedule": crontab(minute=35),
+        },
+        "engagement-ingest-tt-tags": {
+            "task": "app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags",
+            "schedule": crontab(minute="15,45"),
+        },
+        "engagement-ingest-fb-groups": {
+            "task": "app.worker.tasks.engagement_ingest_fb.ingest_fb_groups",
+            "schedule": crontab(minute="0,30"),
+        },
+        "engagement-tiers": {
+            "task": "app.worker.tasks.engagement_tiers.update_connection_tiers",
+            "schedule": crontab(hour=7, minute=30),
+        },
+        "engagement-archive": {
+            "task": "app.worker.tasks.engagement_archive.compact_ledger",
+            "schedule": crontab(hour=4, minute=10),
         },
         "crm-engagement-sweep": {
             "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
