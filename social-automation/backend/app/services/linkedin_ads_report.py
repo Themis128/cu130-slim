@@ -193,43 +193,46 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
     acct, camp = m.account_id, m.campaign_id
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.get(
-            f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns/{camp}",
-            headers=headers,
-        )
-        if r.status_code >= 400:
-            raise RuntimeError(f"adCampaigns HTTP {r.status_code}: {r.text[:200]}")
-        c = r.json() or {}
-        m.campaign_name = c.get("name") or ""
-        m.status = (c.get("status") or "unknown").lower()
-        m.raw["serving_statuses"] = c.get("servingStatuses") or []
-        total_budget = c.get("totalBudget") or {}
-        daily_budget = c.get("dailyBudget") or {}
-        if total_budget.get("amount"):
-            m.budget_eur = float(total_budget["amount"])
-        if daily_budget.get("amount"):
-            m.daily_budget_eur = float(daily_budget["amount"])
-        rs = c.get("runSchedule") or {}
-        if rs.get("start"):
-            m.schedule_start = datetime.fromtimestamp(rs["start"] / 1000, UTC).date().isoformat()
-
-        # runSchedule.end often lives on the campaign group, not the campaign.
-        group_urn = str(c.get("campaignGroup") or "")
-        group_id = group_urn.rsplit(":", 1)[-1]
-        if group_id.isdigit():
-            g = await client.get(
-                f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaignGroups/{group_id}",
+        c: dict = {}
+        rs: dict = {}
+        if camp:
+            r = await client.get(
+                f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns/{camp}",
                 headers=headers,
             )
-            if g.status_code == 200:
-                gend = ((g.json() or {}).get("runSchedule") or {}).get("end")
-                if gend:
-                    m.schedule_end = datetime.fromtimestamp(gend / 1000, UTC).date().isoformat()
-        # The campaign can end before its group — either date stops delivery,
-        # so keep the earliest.
-        if rs.get("end"):
-            camp_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
-            m.schedule_end = min(m.schedule_end, camp_end) if m.schedule_end else camp_end
+            if r.status_code >= 400:
+                raise RuntimeError(f"adCampaigns HTTP {r.status_code}: {r.text[:200]}")
+            c = r.json() or {}
+            m.campaign_name = c.get("name") or ""
+            m.status = (c.get("status") or "unknown").lower()
+            m.raw["serving_statuses"] = c.get("servingStatuses") or []
+            total_budget = c.get("totalBudget") or {}
+            daily_budget = c.get("dailyBudget") or {}
+            if total_budget.get("amount"):
+                m.budget_eur = float(total_budget["amount"])
+            if daily_budget.get("amount"):
+                m.daily_budget_eur = float(daily_budget["amount"])
+            rs = c.get("runSchedule") or {}
+            if rs.get("start"):
+                m.schedule_start = datetime.fromtimestamp(rs["start"] / 1000, UTC).date().isoformat()
+
+            # runSchedule.end often lives on the campaign group, not the campaign.
+            group_urn = str(c.get("campaignGroup") or "")
+            group_id = group_urn.rsplit(":", 1)[-1]
+            if group_id.isdigit():
+                g = await client.get(
+                    f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaignGroups/{group_id}",
+                    headers=headers,
+                )
+                if g.status_code == 200:
+                    gend = ((g.json() or {}).get("runSchedule") or {}).get("end")
+                    if gend:
+                        m.schedule_end = datetime.fromtimestamp(gend / 1000, UTC).date().isoformat()
+            # The campaign can end before its group — either date stops delivery,
+            # so keep the earliest.
+            if rs.get("end"):
+                camp_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
+                m.schedule_end = min(m.schedule_end, camp_end) if m.schedule_end else camp_end
 
         # The promo credit is account-wide — enumerate every campaign so
         # credit math covers (a) spend from campaigns that ran before the
@@ -268,25 +271,64 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
         since = datetime.fromtimestamp(min(starts) / 1000, UTC) if starts else datetime.now(UTC) - timedelta(days=365)
         stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
         if stats.get("_error"):
+            if not camp:
+                # Rollup mode: adAnalytics denied (403 partnerApiAdAnalytics
+                # on this token) — still report campaign inventory/status,
+                # flag spend as unavailable instead of fake €0 or a sidecar
+                # scrape that also fails.
+                camps0 = m.raw.get("campaigns") or []
+                m.status = (
+                    "active"
+                    if any(cp.get("status") == "active" for cp in camps0)
+                    else ("paused" if camps0 else "no-campaigns")
+                )
+                m.campaign_name = f"account rollup ({len(camps0)} campaigns)" if camps0 else "no campaigns"
+                m.raw["account_rollup"] = True
+                m.raw["spend_unavailable"] = True
+                m.raw["analytics_error"] = str(stats["_error"].notes)[:300]
+                m.raw["source"] = "api"
+                return True
             raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
         # Per-campaign spend map — the credit verdict adds each resumable
         # campaign's REMAINING cap, not just its spend so far.
         m.raw["spend_by_campaign"] = {k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0) for k, b in stats.items() if not k.startswith("_")}
         m.account_spend_eur = round(sum(m.raw["spend_by_campaign"].values()), 2)
-        bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
-        if bundle is None:
-            # A 200 with no row for the tracked campaign means metrics are
-            # unavailable right now, not €0 — fall back to the sidecar
-            # instead of reporting false zeros.
-            m.raw["api_note"] = "campaign not in adAnalytics response"
-            return False
-        else:
+        if camp:
+            bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
+            if bundle is None:
+                # A 200 with no row for the tracked campaign means metrics are
+                # unavailable right now, not €0 — fall back to the sidecar
+                # instead of reporting false zeros.
+                m.raw["api_note"] = "campaign not in adAnalytics response"
+                return False
             m.spend_eur = float(bundle.raw.get("costLocal") or 0.0)
             m.clicks = bundle.clicks
             m.impressions = bundle.impressions
             m.engagements = sum(int(d.get("totalEngagements") or 0) for d in (bundle.raw.get("daily") or [])) or bundle.engagement
             m.raw["daily"] = bundle.raw.get("daily") or []
             m.raw["cost_usd"] = bundle.raw.get("costUsd")
+        else:
+            # No tracked campaign configured — report the account-level
+            # rollup across every campaign in adAnalytics instead of
+            # 404ing on adCampaigns/ and reporting 'unknown'/€0.
+            spend = clicks = impr = 0
+            for k, b in stats.items():
+                if k.startswith("_"):
+                    continue
+                spend += float(b.raw.get("costLocal") or 0.0)
+                clicks += b.clicks
+                impr += b.impressions
+            camps = m.raw.get("campaigns") or []
+            m.spend_eur = round(spend, 2)
+            m.clicks = clicks
+            m.impressions = impr
+            m.status = (
+                "active"
+                if any(cp.get("status") == "active" for cp in camps)
+                else ("paused" if camps else "no-campaigns")
+            )
+            m.campaign_name = f"account rollup ({len(camps)} campaigns)" if camps else "no campaigns"
+            m.raw["account_rollup"] = True
 
     if m.impressions:
         m.ctr = round(m.clicks / m.impressions * 100, 2)
@@ -374,6 +416,7 @@ def build_report_text(m: CampaignMetrics, prev: AdCampaignSnapshot | None, end_d
         "completed": "🏁 Finished",
         "removed": "🗑 Removed",
         "canceled": "🗑 Canceled",
+        "no-campaigns": "📭 No campaigns on this ad account",
     }.get(m.status, m.status.title() if m.status != "unknown" else "⚠️ Unknown (check Campaign Manager)")
     lines.append(f"*Status:* {status_label}")
 
@@ -385,6 +428,8 @@ def build_report_text(m: CampaignMetrics, prev: AdCampaignSnapshot | None, end_d
         lines.append(" — ".join(budget_bits))
     else:
         lines.append(f"*Spend so far:* {_fmt_money(m.spend_eur)}")
+    if m.raw.get("spend_unavailable"):
+        lines.append("_Spend/impressions unavailable — LinkedIn denied adAnalytics for this token (403); campaign inventory only._")
 
     delta_bits = []
     if prev is not None:
