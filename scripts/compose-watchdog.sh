@@ -251,4 +251,20 @@ N8=$(docker inspect -f '{{.State.Health.Status}}' n8n 2>/dev/null || echo missin
 if [ "$N8" = "unhealthy" ]; then
   safe_restart n8n "unhealthy" && ALERT "n8n-unhealthy" ":warning: n8n unhealthy — restarted"
 fi
+# 12. published-port bindings — after Docker Desktop flaps the engine can
+#     leave stack-ops "running/healthy" while its userland port proxy loses
+#     the bindings (seen 2026-11-10: localhost:8011/9223/8787 all 000 with
+#     every container Up). Probe the diagnostic surface; dead ports with a
+#     healthy stack-ops container = restart stack-ops to rebind.
+SO=$(docker inspect -f '{{.State.Health.Status}}' stack-ops 2>/dev/null || echo missing)
+if [ "$SO" = "healthy" ] || [ "$SO" = "running" ]; then
+  DEAD=""
+  for pp in 8011 8787 9223; do
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost:$pp/" 2>/dev/null || echo 000)
+    [ "$code" = "000" ] && DEAD="$DEAD $pp"
+  done
+  if [ -n "$DEAD" ]; then
+    safe_restart stack-ops "port-bindings-dead:$DEAD" && ALERT "port-bindings" ":warning: stack-ops published ports unresponsive ($DEAD) — restarted to rebind"
+  fi
+fi
 exit 0
