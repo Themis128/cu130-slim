@@ -54,6 +54,33 @@ gone.
   pull the full image (multi-GB, may exceed the 120s wake timeout);
   expect transient proxy failures until the first pull completes.
 
+
+## 2026-11-10 — Meta console findings (FB sidecar drive, business 1558125105019725)
+
+- WhatsApp WABA 1073707258453499 + phone_number_id 1334613883061552
+  (+30 697 777 7838) are NOT in the cloudless.gr business portfolio —
+  invisible to META_ACCESS_TOKEN (whatsapp_business_management scope) AND
+  the business.facebook.com UI (Messaging accounts = empty). They live in
+  another portfolio/login. Human step: identify the owning business
+  portfolio (or share the WABA into cloudless.gr), THEN the armed
+  wa-verify daemon can run once WHATSAPP_ACCESS_TOKEN (system-user token,
+  business_management scope) is minted via meta_system_user.py.
+- Billing & payments on cloudless.gr: payment account 2332156284283266
+  exists, ZERO payment methods, zero spend. Adding a card is a human
+  billing action (no card data held by agents).
+- Security Center: "Verification for cloudless.gr — your organization
+  does not need to be verified" → business verification is NOT required
+  for this portfolio. #785 reduces to App Review submission for
+  leads_retrieval (developers.facebook.com, needs screencast+form).
+- meta_system_user.py vault target cloudless-gate:fb-system-user is EMPTY
+  (CredReadW miss) — the "already minted" system-user token was never
+  persisted; re-mint once WABA is reachable.
+- IG profile website link: watcher armed — .devin/skills/ig-phone-config/
+  scripts/ig_link_watch.py polls cover state and drives the app flow on
+  unfold (PR #1612). Web edit confirmed dead-end (disabled field).
+- TikTok website (#789): field requires 1k followers OR business verify —
+  account has 4 followers; captcha was secondary. Growth lane only.
+
 ## Open — external human gates
 
 - [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
