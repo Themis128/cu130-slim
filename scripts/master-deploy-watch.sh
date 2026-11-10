@@ -32,7 +32,8 @@ if [ -z "${SLACK_ALERTS_WEBHOOK_URL:-}" ] && [ -f .env ]; then
   SLACK_ALERTS_WEBHOOK_URL=$(grep -oP '^SLACK_ALERTS_WEBHOOK_URL=\K.*' .env 2>/dev/null | tr -d '"' | head -1)
 fi
 ALERT() {  # throttled to once/30min per key
-  local key="$1" msg="$2" f="$DW_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
+  local key="$1" msg="$2"
+  local f="$DW_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
   log "ALERT[$key] $msg"
   [ -f "$f" ] && [ $(( $(now) - $(mtime "$f") )) -lt 1800 ] && return
   docker compose exec -T social-api python -c "
@@ -96,9 +97,51 @@ log "master advanced $last -> $new — deploying"
 changed=$(git diff --name-only "$last" "$new" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
 
 if ! git merge --ff-only origin/master >>"$DW_LOG" 2>&1; then
-  ALERT "pull-failed" ":rotating_light: master-deploy-watch: ff-pull of $new failed — diverged master or uncommitted changes in the way; needs a human"
-  exit 1
+  # ── auto-hold ONLY the WIP files this merge would touch, then retry ──
+  # Agents keep uncommitted work in the shared checkout; compute exactly
+  # which paths block: dirty tracked files + untracked files that
+  # incoming commits add. Stash/move just those, merge, restore after.
+  incoming=$(git diff --name-only HEAD origin/master 2>/dev/null || true)
+  held=""
+  stash_msg=""
+  if [ -n "$incoming" ]; then
+    mapfile -t tb < <(git diff HEAD --name-only 2>/dev/null | grep -Fxf <(printf '%s
+' "$incoming") || true)
+    if [ "${#tb[@]}" -gt 0 ]; then
+      stash_msg="dw-auto-$(date +%s)"
+      git stash push -q -m "$stash_msg" -- "${tb[@]}" 2>/dev/null && held="$held tracked:${#tb[@]}"
+    fi
+    mapfile -t ub < <(git ls-files --others --exclude-standard | grep -Fxf <(printf '%s
+' "$incoming") || true)
+    for f in "${ub[@]:-}"; do
+      [ -z "$f" ] && continue
+      mv "$f" "$f.dw-held" 2>/dev/null && held="$held untracked:$f"
+    done
+  fi
+  if git merge --ff-only origin/master >>"$DW_LOG" 2>&1; then
+    log "merge succeeded after auto-holding WIP ($held)"
+    [ -n "$held" ] && ALERT "wip-held" ":information_source: master-deploy-watch auto-held uncommitted files to deploy $new ($held) — work preserved in stash '$stash_msg' / *.dw-held; owning agent should commit."
+  else
+    ALERT "pull-failed" ":rotating_light: master-deploy-watch: ff-pull of $new failed even after auto-holding WIP — diverged master; needs a human"
+    exit 1
+  fi
 fi
+
+# ── restore auto-held WIP (stash pop may conflict — stash stays safe) ──
+if [ -n "$stash_msg" ]; then
+  # stash list subjects look like "On master: dw-auto-<ts>" — match anywhere
+  if git stash list --format=%s 2>/dev/null | head -1 | grep -q "$stash_msg"; then
+    if git stash pop -q >>"$DW_LOG" 2>&1; then
+      log "auto-held stash restored"
+    else
+      ALERT "stash-pop-conflict" ":warning: master-deploy-watch: auto-held stash '$stash_msg' did not pop cleanly — work is SAFE in git stash; owning agent must resolve"
+    fi
+  fi
+fi
+find . -maxdepth 6 -name '*.dw-held' 2>/dev/null | while read -r h; do
+  orig="${h%.dw-held}"
+  if [ -f "$orig" ] && cmp -s "$h" "$orig"; then rm -f "$h"; else mv -f "$h" "$orig"; fi
+done
 
 app_code=0; compose_change=0
 case "$changed" in
