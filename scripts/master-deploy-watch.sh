@@ -32,7 +32,8 @@ if [ -z "${SLACK_ALERTS_WEBHOOK_URL:-}" ] && [ -f .env ]; then
   SLACK_ALERTS_WEBHOOK_URL=$(grep -oP '^SLACK_ALERTS_WEBHOOK_URL=\K.*' .env 2>/dev/null | tr -d '"' | head -1)
 fi
 ALERT() {  # throttled to once/30min per key
-  local key="$1" msg="$2" f="$DW_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
+  local key="$1" msg="$2"
+  local f="$DW_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
   log "ALERT[$key] $msg"
   [ -f "$f" ] && [ $(( $(now) - $(mtime "$f") )) -lt 1800 ] && return
   docker compose exec -T social-api python -c "
