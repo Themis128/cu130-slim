@@ -60,7 +60,9 @@ def env(tmp_path):
     # Port probes must not hit the real localhost — answer 200 by default;
     # tests override with FAKE_CURL_CODE.
     curl = bindir / "curl"
-    curl.write_text('#!/usr/bin/env bash\necho "curl $*" >> "$FAKE_CALLS"\necho "${FAKE_CURL_CODE:-200}"\n')
+    curl.write_text('#!/usr/bin/env bash\necho "curl $*" >> "$FAKE_CALLS"\n'
+                    'case "$*" in *8787/status*) echo "${FAKE_STACKOPS_JSON:-}";; '
+                    '*) echo "${FAKE_CURL_CODE:-200}";; esac\n')
     curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
     # tailscale fake — `tailscale ip -4` prints FAKE_TS_IP (default: none)
     ts = bindir / "tailscale"
@@ -250,6 +252,42 @@ def test_extra_service_exited_is_restarted(env, tmp_path):
     run(repo, e, FAKE_TARGET="n8n", FAKE_STATUS="exited false")
     c = calls(tmp)
     assert any(x.startswith("start n8n") or x.startswith("restart n8n") for x in c), c
+
+
+def test_stackops_stopped_container_is_not_restarted(env, tmp_path):
+    """A managed container asleep via stack-ops idle-sleep must not be
+    woken by the stuck-container loop."""
+    repo, e, tmp = env
+    so = '{"facebook-browser-sidecar": {"state": "stopped"}}'
+    run(repo, e, FAKE_TARGET="facebook-browser-sidecar", FAKE_STATUS="exited false",
+        FAKE_STACKOPS_JSON=so)
+    c = calls(tmp)
+    assert not any("facebook-browser-sidecar" in x and x.split()[0] in ("start", "restart")
+                   for x in c), c
+    assert "asleep via stack-ops" in log(repo)
+
+
+def test_stackops_unmanaged_exited_container_still_restarts(env, tmp_path):
+    """Same exited state but NOT in the stack-ops stopped set -> restart."""
+    repo, e, tmp = env
+    so = '{"tiktok-browser-sidecar": {"state": "stopped"}}'
+    run(repo, e, FAKE_TARGET="facebook-browser-sidecar", FAKE_STATUS="exited false",
+        FAKE_STACKOPS_JSON=so)
+    c = calls(tmp)
+    assert any(x.startswith("start facebook-browser-sidecar")
+               or x.startswith("restart facebook-browser-sidecar") for x in c), c
+
+
+def test_port_probe_skips_stackops_managed_service(env, tmp_path):
+    """A managed service's published port must not be probed — the probe
+    itself counts as a wake under stack-ops."""
+    repo, e, tmp = env
+    so = '{"env-manager-backend": {"state": "running"}}'
+    run(repo, e, WD_PORT_PROBES="env-manager-backend:8085", FAKE_CURL_CODE="000",
+        FAKE_STACKOPS_JSON=so)
+    c = calls(tmp)
+    assert not any("compose up" in x for x in c), c
+    assert not list((tmp / "state").glob("portfix-env-manager-backend"))
 
 
 def test_tailnet_ip_drift_updates_env_and_recreates(env, tmp_path):
