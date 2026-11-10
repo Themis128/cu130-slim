@@ -45,7 +45,24 @@ nohup python3 .devin/skills/x-recovery-ops/scripts/x_finalize_watch.py > x_final
 
 - **HeadlessChrome UA → X 403s the page.** `Network.setUserAgentOverride`
   with a real Chrome UA is mandatory before any navigation.
-- **Synthetic `el.click()` does NOT submit** X's onboarding SPA — the
+- **Arkose/FunCaptcha challenges are auto-solved when configured** —
+  `arkose_info()` detects the enforcement iframe/pkey/blob, `capsolver_solve()`
+  calls capsolver.com `FunCaptchaTaskProxyless` (~$0.001-0.003/solve),
+  `inject_arkose_token()` tries the known token surfaces (hidden inputs,
+  iframe postMessage, window callbacks). Needs `x_capsolver.json`
+  `{"api_key": "..."}` in `C:\Users\tbaltzakis\`; without it the daemon
+  alerts "human needed" on first detection instead of waiting for the
+  3-strike unknown-screen alert. Injection is best-effort — untested
+  against a live challenge; verify `x_daemon_log.txt` for `arkose inject:`.
+- **x_supervisor.py** wraps the daemon: relaunches it 60s after any exit
+  (timeout/crash/kill), so coverage is indefinite rather than the daemon's
+  12h `X_MAX_SECONDS` window. Run both hidden; killing `x_daemon` is safe —
+  the supervisor respawns it with the current on-disk code.
+- **Telegram alerts** — `alert()` posts to `x_tg_alert.json`
+  `{"token","chat"}` (ops channel); silent when absent. Fires on DONE,
+  oauth failure, daemon timeout, Arkose detect/solve, and 3x unrecognized
+  screens.
+- **Synthetic `.click()` does NOT submit** X's onboarding SPA — the
   recovery-method button needs `Input.dispatchMouseEvent` trusted clicks
   (implemented in `PG.trusted_click_re`).
 - **The confirmation code is NOT a "verification code" email** — it
