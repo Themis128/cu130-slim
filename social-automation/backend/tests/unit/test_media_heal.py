@@ -49,6 +49,9 @@ class _DB:
     async def commit(self):
         self.commits += 1
 
+    async def rollback(self):
+        self.rollbacks = getattr(self, "rollbacks", 0) + 1
+
 
 class _Session:
     def __init__(self, db):
@@ -168,7 +171,7 @@ def test_sweep_heals_and_queues(monkeypatch):
     publish.assert_called_once_with(str(pid), [str(acct)])
     assert post.media_ids  # new branded asset attached
     assert post.meta_data["media_heal_attempts"] == 1
-    assert db.commits == 1
+    assert db.commits == 2  # exhausted-flags commit + per-post heal commit
 
 
 def test_sweep_skips_published_and_dedup(monkeypatch):

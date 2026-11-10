@@ -139,6 +139,9 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 meta["media_heal_alerted"] = True
                 post.meta_data = meta
                 exhausted_ids.append(str(post.id))
+        # Durable alert flags before the heal loop — a later per-post
+        # rollback must not resurrect the Slack alert.
+        await db.commit()
         healed = 0
         for post in healable:
             try:
@@ -189,16 +192,24 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 meta["media_healed_at"] = datetime.now(UTC).isoformat()
                 post.meta_data = meta
                 post.media_ids = [asset.id]
-                healed += 1
                 targets = (
                     await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
                 ).scalars().all()
                 account_ids = [str(t.social_account_id) for t in targets]
+                pid_str = str(post.id)
+                # Per-post commit: only dispatch publish jobs for work that
+                # actually landed — a flush/commit failure rolls back this
+                # post alone instead of poisoning the whole sweep.
+                await db.commit()
+                healed += 1
                 if account_ids:
-                    publish_jobs.append((str(post.id), account_ids))
+                    publish_jobs.append((pid_str, account_ids))
             except Exception as exc:
                 logger.warning("media-heal failed for post %s: %s", post.id, exc)
-        await db.commit()
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
     logger.info("media-heal: healed=%d exhausted=%d", healed, len(exhausted_ids))
     return publish_jobs, exhausted_ids
 
