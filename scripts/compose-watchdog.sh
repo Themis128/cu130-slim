@@ -109,7 +109,41 @@ CORE="social-api social-worker-default social-worker-publishing social-worker-me
 # the real error — disable the restart policy and alert exactly once.
 MIGRATION_RE="${WD_MIGRATION_RE:-Can.t locate revision|alembic[^ ]*(\.util)?.*(Error|exception|FAILED)|CommandError|(migration|migrate).*(error|failed)|Multiple head revisions|DuplicateTable|UndefinedTable}"
 is_migration_crash() {
-  docker logs --tail 80 "$1" 2>&1 | grep -qiE "$MIGRATION_RE"
+  # $2 optional: only inspect logs newer than this docker --since window
+  if [ -n "${2:-}" ]; then
+    docker logs --since "$2" "$1" 2>&1
+  else
+    docker logs --tail 80 "$1" 2>&1
+  fi | grep -qiE "$MIGRATION_RE"
+}
+
+# migration_recover — a migration-flagged container is parked (restart=no)
+# until someone clears the marker, even after the underlying fix lands.
+# Probe-start it (throttled), and if it boots without a fresh migration
+# error, restore the restart policy and re-arm automatically.
+migration_recover() {
+  local mf c age st
+  for mf in "$WD_STATE_DIR"/migration-*; do
+    [ -e "$mf" ] || continue
+    c="${mf##*migration-}"
+    # at most one boot probe per WD_MIGRATION_PROBE_SECS (default 15min)
+    age=$(( $(now) - $(stat -c %Y "$mf" 2>/dev/null || echo 0) ))
+    [ "$age" -lt "${WD_MIGRATION_PROBE_SECS:-900}" ] && continue
+    [ "$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)" = "running" ] && continue
+    log "$c: migration marker present — probe-starting to test recovery"
+    docker start "$c" >/dev/null 2>&1 || true
+    sleep "${WD_MIGRATION_PROBE_WAIT:-20}"
+    st=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null)
+    if [ "$st" = "running" ] && ! is_migration_crash "$c" "120s"; then
+      rm -f "$mf"
+      docker update --restart=unless-stopped "$c" >/dev/null 2>&1
+      ALERT "migration-recovered-$c" ":white_check_mark: $c migration error resolved — restart policy restored, watchdog re-armed"
+      log "$c: migration recovered — restart policy restored"
+    else
+      touch "$mf"  # reset the probe throttle
+      log "$c: still failing migration check (status=${st:-missing}) — staying parked"
+    fi
+  done
 }
 
 # safe_restart <container> <reason> — the only path that restarts a container.
@@ -256,6 +290,8 @@ STACKOPS_MANAGED=""; STACKOPS_STOPPED=""
 STACKOPS_MANAGED=$(so_names managed)
 STACKOPS_STOPPED=$(so_names stopped)
 in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
+# 0. migration-flagged containers: probe for recovery once the fix lands
+migration_recover
 # 1. containers stuck in Created / Restarting, or OOM-killed and stopped
 for c in $CORE $EXTRA; do
   st=$(docker inspect -f '{{.State.Status}} {{.State.OOMKilled}}' "$c" 2>/dev/null || echo "missing false")
