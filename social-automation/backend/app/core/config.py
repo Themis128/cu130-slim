@@ -498,6 +498,11 @@ class Settings(BaseSettings):
     # calendar when the briefs generate.
     CENTRAL_BRAIN_HOUR: int = 6  # Europe/Athens via Celery timezone
     CENTRAL_BRAIN_MINUTE: int = 30  # Europe/Athens via Celery timezone
+    # LLM refinement pass — the rule-scored post decisions are rewritten by
+    # the inference chain (DMR → Cloudflare fallback) using company-brain
+    # recall + platform-fit knowledge. Fail-soft: any error keeps the
+    # rule-based plan. Health decisions are never LLM-touched.
+    CENTRAL_BRAIN_LLM_ENABLED: bool = True
 
     # Slack alerts (#socialauto-alerts) — warnings/errors and operational failures.
     # Prefer Incoming Webhook URL to the alerts channel; alternatively reuse
