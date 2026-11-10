@@ -157,8 +157,57 @@ recreate_container() {
   log "recreating $c (compose service $svc — mount-broken)"
   docker compose up -d --no-deps --force-recreate "$svc" >/dev/null 2>&1
 }
+# EACCES on a bind-mounted file — the WSL/Windows dual-checkout flips mount
+# ownership between uid 1000/1001, so the image user can't read 600-perm
+# files (n8n .n8n/config crash-looped twice on 2026-11-10). Restart can't
+# fix it: chown the host mount to the container's uid, then recreate.
+is_eacces_crash() {
+  docker logs --tail 60 "$1" 2>&1 | grep -qE 'EACCES|permission denied'
+}
+eacces_host_path() {
+  docker logs --tail 60 "$1" 2>&1 | grep -E 'EACCES|permission denied' \
+    | grep -oP "'/[^']+'" | head -1 | tr -d "'"
+}
+container_uid_gid() {
+  local c="$1" u g img
+  u=$(docker exec "$c" id -u 2>/dev/null); g=$(docker exec "$c" id -g 2>/dev/null)
+  if [ -z "$u" ] || [ -z "$g" ]; then
+    img=$(docker inspect -f '{{.Config.Image}}' "$c" 2>/dev/null)
+    [ -n "$img" ] || return 1
+    u=$(docker run --rm --entrypoint id "$img" -u 2>/dev/null)
+    g=$(docker run --rm --entrypoint id "$img" -g 2>/dev/null)
+  fi
+  [ -n "$u" ] && [ -n "$g" ] && echo "$u:$g"
+}
+# fix_eacces <container> — chown the offending mount + recreate. Capped at
+# 2 attempts/hour per container so a persistent perms problem alerts
+# instead of looping.
+fix_eacces() {
+  local c="$1" path src ug f="$WD_STATE_DIR/eacces-$1" t n
+  t=$(now)
+  if [ -f "$f" ]; then awk -v c=$((t-3600)) '$1>=c' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; fi
+  n=$(wc -l < "$f" 2>/dev/null || echo 0); n=${n// /}
+  if [ "$n" -ge 2 ]; then
+    ALERT "eacces-cap-$c" ":rotating_light: $c EACCES fix attempted $n times in 1h — chown isn't holding; needs a human"
+    return 1
+  fi
+  path=$(eacces_host_path "$c"); [ -n "$path" ] || return 1
+  # longest matching mount destination wins
+  src=$(docker inspect -f '{{range .Mounts}}{{.Destination}}|{{.Source}}{{"\n"}}{{end}}' "$c" 2>/dev/null \
+        | awk -F'|' -v p="$path" 'index(p,$1)==1 {if (length($1)>m) {m=length($1); s=$2}} END{print s}')
+  { [ -n "$src" ] && [ -d "$src" ]; } || { log "$c: EACCES path $path not under a bind mount"; return 1; }
+  ug=$(container_uid_gid "$c"); [ -n "$ug" ] || { log "$c: cannot resolve container uid/gid"; return 1; }
+  echo "$t" >> "$f"
+  log "$c: EACCES on $path — chown $src -> $ug"
+  docker run --rm -v "$src:/fix" alpine chown -R "$ug" /fix >/dev/null 2>&1 || return 1
+  recreate_container "$c"
+}
+# Services beyond CORE that must stay up — same stuck/exited/dead checks.
+# comfyui-gpu and other sleepable/on-demand containers are deliberately
+# absent; stack-ops has its own port-binding probe below.
+EXTRA="n8n n8n-task-runner infisical social-api-gateway social-frontend env-manager-backend env-manager-frontend mautic nextcloud-mcp-server facebook-browser-sidecar tiktok-browser-sidecar messenger-sidecar linkedin-browser-sidecar browser-novnc instagram-private-api flower"
 # 1. containers stuck in Created / Restarting, or OOM-killed and stopped
-for c in $CORE; do
+for c in $CORE $EXTRA; do
   st=$(docker inspect -f '{{.State.Status}} {{.State.OOMKilled}}' "$c" 2>/dev/null || echo "missing false")
   status=${st% *}
   oom=${st##* }
@@ -169,6 +218,11 @@ for c in $CORE; do
           recreate_container "$c" && ALERT "remount-$c" ":warning: $c exited on a broken bind-mount — force-recreated"
           continue
         fi
+      fi
+      if { [ "$status" = "restarting" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; } \
+         && is_eacces_crash "$c" && fix_eacces "$c"; then
+        ALERT "eacces-$c" ":warning: $c crash-looping on EACCES (uid-drifted bind mount) — chowned mount to container uid and recreated"
+        continue
       fi
       safe_restart "$c" "$status" && ALERT "stuck-$c" ":warning: $c was $status — restarted";;
   esac
@@ -267,4 +321,25 @@ if [ "$SO" = "healthy" ] || [ "$SO" = "running" ]; then
     safe_restart stack-ops "port-bindings-dead:$DEAD" && ALERT "port-bindings" ":warning: stack-ops published ports unresponsive ($DEAD) — restarted to rebind"
   fi
 fi
+# 13. generic published-port probes — after Docker Desktop flaps, ANY
+#     container can keep running/healthy while its userland port proxy
+#     loses the bindings (2026-11-10: every host port dead at once).
+#     A dead port on a running container = force-recreate to rebind.
+#     container:port pairs; override with WD_PORT_PROBES.
+PORT_PROBES="${WD_PORT_PROBES:-n8n:5678 infisical:8090 social-api:8083 social-frontend:8082 env-manager-backend:8085 mautic:8021 nextcloud-mcp-server:9231}"
+for pp in $PORT_PROBES; do
+  pc=${pp%%:*}; pport=${pp##*:}
+  pst=$(docker inspect -f '{{.State.Status}}' "$pc" 2>/dev/null || echo missing)
+  [ "$pst" = "running" ] || continue
+  pcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost:$pport/" 2>/dev/null || echo 000)
+  [ "$pcode" = "000" ] || continue
+  # recreate at most once per 30 min per container — a genuinely dead
+  # service must alert, not churn
+  pf="$WD_STATE_DIR/portfix-$pc"; pt=$(now)
+  if [ -f "$pf" ] && [ $(( pt - $(cat "$pf" 2>/dev/null || echo 0) )) -lt 1800 ]; then
+    continue
+  fi
+  echo "$pt" > "$pf"
+  recreate_container "$pc" && ALERT "port-dead-$pc" ":warning: $pc published port :$pport unresponsive — force-recreated to rebind"
+done
 exit 0
