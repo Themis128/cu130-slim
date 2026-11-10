@@ -83,6 +83,38 @@ def chunks(text: str) -> list[str]:
     return parts
 
 
+async def _existing_ids() -> set:
+    """Doc ids already in the team brain collection — resume support.
+
+    Upserts are idempotent but re-embedding every chunk costs minutes per
+    file; skipping ids that already exist makes a killed run cheap to
+    re-run (only the unfinished tail is embedded).
+    """
+    import httpx
+
+    from app.services.chroma_client import (
+        _CHROMA_TIMEOUT,
+        _collection_base_url,
+        _get_collection_id,
+    )
+
+    col = f"team_{TEAM_ID.replace('-', '_')}_brain"
+    try:
+        async with httpx.AsyncClient(timeout=_CHROMA_TIMEOUT) as client:
+            col_id = await _get_collection_id(client, col)
+            if not col_id:
+                return set()
+            r = await client.post(
+                f"{_collection_base_url()}/{col_id}/get",
+                json={"include": []},
+            )
+            if r.status_code != 200:
+                return set()
+            return set(r.json().get("ids") or [])
+    except Exception:  # noqa: BLE001 — worst case is a full re-ingest
+        return set()
+
+
 async def main() -> None:
     files = sorted(
         p for p in ROOT.rglob("*")
@@ -90,8 +122,10 @@ async def main() -> None:
         and p.suffix.lower() in TEXT_EXTS
         and not any(part in SKIP_DIRS for part in p.parts)
     )
+    existing = await _existing_ids()
     index_rows = []
     total_mem = 0
+    skipped = 0
     for i, path in enumerate(files, 1):
         rel = str(path.relative_to(ROOT))
         text = extract_file(path)[:MAX_FILE_CHARS]
@@ -104,12 +138,18 @@ async def main() -> None:
             f"{hashlib.md5(rel.encode()).hexdigest()[:6]}"
         )
         for j, piece in enumerate(parts):
+            doc_id = f"{base}-{j}"
+            if doc_id in existing:
+                skipped += 1
+                continue
             ok = await remember(
                 TEAM_ID,
-                f"{base}-{j}",
+                doc_id,
                 f"[Kakkava Sofia source: {rel}]\n\n{piece}",
                 metadata={"kind": "kakkava-sofia", "source": rel},
             )
+            if ok:
+                existing.add(doc_id)
             total_mem += int(ok)
         index_rows.append((rel, len(parts), f"{len(text)} chars"))
         print(f"[{i}/{len(files)}] {rel} -> {len(parts)} chunks", flush=True)
@@ -131,7 +171,7 @@ async def main() -> None:
     )
     note_ok = await _write_nextcloud_note("Kakkava Sofia — Source Library", note)
     print(json.dumps({
-        "files": len(files), "memories": total_mem,
+        "files": len(files), "memories": total_mem, "skipped_existing": skipped,
         "index_memory": ok_idx, "index_note": note_ok,
     }))
 
