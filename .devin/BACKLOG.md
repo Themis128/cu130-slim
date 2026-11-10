@@ -750,24 +750,48 @@ Leftovers:
 - Tuning knob if funnel starves: `ENGAGE_MIN_SCORE` in `.env` (LinkedIn
   posts without 3-5 hashtags lose ~15 pts on the hashtag component).
 
-## 2026-11-10 — TikTok reauth root-caused: orphaned account_id, not a consent problem (Devin)
+## 2026-11-10 — mailbox report sweep + republish automation (Devin)
 
-- `tiktok_reauth.py` v2: sidecar identity pre-flight (passport probe),
-  gate detection (captcha/login-wall → rc=3 early), per-target post-verify,
-  DOM-dump + screenshot diagnostics on failure, orphan detection.
-- ROOT CAUSE of the endless rc=4 loop: the expired row's `account_id`
-  (open_id `-000lqpsmr…`, username `cloudless.gr`) is ORPHANED — OAuth for
-  @cloudless.gr now resolves to `-0008cAvjha…` (the active row created
-  2026-11-07, likely client_key/app rotation or account recreation).
-  open_id is deterministic per user+client_key → NO consent flow can ever
-  re-authorize `-000lqpsmr…`; its refresh token is dead ("invalid or
-  expired" every token_refresh run → hourly Slack noise too).
-- Live-verified 2026-11-10: fresh authorize URL auto-redirected to callback
-  with NO click (consent pre-granted) → refreshed `-0008cAvjha…` row.
-- Remediation applied: stale row `dcda73fb…` set `status='revoked'` +
-  meta_data.revoked_reason — stops token_refresh retries, reauth cron
-  targeting, and needs_reauth() firing. Reversible via reconnect.
-- Cron wrapper `~/scripts/tiktok-reauth-cron.sh`: ships /tmp PNGs to
-  ~/logs/, alerts now carry the script's reason line, timeout 300→420s.
-- Follow-up: watch next cron run — should print "no tiktok account needs
-  re-auth" (rc=0) now that the zombie row is revoked.
+- Swept 7d of tbaltzakis@cloudless.gr IMAP reports (557 msgs). Credential
+  note: `MAIL_TBALTZAKIS_PASSWORD` in `.env` is the IMAP password for
+  dovecot @192.168.1.130:993 (mail_triage.py calls it MAILBOX_PASSWORD).
+- "E2E Survey" lead email spam: ROOT CAUSE = cloudless.gr
+  `e2e/deep/public-flows.spec.ts` mutating survey test runs on EVERY
+  pull_request via `e2e-full-coverage.yml`, creating real leads. FIX
+  ALREADY LANDED: `notify_lead_created` test-marker filter
+  (`_TEST_NOTIFY_MARKERS` incl. `@example.com`) shipped in PR #1556 —
+  verified: last "New lead" email Nov 8 22:42, leads still created Nov
+  9-10 produced ZERO emails. No action needed; leads rows are harmless
+  test data (crm_hygiene may count them as stale New — cosmetic).
+- Failed-post forensics: 30 posts.status=failed in window. Two classes:
+  (a) 17 policy-only skips (dedup/identical-media/media-required) —
+  intentional guardrails, now reclassified `suppressed` by
+  `scripts/republish_failed.py` so daily reports stop flagging them;
+  (b) 7 fixable (SEO<80, media semantic QA, incomplete media) —
+  republished as NEW posts with `apply_quality_pipeline` target SEO 85
+  (achieved 88-98), scheduled 1/day 10:00 UTC on healthy text platforms
+  (linkedin company+personal, facebook page, telegram, bluesky).
+- NEW SCRIPT: `social-automation/backend/scripts/republish_failed.py`
+  (dry-run default, `--apply` to write, `--publish-now`, `--days`,
+  `--min-seo`, `--hour`). Marks policy-only failures suppressed; reruns
+  copy through quality pipeline; creates fresh posts w/
+  meta_data.republished_from + quality_gate report.
+- MEDIA RULE (user directive): republished posts must carry CORRECT
+  media — text-only not acceptable. Original media_ids were NOT copied
+  (media_ids=[] in created posts) because old assets failed semantic QA
+  vs old copy; next step = attach media verified by
+  `verify_media_semantics` vs NEW copy, or generate fresh branded media
+  (carousel_pipeline.compose_branded_slide / ComfyUI FLUX schnell path).
+  Publish-time media_semantic_gate re-validates anyway — a mismatch
+  skips the target, never publishes wrong media.
+- OMV host (100.74.191.58, ssh -i ~/.ssh/omv_id_rsa tbaltzakis@):
+  "180 system errors" = monit loadavg>10 spam + php8.4-fpm OOM kills
+  during RAM saturation (6.9/8GB, k3s+Nextcloud+Prometheus). Transient
+  capacity pressure, php-fpm respawns; dirtymodules.json = [] clean.
+  Watch if OOM kills recur daily.
+- Human gates still open: IG sessionid import, LinkedIn sidecar cookies
+  (li_at/JSESSIONID/bcookie/bscookie), X OAuth consent + X_AUTH_TOKEN,
+  WhatsApp phone verify, TikTok stale-row sidecar login switch.
+- LinkedIn ads: report fixed in PR #1581 (account rollup, honest
+  spend_unavailable on adAnalytics 403 — token lacks
+  partnerApiAdAnalytics scope; durable fix = LinkedIn dev app scope).
