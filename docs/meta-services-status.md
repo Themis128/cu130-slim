@@ -180,38 +180,44 @@ Instagram's Web API is not a public API. It's the internal API used by instagram
 
 ---
 
-### Issue 4: WhatsApp Cloud API — Phone Number Not Registered
+### Issue 4: WhatsApp Cloud API — RESOLVED (2026-11-10)
 
-**Status:** REQUIRES MANUAL ACTION (SMS verification)
-**WABA ID:** 1073707258453499
-**Phone Number ID:** 1334613883061552
+**Status:** LIVE — direct Cloud API registration complete
+**WABA / Messaging account ID:** 1717901383017723 (WAAC 1805020980543501, "Cloudless")
+**Phone Number ID:** 1432734783254091
 **Display Phone:** +30 697 777 7838
+**Meta app:** 1936126137016578 ("Cloudless", namespace cloudless_gr)
 
-**Description:**
-The WhatsApp Business Account is active and the webhook is configured, but the phone number is NOT verified. Sending messages fails with:
-```
-{"error":{"message":"(#133010) Account not registered","code":133010}}
-```
-
-**Phone number status:**
-- `code_verification_status`: `NOT_VERIFIED`
+**Current state (verified via Graph):**
+- `code_verification_status`: `VERIFIED`
+- `messaging_limit_tier`: `TIER_250`
+- `name_status`: `AVAILABLE_WITHOUT_REVIEW` (verified_name "Cloudless")
 - `quality_rating`: `UNKNOWN`
-- `verified_name`: "Baltzakis Themistoklis" (not "Cloudless" yet)
-- `business_verification_status`: `not_verified`
+- App subscribed to WABA webhooks (`subscribed_apps` returns app 1936126137016578)
+- Webhook callback `https://social.cloudless.gr/api/v1/whatsapp/webhook`
+  challenge-verified; `X-Hub-Signature-256` enforced via `FACEBOOK_APP_SECRET`
+  (falls back to `FACEBOOK_CLIENT_SECRET` in compose)
+- `social_accounts` row 77f17091-3639-4633-b04d-0a3345dd7d3a: status=active,
+  CLOUD_API, new IDs, encrypted token, bot config preserved,
+  `token_expires_at` = 2027-02-06 (user-token data-access expiry; the
+  `token_expiry` sweep warns 14d ahead and escalates to Slack)
 
-**What needs to happen:**
-1. Go to Meta Business Suite → WhatsApp Manager
-2. Select the phone number +30 697 777 7838
-3. Click "Verify" or "Send verification code"
-4. Enter the SMS code received on that phone
-5. Optionally update the verified name to "Cloudless"
+**History:** the original WABA 1073707258453499 / phone_number_id
+1334613883061552 belonged to a different (partner-owned) portfolio and
+remains orphaned. The WA Business app account on +30 697 777 7838 was
+deleted (chat backup taken first) so the number could be verified via SMS
+and registered directly for Cloud API — coexistence was not possible
+because the Meta app is not a Tech Provider/Solution Partner.
 
-**Why it can't be automated:**
-- SMS verification requires physical access to the phone receiving the code
-- The verification code is sent to the phone number via SMS, not via API
-- This is a one-time manual step required by Meta's security policy
-
-**Impact:** WhatsApp messaging (both sending and receiving) is blocked until verification is complete. The webhook and bot configuration are ready and will work once the phone is verified.
+**Remaining:**
+- Message templates must be approved on the new WABA before
+  business-initiated sends (24h session replies work now). Template
+  status events arrive via webhook (`message_template_status_update`).
+- WHATSAPP_ACCESS_TOKEN is a long-lived USER token (data access expires
+  ~2027-02); mint a system-user token in Business Settings when possible
+  for a non-expiring credential.
+- First real inbound message still needs a live end-to-end check
+  (webhook → unified inbox → auto-reply bot).
 
 **Quota guards (2026-10-06, `whatsapp_verify.py`):** the 30-min verification
 beat is gated so it can't burn Meta's 10-requests-per-72h budget:
@@ -346,8 +352,10 @@ All Meta-related environment variables in `/home/tbaltzakis/cu130-slim/.env`:
 | `INSTAGRAM2_CLIENT_ID` | Instagram App ID (Business Login) | Set (1462851805249610) |
 | `INSTAGRAM2_CLIENT_SECRET` | Instagram App secret | Set |
 | `INSTAGRAM2_REDIRECT_URI` | Instagram Business Login callback | Set (social.cloudless.gr) |
-| `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp phone number ID | Set (1334613883061552) |
-| `WHATSAPP_BUSINESS_ACCOUNT_ID` | WABA ID | Set (1073707258453499) |
+| `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp phone number ID | Set (1432734783254091) |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | WABA / messaging account ID | Set (1717901383017723) |
+| `WHATSAPP_APP_ID` | Meta app for WhatsApp webhooks | Set (1936126137016578) |
+| `WHATSAPP_ACCESS_TOKEN` | Cloud API bearer token (user token, data access ~2027-02) | Set |
 | `WHATSAPP_VERIFY_TOKEN` | Webhook verification token | Set |
 
 ---
@@ -356,9 +364,9 @@ All Meta-related environment variables in `/home/tbaltzakis/cu130-slim/.env`:
 
 | # | Action | Type | Blocks? |
 |---|--------|------|---------|
-| 1 | Complete WhatsApp SMS phone verification | Manual (phone) | WhatsApp messaging |
-| 2 | Submit Meta App Review (if multi-tenant needed) | Manual (dashboard) | External user onboarding |
-| 3 | Business verification for WhatsApp | Manual (documents) | WhatsApp production use |
+| 1 | Approve WhatsApp message templates on WABA 1717901383017723 | Meta review (pending) | Business-initiated sends |
+| 2 | Mint system-user token for WHATSAPP_ACCESS_TOKEN | Manual (Business Settings) | Token expiry ~2027-02 |
+| 3 | Submit Meta App Review (if multi-tenant needed) | Manual (dashboard) | External user onboarding |
 | 4 | Update instagrapi when upstream fixes login | Dependency | Private API fallback |
 | 5 | Monitor Meta rate limits | Automated (dashboard) | N/A |
 

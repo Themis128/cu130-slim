@@ -29,6 +29,7 @@ _LEAD: dict[str, timedelta] = {
     "twitter": timedelta(days=7),
     "x": timedelta(days=7),
     "threads": timedelta(days=10),
+    "whatsapp": timedelta(days=14),
 }
 
 _NON_REFRESHABLE = {"linkedin", "x", "twitter", "whatsapp"}
