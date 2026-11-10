@@ -22,11 +22,14 @@ class _AsyncCM:
 
 
 def _db(rows):
-    return SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))))
+    return SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))),
+        commit=AsyncMock(),
+    )
 
 
-def _acc(plat, name, meta):
-    return SimpleNamespace(platform=plat, username=name, meta_data=meta, status="active", id="id-1")
+def _acc(plat, name, meta, status="active", col_exp=None):
+    return SimpleNamespace(platform=plat, username=name, meta_data=meta, status=status, id="id-1", token_expires_at=col_exp)
 
 
 async def test_sweep_warn_and_reauth_buckets(monkeypatch):
@@ -52,6 +55,35 @@ async def test_sweep_warn_inside_lead_not_expired(monkeypatch):
     monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))
     rep = await TE._sweep()
     assert rep["warn"] and not rep["reauth"]
+
+
+async def test_sweep_expired_statuses_and_column_expiry(monkeypatch):
+    import datetime as _dt
+
+    past = _dt.datetime.now(_dt.UTC) - _dt.timedelta(hours=1)
+    rows = [
+        _acc("twitter", "tw1", {}, status="expired", col_exp=past),  # column expiry, dead status → reauth
+        _acc("instagram", "ig1", {}, status="expired", col_exp=past),  # refreshable dead → warn
+        _acc("tiktok", "tt1", {}, status="revoked"),  # revoked, no expiry → warn
+        _acc("whatsapp", "wa1", {}, status="revoked"),  # revoked non-refreshable → reauth
+    ]
+    monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))
+    rep = await TE._sweep()
+    assert {e["platform"] for e in rep["reauth"]} == {"twitter", "whatsapp"}
+    assert {e["platform"] for e in rep["warn"]} == {"instagram", "tiktok"}
+
+
+async def test_sweep_reauth_dedup_24h(monkeypatch):
+    import datetime as _dt
+
+    recent = _dt.datetime.now(_dt.UTC).isoformat()
+    rows = [
+        _acc("twitter", "tw1", {"reauth_escalated_at": recent}, status="expired"),
+        _acc("linkedin", "li1", {"reauth_escalated_at": "2000-01-01T00:00:00+00:00"}, status="expired"),
+    ]
+    monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))
+    rep = await TE._sweep()
+    assert [e["platform"] for e in rep["reauth"]] == ["linkedin"]
 
 
 async def test_post_sends_when_nonempty(monkeypatch):
