@@ -1162,3 +1162,28 @@ Leftovers:
 - PRs: #1644 template poller (checks pending, auto-merge armed), #1650
   wa-token-decrypt + idempotent migration (checks running, auto-merge
   armed). #1641 closed-superseded by merged #1647.
+
+## 2026-11-10 (night) — WhatsApp battle test + DMR endpoint fix (Devin)
+
+- Battle test PASS: GET challenge echoes, POST no-sig/bad-sig -> 403,
+  valid HMAC -> 200 (~20-30s; chatbot inference is inline). Inbound rows
+  persist; outbound auto-reply row written with real wamid when DMR is
+  healthy. Meta 400s seen in logs = mark_message_read on synthetic
+  wamids (benign, caught) — NOT send failures.
+- ROOT CAUSE of auto-reply outage: `.env` DMR_* URLs pointed at
+  `host.docker.internal:11434` — a foreign Ollama serving only
+  qwen2.5:7b, NOT Docker Model Runner. Canonical per docs/CODEMAP/
+  config.py defaults is `host.docker.internal:12435`
+  (/engines/llama.cpp/v1 etc.). Fixed all 6 DMR vars + embedding model
+  (nomic-embed-text -> hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF, the model
+  dmr-watchdog actually configures). Recreated social-api, celery-beat,
+  4 workers, messenger-sidecar. In-container `_check_dmr_health()` now
+  True; smollm2 serves 200.
+- Remaining flake: docker-model-runner intermittently fails the
+  watchdog's deep /api/ps check (fails reset at 1/3, auto-recovers).
+  App health check can race runner restarts -> occasional "DMR is
+  offline" for one request; CF fallback covers the rest.
+- whatsapp.py auto-reply error log now includes exception detail
+  (Meta code + fbtrace_id) — pushed onto PR #1650 branch.
+- PR sweep: 12 open PRs all BLOCKED-pending-CI, zero failures,
+  auto-merge armed everywhere. #1653 (portfolio watcher) MERGED.
