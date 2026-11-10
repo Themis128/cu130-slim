@@ -54,6 +54,19 @@ def quality_gate(text: str, platform: str, floor: int | None = None) -> tuple[bo
     return seo >= minimum and nlp >= minimum, seo, nlp
 
 
+def post_quality_gate(text: str, platform: str) -> tuple[bool, int]:
+    """Inbound target-post gate — SEO score only (ENGAGE_MIN_SCORE, default 80).
+
+    NLP is skipped here on purpose: sofia_nlp_score encodes OUR copy rules
+    (CTA, PS line, specifics) that strangers' posts almost never satisfy —
+    requiring it would reject ~100% of inbound candidates.
+    """
+    from app.services.seo import score_content
+
+    seo = score_content(text, platform).overall
+    return seo >= min_engage_score(), seo
+
+
 # Jitter windows per platform (seconds after target post is seen)
 JITTER_RANGE = (143, 412)
 
@@ -203,9 +216,9 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     """Score + queue an engagement action (respecting daily caps)."""
     from sqlalchemy import select
 
-    q_ok, q_seo, q_nlp = quality_gate(candidate.post_text, candidate.platform)
+    q_ok, q_seo = post_quality_gate(candidate.post_text, candidate.platform)
     if not q_ok:
-        return {"skipped": f"quality gate seo={q_seo} nlp={q_nlp} (min {min_engage_score()})"}
+        return {"skipped": f"quality gate seo={q_seo} (min {min_engage_score()})"}
 
     plan = score_candidate(candidate)
     if plan.action is None:
