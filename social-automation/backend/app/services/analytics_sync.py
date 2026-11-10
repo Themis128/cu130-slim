@@ -2965,12 +2965,14 @@ async def sync_bluesky_account(db: AsyncSession, account: SocialAccount) -> Sync
     """
     result = SyncResult()
     try:
-        from app.services.bluesky_api import BlueskyClient
+        from app.services.bluesky_api import BlueskyClient, ensure_session, persist_session
 
         token = decrypt_token(account.access_token_enc)
-        pds = (account.meta_data or {}).get("pds_url") or "https://bsky.social"
+        meta = account.meta_data or {}
+        pds = meta.get("pds_url") or "https://bsky.social"
         client = BlueskyClient(account.username or "", token, pds_url=pds)
-        await client.create_session()
+        await ensure_session(client, meta.get("bsky_session"))
+        persist_session(account, client)
         await client.get_profile()
         result.synced += 1
     except Exception as exc:  # noqa: BLE001
