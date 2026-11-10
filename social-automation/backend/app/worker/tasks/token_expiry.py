@@ -43,13 +43,7 @@ async def _sweep() -> dict:
     now = datetime.now(UTC)
     report: dict[str, list] = {"warn": [], "reauth": []}
     async with task_session() as db:
-        rows = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.status.in_(["active", "connected", "expired", "revoked"])
-                )
-            )
-        ).scalars().all()
+        rows = (await db.execute(select(SocialAccount).where(SocialAccount.status.in_(["active", "connected", "expired", "revoked"])))).scalars().all()
         dirty = False
         for acc in rows:
             plat = (acc.platform or "").lower()

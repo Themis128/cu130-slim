@@ -392,9 +392,7 @@ async def test_aie_course_step1_unlocks_from_warm_lane(monkeypatch):
 
     monkeypatch.setattr(D, "_dripped_with_dates", spy_dates)
     leads = {"warm@corp.io": {"id": "l-warm", "_name": "Warm Lead"}}
-    out = await D._aie_course_candidates(
-        _DB(), uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads
-    )
+    out = await D._aie_course_candidates(_DB(), uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads)
     assert calls == [D.FIRST_APPROACH_FAMILY]
     assert [c["email"] for c in out] == ["warm@corp.io"]
     assert out[0]["crm_id"] == "l-warm"
@@ -778,9 +776,7 @@ async def test_run_email_drip_sweep_writes_audit_artifact(monkeypatch):
 
 def test_lead_temperature_warm_signals():
     # inbound / opt-in sources
-    for src in ("Web Site", "Newsletter", "Referral", "Lead Magnet",
-                "Messenger", "WhatsApp Flow", "Social Media",
-                "Meta Lead Ad", "LinkedIn Lead Gen"):
+    for src in ("Web Site", "Newsletter", "Referral", "Lead Magnet", "Messenger", "WhatsApp Flow", "Social Media", "Meta Lead Ad", "LinkedIn Lead Gen"):
         assert D._lead_temperature({"status": "New", "source": src}) == "warm", src
 
 
@@ -880,8 +876,7 @@ async def test_evergreen_candidates_dormant_only(monkeypatch):
 
     async def dates(db, team_id, key):
         if key == "first_approach":
-            return {"old@corp.io": old, "recent@corp.io": recent,
-                    "conv@corp.io": old}
+            return {"old@corp.io": old, "recent@corp.io": recent, "conv@corp.io": old}
         if key == "evergreen":
             return {"old@corp.io": old}
         return {}

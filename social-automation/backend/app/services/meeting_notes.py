@@ -200,19 +200,14 @@ async def provision_consult_room(*, name: str, email: str, start: str = "") -> d
 
     token = await talk.create_room(
         room_name[:180],
-        description=(
-            "Cloudless consultation call.\n"
-            f"Booked via cloudless.gr — {email or 'guest'}.\n"
-            "Recording enabled for internal meeting notes."
-        ),
+        description=(f"Cloudless consultation call.\nBooked via cloudless.gr — {email or 'guest'}.\nRecording enabled for internal meeting notes."),
     )
     if not token:
         return None
     link = talk.room_url(token)
     await talk.post_to_room(
         token,
-        "👋 Consultation room — join with the video button. "
-        "The call may be recorded for internal meeting notes.",
+        "👋 Consultation room — join with the video button. The call may be recorded for internal meeting notes.",
     )
     parts = name.strip().split() if name else []
     lead_id = await espo.upsert_lead(
@@ -294,11 +289,7 @@ async def ensure_consult_rooms(*, session_factory=None) -> dict[str, Any]:
                 # Same-day reminder — once per opportunity, marker-deduped,
                 # and only during Athens daytime so it doesn't fire at 3 AM.
                 athens_hour = datetime.now(ZoneInfo("Europe/Athens")).hour
-                if (
-                    close == today
-                    and 8 <= athens_hour < 21
-                    and not any(REMINDER_TAG in (n.get("post") or "") for n in notes)
-                ):
+                if close == today and 8 <= athens_hour < 21 and not any(REMINDER_TAG in (n.get("post") or "") for n in notes):
                     await talk.post_to_room(
                         token,
                         "⏰ Consultation call is today — please start the "
@@ -519,8 +510,7 @@ async def pipeline_preflight() -> dict[str, Any]:
 
     s = get_settings()
     checks["whisper_creds"] = bool(
-        getattr(s, "CLOUDFLARE_ACCOUNT_ID", "")
-        and (getattr(s, "CLOUDFLARE_AI_API_TOKEN", "") or getattr(s, "CLOUDFLARE_API_TOKEN", ""))
+        getattr(s, "CLOUDFLARE_ACCOUNT_ID", "") and (getattr(s, "CLOUDFLARE_AI_API_TOKEN", "") or getattr(s, "CLOUDFLARE_API_TOKEN", ""))
     )
     checks["dmr_model"] = bool(getattr(s, "DMR_MID_MODEL", ""))
 
@@ -534,9 +524,7 @@ async def pipeline_preflight() -> dict[str, Any]:
             degraded.append(k)
     if degraded:
         await talk.post_to_talk(
-            "⚠️ Meeting-notes pipeline degraded — failed checks: "
-            + ", ".join(degraded)
-            + ". Consultations still get rooms; transcript/minutes paused.",
+            "⚠️ Meeting-notes pipeline degraded — failed checks: " + ", ".join(degraded) + ". Consultations still get rooms; transcript/minutes paused.",
             purpose="alerts",
         )
     return {"ok": not degraded, "checks": checks, "degraded": degraded}
