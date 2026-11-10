@@ -62,12 +62,28 @@ services:
       # Mask system trees inside /omv-storage so Nextcloud never lists or
       # writes them: containerd/k3s runtime data (symlink spam → DAV 500s),
       # compose env files (secrets), and the workspace dir that contains
-      # Nextcloud's own html/data (self-reference).
+      # Nextcloud's own html/data (self-reference), plus backup trees
+      # (Backups/NAS-Backup/home-migration/google-archive), credential dirs
+      # (SSH, homeassistant, mcp-main1), and host tooling dirs that have no
+      # place in Files.
       - /omv-storage/omv-ai-cluster
       - /omv-storage/k3s-data
       - /omv-storage/workspace
       - /omv-storage/compose-files
       - /omv-storage/tempo-data
+      - /omv-storage/Backups
+      - /omv-storage/NAS-Backup
+      - /omv-storage/SSH
+      - /omv-storage/home-migration
+      - /omv-storage/google-archive
+      - /omv-storage/homeassistant
+      - /omv-storage/mnt
+      - /omv-storage/tmp
+      - /omv-storage/pipx
+      - /omv-storage/temp-linter-configs
+      - /omv-storage/rpi-nextcloud
+      - /omv-storage/mcp-main1
+      - /omv-storage/model
     # gid 100 = host "users" group — grants www-data read/write of the
     # OMV SSD tree bound at /omv-storage (replaces the flaky self-SFTP
     # external-storage mount). NOTE: Apache workers drop supplementary
