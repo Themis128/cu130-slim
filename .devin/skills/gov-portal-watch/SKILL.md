@@ -60,3 +60,8 @@ delivery — exit 0 = healthy.
 - `ensure_browser()` relaunches the debug Chrome if the port is down.
 - Auth check MUST be DOM-based (auth_regex on extracted content) — logged-out
   gov pages often keep the same URL with an empty body.
+- The debug Chrome may run headless → UA contains `HeadlessChrome`, which
+  some portals (IDIKA) answer with HTTP 500 + "Please contact
+  Administrator". `Tab._deheadless()` applies `Network.setUserAgentOverride`
+  on every tab — keep it; same fix lives in `gsis_login.py`,
+  `idika-watch/login.py`, and `_lib/cdp_common.py` (:9222 lane).
