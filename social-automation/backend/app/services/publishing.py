@@ -3573,6 +3573,8 @@ async def _publish_bluesky(
         MAX_IMAGES,
         BlueskyAPIError,
         BlueskyClient,
+        ensure_session,
+        persist_session,
     )
 
     pds = (account.meta_data or {}).get("pds_url") or None
@@ -3582,7 +3584,8 @@ async def _publish_bluesky(
         pds_url=pds or "https://bsky.social",
     )
     try:
-        await client.create_session()
+        await ensure_session(client, (account.meta_data or {}).get("bsky_session"))
+        persist_session(account, client)
     except BlueskyAPIError as exc:
         return PublishResult(
             success=False,

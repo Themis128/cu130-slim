@@ -29,7 +29,13 @@ from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import User
-from app.services.bluesky_api import BSKY_PDS_DEFAULT, BlueskyAPIError, BlueskyClient
+from app.services.bluesky_api import (
+    BSKY_PDS_DEFAULT,
+    BlueskyAPIError,
+    BlueskyClient,
+    ensure_session,
+    persist_session,
+)
 
 router = APIRouter()
 
@@ -99,11 +105,13 @@ async def connect_bluesky_account(
     account = existing.scalar_one_or_none()
     enc = encrypt_token(body.app_password.strip())
     enc_b = enc if isinstance(enc, bytes) else enc.encode()
+    _state = getattr(client, "session_state", None)
     meta: dict[str, Any] = {
         "pds_url": client.pds_url,
         "did": did,
         "credentials_configured": True,
         "auth_type": "app_password",
+        **({"bsky_session": _state()} if _state else {}),
     }
 
     if account:
@@ -153,7 +161,9 @@ async def bluesky_account_status(
     account = await _get_bluesky_account(account_id, team_id, db)
     client = _client_for(account)
     try:
-        await client.create_session()
+        await ensure_session(client, (account.meta_data or {}).get("bsky_session"))
+        persist_session(account, client)
+        await db.commit()
         profile = await client.get_profile()
     except BlueskyAPIError as exc:
         return {
