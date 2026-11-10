@@ -1135,3 +1135,26 @@ Leftovers:
 - social-api crash-looped once when DB stamp (k2f9a1b4c6d8, PR #1614-only
   revision) outlived the mounted checkout — restamped manually; the heal
   script now covers recurrence.
+
+
+## 2026-11-10 (night) — brain-stack upgrades (PRs #1651 #1652)
+
+- **platform_fit.json refreshed** with verified 2026 ranking changes
+  (LinkedIn LLM-embedding retrieval + anti-engagement-bait, IG
+  sends/shares, X Grok ranker, TikTok follower-independence) — PR #1651.
+- **central_brain LLM refinement** — `_llm_adjust` rewrites post
+  instructions via DMR→CF using company-brain recall + fit lines;
+  rules stay the floor, `CENTRAL_BRAIN_LLM_ENABLED` gates it. Posts now
+  carry `brain_*` meta for outcome attribution — PR #1652.
+- **platform_fit_sync.py note-title fix** — em-dash literal mangled to
+  `???` under POSIX locale; title now rides the JSON env payload.
+- **kakkava-brain-sync `_brain` repair in flight**: the 362
+  `kakkava-sofia-*` memories were LOST (collection had only 2 docs —
+  likely a Chroma reset); manifest gate hid it. Forced re-ingest running
+  inside social-api via tar-stream copy (docker cp DrvFs ENOMEM flake);
+  ~360 chunks, idempotent upserts, ETA ~2-3h. `platform-fit-reference`
+  doc seeded into Chroma + Nextcloud note (title fixed). Watch:
+  `docker exec social-postgres psql ... SELECT count(*)` on
+  `team_10024d25_..._brain` should reach ~365+.
+- **platform-fit-refresh cron**: installed 2026-11-09, first scheduled
+  run Sun 2026-11-15 07:00 — no log yet is EXPECTED, not a failure.
