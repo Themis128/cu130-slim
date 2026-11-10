@@ -1115,3 +1115,20 @@ async def test_process_skips_opp_with_existing_notes():
     ):
         out = await MN.process_meeting_notes(session_factory=lambda: _Session())
     assert out["checked"] == 0
+
+
+@pytest.mark.asyncio
+async def test_preflight_talk_disabled_branch():
+    posted = []
+    with (
+        patch.object(MN.talk, "talk_enabled", return_value=False),
+        patch.object(MN.talk, "post_to_talk", new=AsyncMock(side_effect=lambda t, purpose="digest": posted.append(t) or True)),
+        patch.object(MN.espo, "configured", return_value=True),
+        patch("app.core.config.get_settings", return_value=_preflight_settings()),
+        patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+    ):
+        out = await MN.pipeline_preflight()
+    assert out["checks"]["talk_api"] is False
+    assert out["checks"]["talk_enabled"] is False
+    assert "talk_enabled" in out["degraded"] and "talk_api" in out["degraded"]
+    assert posted
