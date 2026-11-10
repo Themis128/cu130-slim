@@ -25,14 +25,14 @@ Nothing here raises into callers; every stage degrades to a stat.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
 import shutil
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,19 +107,12 @@ async def _lead_id_for_email(email: str) -> str | None:
     if not email:
         return None
     try:
-        data = await espo.espo_get(
-            "/Lead",
-            params={
-                "searchParams": json.dumps(
-                    {
-                        "maxSize": 1,
-                        "select": ["id"],
-                        "where": [{"type": "equals", "attribute": "emailAddress", "value": email}],
-                    }
-                )
-            },
+        rows = await espo.list_all(
+            "Lead",
+            select=["id"],
+            where=[{"type": "equals", "attribute": "emailAddress", "value": email}],
+            max_items=1,
         )
-        rows = data.get("list") or []
         return rows[0].get("id") if rows else None
     except Exception:  # noqa: BLE001
         logger.exception("meeting-notes: lead lookup failed for %s", email[:3] + "***")
@@ -175,6 +168,71 @@ async def _find_room_token(opp: dict[str, Any]) -> str | None:
     return _token_from_notes(lead_notes)
 
 
+async def provision_consult_room(*, name: str, email: str, start: str = "") -> dict[str, Any] | None:
+    """Create — or reuse — the Talk room for a consultation booking.
+
+    Called at booking time (site → /api/v1/talk/consult-room) and again
+    from the Cal.com webhook; the ``talk_room:`` marker on the attendee's
+    Lead notes is the dedupe key, so retries and double-fires never
+    produce a second room. Returns ``{token, url, reused}`` or None.
+    """
+    if not talk.talk_enabled():
+        return None
+    email = (email or "").strip().lower()
+    label = (name or email or "guest").strip()
+    when = (start or "")[:10]
+    room_name = f"Consultation — {label}" + (f" — {when}" if when else "")
+
+    lead_id = await _lead_id_for_email(email)
+    if lead_id:
+        lead_notes = await espo.list_all(
+            "Note",
+            select=["id", "post"],
+            where=[
+                {"type": "equals", "attribute": "parentType", "value": "Lead"},
+                {"type": "equals", "attribute": "parentId", "value": lead_id},
+            ],
+            max_items=50,
+        )
+        existing = _token_from_notes(lead_notes)
+        if existing:
+            return {"token": existing, "url": talk.room_url(existing), "reused": True}
+
+    token = await talk.create_room(
+        room_name[:180],
+        description=(
+            "Cloudless consultation call.\n"
+            f"Booked via cloudless.gr — {email or 'guest'}.\n"
+            "Recording enabled for internal meeting notes."
+        ),
+    )
+    if not token:
+        return None
+    link = talk.room_url(token)
+    await talk.post_to_room(
+        token,
+        "👋 Consultation room — join with the video button. "
+        "The call may be recorded for internal meeting notes.",
+    )
+    parts = name.strip().split() if name else []
+    lead_id = await espo.upsert_lead(
+        {
+            "emailAddress": email,
+            "firstName": parts[0] if parts else "",
+            "lastName": " ".join(parts[1:]) if len(parts) > 1 else "",
+            "source": "Web Site",
+            "description": f"{ROOM_TAG}{token} — Cal.com booking join: {link}",
+        }
+    )
+    if lead_id:
+        await espo.add_lead_note(
+            lead_id,
+            f"{ROOM_TAG}{token} — join: {link}",
+            entity="Lead",
+        )
+    return {"token": token, "url": link, "reused": False}
+
+
 async def _create_consult_room(opp: dict[str, Any], email: str | None) -> str | None:
     name = (opp.get("name") or "Consultation").strip()[:180]
     when = str(opp.get("closeDate") or "")[:10]
@@ -201,13 +259,18 @@ async def _create_consult_room(opp: dict[str, Any], email: str | None) -> str | 
     return token
 
 
+REMINDER_TAG = "room_reminder:"
+
+
 async def ensure_consult_rooms(*, session_factory=None) -> dict[str, Any]:
-    """Give every upcoming ``appointmentsscheduled`` opportunity a Talk room."""
+    """Give every upcoming ``appointmentsscheduled`` opportunity a Talk room,
+    and nudge the room once on the meeting day so the moderator remembers
+    to start the recording the minutes pipeline depends on."""
     if not _enabled():
         return {"status": "skipped", "reason": "talk_or_espocrm_not_configured"}
     factory = _factory(session_factory)
     today = date.today().isoformat()
-    stats: dict[str, Any] = {"status": "ok", "created": 0, "existing": 0, "errors": 0}
+    stats: dict[str, Any] = {"status": "ok", "created": 0, "existing": 0, "reminded": 0, "errors": 0}
     async with factory() as db:
         opps = await _opps_at_consult()
         for opp in opps:
@@ -216,21 +279,44 @@ async def ensure_consult_rooms(*, session_factory=None) -> dict[str, Any]:
             if not oid or not close or close < today:
                 continue  # past meetings belong to process_meeting_notes
             try:
-                if _token_from_notes(await _opp_notes(oid)):
-                    stats["existing"] += 1
-                    continue
-                email = await _contact_email_for_opp(opp)
-                token = await _create_consult_room(opp, email)
-                if token:
-                    stats["created"] += 1
+                notes = await _opp_notes(oid)
+                token = _token_from_notes(notes)
+                if not token:
+                    email = await _contact_email_for_opp(opp)
+                    token = await _create_consult_room(opp, email)
+                    if token:
+                        stats["created"] += 1
+                    else:
+                        stats["errors"] += 1
+                        continue
                 else:
-                    stats["errors"] += 1
+                    stats["existing"] += 1
+                # Same-day reminder — once per opportunity, marker-deduped,
+                # and only during Athens daytime so it doesn't fire at 3 AM.
+                athens_hour = datetime.now(ZoneInfo("Europe/Athens")).hour
+                if (
+                    close == today
+                    and 8 <= athens_hour < 21
+                    and not any(REMINDER_TAG in (n.get("post") or "") for n in notes)
+                ):
+                    await talk.post_to_room(
+                        token,
+                        "⏰ Consultation call is today — please start the "
+                        "Talk recording (record button) so meeting notes "
+                        "are generated automatically afterwards.",
+                    )
+                    await espo.add_lead_note(
+                        oid,
+                        f"{REMINDER_TAG}{token} — same-day record reminder posted",
+                        entity="Opportunity",
+                    )
+                    stats["reminded"] += 1
             except Exception:  # noqa: BLE001
                 logger.exception("meeting-notes: room ensure failed for opp %s", oid)
                 stats["errors"] += 1
         await db.commit()
-    if stats["created"]:
-        logger.info("consult rooms created: %s", stats)
+    if stats["created"] or stats["reminded"]:
+        logger.info("consult rooms sweep: %s", stats)
     return stats
 
 
@@ -368,11 +454,24 @@ async def process_meeting_notes(*, session_factory=None) -> dict[str, Any]:
                 rec = talk.find_recording_file(messages)
                 if not rec:
                     stats["no_recording"] += 1
+                    # Shape-drift diagnostic: if the room HAS file messages
+                    # but none matched the recording heuristic, record the
+                    # observed file-param keys in the skip note so the real
+                    # Talk recording shape is captured for the next fix.
+                    file_keys = sorted(
+                        {
+                            k
+                            for m in messages
+                            for k in ((m.get("messageParameters") or {}).get("file") or {}).keys()
+                            if isinstance((m.get("messageParameters") or {}).get("file"), dict)
+                        }
+                    )
+                    drift = f"; file-params seen: {','.join(file_keys)}" if file_keys else ""
                     # Close the loop honestly — the room existed but no
                     # recording was shared; don't re-scan forever.
                     await espo.add_lead_note(
                         oid,
-                        f"{NOTES_TAG} skipped — no recording shared in Talk room {token}",
+                        f"{NOTES_TAG} skipped — no recording shared in Talk room {token}{drift}",
                         entity="Opportunity",
                     )
                     continue
@@ -404,8 +503,48 @@ async def process_meeting_notes(*, session_factory=None) -> dict[str, Any]:
     return stats
 
 
+async def pipeline_preflight() -> dict[str, Any]:
+    """Cheap liveness probe of every stage — runs at the top of each sweep.
+
+    A broken stage (Talk auth, EspoCRM, Whisper creds, ffmpeg, DMR) posts
+    one line to the ops Talk room instead of failing silently mid-sweep.
+    """
+    checks: dict[str, bool] = {}
+    degraded: list[str] = []
+
+    checks["talk_enabled"] = talk.talk_enabled()
+    checks["espo_configured"] = espo.configured()
+    checks["ffmpeg"] = bool(shutil.which("ffmpeg"))
+    from app.core.config import get_settings
+
+    s = get_settings()
+    checks["whisper_creds"] = bool(
+        getattr(s, "CLOUDFLARE_ACCOUNT_ID", "")
+        and (getattr(s, "CLOUDFLARE_AI_API_TOKEN", "") or getattr(s, "CLOUDFLARE_API_TOKEN", ""))
+    )
+    checks["dmr_model"] = bool(getattr(s, "DMR_MID_MODEL", ""))
+
+    if checks["talk_enabled"]:
+        checks["talk_api"] = await talk.ping()
+    else:
+        checks["talk_api"] = False
+
+    for k, v in checks.items():
+        if not v:
+            degraded.append(k)
+    if degraded:
+        await talk.post_to_talk(
+            "⚠️ Meeting-notes pipeline degraded — failed checks: "
+            + ", ".join(degraded)
+            + ". Consultations still get rooms; transcript/minutes paused.",
+            purpose="alerts",
+        )
+    return {"ok": not degraded, "checks": checks, "degraded": degraded}
+
+
 async def run_meeting_notes_sweep(*, session_factory=None) -> dict[str, Any]:
-    """One pass: ensure upcoming rooms, then process past meetings."""
+    """One pass: preflight → ensure upcoming rooms → process past meetings."""
+    preflight = await pipeline_preflight()
     ensured = await ensure_consult_rooms(session_factory=session_factory)
     processed = await process_meeting_notes(session_factory=session_factory)
-    return {"ensure": ensured, "process": processed}
+    return {"preflight": preflight, "ensure": ensured, "process": processed}
