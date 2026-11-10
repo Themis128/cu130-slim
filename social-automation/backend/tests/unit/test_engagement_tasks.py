@@ -28,6 +28,12 @@ from app.worker.tasks import engagement_tiers as TIERS
 _RealClient = httpx.AsyncClient
 
 
+@pytest.fixture(autouse=True)
+def _engage_quality_gate_off(monkeypatch):
+    """Default: disable the SEO/NLP floor so fixture drafts/posts pass."""
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+
+
 class _Res:
     def __init__(self, rows=None, rowcount=0):
         self._rows = list(rows or [])
@@ -668,3 +674,27 @@ async def test_compact_ledger(monkeypatch):
     db = _use_db(monkeypatch, _DB([_Res(rowcount=4), _Res(rowcount=7)]))
     assert await ARCH._run(30) == {"actions_pruned": 4, "candidates_pruned": 7}
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_draft_fails_quality_gate(monkeypatch):
+    """A comment draft scoring below the SEO/NLP floor is retried once, then
+    parked as quality_failed instead of reaching the gate/dispatch."""
+    import app.services.dmr as DMR
+
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    slack = _patch_alerts(monkeypatch)
+    dmr = AsyncMock(return_value={"text": "word " * 40})
+    monkeypatch.setattr(DMR, "call_dmr_chat", dmr)
+    _patch_actors(monkeypatch, {})
+    a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
+
+    _use_db(monkeypatch, _DB([[], [], [], [a], [_row_cand(platform="linkedin")], []]))
+    out = await ENG._run(5)
+
+    assert a.status == "quality_failed"
+    assert a.comment_draft is None
+    assert dmr.await_count == 2  # one retry with score feedback
+    assert "Previous draft scored" in dmr.await_args_list[1].args[0]
+    assert slack.await_count == 0  # failed drafts are never announced
+    assert out["drafted"] == 1

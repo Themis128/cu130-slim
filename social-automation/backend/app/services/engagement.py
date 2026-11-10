@@ -10,12 +10,34 @@ Every action is scored, jittered, and (for comments/reposts) human-gated.
 from __future__ import annotations
 
 import logging
+import os
 import random
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
 ACTION_WEIGHTS = {"like": 1, "repost": 3, "comment": 5}
+
+
+def _min_engage_score() -> int:
+    try:
+        return int(os.environ.get("ENGAGE_MIN_SCORE", "80"))
+    except ValueError:
+        return 80
+
+
+def quality_gate(text: str, platform: str) -> tuple[bool, int, int]:
+    """SEO + NLP floor for auto-engage — both scores must clear the minimum.
+
+    Returns (passed, seo_overall, nlp_score); scores are 0-100.
+    """
+    from app.services.plain_english import sofia_nlp_score
+    from app.services.seo import score_content
+
+    seo = score_content(text, platform).overall
+    nlp, _issues = sofia_nlp_score(text)
+    return seo >= _min_engage_score() and nlp >= _min_engage_score(), seo, nlp
+
 
 # Jitter windows per platform (seconds after target post is seen)
 JITTER_RANGE = (143, 412)
@@ -165,6 +187,10 @@ Comment:"""
 async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     """Score + queue an engagement action (respecting daily caps)."""
     from sqlalchemy import select
+
+    q_ok, q_seo, q_nlp = quality_gate(candidate.post_text, candidate.platform)
+    if not q_ok:
+        return {"skipped": f"quality gate seo={q_seo} nlp={q_nlp} (min {_min_engage_score()})"}
 
     plan = score_candidate(candidate)
     if plan.action is None:

@@ -12,6 +12,12 @@ import pytest
 from app.services import engagement as E
 
 
+@pytest.fixture(autouse=True)
+def _engage_quality_gate_off(monkeypatch):
+    """Default: disable the SEO/NLP floor so synthetic posts pass."""
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+
+
 def _cand(**kw):
     base = dict(
         platform="linkedin",
@@ -233,3 +239,29 @@ async def test_queue_non_viral_tiktok_without_meta_data():
 def test_plan_dataclass_roundtrip():
     p = E.EngagementPlan("like", 1.0, 3, None, False, "r")
     assert SimpleNamespace(**p.__dict__).action == "like"
+
+
+# ── quality_gate (SEO + NLP floor) ─────────────────────────────────────
+
+
+def test_quality_gate_blocks_below_floor(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    ok, seo, nlp = E.quality_gate("word " * 30, "linkedin")
+    assert not ok
+    assert 0 <= seo <= 100 and 0 <= nlp <= 100
+
+
+def test_quality_gate_disabled_at_zero(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+    ok, _, _ = E.quality_gate("word " * 30, "linkedin")
+    assert ok
+
+
+@pytest.mark.asyncio
+async def test_queue_skips_on_quality_gate(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    db = _DB()
+    out = await E.queue_engagement(_cand(post_text="word " * 30, is_followed=True, is_connection=True), db)
+    assert "quality gate" in out["skipped"]
+    assert db.added == []
+    assert db.stmts == []
