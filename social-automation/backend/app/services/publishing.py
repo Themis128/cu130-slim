@@ -53,6 +53,8 @@ from app.services.instagram_private_api import (
 from app.services.instagrapi_client import InstagrapiClient, InstagrapiError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.media_url_probe import first_failure as _probe_first_failure
+from app.services.media_url_probe import probe_public_media as _probe_public_media
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION, facebook_graph_url
 from app.services.spellcheck import auto_correct, detect_gibberish
 from app.services.telegram_api import TelegramAPIClient, TelegramAPIError
@@ -2707,6 +2709,21 @@ async def _publish_instagram_via_graph(
                 "public URL — not publishing with missing media. Check "
                 "MEDIA_PUBLIC_BASE_URL / storage for the missing asset(s)."
             ),
+        )
+
+    # Preflight: Meta's crawler fetches these URLs itself — a dead or
+    # HTML-serving URL otherwise surfaces later as the misleading 9004
+    # "Only photo or video can be accepted as media type". Fail fast
+    # with the real cause; normal retry path absorbs transient blips.
+    bad_media = _probe_first_failure(await _probe_public_media(image_urls[:10]))
+    if bad_media:
+        return PublishResult(
+            success=False,
+            error=(
+                f"Instagram media URL preflight failed for {bad_media['url']}: "
+                f"{bad_media.get('error') or 'unreachable'} — Meta's crawler "
+                "must be able to fetch a public image/video URL."
+            )[:500],
         )
 
     is_business_login = (account.meta_data or {}).get("login_type") == "business_login"

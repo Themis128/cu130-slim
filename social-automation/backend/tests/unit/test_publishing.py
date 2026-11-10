@@ -1600,6 +1600,7 @@ async def test_publish_instagram_graph_timeout_not_attempted(account, post, monk
     """Container-wait timeout → publish never attempted → not ambiguous."""
     monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGClient(wait_exc=TimeoutError("container wait")))
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/a.jpg", "ok": True}]))
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account.meta_data = {"account_type": "business"}
     post.platform_specific = {}
@@ -1612,6 +1613,7 @@ async def test_publish_instagram_graph_timeout_finds_live(account, post, monkeyp
     """Publish-request timeout but the post went live → success via find_live."""
     monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGClient(publish_exc=TimeoutError("publish timeout")))
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/a.jpg", "ok": True}]))
     monkeypatch.setattr(pub, "_instagram_find_live", AsyncMock(return_value={"id": "m-9", "permalink": "https://ig/p/m-9"}))
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account.meta_data = {"account_type": "business"}
@@ -1625,6 +1627,7 @@ async def test_publish_instagram_graph_timeout_ambiguous(account, post, monkeypa
     """Publish timeout with no live post found → ambiguous failure."""
     monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGClient(publish_exc=TimeoutError("publish timeout")))
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/a.jpg", "ok": True}]))
     monkeypatch.setattr(pub, "_instagram_find_live", AsyncMock(return_value=None))
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     account.meta_data = {"account_type": "business"}
@@ -1648,6 +1651,7 @@ async def test_publish_instagram_graph_url_uses_permalink(account, post, monkeyp
 
     monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGWithPermalink())
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/a.jpg", "ok": True}]))
     account.meta_data = {"account_type": "business"}
     post.platform_specific = {}
     r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
@@ -1669,6 +1673,7 @@ async def test_publish_instagram_graph_url_none_when_permalink_absent(account, p
 
     monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGNoPermalink())
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/a.jpg", "ok": True}]))
     account.meta_data = {"account_type": "business"}
     post.platform_specific = {}
     r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
