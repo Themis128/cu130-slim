@@ -527,6 +527,10 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/support/report` — POST
 
+## `talk`
+
+- `/api/v1/talk/consult-room` — POST
+
 ## `teams`
 
 - `/api/v1/teams` — GET, POST

@@ -747,3 +747,97 @@ async def test_run_email_drip_sweep_writes_audit_artifact(monkeypatch):
     assert artifacts[0].team_id == team.id
     assert "mailed=0" in artifacts[0].detail
     assert report["mailed"] == 0
+
+
+# --- warm/cold segmentation ------------------------------------------------
+
+
+def test_lead_temperature_warm_signals():
+    # replied → In Process (crm_engagement) regardless of source
+    assert D._lead_temperature({"status": "In Process", "source": "API Ingest"}) == "warm"
+    # inbound / opt-in sources
+    for src in ("Web Site", "Newsletter", "Referral", "Lead Magnet",
+                "Messenger", "WhatsApp Flow", "Social Media",
+                "Meta Lead Ad", "LinkedIn Lead Gen"):
+        assert D._lead_temperature({"status": "New", "source": src}) == "warm", src
+
+
+def test_lead_temperature_cold_signals():
+    assert D._lead_temperature({"status": "New", "source": "API Ingest"}) == "cold"
+    assert D._lead_temperature({"status": "New", "source": "Campaign"}) == "cold"
+    assert D._lead_temperature({"status": "Assigned"}) == "cold"
+    assert D._lead_temperature({}) == "cold"
+
+
+@pytest.mark.asyncio
+async def test_first_approach_candidates_carry_temperature(monkeypatch):
+    async def fake_leads():
+        return [
+            {"id": "L1", "emailAddress": "new@corp.io", "status": "New", "source": "API Ingest"},
+            {"id": "L2", "emailAddress": "replied@corp.io", "status": "In Process", "source": "API Ingest"},
+            {"id": "L3", "emailAddress": "magnet@corp.io", "status": "New", "source": "Lead Magnet"},
+        ]
+
+    monkeypatch.setattr(D.espocrm_client, "list_leads_for_campaign", fake_leads)
+    out = {c["email"]: c["temp"] for c in await D._first_approach_candidates()}
+    assert out == {
+        "new@corp.io": "cold",
+        "replied@corp.io": "warm",
+        "magnet@corp.io": "warm",
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_drip_warm_lane_uses_warm_template(monkeypatch):
+    warm_tpl = _campaign(meta_data={"drip_template": "first_approach_warm"})
+    db = _DB(results=[[warm_tpl], []])
+
+    captured = {}
+
+    async def fake_resolve(db_, campaign, **kw):
+        return [SimpleNamespace(status=RecipientStatus.pending, email=e["email"]) for e in kw["explicit_emails"]]
+
+    monkeypatch.setattr(S, "resolve_audience", fake_resolve)
+    monkeypatch.setattr("app.worker.celery_app.celery_app", SimpleNamespace(send_task=lambda *a, **k: captured.setdefault("task", a)), raising=False)
+    monkeypatch.setattr(D.espocrm_client, "add_lead_note", lambda *a, **k: None)
+
+    stats = await D._run_drip(
+        db,
+        warm_tpl.team_id,
+        "first_approach_warm",
+        [{"email": "w@corp.io", "name": "W", "crm_entity": "Lead", "crm_id": "L9", "cycle": None}],
+        dry_run=False,
+        now=NOW,
+        template_key="first_approach_warm",
+        dedupe_keys=D.FIRST_APPROACH_FAMILY,
+    )
+    assert stats["mailed"] == 1
+    assert db.added[0].meta_data["drip_key"] == "first_approach_warm"
+
+
+@pytest.mark.asyncio
+async def test_run_drip_warm_lane_falls_back_to_base_template(monkeypatch):
+    base_tpl = _campaign()
+    # first _template lookup (warm) misses → second (base) hits
+    db = _DB(results=[[], [base_tpl], []])
+
+    async def fake_resolve(db_, campaign, **kw):
+        return [SimpleNamespace(status=RecipientStatus.pending, email=e["email"]) for e in kw["explicit_emails"]]
+
+    monkeypatch.setattr(S, "resolve_audience", fake_resolve)
+    monkeypatch.setattr("app.worker.celery_app.celery_app", SimpleNamespace(send_task=lambda *a, **k: None), raising=False)
+    monkeypatch.setattr(D.espocrm_client, "add_lead_note", lambda *a, **k: None)
+
+    stats = await D._run_drip(
+        db,
+        base_tpl.team_id,
+        "first_approach_warm",
+        [{"email": "w@corp.io", "name": "W", "crm_entity": "Lead", "crm_id": "L9", "cycle": None}],
+        dry_run=False,
+        now=NOW,
+        template_key="first_approach_warm",
+        fallback_template_key="first_approach",
+        dedupe_keys=D.FIRST_APPROACH_FAMILY,
+    )
+    assert stats["mailed"] == 1
+    assert "no drip_template" not in " ".join(stats["errors"])

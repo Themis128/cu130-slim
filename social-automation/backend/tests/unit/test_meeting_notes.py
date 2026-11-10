@@ -291,6 +291,107 @@ async def test_ensure_skips_existing_marker():
 
 
 @pytest.mark.asyncio
+async def test_ensure_posts_same_day_reminder_once():
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    posted = []
+    noted = []
+
+    async def _notes(oid):
+        return [{"post": "talk_room:zzzz9999 — join: x"}]
+
+    async def _post(token, text):
+        posted.append((token, text))
+        return True
+
+    async def _note(oid, note, *, entity="Lead"):
+        noted.append(note)
+        return True
+
+    fake_dt = SimpleNamespace(now=lambda tz: SimpleNamespace(hour=12))
+    with (
+        patch.object(MN, "_enabled", return_value=True),
+        patch.object(MN.espo, "list_all", new=AsyncMock(return_value=[_opp(closeDate=today)])),
+        patch.object(MN, "_opp_notes", new=_notes),
+        patch.object(MN.talk, "post_to_room", new=_post),
+        patch.object(MN.espo, "add_lead_note", new=_note),
+        patch.object(MN, "datetime", fake_dt),
+    ):
+        out = await MN.ensure_consult_rooms(session_factory=lambda: _Session())
+    assert out["reminded"] == 1
+    assert posted and "recording" in posted[0][1]
+    assert noted and noted[0].startswith("room_reminder:")
+
+
+@pytest.mark.asyncio
+async def test_ensure_reminder_skipped_at_night_and_when_deduped():
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    posted = []
+
+    async def _post(token, text):
+        posted.append(text)
+        return True
+
+    # Night (hour 2) → no reminder
+    fake_night = SimpleNamespace(now=lambda tz: SimpleNamespace(hour=2))
+    with (
+        patch.object(MN, "_enabled", return_value=True),
+        patch.object(MN.espo, "list_all", new=AsyncMock(return_value=[_opp(closeDate=today)])),
+        patch.object(MN, "_opp_notes", new=AsyncMock(return_value=[{"post": "talk_room:zzzz9999"}])),
+        patch.object(MN.talk, "post_to_room", new=_post),
+        patch.object(MN.espo, "add_lead_note", new=AsyncMock(return_value=True)),
+        patch.object(MN, "datetime", fake_night),
+    ):
+        out = await MN.ensure_consult_rooms(session_factory=lambda: _Session())
+    assert out["reminded"] == 0 and posted == []
+
+    # Daytime but reminder marker already present → no second reminder
+    fake_noon = SimpleNamespace(now=lambda tz: SimpleNamespace(hour=12))
+    with (
+        patch.object(MN, "_enabled", return_value=True),
+        patch.object(MN.espo, "list_all", new=AsyncMock(return_value=[_opp(closeDate=today)])),
+        patch.object(
+            MN,
+            "_opp_notes",
+            new=AsyncMock(return_value=[{"post": "talk_room:zzzz9999"}, {"post": "room_reminder:zzzz9999 done"}]),
+        ),
+        patch.object(MN.talk, "post_to_room", new=_post),
+        patch.object(MN.espo, "add_lead_note", new=AsyncMock(return_value=True)),
+        patch.object(MN, "datetime", fake_noon),
+    ):
+        out = await MN.ensure_consult_rooms(session_factory=lambda: _Session())
+    assert out["reminded"] == 0 and posted == []
+
+
+@pytest.mark.asyncio
+async def test_process_records_file_param_drift_in_skip_note():
+    notes = []
+
+    async def _add_note(oid, note, *, entity="Lead"):
+        notes.append(note)
+        return True
+
+    messages = [
+        {"id": 1, "message": "hi"},
+        {"id": 2, "messageParameters": {"file": {"id": 5, "name": "photo.png", "extraField": "x"}}},
+    ]
+    with (
+        patch.object(MN, "_enabled", return_value=True),
+        patch.object(MN.espo, "list_all", new=AsyncMock(return_value=[_opp(closeDate="2020-01-01")])),
+        patch.object(MN, "_opp_has_marker", new=AsyncMock(return_value=False)),
+        patch.object(MN, "_find_room_token", new=AsyncMock(return_value="abc12345")),
+        patch.object(MN.talk, "list_room_messages", new=AsyncMock(return_value=messages)),
+        patch.object(MN.espo, "add_lead_note", new=_add_note),
+    ):
+        out = await MN.process_meeting_notes(session_factory=lambda: _Session())
+    assert out["no_recording"] == 1
+    assert notes and "file-params seen:" in notes[0] and "extraField" in notes[0]
+
+
+@pytest.mark.asyncio
 async def test_ensure_skips_past_meetings():
     create = AsyncMock()
     with (
@@ -401,11 +502,134 @@ async def test_process_skips_future_opps():
 @pytest.mark.asyncio
 async def test_run_sweep_composes_both():
     with (
+        patch.object(MN, "pipeline_preflight", new=AsyncMock(return_value={"ok": True})),
         patch.object(MN, "ensure_consult_rooms", new=AsyncMock(return_value={"created": 1})),
         patch.object(MN, "process_meeting_notes", new=AsyncMock(return_value={"checked": 2})),
     ):
         out = await MN.run_meeting_notes_sweep(session_factory=lambda: _Session())
-    assert out == {"ensure": {"created": 1}, "process": {"checked": 2}}
+    assert out["preflight"] == {"ok": True}
+    assert out["ensure"] == {"created": 1}
+    assert out["process"] == {"checked": 2}
+
+
+# ── provision_consult_room (booking-time + webhook shared path) ────────
+
+
+@pytest.mark.asyncio
+async def test_provision_reuses_existing_lead_marker():
+    async def _lead(email):
+        return "lead-1"
+
+    async def _notes(entity, **kw):
+        return [{"post": "talk_room:zzzz9999 — join: https://x/call/zzzz9999"}]
+
+    create = AsyncMock()
+    with (
+        patch.object(MN.talk, "talk_enabled", return_value=True),
+        patch.object(MN, "_lead_id_for_email", new=_lead),
+        patch.object(MN.espo, "list_all", new=_notes),
+        patch.object(MN.talk, "create_room", new=create),
+        patch.object(MN.talk, "room_url", return_value="https://cloud.cloudless.gr/call/zzzz9999"),
+    ):
+        out = await MN.provision_consult_room(name="A B", email="a@b.c", start="2026-11-20")
+    assert out == {"token": "zzzz9999", "url": "https://cloud.cloudless.gr/call/zzzz9999", "reused": True}
+    create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_provision_creates_room_and_writes_marker():
+    seen = {}
+
+    async def _upsert(data):
+        seen["lead"] = data
+        return "lead-9"
+
+    async def _note(eid, note, *, entity="Lead"):
+        seen["note"] = note
+        return True
+
+    with (
+        patch.object(MN.talk, "talk_enabled", return_value=True),
+        patch.object(MN, "_lead_id_for_email", new=AsyncMock(return_value=None)),
+        patch.object(MN.talk, "create_room", new=AsyncMock(return_value="abc12345")),
+        patch.object(MN.talk, "post_to_room", new=AsyncMock(return_value=True)),
+        patch.object(MN.talk, "room_url", return_value="https://cloud.cloudless.gr/call/abc12345"),
+        patch.object(MN.espo, "upsert_lead", new=_upsert),
+        patch.object(MN.espo, "add_lead_note", new=_note),
+    ):
+        out = await MN.provision_consult_room(name="Jane Doe", email="j@x.com", start="2026-11-20T10:00")
+    assert out["token"] == "abc12345" and out["reused"] is False
+    assert "talk_room:abc12345" in seen["lead"]["description"]
+    assert seen["lead"]["firstName"] == "Jane"
+    assert seen["note"].startswith("talk_room:abc12345")
+
+
+@pytest.mark.asyncio
+async def test_provision_disabled_returns_none():
+    with patch.object(MN.talk, "talk_enabled", return_value=False):
+        assert await MN.provision_consult_room(name="x", email="y") is None
+
+
+# ── pipeline_preflight ─────────────────────────────────────────────────
+
+
+def _preflight_settings(**over):
+    base = dict(
+        NEXTCLOUD_TALK_NOTIFY=True,
+        NEXTCLOUD_USERNAME="u",
+        NEXTCLOUD_APP_PASSWORD="p",
+        NEXTCLOUD_DAV_URL="https://cloud.cloudless.gr/remote.php/dav/files/u",
+        NEXTCLOUD_BASE_URL="",
+        NEXTCLOUD_TALK_ROOM="room-ops",
+        CLOUDFLARE_ACCOUNT_ID="acc",
+        CLOUDFLARE_AI_API_TOKEN="tok",
+        CLOUDFLARE_API_TOKEN="",
+        DMR_MID_MODEL="model",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_preflight_all_ok():
+    with (
+        patch.object(MN.talk, "talk_enabled", return_value=True),
+        patch.object(MN.talk, "ping", new=AsyncMock(return_value=True)),
+        patch.object(MN.espo, "configured", return_value=True),
+        patch("app.core.config.get_settings", return_value=_preflight_settings()),
+        patch("shutil.which", return_value="/usr/bin/ffmpeg"),
+    ):
+        out = await MN.pipeline_preflight()
+    assert out["ok"] is True and out["degraded"] == []
+
+
+@pytest.mark.asyncio
+async def test_preflight_degraded_posts_alert():
+    posted = []
+
+    async def _post(text, purpose="digest"):
+        posted.append((text, purpose))
+        return True
+
+    with (
+        patch.object(MN.talk, "talk_enabled", return_value=True),
+        patch.object(MN.talk, "ping", new=AsyncMock(return_value=True)),
+        patch.object(MN.talk, "post_to_talk", new=_post),
+        patch.object(MN.espo, "configured", return_value=True),
+        patch(
+            "app.core.config.get_settings",
+            return_value=_preflight_settings(
+                CLOUDFLARE_ACCOUNT_ID="",
+                CLOUDFLARE_AI_API_TOKEN="",
+                CLOUDFLARE_API_TOKEN="",
+            ),
+        ),
+        patch("shutil.which", return_value=None),
+    ):
+        out = await MN.pipeline_preflight()
+    assert out["ok"] is False
+    assert "ffmpeg" in out["degraded"] and "whisper_creds" in out["degraded"]
+    assert posted and posted[0][1] == "alerts" and "degraded" in posted[0][0]
 
 
 # ── helper coverage: notes/lead/contact lookups ───────────────────────
