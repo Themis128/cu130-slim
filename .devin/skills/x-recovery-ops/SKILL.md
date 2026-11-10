@@ -58,6 +58,14 @@ nohup python3 .devin/skills/x-recovery-ops/scripts/x_finalize_watch.py > x_final
   (timeout/crash/kill), so coverage is indefinite rather than the daemon's
   12h `X_MAX_SECONDS` window. Run both hidden; killing `x_daemon` is safe —
   the supervisor respawns it with the current on-disk code.
+- **Phone/SMS checkpoints are automated** via `x_phone_bridge.py` —
+  daemon writes `x_phone_needed.json` on `C:\Users\tbaltzakis\`, the WSL
+  cron (`*/2min`, user crontab) reads the newest X/Twitter SMS through the
+  adb content-provider lane (Galaxy S22+, proven in wa_verify.py) with a
+  Termux-SSH fallback, and writes `x_phone_code.json` back. The daemon
+  fills + submits. X-only sender filter — never falls back to unrelated
+  SMS codes. Requires: phone on WiFi with USB/wireless ADB authorized
+  (`adb devices` shows the device).
 - **Telegram alerts** — `alert()` posts to `x_tg_alert.json`
   `{"token","chat"}` (ops channel); silent when absent. Fires on DONE,
   oauth failure, daemon timeout, Arkose detect/solve, and 3x unrecognized
