@@ -105,6 +105,18 @@ async def _sweep() -> dict:
             inside = dead or (exp is not None and exp <= now + lead)
             if not inside:
                 continue
+            if dead:
+                # Chronic dead-token warning — dedupe to once/day like reauth.
+                last = md.get("reauth_escalated_at")
+                if last:
+                    try:
+                        if now - datetime.fromisoformat(str(last)) < _REAUTH_DEDUP:
+                            continue
+                    except ValueError:
+                        pass
+                md["reauth_escalated_at"] = now.isoformat()
+                acc.meta_data = md
+                dirty = True
             report["warn"].append(
                 {
                     "platform": plat,
