@@ -374,6 +374,9 @@ def test_sweep_final_attempt_uses_on_topic_background(monkeypatch):
     assert out["healed"] == 1
     cf_bg.assert_called_once()
     assert "professional business photography concept" in cf_bg.call_args[0][0]
+    # Regression: CF_TXT2IMG_FREE is a str — passing [0] sent "@" and every
+    # creative-path txt2img 400'd (live battle test 2026-11-10).
+    assert cf_bg.call_args[0][1] == M.CF_TXT2IMG_FREE
     qa_bg.assert_called_once()
     # compose_branded_slide receives the QA'd background as first arg
     assert compose.call_args[0][0] is bg_obj
