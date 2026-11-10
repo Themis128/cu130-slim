@@ -34,6 +34,7 @@ Read `social-content-core` first.
 <!-- PLATFORM-FIT:BEGIN facebook -->
 ### What the Facebook audience/algorithm favors
 - Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.
+- 2026 signals: predicted engagement and time spent on content outrank clicks — earn attention, not just link taps.
 - Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane.
 
 <!-- PLATFORM-FIT:END -->
