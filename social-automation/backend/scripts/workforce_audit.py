@@ -514,6 +514,24 @@ WORKFORCE = [
         evidence=[],
     ),
     Worker(
+        "talk-meeting-notes",
+        "app.worker.tasks.meeting_notes.run_meeting_notes_sweep",
+        "default",
+        1800,  # every 30 min
+        goal="Every consultation gets a Talk room; every recorded call becomes CRM minutes",
+        guardrails=(
+            "rooms are public-type but token-gated links — no passwords stored",
+            "minutes cite only what the transcript supports — never invented commitments",
+            "recording consent is announced in the room welcome message",
+            "marker notes dedupe — no duplicate rooms or repeated transcription",
+        ),
+        autonomy="auto",
+        fallback="opportunity keeps Google Meet link only; next 30-min sweep retries",
+        demand_driven=True,
+        evidence=[],  # artifacts live in EspoCRM/Talk — outside Postgres
+        pending_sql="SELECT 0",  # demand is EspoCRM-side (appointmentsscheduled opps)
+    ),
+    Worker(
         "analytics-digest",
         "app.worker.tasks.notebooks.run_weekly_analytics",
         "default",
