@@ -75,11 +75,46 @@ gone.
 - meta_system_user.py vault target cloudless-gate:fb-system-user is EMPTY
   (CredReadW miss) — the "already minted" system-user token was never
   persisted; re-mint once WABA is reachable.
-- IG profile website link: watcher armed — .devin/skills/ig-phone-config/
-  scripts/ig_link_watch.py polls cover state and drives the app flow on
-  unfold (PR #1612). Web edit confirmed dead-end (disabled field).
+- IG profile website link: VERIFIED DONE 2026-11-10 — Links row already
+  contains "Cloudless - cloud services + pricing → cloudless.gr/links"
+  (plus Portfolio → baltzakisthemis.com). ig_link_watch.py killed.
 - TikTok website (#789): field requires 1k followers OR business verify —
   account has 4 followers; captcha was secondary. Growth lane only.
+
+## 2026-11-10 (late) — WhatsApp coexistence state (verified live)
+
+- NEW assets created in cloudless.gr portfolio via Business Settings
+  wizard: WAAC `1805020980543501` ("Cloudless", Prof. Services) +
+  Messaging account `1717901383017723` (status ACTIVE) + phone number
+  ID `1432734783254091` (+30 697 777 7838, code_verification_status =
+  NOT_VERIFIED, verified_name "Cloudless"). Old WABA
+  1073707258453499 / phone_number_id 1334613883061552 remain orphaned.
+- WhatsApp Manager (business.facebook.com/latest/whatsapp_manager/
+  phone_numbers/?business_id=1558125105019725&asset_id=1717901383017723)
+  shows "1 WhatsApp account is linked" — the WA Business app
+  (com.whatsapp.w4b) initiated Settings→Account→Business Platform→
+  "Connect to the Business Platform" and a link record exists
+  (Activity log: Messaging Account event 19:32). "Connect WhatsApp
+  account" button errors "can only be linked to one WhatsApp account" —
+  i.e. link already registered.
+- App is parked at "Unlock to link — Scan your fingerprint / Use PIN"
+  then QR/access-code screen. REMAINING HUMAN GATE: one fingerprint
+  (or WA PIN) touch on the phone.
+- OPEN QUESTION: whether the app completes automatically after unlock
+  (platform-side link already exists) or still demands the access code.
+  Per Meta docs the coexistence code/QR is generated ONLY inside a
+  Tech Provider / Solution Partner Embedded Signup popup ("you must
+  already be a Solution Partner or Tech Provider") — our Meta app is
+  NOT one (WABA create → "Application does not have the capability").
+  If the app demands a code after unlock, options: (a) BSP embedded
+  signup — 360dialog/Gupshup/Bird, WABA lands in our portfolio but API
+  goes through their gateway; (b) disconnect app account → SMS verify
+  (wa_code_watch.py armed) → direct Cloud API registration — loses app
+  chats; (c) Tech Provider application (slow).
+- After unlock: poll Graph `1432734783254091?fields=code_verification_status`
+  with META_ACCESS_TOKEN; expect VERIFIED + then register/subscribe
+  webhook + set WHATSAPP_PHONE_NUMBER_ID=1432734783254091,
+  WHATSAPP_BUSINESS_ACCOUNT_ID=1717901383017723 in .env/Infisical.
 
 ## Open — external human gates
 
