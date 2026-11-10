@@ -36,6 +36,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -971,7 +972,8 @@ async def audit() -> dict:
     }
     async with async_session_maker() as db:
         for w in WORKFORCE:
-            entry = {
+            governed = bool(w.goal and w.guardrails and w.fallback)
+            entry: dict[str, Any] = {
                 "name": w.name,
                 "task": w.task or "(composite)",
                 "queue": w.queue,
@@ -982,7 +984,7 @@ async def audit() -> dict:
                     "autonomy": w.autonomy,
                     "guardrails": list(w.guardrails),
                     "fallback": w.fallback,
-                    "complete": bool(w.goal and w.guardrails and w.fallback),
+                    "complete": governed,
                 },
                 "evidence": [],
                 "escalations": [],
@@ -990,7 +992,7 @@ async def audit() -> dict:
                 "scheduled": w.scheduled,
                 "presence": w.queue in live_queues,
             }
-            if not entry["governance"]["complete"]:
+            if not governed:
                 entry["status"] = "ungoverned"
             pending = None
             if w.pending_sql:
