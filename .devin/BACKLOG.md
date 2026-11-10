@@ -719,55 +719,25 @@ Leftovers:
 - pr-ci-fix-watch.py (home-ops cron, */15) now auto-fixes ruff + alembic
   multi-head/can't-locate failures and Telegram-alerts #ops on the rest.
 
-## 2026-11-10 — auto-engage pipeline wired + quality floors (Devin, PR #1578)
+## 2026-11-10 — report leftovers + token automation (Devin, PR #1575)
 
-- The outbound engagement engine (`app/services/engagement.py` +
-  `app/worker/tasks/engagement*.py`) was fully built but DEAD: no beat
-  entries, and 6 task modules missing from Celery `include` (unregistered).
-  `AUTONOMY_LEVEL=3` was already live in `.env`/containers — the gate dial
-  worked, nothing ever reached it.
-- PR #1578 registers `engagement_ingest{,_li,_tt,_ig,_fb}`,
-  `engagement_tiers`, `engagement_archive` (default queue) and adds beat
-  entries: `engagement-dispatch` */10m, feed ingests hourly (X :45,
-  LI :20, IG :35, TT :15/:45, FB :0/:30 per module docstrings), tiers
-  daily 07:30, ledger compact daily 04:10.
-- Quality floors added (user directive "seo and nlp scores over 8"):
-  `quality_gate()` in services/engagement.py requires
-  `score_content().overall` AND `sofia_nlp_score()` >= floor, both 0-100.
-  - Target posts: `ENGAGE_MIN_SCORE` env, default **80** — checked in
-    `queue_engagement` before scoring.
-  - Generated 3C drafts: `DRAFT_MIN_SCORE` env, default **65** — drafts
-    are 15-45 words so post-oriented SEO caps ~70 (measured: good draft
-    = SEO 70 / NLP 77; full post = 89/75). Floor 80 would reject EVERY
-    draft. Fail → one LLM retry with scores fed back → `quality_failed`
-    (never gate-pinged, never dispatched).
-  - `0` disables either floor. Tests: autouse fixture sets both to 0;
-    dedicated gate tests in test_engagement_{service,tasks}.py.
-- Post-merge verify: `celery -A app.worker.celery_app inspect scheduled`
-  shows the 8 engagement entries; watch first `dispatch_engagements` runs
-  — FB/IG/TT go through the browser bridge and may return `pending_actor`
-  skips if sidecars are asleep (stack-ops wakes on connect).
-- Tuning knob if funnel starves: `ENGAGE_MIN_SCORE` in `.env` (LinkedIn
-  posts without 3-5 hashtags lose ~15 pts on the hashtag component).
-
-## 2026-11-10 — TikTok reauth root-caused: orphaned account_id, not a consent problem (Devin)
-
-- `tiktok_reauth.py` v2: sidecar identity pre-flight (passport probe),
-  gate detection (captcha/login-wall → rc=3 early), per-target post-verify,
-  DOM-dump + screenshot diagnostics on failure, orphan detection.
-- ROOT CAUSE of the endless rc=4 loop: the expired row's `account_id`
-  (open_id `-000lqpsmr…`, username `cloudless.gr`) is ORPHANED — OAuth for
-  @cloudless.gr now resolves to `-0008cAvjha…` (the active row created
-  2026-11-07, likely client_key/app rotation or account recreation).
-  open_id is deterministic per user+client_key → NO consent flow can ever
-  re-authorize `-000lqpsmr…`; its refresh token is dead ("invalid or
-  expired" every token_refresh run → hourly Slack noise too).
-- Live-verified 2026-11-10: fresh authorize URL auto-redirected to callback
-  with NO click (consent pre-granted) → refreshed `-0008cAvjha…` row.
-- Remediation applied: stale row `dcda73fb…` set `status='revoked'` +
-  meta_data.revoked_reason — stops token_refresh retries, reauth cron
-  targeting, and needs_reauth() firing. Reversible via reconnect.
-- Cron wrapper `~/scripts/tiktok-reauth-cron.sh`: ships /tmp PNGs to
-  ~/logs/, alerts now carry the script's reason line, timeout 300→420s.
-- Follow-up: watch next cron run — should print "no tiktok account needs
-  re-auth" (rc=0) now that the zombie row is revoked.
+- OMV pending config applied (phpfpm) via omv-apply-pending run 42752557563.
+- social-cloudflared was Exited(127) ~1h — stale Docker Desktop bind-mount
+  on entrypoint.sh → Cloudflare Tunnel 1033 killed ALL OAuth callbacks
+  (TikTok re-auth "finished-with-error"). Recreated via
+  `docker compose up -d --no-deps --force-recreate cloudflared`.
+- Token-expiry sweep blind spot fixed in #1575: expired/revoked accounts
+  were invisible (only active/connected scanned, meta-only expiry, `x` vs
+  `twitter` name mismatch). Now column-expiry fallback + 24h dedupe.
+- `scripts/tiktok_reauth.py` (merged #1571) was never scheduled — wired
+  into beat hourly in #1575.
+- Human gates (auto-escalated now, still need a click):
+  X + Instagram + Threads (bridge sessions logged out after novnc restart;
+  X web cookies not stored anywhere), WhatsApp phone verify
+  (payment+code in Meta Business), Facebook personal user-token,
+  TikTok `cloudless.gr` row (sidecar is logged into the other TikTok
+  account — `docker compose exec social-api python
+  scripts/tiktok_reauth.py` can't reach it).
+- PR #1574 (account-connected mail spam fix) merged; social-api restarted.
+- After #1575 merges: `git pull && docker compose restart celery-beat
+  social-worker-default` to load the new beat schedule + task.
