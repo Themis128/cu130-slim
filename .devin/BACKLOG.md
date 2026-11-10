@@ -718,3 +718,34 @@ Leftovers:
   down_revision = master head `s9p9r8s7t6u5` — merge stays linear.
 - pr-ci-fix-watch.py (home-ops cron, */15) now auto-fixes ruff + alembic
   multi-head/can't-locate failures and Telegram-alerts #ops on the rest.
+
+## 2026-11-10 — auto-engage pipeline wired + quality floors (Devin, PR #1578)
+
+- The outbound engagement engine (`app/services/engagement.py` +
+  `app/worker/tasks/engagement*.py`) was fully built but DEAD: no beat
+  entries, and 6 task modules missing from Celery `include` (unregistered).
+  `AUTONOMY_LEVEL=3` was already live in `.env`/containers — the gate dial
+  worked, nothing ever reached it.
+- PR #1578 registers `engagement_ingest{,_li,_tt,_ig,_fb}`,
+  `engagement_tiers`, `engagement_archive` (default queue) and adds beat
+  entries: `engagement-dispatch` */10m, feed ingests hourly (X :45,
+  LI :20, IG :35, TT :15/:45, FB :0/:30 per module docstrings), tiers
+  daily 07:30, ledger compact daily 04:10.
+- Quality floors added (user directive "seo and nlp scores over 8"):
+  `quality_gate()` in services/engagement.py requires
+  `score_content().overall` AND `sofia_nlp_score()` >= floor, both 0-100.
+  - Target posts: `ENGAGE_MIN_SCORE` env, default **80** — checked in
+    `queue_engagement` before scoring.
+  - Generated 3C drafts: `DRAFT_MIN_SCORE` env, default **65** — drafts
+    are 15-45 words so post-oriented SEO caps ~70 (measured: good draft
+    = SEO 70 / NLP 77; full post = 89/75). Floor 80 would reject EVERY
+    draft. Fail → one LLM retry with scores fed back → `quality_failed`
+    (never gate-pinged, never dispatched).
+  - `0` disables either floor. Tests: autouse fixture sets both to 0;
+    dedicated gate tests in test_engagement_{service,tasks}.py.
+- Post-merge verify: `celery -A app.worker.celery_app inspect scheduled`
+  shows the 8 engagement entries; watch first `dispatch_engagements` runs
+  — FB/IG/TT go through the browser bridge and may return `pending_actor`
+  skips if sidecars are asleep (stack-ops wakes on connect).
+- Tuning knob if funnel starves: `ENGAGE_MIN_SCORE` in `.env` (LinkedIn
+  posts without 3-5 hashtags lose ~15 pts on the hashtag component).
