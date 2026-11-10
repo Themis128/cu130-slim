@@ -157,10 +157,10 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     # the brand canvas so the image depicts the copy.
                     image_prompt = f"{title}, professional business photography concept"
                     try:
-                        bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+                        bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE)
                         if bg_img is not None:
                             bg_img = await _qa_generated_background(
-                                bg_img, image_prompt, CF_TXT2IMG_FREE[0], "media-heal"
+                                bg_img, image_prompt, CF_TXT2IMG_FREE, "media-heal"
                             )
                     except Exception as exc:
                         logger.info("media-heal bg generation skipped for %s: %s", post.id, exc)
