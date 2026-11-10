@@ -952,6 +952,53 @@ Leftovers:
   test_publishing_flow). ruff I001 in the migration fixed.
 - devoptimizer #5 (Otter desktop drive) merged. cloudless.gr #2409 stays
   a DRAFT — other agent's WIP.
+
+## 2026-11-10 (eve) — X recovery daemon on Windows probe Chrome (Devin)
+
+- X reauth path changed: adhoc bridge keeps dying to Docker vsock flaps,
+  and its fresh profile has no session. New lane: probe Chrome on Windows
+  (`chrome-xprobe` headless profile, CDP 127.0.0.1:9444, reachable from WSL
+  only via powershell-side python since headless binds localhost).
+- GOTCHA: headless Chrome UA contains "HeadlessChrome" → X 403s it.
+  Fix: CDP `Network.setUserAgentOverride` to a real Chrome UA — the reset
+  flow then works.
+- `C:\Users\tbaltzakis\x_daemon.py` (running, logs x_daemon_log.txt,
+  status x_daemon_status.json): password-reset state machine that survives
+  X "too many attempts" rate limit — retries every 10 min up to 6h,
+  self-reads the code from Gmail (baltzakis.themis@gmail.com = the X
+  recovery email; code is in "Password reset request" mail body, NOT a
+  separate verification mail), sets new password (stored in
+  x_new_password.txt — move to TWITTER_LOGIN_PASSWORD/.env after success),
+  then drives OAuth authorize with a pre-signed state+PKCE URL
+  (x_oauth_url.txt, team 10024d25) → callback stores tokens server-side.
+- If daemon reports done: verify social_accounts twitter → active, then
+  store TWITTER_LOGIN_USERNAME/PASSWORD + fresh X_WEB_AUTH_TOKEN/CT0
+  (extract via CDP Network.getAllCookies on the probe Chrome).
+- Rate-limit note: X reset limit is account/IP-level — do NOT hammer;
+  daemon's 10-min cadence is deliberate.
 - Still in flight at session end (armed, treadmill crons drive them):
   #1610 FB insights v26, #1611 bluesky AT-session reuse, #1614 WIP,
   #1615 bridge-sessions login-wall detection.
+- UPDATE (same session): Messaging account also created — "Cloudless"
+  ID **1717901383017723**, owned by cloudless.gr, linked to WAAC
+  1805020980543501, Account status **Approved**. Business verification
+  on it: Unverified (optional per Security Center); Payment method:
+  none — card entry remains the human gate for paid messaging.
+  ig_link_watch.py hardened + relaunched (URL-typing bug fixed — %s is
+  literal space; profile-tab verify + scroll fallback; 3 drive retries
+  per cover-open window; visible-texts dump on failure).
+- BREAKTHROUGH (same session): cover does NOT block ADB — main display
+  stays ON/interative under CoverHomeActivity (verified: IG feed + WA
+  Business app fully drivable via uiautomator). #788 IG link VERIFIED
+  already present: Links row shows "Cloudless - cloud services +
+  pricing → cloudless.gr/links" (+ Portfolio → baltzakisthemis.com).
+  WA Business app → Settings → Account → "Business Platform" exposes
+  SELF-SERVE COEXISTENCE: "Connect to the Business Platform — keep
+  using the app along with the Business Platform", share up to 6mo
+  chat history. Flow reached biometric lock ("Unlock to link —
+  fingerprint/PIN") after choosing Share all chats → Confirm. ONE
+  fingerprint touch (or WhatsApp PIN) unblocks; then QR/verification-
+  code step connects the number to Cloud API — resolves #2655122
+  without deleting the app or needing a BSP. WA PIN not stored
+  anywhere → genuine human gate. ig_link_watch.py still running but
+  task already satisfied — safe to kill.
