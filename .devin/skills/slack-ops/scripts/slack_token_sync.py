@@ -72,6 +72,13 @@ N8N_BUSY_WAIT_S = int(os.environ.get("N8N_BUSY_WAIT_S", "600"))
 # graceful-shutdown window for compose stop — n8n refuses new triggers on
 # SIGTERM and drains in-flight executions for up to this long before SIGKILL
 N8N_STOP_GRACE_S = int(os.environ.get("N8N_STOP_GRACE_S", "120"))
+# infisical-sync.py push upserts dotenv keys into Infisical prod. This script
+# is the producer of truth for the rotating SLACK_BOT_TOKEN — without the
+# mirror below the Infisical copy goes stale every 12h rotation and any
+# Infisical-sourced consumer picks up a dead token (seen 2026-11-10).
+INFISICAL_SYNC = os.environ.get(
+    "INFISICAL_SYNC", "/home/tbaltzakis/home-ops/scripts/infisical-sync.py"
+)
 
 
 def _slack_token_files() -> list[tuple[float, Path]]:
@@ -124,6 +131,44 @@ def _write_env_token(token: str) -> bool:
     if changed:
         ENV_FILE.write_text("\n".join(out) + "\n")
     return changed
+
+
+def _push_token_to_infisical(token: str) -> None:
+    """Best-effort: mirror the live SLACK_BOT_TOKEN into Infisical prod.
+
+    Runs every sync (not only on change) so drift self-heals. Never fails
+    the sync — the next 2h cron run retries.
+    """
+    if not Path(INFISICAL_SYNC).exists():
+        return
+    import tempfile
+
+    tmp = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".env", prefix="slack-token-", delete=False
+        ) as f:
+            f.write(f"SLACK_BOT_TOKEN={token}\n")
+            tmp = f.name
+        r = subprocess.run(
+            ["python3", INFISICAL_SYNC, "push", tmp, "--overwrite"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if r.returncode != 0:
+            print(
+                f"infisical push failed rc={r.returncode}: "
+                f"{r.stderr.strip()[-200:]}",
+                file=sys.stderr,
+            )
+        else:
+            print("infisical: SLACK_BOT_TOKEN mirrored")
+    except Exception as exc:  # noqa: BLE001
+        print(f"infisical push error: {exc}", file=sys.stderr)
+    finally:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
 
 
 def _env_lookup(name: str) -> str | None:
@@ -381,6 +426,7 @@ def main() -> int:
 
     changed = _write_env_token(tok["access_token"])
     print(f"env {'updated' if changed else 'unchanged'}")
+    _push_token_to_infisical(tok["access_token"])
     targets = list(SERVICES) if changed else _pending_services()
     if targets:
         print(
