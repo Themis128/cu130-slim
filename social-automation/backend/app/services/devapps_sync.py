@@ -416,12 +416,15 @@ async def _pull_bluesky(db: AsyncSession, account: SocialAccount, token: str) ->
 
         pds = (account.meta_data or {}).get("pds_url") or "https://bsky.social"
         client = BlueskyClient(account.username or "", token, pds_url=pds)
-        session = await client.create_session()
+        from app.services.bluesky_api import ensure_session, persist_session
+
+        await ensure_session(client, (account.meta_data or {}).get("bsky_session"))
+        persist_session(account, client)
         profile = await client.get_profile()
         insights: dict[str, Any] = {"profile": profile}
         health: dict[str, Any] = {
             "token_valid": True,
-            "did": profile.get("did") or session.get("did"),
+            "did": profile.get("did") or getattr(client, "did", None),
             "handle": profile.get("handle"),
         }
         base.update({"ok": True, "health": health, "insights": insights})

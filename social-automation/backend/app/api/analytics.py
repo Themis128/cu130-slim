@@ -372,12 +372,14 @@ async def _bluesky_follower_count(account: SocialAccount) -> int:
     if account.platform != "bluesky":
         return 0
     try:
-        from app.services.bluesky_api import BlueskyClient
+        from app.services.bluesky_api import BlueskyClient, ensure_session, persist_session
 
         token = decrypt_token(account.access_token_enc)
-        pds = (account.meta_data or {}).get("pds_url") or "https://bsky.social"
+        meta = account.meta_data or {}
+        pds = meta.get("pds_url") or "https://bsky.social"
         client = BlueskyClient(account.username or "", token, pds_url=pds)
-        await client.create_session()
+        await ensure_session(client, meta.get("bsky_session"))
+        persist_session(account, client)
         profile = await client.get_profile()
         return int(profile.get("followersCount") or 0)
     except Exception:
