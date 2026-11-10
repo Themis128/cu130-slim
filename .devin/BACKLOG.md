@@ -795,3 +795,29 @@ Leftovers:
 - LinkedIn ads: report fixed in PR #1581 (account rollup, honest
   spend_unavailable on adAnalytics 403 — token lacks
   partnerApiAdAnalytics scope; durable fix = LinkedIn dev app scope).
+
+## 2026-11-10 — synigoros OTP fix + warm email lanes
+
+- Synigoros monitor (PR #1586, live): session reuse
+  (`session-state.json` storageState) + hourly browser throttle —
+  OTP mails dropped from ~96/day to ≤1/hour worst case, ~0 while the
+  portal session is warm. OTP subjects no longer refresh `lastNews`
+  (was starving the 3-day follow-up rule permanently). Watchdog:
+  `~/scripts/synigoros-otp-watch.py` on user crontab */30 min →
+  Telegram #ops on >2 identifies/2h or >2h silence. Stale
+  `C:\Users\tbaltzakis\synigoros-monitor\` copy archived to
+  `.OBSOLETE-20261110` (schtask reads the WSL checkout via UNC).
+- Email funnels — user directive: warm emails for non-cold audiences.
+  Implemented (PR #1591): `first_approach_warm` drip lane —
+  warm = replied (`In Process` via crm-engagement) or inbound/opt-in
+  source (Web Site, Newsletter, Referral, Lead Magnet, Messenger,
+  WhatsApp Flow, Social Media, Meta/LinkedIn lead gen). Shared dedupe
+  family across lanes; warm template falls back to base copy.
+  Prod template seeded: `First approach - warm follow-up`
+  (id 242483d7-a7b9-4332-b80b-291b60303548).
+- Engagement pipeline live-verified (PR #1578): dispatch ran real
+  actor calls — blocked only by sidecar sessions
+  (`linkedin`/`facebook`/`facebook_sidecar` = `needs_manual_login`
+  per session_healer) — one noVNC login per sidecar unblocks.
+- Pending: #1589 TikTok re-auth rebuild, #1588 master hygiene,
+  #1590 Talk booking, #1591 warm lanes, #1592 session gitignore.
