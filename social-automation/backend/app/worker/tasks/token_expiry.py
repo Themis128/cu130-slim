@@ -31,7 +31,10 @@ _LEAD: dict[str, timedelta] = {
     "threads": timedelta(days=10),
 }
 
-_NON_REFRESHABLE = {"linkedin", "x", "whatsapp"}
+_NON_REFRESHABLE = {"linkedin", "x", "twitter", "whatsapp"}
+
+
+_REAUTH_DEDUP = timedelta(hours=24)
 
 
 async def _sweep() -> dict:
@@ -40,28 +43,77 @@ async def _sweep() -> dict:
     now = datetime.now(UTC)
     report: dict[str, list] = {"warn": [], "reauth": []}
     async with task_session() as db:
-        rows = (await db.execute(select(SocialAccount).where(SocialAccount.status.in_(["active", "connected"])))).scalars().all()
+        rows = (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.status.in_(["active", "connected", "expired", "revoked"])
+                )
+            )
+        ).scalars().all()
+        dirty = False
         for acc in rows:
             plat = (acc.platform or "").lower()
-            md = acc.meta_data or {}
+            md = dict(acc.meta_data or {})
             raw = md.get("expires_at") or md.get("token_expires_at")
-            if not raw:
-                continue
-            try:
-                exp = datetime.fromisoformat(str(raw))
-                if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=UTC)
-            except ValueError:
-                continue
+            col_exp = getattr(acc, "token_expires_at", None)
+            if not raw and col_exp:
+                raw = col_exp.isoformat()
+            exp = None
+            if raw:
+                try:
+                    exp = datetime.fromisoformat(str(raw))
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=UTC)
+                except ValueError:
+                    exp = None
+            dead = acc.status in ("expired", "revoked")
             lead = _LEAD.get(plat)
-            if lead is None or exp > now + lead:
+            if plat in _NON_REFRESHABLE:
+                if dead or (exp and exp <= now):
+                    pass  # reauth candidate below
+                elif lead and exp and exp <= now + lead:
+                    report["warn"].append(
+                        {
+                            "platform": plat,
+                            "account": acc.username or str(acc.id),
+                            "expires": exp.isoformat(),
+                        }
+                    )
+                    continue
+                else:
+                    continue
+                last = md.get("reauth_escalated_at")
+                if last:
+                    try:
+                        if now - datetime.fromisoformat(str(last)) < _REAUTH_DEDUP:
+                            continue
+                    except ValueError:
+                        pass
+                md["reauth_escalated_at"] = now.isoformat()
+                acc.meta_data = md
+                dirty = True
+                report["reauth"].append(
+                    {
+                        "platform": plat,
+                        "account": acc.username or str(acc.id),
+                        "expires": exp.isoformat() if exp else "n/a",
+                    }
+                )
                 continue
-            entry = {
-                "platform": plat,
-                "account": acc.username or str(acc.id),
-                "expires": exp.isoformat(),
-            }
-            report["reauth" if (plat in _NON_REFRESHABLE and exp <= now) else "warn"].append(entry)
+            if lead is None:
+                continue
+            inside = dead or (exp is not None and exp <= now + lead)
+            if not inside:
+                continue
+            report["warn"].append(
+                {
+                    "platform": plat,
+                    "account": acc.username or str(acc.id),
+                    "expires": exp.isoformat() if exp else "n/a",
+                }
+            )
+        if dirty:
+            await db.commit()
     return report
 
 
