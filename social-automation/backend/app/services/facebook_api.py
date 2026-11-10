@@ -411,7 +411,7 @@ class FacebookAPIClient:
 
     async def get_page_insights(
         self,
-        metric: str = "page_impressions_unique",
+        metric: str = "page_views_total",
         period: str = "day",
         since: str | None = None,
         until: str | None = None,

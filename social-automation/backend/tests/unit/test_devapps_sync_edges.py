@@ -62,7 +62,7 @@ async def test_pull_facebook_section_errors(monkeypatch: pytest.MonkeyPatch) -> 
             "app.services.analytics_sync._meta_insights_get",
             AsyncMock(side_effect=RuntimeError("insights boom")),
         )
-        out = await ds._pull_facebook(None, _account("facebook"), "tok")
+        out = await ds._pull_facebook(None, _account("facebook", account_type="page"), "tok")
     assert out["ok"] is True
     assert out["health"]["token_valid"] is False
     assert "debug_error" in out["health"]
@@ -86,7 +86,7 @@ async def test_pull_facebook_insights_row_edges() -> None:
                 },
             )
         )
-        out = await ds._pull_facebook(None, _account("facebook"), "tok")
+        out = await ds._pull_facebook(None, _account("facebook", account_type="page"), "tok")
     ins = out["insights"]
     assert "empty_metric_7d" not in ins
     assert ins["short_metric_7d"] == 3
