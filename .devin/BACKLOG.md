@@ -841,3 +841,27 @@ Leftovers:
   per session_healer) — one noVNC login per sidecar unblocks.
 - Pending: #1589 TikTok re-auth rebuild, #1588 master hygiene,
   #1590 Talk booking, #1591 warm lanes, #1592 session gitignore.
+
+## 2026-11-10 — PR sweep: all repos cleared (Devin)
+
+- cu130-slim: every open PR landed — #1590 (Talk booking-time room
+  provisioning + consult-room endpoint), #1591 (warm/cold drip lanes),
+  #1594 (TikTok re-auth beat + token-expiry blind spot), plus healer PRs
+  #1595-#1600 that merged during the sweep.
+- Fixes applied en route: `/api/v1/talk/consult-room` added to
+  `docs/api-surface-inventory.md` (integration-test gate); coverage gate
+  (99.0% line) recovered via new unit tests — `test_talk_rooms.py`,
+  webhook provisioning + preflight-disabled cases, and
+  `test_worker_task_wrappers_cov.py` (slack-ops-journal / nextcloud-docs /
+  tiktok-reauth alert wrappers). The merged #1594 had pushed repo
+  coverage under the gate — margin is still thin, keep new-code coverage
+  near 100%.
+- cloudless.gr #2408 (consultation Talk join link) merged — fixed a real
+  Sentry MEDIUM (provisionTalkRoom's 8s budget only covered the final
+  fetch; now `Promise.race` bounds config+login+retry) and resolved the
+  second Sentry thread as a false positive (provision is awaited before
+  `bookConsultation`, so the webhook dedupe marker always exists first).
+- devoptimizer #4 (Otter notes toggle) merged.
+- Follow-up (watch): the `test`/coverage gate is a hair-thin margin —
+  any PR adding uncovered code now blocks the treadmill until tests are
+  added; master itself hovers ~99.0%.
