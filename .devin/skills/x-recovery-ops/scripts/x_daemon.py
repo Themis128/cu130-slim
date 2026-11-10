@@ -195,6 +195,80 @@ def detect(pg):
         return "method_step"
     return "unknown"
 
+def arkose_info(pg):
+    """Detect an Arkose/FunCaptcha challenge; return {pkey, blob} or None."""
+    try:
+        r = pg.ev("""(()=>{
+          const f=[...document.querySelectorAll('iframe')].find(i=>/arkose|funcaptcha|challenge/i.test(i.src||''));
+          const pk=(document.querySelector('[data-pkey]')||{}).dataset?.pkey
+            ||(f&&new URLSearchParams(f.src.split('?')[1]||'').get('pkey'))
+            ||(window.arkose&&window.arkose.setup&&window.arkose.setup.publicKey);
+          const blob=(document.querySelector('[data-blob]')||{}).dataset?.blob||'';
+          if(!pk&&!f)return null;
+          return JSON.stringify({pkey:pk||'',blob:String(blob).slice(0,4000),src:f?f.src.slice(0,200):''})})()""")
+        if not r or r in ("null", "undefined") or str(r).startswith("__ERR__"):
+            return None
+        d = json.loads(r) if isinstance(r, str) else r
+        return d if d.get("pkey") or d.get("src") else None
+    except Exception:
+        return None
+
+def capsolver_solve(website_url, pkey, blob=""):
+    """Solve FunCaptcha via capsolver.com. Needs x_capsolver.json {api_key}.
+    Returns token or None. ~$0.001-0.003 per solve."""
+    try:
+        cfg = json.load(open(os.path.join(DIR, "x_capsolver.json")))
+        key = cfg["api_key"]
+    except Exception:
+        return None
+    task = {"type": "FunCaptchaTaskProxyless", "websiteURL": website_url,
+            "websitePublicKey": pkey}
+    if blob:
+        task["data"] = blob
+    try:
+        r = json.loads(urllib.request.urlopen(urllib.request.Request(
+            "https://api.capsolver.com/createTask",
+            data=json.dumps({"clientKey": key, "task": task}).encode(),
+            headers={"Content-Type": "application/json"}), timeout=30).read())
+        tid = r.get("taskId")
+        if not tid:
+            log("capsolver createTask:", str(r)[:200]); return None
+        for _ in range(30):
+            time.sleep(3)
+            g = json.loads(urllib.request.urlopen(urllib.request.Request(
+                "https://api.capsolver.com/getTaskResult",
+                data=json.dumps({"clientKey": key, "taskId": tid}).encode(),
+                headers={"Content-Type": "application/json"}), timeout=30).read())
+            if g.get("status") == "ready":
+                return (g.get("solution") or {}).get("token")
+            if g.get("status") not in ("processing", "idle"):
+                log("capsolver status:", str(g)[:200]); return None
+        return None
+    except Exception as e:
+        log("capsolver err:", e); return None
+
+def inject_arkose_token(pg, token):
+    """Best-effort token injection — X's enforcement expects the solved token
+    on the arkose callback path. Try the known surfaces; log what existed."""
+    return pg.ev("""((token)=>{
+      const out=[];
+      // 1. hidden fc-token inputs some flows use
+      document.querySelectorAll('input[name*=fc],input[name*=captcha],input[name*=token]')
+        .forEach(i=>{i.value=token;i.dispatchEvent(new Event('input',{bubbles:true}))});
+      // 2. postMessage to arkose iframe (enforcement->parent contract)
+      document.querySelectorAll('iframe').forEach(f=>{
+        if(/arkose|funcaptcha|challenge/i.test(f.src||'')){
+          try{f.contentWindow.postMessage(JSON.stringify({eventId:'challenge-complete',payload:{token}}),'*')}catch(e){}
+          try{f.contentWindow.postMessage(token,'*')}catch(e){}
+        }});
+      // 3. window-level callbacks X/arkose may have registered
+      for(const k of ['arkoseCallback','fcCallback','captchaCallback','onCaptchaSuccess']){
+        if(typeof window[k]==='function'){try{window[k](token);out.push(k)}catch(e){}}
+      }
+      // 4. enforcement object if exposed
+      try{if(window.arkoselabs&&window.arkoselabs.setToken){window.arkoselabs.setToken(token);out.push('arkoselabs')} }catch(e){}
+      return out.length?('inj:'+out.join(',')):'no-surface'})(%s)""" % json.dumps(token))
+
 def reset_attempt(pg):
     """One pass through the reset state machine. Returns 'done'|'retry'|'wait_code'."""
     state = detect(pg)
@@ -275,6 +349,7 @@ def main():
     log("=== x_daemon start ===")
     flow_start_ms = int(time.time() * 1000) - 3600000  # accept codes from last hour
     unknown_streak = 0
+    last_arkose_sig = None
     while time.time() - t0 < MAX_SECONDS:
         try:
             pg = PG()
@@ -317,12 +392,29 @@ def main():
                 if r == "unknown_state":
                     t = pg.txt(300)
                     log("unknown state text:", t[:200])
+                    # Arkose/FunCaptcha? try paid solver if key configured
+                    ark = arkose_info(pg)
+                    if ark:
+                        sig = (ark.get("pkey") or "")[:24] + "|" + pg.url()[:60]
+                        if sig != last_arkose_sig:
+                            last_arkose_sig = sig
+                            log("arkose detected pkey=", (ark.get("pkey") or "")[:16],
+                                "blob=", len(ark.get("blob") or ""))
+                            tok = capsolver_solve(pg.url(), ark.get("pkey") or "", ark.get("blob") or "")
+                            if tok:
+                                res = inject_arkose_token(pg, tok)
+                                log("arkose inject:", res)
+                                alert(f"Arkose challenge — solver token injected ({res}); watching for advance")
+                            else:
+                                alert("Arkose challenge detected — no capsolver key (x_capsolver.json) or solve failed; human needed")
+                        time.sleep(10)
+                        continue
                     # maybe logged-in landing — check
                     if logged_in(pg):
                         break
                     unknown_streak += 1
                     if unknown_streak == 3:
-                        alert(f"stuck on unrecognized X screen x3 — likely a human factor (Arkose/phone/checkpoint). url={pg.url()[:100]} text={t[:150]}")
+                        alert(f"stuck on unrecognized X screen x3 — likely a human factor (phone/checkpoint). url={pg.url()[:100]} text={t[:150]}")
                     time.sleep(15)
                     continue
                 unknown_streak = 0
