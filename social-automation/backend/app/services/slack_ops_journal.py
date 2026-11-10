@@ -46,7 +46,7 @@ _DEFAULT_CHANNELS = {
 
 _WINDOW_S = 24 * 3600
 _MAX_PER_CHANNEL = 15
-_NOTE_CATEGORY = "Ops"
+_NOTE_CATEGORY = "ops"
 
 # severity markers scanned in message text + attachment fallback
 _INCIDENT_MARKERS = (
