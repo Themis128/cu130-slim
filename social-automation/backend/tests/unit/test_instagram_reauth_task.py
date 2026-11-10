@@ -80,3 +80,17 @@ def test_rc_other_alerts_failure(monkeypatch, tmp_path, alerts):
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Proc(4, "flow died"))
     assert T.run_instagram_reauth()["status"] == "rc4"
     assert len(alerts) == 1
+
+
+def test_alert_swallows_slack_failure(monkeypatch):
+    """_alert must never propagate — a dead Slack webhook can't kill the
+    task wrapper's return path."""
+    import asyncio
+
+    import app.services.slack_notifications as sn
+
+    async def _boom(_text):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(sn, "post_alert_to_slack", _boom)
+    asyncio.run(T._alert("test"))  # must not raise

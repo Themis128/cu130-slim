@@ -162,7 +162,7 @@ def _targets():
         cur.execute(
             """SELECT id, account_id, username, status FROM social_accounts
                WHERE platform='instagram'
-                 AND (status IN ('expired','revoked')
+                 AND (status IN ('expired','revoked','error')
                       OR (status='active'
                           AND token_expires_at < now() + interval '1 hour'))"""
         )
@@ -188,14 +188,24 @@ def _save_state(s: dict) -> None:
 def _throttled() -> bool:
     s = _state()
     now = time.time()
-    if now - s.get("last_attempt", 0) < 3600:
+    # 3300s (not 3600): last_attempt is stamped at attempt START, and the
+    # hourly beat can fire a few seconds early — a full-hour threshold
+    # would skip every other beat.
+    if now - s.get("last_attempt", 0) < 3300:
         return True
     return s.get("consecutive_fails", 0) >= MAX_CONSECUTIVE_FAILS and now - s.get("last_attempt", 0) < 86400
 
 
-def _mark(ok: bool) -> None:
+def _mark_start() -> None:
+    """Stamp the attempt START so the hourly throttle measures from when
+    work began, not when it ended (end-stamping made the lane every-2h)."""
     s = _state()
     s["last_attempt"] = time.time()
+    _save_state(s)
+
+
+def _mark(ok: bool) -> None:
+    s = _state()
     s["consecutive_fails"] = 0 if ok else s.get("consecutive_fails", 0) + 1
     s["last_result"] = "ok" if ok else "fail"
     _save_state(s)
@@ -224,6 +234,28 @@ def _eval_str(script: str, timeout: int = 60) -> str:
 
 
 def _page_url() -> str:
+    """Browser-layer URL for callback detection.
+
+    Page JS ``location.href`` reports ``chrome-error://chromewebdata/``
+    when the OAuth callback navigation fails — localhost:8083 is
+    unreachable from the sidecar container — which would hide the
+    code+state forever. ``/debug/navigation-attempt`` records the real
+    request URL on the Node side instead; ``/debug/page-text``'s ``url``
+    is the fallback, page JS the last resort.
+    """
+    try:
+        r = _get(f"{SIDECAR}/debug/navigation-attempt", timeout=30)
+        url = r.get("attempted") or r.get("url") or ""
+        if url:
+            return url
+    except Exception:
+        pass
+    try:
+        r = _get(f"{SIDECAR}/debug/page-text", timeout=30)
+        if r.get("url"):
+            return r["url"]
+    except Exception:
+        pass
     return _eval_str("location.href", timeout=30)
 
 
@@ -329,6 +361,7 @@ def main() -> int:
         print("no instagram account needs re-auth")
         return 0
 
+    _mark_start()
     print(f"instagram re-auth needed for {[t['username'] for t in targets]} — probing FB sidecar session")
     ident = _sidecar_identity()
     if not ident.get("ok"):
