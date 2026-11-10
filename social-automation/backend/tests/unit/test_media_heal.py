@@ -35,6 +35,9 @@ class _Result:
     def scalars(self):
         return _Rows(self._rows)
 
+    def all(self):
+        return self._rows
+
 
 class _DB:
     """execute() returns canned results in call order; records commits."""
@@ -52,6 +55,9 @@ class _DB:
     async def rollback(self):
         self.rollbacks = getattr(self, "rollbacks", 0) + 1
 
+    async def refresh(self, _obj):
+        pass
+
 
 class _Session:
     def __init__(self, db):
@@ -65,8 +71,8 @@ class _Session:
 
 
 class _Img:
-    def save(self, buf, format):
-        buf.write(b"PNGDATA")
+    def save(self, buf, format=None, **kwargs):
+        buf.write(b"JPEGDATA")
 
 
 def _post(pid=None, status=PostStatus.FAILED, meta=None, content="Grow fast. We handle cloud."):
@@ -157,7 +163,7 @@ def test_sweep_heals_and_queues(monkeypatch):
             _Result([pid]),  # candidate post_ids
             _Result([post]),  # posts
             _Result([tgt]),  # per-post targets (eligibility)
-            _Result([tgt]),  # per-post targets (account_ids)
+            _Result([(acct, "linkedin")]),  # republish targets (account_id, platform)
         ]
     )
     publish = Mock(return_value={"success": True, "results": []})
@@ -172,6 +178,8 @@ def test_sweep_heals_and_queues(monkeypatch):
     assert post.media_ids  # new branded asset attached
     assert post.meta_data["media_heal_attempts"] == 1
     assert db.commits == 2  # exhausted-flags commit + per-post heal commit
+    # healed media is JPEG — Instagram's content API rejects PNG image_url
+    assert M.persist_generated_image.call_args.kwargs["extension"] == ".jpg"
 
 
 def test_sweep_skips_published_and_dedup(monkeypatch):
@@ -247,7 +255,8 @@ def test_sweep_per_post_failure_isolated(monkeypatch):
             _Result([post_ok, post_bad]),
             _Result([tgt_ok]),  # eligibility: post_ok
             _Result([tgt_bad]),  # eligibility: post_bad
-            _Result([tgt_ok]),  # account_ids: post_ok
+            _Result([(tgt_ok.social_account_id, "linkedin")]),  # republish targets: post_ok
+            _Result([(tgt_bad.social_account_id, "linkedin")]),  # republish targets: post_bad
         ]
     )
     monkeypatch.setattr(M, "run_async", _drive)
@@ -286,7 +295,7 @@ def test_sweep_publish_dispatch_failure_continues(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     publish = Mock(side_effect=RuntimeError("celery down"))
@@ -308,7 +317,7 @@ def test_sweep_skips_empty_copy_and_none_meta(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     publish = Mock()
@@ -346,7 +355,7 @@ def test_sweep_final_attempt_uses_on_topic_background(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     bg_obj = object()
@@ -379,7 +388,7 @@ def test_sweep_final_attempt_bg_failure_falls_back(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     compose = Mock(return_value=_Img())
@@ -424,7 +433,7 @@ def test_sweep_bg_exception_falls_back_to_canvas(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     compose = Mock(return_value=_Img())
@@ -449,7 +458,7 @@ def test_sweep_first_attempt_skips_bg_generation(monkeypatch):
             _Result([pid]),
             _Result([post]),
             _Result([tgt]),
-            _Result([tgt]),
+            _Result([(tgt.social_account_id, "linkedin")]),
         ]
     )
     cf_bg = AsyncMock(return_value=object())
@@ -477,3 +486,101 @@ def test_sweep_run_async_failure(monkeypatch):
     monkeypatch.setattr(M, "run_async", _boom)
     out = M.run_media_heal_sweep()
     assert out == {"error": "db gone"}
+
+
+def test_sweep_first_post_failure_does_not_block_second(monkeypatch):
+    """Rollback expiry regression: the first post's persist raises, the
+    second must still refresh, heal and get queued (ids are logged, not
+    expired ORM attributes)."""
+    pid_bad = uuid.uuid4()
+    pid_ok = uuid.uuid4()
+    post_bad = _post(pid=pid_bad, content="bad first. more copy")
+    post_ok = _post(pid=pid_ok)
+    tgt_bad = _target(pid_bad)
+    tgt_ok = _target(pid_ok)
+    db = _DB(
+        [
+            _Result([pid_bad, pid_ok]),
+            _Result([post_bad, post_ok]),
+            _Result([tgt_bad]),  # eligibility: post_bad
+            _Result([tgt_ok]),  # eligibility: post_ok
+            _Result([(tgt_bad.social_account_id, "linkedin")]),
+            _Result([(tgt_ok.social_account_id, "linkedin")]),
+        ]
+    )
+    monkeypatch.setattr(M, "run_async", _drive)
+    monkeypatch.setattr(M, "task_session", lambda: _Session(db))
+    monkeypatch.setattr(M, "compose_branded_slide", Mock(return_value=_Img()))
+
+    async def _persist(db_, **kwargs):
+        if "bad first" in (kwargs.get("prompt") or ""):
+            raise RuntimeError("storage down")
+        return SimpleNamespace(id=uuid.uuid4())
+
+    monkeypatch.setattr(M, "persist_generated_image", _persist)
+    publish = Mock(return_value={"success": True, "results": []})
+    monkeypatch.setattr(M, "publish_post_now", publish)
+    monkeypatch.setattr(M, "post_alert_to_slack", AsyncMock())
+    import app.services.db_sync as db_sync
+
+    monkeypatch.setattr(db_sync, "sync_after_worker_task", AsyncMock(return_value={}))
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    assert out["queued"] == [str(pid_ok)]
+    assert post_ok.media_ids
+    assert post_bad.media_ids == []
+
+
+def test_sweep_skips_video_only_targets(monkeypatch):
+    """A post whose only republish target is TikTok/YouTube is skipped
+    before any media work — a healed image can never satisfy video."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),  # eligibility
+            _Result([(tgt.social_account_id, "tiktok")]),
+        ]
+    )
+    persist = AsyncMock()
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+    monkeypatch.setattr(M, "persist_generated_image", persist)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 0
+    assert out["queued"] == []
+    persist.assert_not_called()
+    publish.assert_not_called()
+
+
+def test_sweep_skips_non_single_image_posts(monkeypatch):
+    """Carousel/multi-asset or video posts keep their own media — the heal
+    only applies to single-image posts."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid)
+    post.media_ids = [uuid.uuid4(), uuid.uuid4()]
+    tgt = _target(pid)
+    asset = SimpleNamespace(mime_type="image/png")
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),  # eligibility targets
+            _Result([asset, asset]),  # media assets: 2 -> not single-image
+        ]
+    )
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 0
+    assert post.media_ids == [post.media_ids[0], post.media_ids[1]]
+    publish.assert_not_called()

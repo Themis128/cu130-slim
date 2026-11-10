@@ -27,7 +27,8 @@ from datetime import UTC, datetime
 from celery import shared_task
 from sqlalchemy import select
 
-from app.models.content import Post, PostStatus, PostTarget
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
+from app.models.social_account import SocialAccount
 from app.services.carousel_pipeline import (
     _cf_generate_background,
     _qa_generated_background,
@@ -57,6 +58,10 @@ _EXCLUDED_MARKERS = (
     "identical media",
     "duplicate content",
 )
+
+# Platforms that only accept video — a healed single image can never
+# satisfy them, so their targets are excluded from the republish set.
+_VIDEO_ONLY_PLATFORMS = {"tiktok", "youtube"}
 
 
 def _is_media_failure(error: str | None) -> bool:
@@ -115,6 +120,21 @@ async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
             continue
         if any(t.status == "published" for t in targets):
             continue
+        # Only single-image posts are healable — a carousel or video/reel
+        # must keep its own media type; swapping it for one slide would
+        # ship the wrong media.
+        if post.media_ids:
+            assets = (
+                (
+                    await db.execute(
+                        select(MediaAsset).where(MediaAsset.id.in_(post.media_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(assets) != 1 or not (assets[0].mime_type or "").startswith("image/"):
+                continue
         attempts = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
         if attempts >= _MAX_HEAL_ATTEMPTS:
             exhausted.append(post)
@@ -142,11 +162,37 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
         # Durable alert flags before the heal loop — a later per-post
         # rollback must not resurrect the Slack alert.
         await db.commit()
+        # Snapshot ids up front: a per-post rollback() expires EVERY
+        # instance in the session, so iterating the ORM objects directly
+        # would lazy-load expired attributes (MissingGreenlet) on the next
+        # post. Refresh each post inside the loop instead and log by id.
+        healable_ids = [p.id for p in healable]
         healed = 0
-        for post in healable:
+        for pid, post in zip(healable_ids, healable):
             try:
+                await db.refresh(post)
                 title, body = _split_copy(post.content_text or "")
                 if not title:
+                    continue
+                # Resolve republish targets first — video-only platforms
+                # can't take a healed image, so a post with no image-capable
+                # target is skipped before any media work happens.
+                target_rows = (
+                    await db.execute(
+                        select(PostTarget.social_account_id, SocialAccount.platform)
+                        .join(
+                            SocialAccount,
+                            PostTarget.social_account_id == SocialAccount.id,
+                        )
+                        .where(PostTarget.post_id == pid)
+                    )
+                ).all()
+                account_ids = [
+                    str(acc_id)
+                    for acc_id, platform in target_rows
+                    if platform not in _VIDEO_ONLY_PLATFORMS
+                ]
+                if not account_ids:
                     continue
                 attempts_done = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
                 bg_img = None
@@ -163,7 +209,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                                 bg_img, image_prompt, CF_TXT2IMG_FREE, "media-heal"
                             )
                     except Exception as exc:
-                        logger.info("media-heal bg generation skipped for %s: %s", post.id, exc)
+                        logger.info("media-heal bg generation skipped for %s: %s", pid, exc)
                         bg_img = None
                 img = compose_branded_slide(
                     bg_img,
@@ -174,8 +220,13 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     body=body,
                     motif="cloud",
                 )
+                # JPEG, not PNG — Instagram's content publishing API only
+                # accepts JPEG image_url, and JPEG is safe on every other
+                # image-capable target.
+                if getattr(img, "mode", None) and img.mode != "RGB":
+                    img = img.convert("RGB")
                 buf = io.BytesIO()
-                img.save(buf, format="PNG")
+                img.save(buf, format="JPEG", quality=90)
                 asset = await persist_generated_image(
                     db,
                     team_id=post.team_id,
@@ -183,7 +234,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     image_bytes=buf.getvalue(),
                     prompt=f"media-heal: {title}",
                     source="media-heal",
-                    extension=".png",
+                    extension=".jpg",
                     max_edge=0,
                 )
                 meta = dict(post.meta_data or {})
@@ -192,20 +243,15 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 meta["media_healed_at"] = datetime.now(UTC).isoformat()
                 post.meta_data = meta
                 post.media_ids = [asset.id]
-                targets = (
-                    await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
-                ).scalars().all()
-                account_ids = [str(t.social_account_id) for t in targets]
-                pid_str = str(post.id)
+                pid_str = str(pid)
                 # Per-post commit: only dispatch publish jobs for work that
                 # actually landed — a flush/commit failure rolls back this
                 # post alone instead of poisoning the whole sweep.
                 await db.commit()
                 healed += 1
-                if account_ids:
-                    publish_jobs.append((pid_str, account_ids))
+                publish_jobs.append((pid_str, account_ids))
             except Exception as exc:
-                logger.warning("media-heal failed for post %s: %s", post.id, exc)
+                logger.warning("media-heal failed for post %s: %s", pid, exc)
                 try:
                     await db.rollback()
                 except Exception:
