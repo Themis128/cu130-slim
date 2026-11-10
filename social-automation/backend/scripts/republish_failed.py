@@ -173,7 +173,10 @@ async def main() -> None:
                 user_id=post.user_id,
                 status=new_status,
                 content_text=new_text,
-                media_ids=[],
+                # Carry original media — the publish-time media_semantic_gate
+                # re-validates each asset against the NEW copy (content_hash
+                # differs) and skips mismatches, so wrong media never ships.
+                media_ids=list(post.media_ids or []),
                 platform_specific=post.platform_specific or {},
                 hashtags=list(post.hashtags or []),
                 mention_accounts=list(post.mention_accounts or []),
