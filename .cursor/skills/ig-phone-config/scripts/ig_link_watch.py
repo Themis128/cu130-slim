@@ -124,8 +124,23 @@ def tap_text(*needles: str, exact: bool = False) -> bool:
 
 
 def type_text(s: str) -> None:
-    adb("shell", "input", "text", s.replace(" ", "%s"))
+    adb("shell", "input", "text", s.replace(" ", "%s").replace("%", "%%"))
     time.sleep(1)
+
+
+def visible_texts(limit: int = 60) -> list[str]:
+    """Text/content-desc of visible nodes — for failure diagnosis."""
+    xml = ui_xml()
+    out = []
+    for node in re.findall(r"<node[^>]*?/?>", xml):
+        for attr in ("text", "content-desc"):
+            m = re.search(attr + r'="([^"]*)"', node)
+            if m and m.group(1).strip():
+                out.append(m.group(1).strip()[:60])
+                break
+        if len(out) >= limit:
+            break
+    return out
 
 
 def shot(name: str) -> None:
@@ -162,21 +177,34 @@ def drive_ig(link: str) -> bool:
 
     # Path A: profile tab → Edit profile → Links
     # Profile tab is bottom-right; find by content-desc "Profile"
-    xml = ui_xml()
-    pt = find_bounds(xml, 'content-desc="Profile"', 'Profile')
-    if not pt:
-        pt = find_bounds(xml, "Profile")
-    if pt:
-        tap(*pt)
-        log("tapped profile tab")
-        time.sleep(3)
-    shot("02-profile")
+    tapped_profile = False
+    for _attempt in range(2):
+        xml = ui_xml()
+        pt = find_bounds(xml, 'content-desc="Profile"', 'Profile')
+        if not pt:
+            pt = find_bounds(xml, "Profile")
+        if pt:
+            tap(*pt)
+            tapped_profile = True
+            log("tapped profile tab")
+            time.sleep(3)
+        shot(f"02-profile{'-retry' if _attempt else ''}")
+        # verify we're on own profile: look for Edit profile or username
+        xml = ui_xml()
+        if find_bounds(xml, "Edit profile", "Edit Profile", "cloudless.gr"):
+            break
+        log(f"profile not confirmed, visible: {visible_texts(15)}")
+    if not tapped_profile:
+        log(f"no Profile tab found, visible: {visible_texts(15)}")
 
-    # Edit profile button
+    # Edit profile button (may need scroll on some layouts)
     if not tap_text("Edit profile", "Edit Profile"):
-        log("no Edit profile button found")
-        shot("03-noedit")
-        return False
+        adb("shell", "input", "swipe", "540", "1600", "540", "900", "300")
+        time.sleep(1.5)
+        if not tap_text("Edit profile", "Edit Profile"):
+            log(f"no Edit profile button found, visible: {visible_texts(20)}")
+            shot("03-noedit")
+            return False
     time.sleep(3)
     shot("04-editprofile")
 
@@ -212,9 +240,10 @@ def drive_ig(link: str) -> bool:
         time.sleep(1)
         # select all + delete then type
         adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
-        # long-press select-all fallback: ctrl+a not available; use select-all via keyevent 29 with meta is flaky — use repeated DEL
-        adb("shell", "input", "keyevent", "--longpress", "KEYCODE_DEL")
-        adb("shell", "input", "text", link.replace(":", "%s").replace("/", "%s").replace(".", "%s"))
+        # clear existing content: cursor to end, then delete backwards
+        for _ in range(60):
+            adb("shell", "input", "keyevent", "KEYCODE_DEL")
+        adb("shell", "input", "text", link)
         log(f"typed link into first EditText")
     else:
         log("no EditText found — manual step needed")
@@ -260,9 +289,16 @@ def main() -> int:
                 wake_unlock()
                 time.sleep(2)
                 if not covered():
-                    ok = drive_ig(link)
-                    log(f"drive result: {'OK' if ok else 'INCOMPLETE — check screenshots'}")
-                    return 0 if ok else 2
+                    for attempt in range(3):
+                        ok = drive_ig(link)
+                        log(f"drive attempt {attempt + 1} result: {'OK' if ok else 'INCOMPLETE'}")
+                        if ok:
+                            return 0
+                        if covered():
+                            break
+                        time.sleep(3)
+                    # still uncovered but failed — keep watching for next window
+                    log("drive failed, resuming watch")
         except subprocess.TimeoutExpired:
             log("adb timeout — retrying")
         except Exception as e:  # noqa: BLE001

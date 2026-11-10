@@ -1,0 +1,172 @@
+name: Gemini CI auto-fix
+
+# Self-healing CI: when a same-repo PR's workflow fails, Gemini CLI checks out
+# the PR head branch, fixes the root cause, and the wrapper commits+pushes
+# directly to it (auto-merge stays armed), then comments on the PR.
+#
+# Security notes:
+# - workflow_run always executes the workflow definition from the DEFAULT
+#   branch, so PR code cannot modify this workflow.
+# - head_repository.full_name == github.repository excludes fork PRs.
+# - draft PRs and gemini-ci-fix-* branches are excluded (loop guard).
+# - PR_FIX_PAT is used for checkout/pushes so fix commits retrigger CI;
+#   GITHUB_TOKEN pushes would not.
+# - Hard cap: max 3 automated fix attempts per branch (commit-message count),
+#   then the run comments the blocker and stops.
+
+on:
+  workflow_run:
+    workflows:
+      - "Social Automation Backend CI"
+      - "Full Stack Integration Tests"
+      - "Docker CI"
+      - "Docker Compose Validation"
+      - "Ruff Lint"
+      - "Env Manager CI"
+      - "Mail Worker CI"
+      - "Social Automation Frontend CI"
+      - "Security Scanning"
+      - "Trivy Security Scan"
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  issues: write
+
+jobs:
+  auto-fix:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.pull_requests[0] &&
+      github.event.workflow_run.pull_requests[0].draft == false &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      !startsWith(github.event.workflow_run.head_branch, 'gemini-ci-fix-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: gemini-ci-fix-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+      FAILED_RUN_ID: ${{ github.event.workflow_run.id }}
+      FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+    steps:
+      - name: Checkout PR head branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.HEAD_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.PR_FIX_PAT }}
+
+      - name: Setup git identity
+        run: |
+          git config --global user.email "gemini-ci-fix[bot]@users.noreply.github.com"
+          git config --global user.name "gemini-ci-fix[bot]"
+
+      - name: Attempt cap check
+        id: cap
+        run: |
+          ATTEMPTS=$(git log --grep='gemini-ci-fix:' --oneline | wc -l | tr -d ' ')
+          echo "attempts=$ATTEMPTS" >> "$GITHUB_OUTPUT"
+          if [ "$ATTEMPTS" -ge 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --body "Gemini CI auto-fix skipped: $ATTEMPTS automated fix attempts already on this branch (cap=3). Needs human/agent judgment — see failed run: $FAILED_RUN_URL"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
+
+      - name: Collect failed job names
+        if: steps.cap.outputs.skip != 'true'
+        id: failed_jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ env.FAILED_RUN_ID }}
+            });
+            const failed = jobs.data.jobs.filter(j => j.conclusion === 'failure').map(j => j.name);
+            core.setOutput('names', failed.join(', '));
+
+      - name: Run Gemini CLI fix
+        if: steps.cap.outputs.skip != 'true'
+        id: gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
+        run: |
+          cat > /tmp/gemini-prompt.txt <<'PROMPT'
+          A CI workflow failed on this pull request branch in ${{ github.repository }}.
+
+          Failed run: ${{ env.FAILED_RUN_URL }}
+          Failed run id: ${{ env.FAILED_RUN_ID }}
+          Failed jobs: ${{ steps.failed_jobs.outputs.names }}
+          PR number: ${{ env.PR_NUMBER }}
+          You are checked out on the PR head branch itself.
+
+          Your job: find the root cause and FIX THE CODE so CI passes.
+          A wrapper will commit and push your changes to this branch afterwards —
+          do NOT run git commit or git push yourself.
+
+          Rules:
+          1. Use `gh run view ${{ env.FAILED_RUN_ID }} --log-failed` for full logs.
+          2. Reproduce the failure locally where feasible. Backend Python lives
+             in social-automation/backend (pytest; ruff via `uvx ruff@0.4.3 check`;
+             alembic for migrations). The coverage gate is 99.0% line /
+             95.3% branch — for coverage-ratchet failures write REAL tests for
+             the uncovered lines, following the existing mock/fixture patterns
+             in social-automation/backend/tests/unit/.
+          3. NEVER weaken tests, coverage thresholds, lint rules, security gates,
+             or skip assertions to make CI pass.
+          4. If the failure needs credentials, secrets, a product decision, or is
+             an infrastructure flake, change nothing and explain why in your
+             final message.
+          5. Keep the diff minimal and focused on the failure.
+
+          Final message: one short paragraph — root cause + what you changed
+          (or why you changed nothing).
+          PROMPT
+          npx -y @google/gemini-cli@0.66.0 -p "$(cat /tmp/gemini-prompt.txt)" --yolo \
+            > /tmp/gemini-response.txt 2>&1 || true
+          echo "--- gemini output tail ---" >> "$GITHUB_STEP_SUMMARY"
+          tail -40 /tmp/gemini-response.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push fix
+        if: steps.cap.outputs.skip != 'true'
+        id: push
+        run: |
+          if [ -n "$(git status --porcelain -- . ':(exclude).gemini' ':(exclude)*.log')" ]; then
+            git add -A -- . ':(exclude).gemini' ':(exclude)*.log'
+            git commit -m "gemini-ci-fix: auto-fix CI failure on run $FAILED_RUN_ID"
+            git push origin "HEAD:$HEAD_BRANCH"
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment result on PR
+        if: always() && steps.cap.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
+        run: |
+          PUSHED="${{ steps.push.outputs.pushed }}"
+          SHA="${{ steps.push.outputs.sha }}"
+          {
+            echo "### Gemini CI auto-fix"
+            echo "Failed run: $FAILED_RUN_URL"
+            echo "Push result: ${PUSHED:-not-run} ${SHA:+(\`$SHA\`)}"
+            echo
+            echo '```'
+            tail -30 /tmp/gemini-response.txt 2>/dev/null || echo "(no agent output)"
+            echo '```'
+          } > /tmp/pr-comment.md
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file /tmp/pr-comment.md
