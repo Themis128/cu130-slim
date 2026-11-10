@@ -297,6 +297,10 @@ services:
   n8n:
     image: n8nio/n8n:2.47.0
     container_name: n8n
+    # Run as root: the ./n8n-data bind mount flips between uid 1000/1001
+    # ownership depending on which checkout (WSL vs Windows) last wrote it,
+    # which crash-looped n8n with EACCES on config twice on 2026-11-10.
+    user: "0:0"
     networks:
       - backend
       - db
