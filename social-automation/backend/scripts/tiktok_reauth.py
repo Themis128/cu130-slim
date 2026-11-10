@@ -152,6 +152,7 @@ def _targets():
         cur.execute(
             """SELECT id, account_id, username FROM social_accounts
                WHERE platform='tiktok'
+                 AND status IN ('active','expired')
                  AND (status='expired'
                       OR token_expires_at < now() + interval '1 hour')""")
         for row in cur.fetchall():
@@ -176,6 +177,8 @@ def _needs_reauth_api() -> list:
         if a.get("platform") != "tiktok":
             continue
         exp = a.get("token_expires_at") or ""
+        if a.get("status") not in ("active", "expired"):
+            continue
         if a.get("status") == "expired" or (exp and exp < soon):
             out.append({"id": a.get("id", ""),
                         "account_id": a.get("account_id", ""),
