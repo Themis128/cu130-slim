@@ -1571,6 +1571,7 @@ async def test_ig_graph_no_urls_skip(monkeypatch):
 @pytest.mark.asyncio
 async def test_ig_graph_single_and_carousel(monkeypatch):
     monkeypatch.setattr(P, "_instagram_public_urls", AsyncMock(return_value=["u1"]))
+    monkeypatch.setattr(P, "_probe_public_media", AsyncMock(return_value=[{"url": "u1", "ok": True}]))
     calls = []
 
     class _IG:
@@ -1603,6 +1604,7 @@ async def test_ig_graph_single_and_carousel(monkeypatch):
 
     calls.clear()
     monkeypatch.setattr(P, "_instagram_public_urls", AsyncMock(return_value=["u1", "u2"]))
+    monkeypatch.setattr(P, "_probe_public_media", AsyncMock(return_value=[{"url": "u", "ok": True}] * 2))
     r2 = await P._publish_instagram_via_graph("t", "hi", acc, _post(), ["p"], ["p"])
     assert r2.success and calls[-1][0] == "carousel"
 
@@ -1610,6 +1612,7 @@ async def test_ig_graph_single_and_carousel(monkeypatch):
 @pytest.mark.asyncio
 async def test_ig_graph_publish_error_ambiguous_then_live(monkeypatch):
     monkeypatch.setattr(P, "_instagram_public_urls", AsyncMock(return_value=["u1"]))
+    monkeypatch.setattr(P, "_probe_public_media", AsyncMock(return_value=[{"url": "u1", "ok": True}]))
     monkeypatch.setattr(P.asyncio, "sleep", AsyncMock())
 
     class _Err(P.InstagramAPIError):

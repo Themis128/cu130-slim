@@ -23,18 +23,13 @@ from sqlalchemy import func, select
 
 from app.models.content import PostTarget
 from app.models.queue import PublishQueue
+from app.services.error_taxonomy import TERMINAL, classify_publish_error
 from app.worker._async import run_async, task_session
 
 logger = logging.getLogger(__name__)
 
 _MAX_RETRY_AGE_H = 72
 _BACKOFF_MIN = 15
-_NON_RETRYABLE = (
-    "does not accept",
-    "Unsupported platform",
-    "account not connected",
-    "Token decrypt failed",
-)
 
 
 async def _sweep() -> dict:
@@ -48,7 +43,11 @@ async def _sweep() -> dict:
         )
         for tgt in targets:
             err = tgt.error_message or ""
-            if any(tok in err for tok in _NON_RETRYABLE):
+            # Stored class wins; legacy rows classify once and persist.
+            eclass = tgt.error_class or classify_publish_error(err)
+            if not tgt.error_class:
+                tgt.error_class = eclass
+            if eclass == TERMINAL:
                 skipped += 1
                 continue
             if tgt.updated_at and tgt.updated_at > now - timedelta(minutes=_BACKOFF_MIN):
