@@ -1136,54 +1136,25 @@ Leftovers:
   revision) outlived the mounted checkout — restamped manually; the heal
   script now covers recurrence.
 
-## 2026-11-10 (night) — WhatsApp Cloud API live; template poller + sysuser watch (Devin)
 
-- WhatsApp Cloud API fully live: phone +30 697 777 7838 VERIFIED,
-  TIER_250, app 1936126137016578 subscribed to messaging account
-  1717901383017723 (WAAC 1805020980543501). Webhook signature enforced
-  (FACEBOOK_APP_SECRET falls back to FACEBOOK_CLIENT_SECRET). 4 templates
-  (cloudless_followup/cloudless_alert x en_US/el) resubmitted PENDING
-  after INVALID_FORMAT fix (example.body_text added). Template poller
-  beat */15min restored in prod ahead of PR #1644 merge (files hot-loaded
-  from the PR branch — identical content, unstaged).
-- Send path verified end-to-end: direct WhatsAppAPIClient.send_text probe
-  returned a real wamid — earlier auto-reply Meta 400 was transient /
-  pre-decrypt-fix, not a payload bug. Synthetic inbound rows persist in
-  whatsapp_messages; a REAL inbound WhatsApp message is still the only
-  unverified hop (cannot be fabricated).
-- System-user token blocked on Meta temporary restriction of Business
-  Settings writes. Prerequisite discovered: app must be added to the
-  business portfolio first ("In order to add a system user, an app must
-  be part of this business portfolio"). NEW watcher
-  `.devin/skills/whatsapp-ops/scripts/wa_portfolio_watch.py` retries the
-  Apps->Add->Connect-app-ID flow every 25min for 72h (5min while sidecar
-  asleep), exits on success; log ~/logs/wa-portfolio-watch.log. Once the
-  app lands, system user + token via Graph/UI is the next step.
-- PRs: #1644 template poller (checks pending, auto-merge armed), #1650
-  wa-token-decrypt + idempotent migration (checks running, auto-merge
-  armed). #1641 closed-superseded by merged #1647.
+## 2026-11-10 (night) — brain-stack upgrades (PRs #1651 #1652)
 
-## 2026-11-10 (night) — WhatsApp battle test + DMR endpoint fix (Devin)
-
-- Battle test PASS: GET challenge echoes, POST no-sig/bad-sig -> 403,
-  valid HMAC -> 200 (~20-30s; chatbot inference is inline). Inbound rows
-  persist; outbound auto-reply row written with real wamid when DMR is
-  healthy. Meta 400s seen in logs = mark_message_read on synthetic
-  wamids (benign, caught) — NOT send failures.
-- ROOT CAUSE of auto-reply outage: `.env` DMR_* URLs pointed at
-  `host.docker.internal:11434` — a foreign Ollama serving only
-  qwen2.5:7b, NOT Docker Model Runner. Canonical per docs/CODEMAP/
-  config.py defaults is `host.docker.internal:12435`
-  (/engines/llama.cpp/v1 etc.). Fixed all 6 DMR vars + embedding model
-  (nomic-embed-text -> hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF, the model
-  dmr-watchdog actually configures). Recreated social-api, celery-beat,
-  4 workers, messenger-sidecar. In-container `_check_dmr_health()` now
-  True; smollm2 serves 200.
-- Remaining flake: docker-model-runner intermittently fails the
-  watchdog's deep /api/ps check (fails reset at 1/3, auto-recovers).
-  App health check can race runner restarts -> occasional "DMR is
-  offline" for one request; CF fallback covers the rest.
-- whatsapp.py auto-reply error log now includes exception detail
-  (Meta code + fbtrace_id) — pushed onto PR #1650 branch.
-- PR sweep: 12 open PRs all BLOCKED-pending-CI, zero failures,
-  auto-merge armed everywhere. #1653 (portfolio watcher) MERGED.
+- **platform_fit.json refreshed** with verified 2026 ranking changes
+  (LinkedIn LLM-embedding retrieval + anti-engagement-bait, IG
+  sends/shares, X Grok ranker, TikTok follower-independence) — PR #1651.
+- **central_brain LLM refinement** — `_llm_adjust` rewrites post
+  instructions via DMR→CF using company-brain recall + fit lines;
+  rules stay the floor, `CENTRAL_BRAIN_LLM_ENABLED` gates it. Posts now
+  carry `brain_*` meta for outcome attribution — PR #1652.
+- **platform_fit_sync.py note-title fix** — em-dash literal mangled to
+  `???` under POSIX locale; title now rides the JSON env payload.
+- **kakkava-brain-sync `_brain` repair in flight**: the 362
+  `kakkava-sofia-*` memories were LOST (collection had only 2 docs —
+  likely a Chroma reset); manifest gate hid it. Forced re-ingest running
+  inside social-api via tar-stream copy (docker cp DrvFs ENOMEM flake);
+  ~360 chunks, idempotent upserts, ETA ~2-3h. `platform-fit-reference`
+  doc seeded into Chroma + Nextcloud note (title fixed). Watch:
+  `docker exec social-postgres psql ... SELECT count(*)` on
+  `team_10024d25_..._brain` should reach ~365+.
+- **platform-fit-refresh cron**: installed 2026-11-09, first scheduled
+  run Sun 2026-11-15 07:00 — no log yet is EXPECTED, not a failure.

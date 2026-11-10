@@ -13,11 +13,13 @@ import pytest
 
 from app.models.content import PostStatus
 from app.services.central_brain import (
+    _LLM_PROMPT,
     MAX_POST_ACTIONS,
     MAX_TREND_ACTIONS,
     BrainDecision,
     BrainSnapshot,
     ChannelState,
+    _parse_llm_decisions,
     _snapshot_health,
     collect_snapshot,
     decide,
@@ -295,6 +297,11 @@ class TestRunForTeam:
         monkeypatch.setattr("app.services.monetization_executor.schedule_report_actions", fake_schedule)
         monkeypatch.setattr("app.services.company_brain.remember", fake_remember)
 
+        async def no_llm(*a, **k):
+            return None
+
+        monkeypatch.setattr("app.services.central_brain._llm_adjust", no_llm)
+
         team = SimpleNamespace(id=uuid.uuid4())
         result = await run_for_team(self._db_with_healthy_channel(), team, now=NOW)
 
@@ -378,3 +385,116 @@ class TestCentralBrainTask:
         assert out["results"][0]["posts_dispatched"] == 1
         assert out["results"][1]["status"] == "failed"
         assert db.committed
+
+
+# ── LLM decision refinement ───────────────────────────────────────────
+
+
+def _cand(platform: str, priority: int = 50) -> BrainDecision:
+    return BrainDecision(
+        platform=platform,
+        kind="post",
+        instruction=f"rule instruction for {platform}",
+        priority=priority,
+        reason="score=x er7d=1.0 posts7d=2",
+        trend_query="ai agents",
+    )
+
+
+class TestLLMPromptTemplate:
+    def test_format_renders_without_keyerror(self):
+        # Regression: the literal JSON example in the prompt must have
+        # escaped braces or str.format raises KeyError and the LLM pass
+        # silently falls back forever.
+        prompt = _LLM_PROMPT.format(
+            max_posts=MAX_POST_ACTIONS,
+            channels="- linkedin: followers=10",
+            trends="- ai agents (opportunity)",
+            learnings="- post X got 40 likes",
+            fit="- linkedin: fit line",
+            candidates="- linkedin p50: rule instruction",
+        )
+        assert '"posts"' in prompt
+        assert "{channels}" not in prompt
+
+
+class TestParseLLMDecisions:
+    def test_valid_payload_rewrites_instructions(self):
+        text = 'sure! {"posts":[{"platform":"linkedin","instruction":"post about edge latency win","priority":88}]}'
+        out = _parse_llm_decisions(text, [_cand("linkedin"), _cand("instagram")])
+        assert out is not None
+        assert len(out) == 1
+        assert out[0].platform == "linkedin"
+        assert out[0].instruction == "post about edge latency win"
+        assert out[0].priority == 88
+        assert out[0].kind == "post"
+        assert "llm-refined" in out[0].reason
+        assert out[0].trend_query == "ai agents"
+
+    def test_unknown_platforms_and_dupes_are_dropped(self):
+        text = (
+            '{"posts":['
+            '{"platform":"tiktok","instruction":"nope","priority":90},'
+            '{"platform":"linkedin","instruction":"first","priority":80},'
+            '{"platform":"linkedin","instruction":"dupe","priority":70},'
+            '{"platform":"instagram","instruction":"","priority":60}'
+            "]}"
+        )
+        out = _parse_llm_decisions(text, [_cand("linkedin"), _cand("instagram")])
+        assert out is not None
+        assert [d.platform for d in out] == ["linkedin"]
+
+    def test_no_json_or_empty_posts_returns_none(self):
+        assert _parse_llm_decisions("no json here", [_cand("linkedin")]) is None
+        assert _parse_llm_decisions('{"posts":[]}', [_cand("linkedin")]) is None
+        assert _parse_llm_decisions("not json {broken", [_cand("linkedin")]) is None
+
+    def test_priority_is_clamped(self):
+        text = '{"posts":[{"platform":"linkedin","instruction":"x","priority":500}]}'
+        out = _parse_llm_decisions(text, [_cand("linkedin")])
+        assert out[0].priority == 100
+
+    @pytest.mark.asyncio
+    async def test_run_for_team_uses_refined_decisions_and_meta(self, monkeypatch):
+        scheduled_calls = []
+
+        async def fake_schedule(db, team, actions, **kw):
+            scheduled_calls.append(actions)
+            return [{"platform": a.platform, "status": "scheduled"} for a in actions]
+
+        async def fake_remember(*a, **k):
+            return True
+
+        refined = BrainDecision(
+            platform="linkedin",
+            kind="post",
+            instruction="LLM-refined instruction",
+            priority=91,
+            reason="llm-refined | rule=score=x",
+            trend_query="ai agents",
+        )
+
+        async def fake_llm(*a, **k):
+            return [refined]
+
+        monkeypatch.setattr("app.services.monetization_executor.schedule_report_actions", fake_schedule)
+        monkeypatch.setattr("app.services.company_brain.remember", fake_remember)
+        monkeypatch.setattr("app.services.central_brain._llm_adjust", fake_llm)
+
+        team = SimpleNamespace(id=uuid.uuid4())
+        db = _DB(
+            [_devapp("linkedin", "acc-1", ok=True, insights={"followers": 900})],
+            [],
+            [],
+            [],
+            [],
+        )
+        result = await run_for_team(db, team, now=NOW)
+
+        assert result["posts_dispatched"] == 1
+        actions = scheduled_calls[0]
+        assert len(actions) == 1
+        assert actions[0].instruction == "LLM-refined instruction"
+        assert actions[0].extra_meta["brain_priority"] == 91
+        assert "llm-refined" in actions[0].extra_meta["brain_reason"]
+        assert actions[0].extra_meta["brain_trend"] == "ai agents"
