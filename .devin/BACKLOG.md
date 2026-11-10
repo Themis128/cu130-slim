@@ -1231,3 +1231,36 @@ Leftovers:
   responds before the next hourly instagram-reauth run.
 - platform-fit-refresh cron first run due Sun 07:00 UTC — check
   ~/logs/platform-fit-refresh.log after Nov 15.
+
+## 2026-11-11 — ops-automation depth pass + residual risks
+
+- **Mail pipeline fully closed-loop**: probe cron */15min green;
+  `mail_secret_rotate.py` battle-tested; Infisical push via container-local
+  API lane (public API sits behind authentik SSO).
+- **Deploy stalls auto-heal**: `pr-land-watch` now auto-unblocks dirty
+  checkouts — stash tracked WIP (>30min file-quiet only), land master,
+  pop back or leave stash + TG #ops alert; blocked >2 cycles alerts once
+  per signature. Fresh WIP (<30min) is deliberately untouched.
+- **k3s cloudless-app overlay reconciled** (OMV `5ff2006`): overlay now
+  manages only namespace/quota/limitrange/service matching live; the
+  Deployment is hostPath standalone owned by cloudless.gr deploy-pi.
+  Retired ECR/SSM manifests kept in-tree, removed from kustomization.
+  `k3s-manifest-sync` EXCLUDE emptied — applies on change + rollout check.
+- **Image drift lanes**: `stack-image-sync` */30 (GHCR :latest digests,
+  serialized pulls, targeted recreate) + Renovate PRs for third-party
+  images (cu130-slim PR #1671, `renovate.json`; runner cron Mon 05:45,
+  activates post-merge; own GHCR excluded — stack-image-sync owns it).
+- **etcd defrag evaluated and rejected**: cluster runs SQLite datastore
+  since 2026-07-22 (state.db 44MB healthy) — the bbolt fragmentation
+  landmine doesn't exist here.
+- **Docker credsStore vsock flakes fixed**: `~/.docker/config.json` now
+  carries inline `auths.ghcr.io` from GH_PAT (same exposure as .env);
+  `docker-ghcr-auth-sync.sh` */30 re-syncs on PAT rotation. credsStore
+  kept for other registries.
+- **RESIDUAL (not automatable)**: ops scripts are prod-touching — another
+  agent test-ran land-watch as "PR #9999" (00:36) which restarted the 6
+  backend services + rebuilt facebook-browser-sidecar. Consider a
+  `LAND_WATCH_DRY_RUN=1` env or requiring `.deploy.lock` ownership proof
+  before compose mutations in test contexts. Also: agents working
+  directly in `~/cu130-slim` (not worktrees) create the dirty-checkout
+  stalls this whole lane exists to absorb — prefer `~/.worktrees/*`.
