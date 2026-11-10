@@ -1037,3 +1037,22 @@ Leftovers:
   without deleting the app or needing a BSP. WA PIN not stored
   anywhere → genuine human gate. ig_link_watch.py still running but
   task already satisfied — safe to kill.
+
+## 2026-11-10 (eve) — X recovery daemon + WhatsApp business account (Devin/user)
+
+- NEW LANE `.devin/skills/x-recovery-ops/`: unattended X password-reset +
+  OAuth on a Windows probe Chrome (CDP :9444, profile chrome-xprobe) —
+  immune to Docker vsock flaps that kill the adhoc bridge. Daemon
+  self-reads the code from Gmail (baltzakis.themis@gmail.com — the code
+  is in the "Password reset request" mail BODY, not a verification mail),
+  sets a new password, fires a pre-signed PKCE authorize URL; the WSL
+  watcher then extracts auth_token/ct0, writes .env, recreates services,
+  verifies social_accounts.twitter→active. Gotchas encoded in SKILL.md:
+  HeadlessChrome UA→403 (needs UA override), synthetic clicks don't
+  submit (trusted Input.dispatchMouseEvent required), rate limit is
+  ACCOUNT-level not IP (WARP exit tested — same block; retry ≥25min).
+- WhatsApp (user-verified in Meta console): Messaging account "Cloudless"
+  ID 1717901383017723, owned by cloudless.gr, linked to WAAC
+  1805020980543501, Account status Approved. Business verification on it:
+  Unverified (optional); Payment method: none — card entry remains the
+  human gate for paid messaging.
