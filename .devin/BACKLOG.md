@@ -749,3 +749,25 @@ Leftovers:
   skips if sidecars are asleep (stack-ops wakes on connect).
 - Tuning knob if funnel starves: `ENGAGE_MIN_SCORE` in `.env` (LinkedIn
   posts without 3-5 hashtags lose ~15 pts on the hashtag component).
+
+## 2026-11-10 — TikTok reauth root-caused: orphaned account_id, not a consent problem (Devin)
+
+- `tiktok_reauth.py` v2: sidecar identity pre-flight (passport probe),
+  gate detection (captcha/login-wall → rc=3 early), per-target post-verify,
+  DOM-dump + screenshot diagnostics on failure, orphan detection.
+- ROOT CAUSE of the endless rc=4 loop: the expired row's `account_id`
+  (open_id `-000lqpsmr…`, username `cloudless.gr`) is ORPHANED — OAuth for
+  @cloudless.gr now resolves to `-0008cAvjha…` (the active row created
+  2026-11-07, likely client_key/app rotation or account recreation).
+  open_id is deterministic per user+client_key → NO consent flow can ever
+  re-authorize `-000lqpsmr…`; its refresh token is dead ("invalid or
+  expired" every token_refresh run → hourly Slack noise too).
+- Live-verified 2026-11-10: fresh authorize URL auto-redirected to callback
+  with NO click (consent pre-granted) → refreshed `-0008cAvjha…` row.
+- Remediation applied: stale row `dcda73fb…` set `status='revoked'` +
+  meta_data.revoked_reason — stops token_refresh retries, reauth cron
+  targeting, and needs_reauth() firing. Reversible via reconnect.
+- Cron wrapper `~/scripts/tiktok-reauth-cron.sh`: ships /tmp PNGs to
+  ~/logs/, alerts now carry the script's reason line, timeout 300→420s.
+- Follow-up: watch next cron run — should print "no tiktok account needs
+  re-auth" (rc=0) now that the zombie row is revoked.
