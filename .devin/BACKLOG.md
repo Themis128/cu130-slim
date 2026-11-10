@@ -927,3 +927,31 @@ Leftovers:
   cu130-backend — health ok. NOTE: adhoc has FRESH profile — X reauth
   still needs cookies (X_WEB_AUTH_TOKEN absent) or creds
   (TWITTER_LOGIN_* absent) — human gate unchanged.
+
+## 2026-11-10 — PR sweep cont. + coverage margin + rescued WIP (Devin)
+
+- Second sweep pass: #1601 (session-log PR) merged; #1602 evergreen-drip
+  squash-rebuilt onto master (test_email_drip conflict — new test was
+  inserted mid-function, moved after the enclosing test), merged.
+  #1608 infisical SMTP-TLS, #1613 backlog meta-findings merged via armed
+  auto-merge.
+- Coverage gate margin restored (PR #1603): master was hovering at the
+  99.0% line gate — new tests pushed it to ~99.10% —
+  `test_report_videos.py` (materialize_report_videos 14%→100%: stale/
+  pending/failed-result/missing-asset/happy paths via draining run_async
+  fake + task_session mocks) and `test_linkedin_intel_task.py`
+  (skip/digest/error-cap, 71%→100%).
+- Rescued coherent WIP found dirty on the master checkout → PR #1614
+  `feat/error-taxonomy-media-probe` (error_taxonomy + media_url_probe
+  services, post-target error_class column). Its alembic migration
+  duplicated revision `a1b2c3d4e5f6` (= add_ai_providers_table) →
+  revision-cycle broke `alembic upgrade head`; renamed to k2f9a1b4c6d8
+  (single head). New media-URL preflight is fail-closed — an autouse
+  `_media_url_probe_ok` fixture stubs `_probe_public_media` in
+  test_publishing.py so fake fixture URLs don't block (pattern mirrors
+  test_publishing_flow). ruff I001 in the migration fixed.
+- devoptimizer #5 (Otter desktop drive) merged. cloudless.gr #2409 stays
+  a DRAFT — other agent's WIP.
+- Still in flight at session end (armed, treadmill crons drive them):
+  #1610 FB insights v26, #1611 bluesky AT-session reuse, #1614 WIP,
+  #1615 bridge-sessions login-wall detection.
