@@ -111,6 +111,16 @@ def main():
     env_set("TWITTER_LOGIN_USERNAME", "baltzakis.themis@gmail.com")
     env_set("TWITTER_LOGIN_PASSWORD", pw)
     log(".env updated: X_WEB_AUTH_TOKEN, X_WEB_CT0, TWITTER_LOGIN_*")
+    # TOTP secret — daemon enrolls authenticator-app 2FA during recovery;
+    # consent_healers/pyotp turns every future X challenge into a local code
+    try:
+        r = ps("Get-Content C:\\Users\\tbaltzakis\\x_totp_secret.txt -ErrorAction SilentlyContinue")
+        sec = (r.stdout or "").strip()
+        if sec:
+            env_set("TWITTER_TOTP_SECRET", sec)
+            log(".env updated: TWITTER_TOTP_SECRET")
+    except Exception as e:
+        log("totp secret read failed:", e)
     # phase 3: recreate services so new env vars actually load
     # (docker restart does NOT re-read .env — compose up -d does)
     if docker_ok():
