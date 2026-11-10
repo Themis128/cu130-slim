@@ -19,7 +19,7 @@ PW_FILE = f"{WIN}/x_new_password.txt"
 ENV = "/home/tbaltzakis/cu130-slim/.env"
 REPO = "/home/tbaltzakis/cu130-slim"
 POLL = 60
-DEADLINE = time.time() + 7 * 3600
+DEADLINE = time.time() + 13 * 3600  # must outlive the daemon's 12h window
 
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
