@@ -443,7 +443,7 @@ Rules:
 - Only use platforms present in CANDIDATES — never add one, you may drop one.
 - instruction: one concrete directive — what to post, what angle, which real Cloudless build outcome or number to cite. Real outcomes only, no hype.
 - priority: integer 1-100 ranking expected impact.
-- Output STRICT JSON only, no prose: {"posts":[{"platform":"...","instruction":"...","priority":N}]}
+- Output STRICT JSON only, no prose: {{"posts":[{{"platform":"...","instruction":"...","priority":N}}]}}
 - At most {max_posts} posts.
 
 CHANNELS (7d outcomes):

@@ -13,6 +13,7 @@ import pytest
 
 from app.models.content import PostStatus
 from app.services.central_brain import (
+    _LLM_PROMPT,
     MAX_POST_ACTIONS,
     MAX_TREND_ACTIONS,
     BrainDecision,
@@ -383,6 +384,7 @@ class TestCentralBrainTask:
         assert out["teams"] == 2
         assert out["results"][0]["posts_dispatched"] == 1
         assert out["results"][1]["status"] == "failed"
+        assert db.committed
 
 
 # ── LLM decision refinement ───────────────────────────────────────────
@@ -397,6 +399,23 @@ def _cand(platform: str, priority: int = 50) -> BrainDecision:
         reason="score=x er7d=1.0 posts7d=2",
         trend_query="ai agents",
     )
+
+
+class TestLLMPromptTemplate:
+    def test_format_renders_without_keyerror(self):
+        # Regression: the literal JSON example in the prompt must have
+        # escaped braces or str.format raises KeyError and the LLM pass
+        # silently falls back forever.
+        prompt = _LLM_PROMPT.format(
+            max_posts=MAX_POST_ACTIONS,
+            channels="- linkedin: followers=10",
+            trends="- ai agents (opportunity)",
+            learnings="- post X got 40 likes",
+            fit="- linkedin: fit line",
+            candidates="- linkedin p50: rule instruction",
+        )
+        assert '"posts"' in prompt
+        assert "{channels}" not in prompt
 
 
 class TestParseLLMDecisions:
