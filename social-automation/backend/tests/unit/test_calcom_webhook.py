@@ -156,3 +156,31 @@ async def test_webhook_bad_sig_and_non_booking(monkeypatch):
 
     res = await W.calcom_booking(Req3())
     assert res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_webhook_booking_provisions_talk_room(monkeypatch):
+    """signed BOOKING_CREATED → _provision_talk_room runs, room in response."""
+    monkeypatch.setenv("CALCOM_WEBHOOK_SECRET", "sec")
+    monkeypatch.setattr(
+        "app.services.linkedin_advanced.stream_conversion",
+        AsyncMock(return_value={"ok": True}),
+    )
+    prov = AsyncMock(return_value="https://x/call/abc12345")
+    monkeypatch.setattr(W, "_provision_talk_room", prov)
+
+    body = b'{"triggerEvent":"BOOKING_CREATED","payload":{"attendees":[{"email":"t@x.com"}]}}'
+
+    class Req:
+        def __init__(self):
+            self.headers = {"x-cal-signature-256": hmac.new(b"sec", body, hashlib.sha256).hexdigest()}
+
+        async def body(self):
+            return body
+
+        async def json(self):
+            return {"triggerEvent": "BOOKING_CREATED", "payload": {"attendees": [{"email": "t@x.com"}]}}
+
+    res = await W.calcom_booking(Req())
+    assert res.status_code == 200
+    prov.assert_awaited_once()
