@@ -24,7 +24,10 @@ case "$1" in
     for a in "$@"; do
       if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Health.Status* ]]; then echo "${FAKE_HEALTH:-healthy}"; exit 0; fi
-      if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Status}}' ]; then echo "${FAKE_CSTATE:-running}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Status}}' ]; then
+        if [ -n "${FAKE_CSTATE_FILE:-}" ] && [ -f "$FAKE_CSTATE_FILE" ]; then cat "$FAKE_CSTATE_FILE"; else echo "${FAKE_CSTATE:-running}"; fi
+        exit 0
+      fi
       if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Error}}' ]; then printf '%s' "${FAKE_STATE_ERROR:-}"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Mounts* ]]; then printf '%s' "${FAKE_MOUNTS:-}"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Config.Image* ]]; then echo "fake-img"; exit 0; fi
@@ -33,7 +36,10 @@ case "$1" in
     for a in "$@"; do last="$a"; done
     if [ "$last" = "${FAKE_TARGET:-social-api}" ]; then echo "${FAKE_STATUS:-running false}"; else echo "running false"; fi;;
   logs) printf '%s\n' "${FAKE_LOGS:-}";;
-  update|start|restart) exit 0;;
+  update|restart) exit 0;;
+  start)
+    [ -n "${FAKE_CSTATE_FILE:-}" ] && echo running > "$FAKE_CSTATE_FILE"
+    exit 0;;
   compose) exit 0;;
   exec) exit 1;;
   run)
@@ -321,3 +327,64 @@ def test_tailnet_ip_ignores_non_port_errors(env, tmp_path):
     run(repo, e, FAKE_TARGET="infisical", FAKE_STATUS="created false",
         FAKE_STATE_ERROR="some other error", FAKE_TS_IP="100.100.186.88")
     assert not any("compose up" in x for x in calls(tmp))
+
+
+def _old_migration_marker(e, tmp_path):
+    sd = Path(e["WD_STATE_DIR"])
+    sd.mkdir(parents=True, exist_ok=True)
+    m = sd / "migration-social-api"
+    m.write_text("1")
+    old = time.time() - 2000
+    os.utime(m, (old, old))
+    return m
+
+
+def test_migration_marker_self_recovers_when_fixed(env, tmp_path):
+    """Parked container probe-starts, boots clean -> restart policy restored."""
+    repo, e, tmp = env
+    m = _old_migration_marker(e, tmp_path)
+    cfile = tmp_path / "cstate"
+    cfile.write_text("exited")
+    run(repo, e, WD_MIGRATION_PROBE_SECS=0, WD_MIGRATION_PROBE_WAIT=0,
+        FAKE_CSTATE_FILE=str(cfile), FAKE_STATUS="exited false", FAKE_LOGS="")
+    assert not m.exists()
+    assert "update --restart=unless-stopped social-api" in calls(tmp)
+    assert "migration recovered" in log(repo)
+
+
+def test_migration_marker_stays_parked_while_broken(env, tmp_path):
+    """Probe-start still hits the migration error -> stays parked, throttled."""
+    repo, e, tmp = env
+    m = _old_migration_marker(e, tmp_path)
+    logs = "alembic.util.exc.CommandError: Can't locate revision identified by 'abc123'"
+    run(repo, e, WD_MIGRATION_PROBE_SECS=0, WD_MIGRATION_PROBE_WAIT=0,
+        FAKE_CSTATE="exited", FAKE_STATUS="exited false", FAKE_LOGS=logs)
+    assert m.exists()
+    assert "update --restart=unless-stopped" not in "\n".join(calls(tmp))
+    assert "staying parked" in log(repo)
+
+
+def test_migration_marker_running_but_still_erroring_stays_parked(env, tmp_path):
+    """Boot succeeds but fresh logs still show the migration error -> parked."""
+    repo, e, tmp = env
+    m = _old_migration_marker(e, tmp_path)
+    cfile = tmp_path / "cstate"
+    cfile.write_text("exited")
+    logs = "alembic FAILED: Multiple head revisions"
+    run(repo, e, WD_MIGRATION_PROBE_SECS=0, WD_MIGRATION_PROBE_WAIT=0,
+        FAKE_CSTATE_FILE=str(cfile), FAKE_STATUS="exited false", FAKE_LOGS=logs)
+    assert m.exists()
+    assert "update --restart=unless-stopped" not in "\n".join(calls(tmp))
+
+
+def test_migration_marker_young_is_not_probed(env, tmp_path):
+    """Fresh marker inside the probe window -> no boot attempt at all."""
+    repo, e, tmp = env
+    sd = Path(e["WD_STATE_DIR"])
+    sd.mkdir(parents=True, exist_ok=True)
+    m = sd / "migration-social-api"
+    m.write_text("1")
+    run(repo, e, FAKE_STATUS="running false")
+    assert m.exists()
+    assert "probe-starting" not in log(repo)
+    assert "start social-api" not in calls(tmp)
