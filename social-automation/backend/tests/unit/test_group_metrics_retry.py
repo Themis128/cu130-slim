@@ -46,8 +46,8 @@ class TestAgencyMetrics:
 
 class TestPublishRetry:
     def test_retry_sweep_skips_non_retryable(self):
-        # non-retryable error strings stay failed
-        from app.worker.tasks.publish_retry import _NON_RETRYABLE
+        # deterministic failures classify terminal -> retry sweep skips them
+        from app.services.error_taxonomy import TERMINAL, classify_publish_error
 
         for err in ("does not accept", "Unsupported platform", "account not connected", "Token decrypt failed"):
-            assert any(t in err for t in _NON_RETRYABLE)
+            assert classify_publish_error(err) == TERMINAL
