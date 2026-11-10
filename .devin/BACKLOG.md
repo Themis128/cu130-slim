@@ -749,3 +749,49 @@ Leftovers:
   skips if sidecars are asleep (stack-ops wakes on connect).
 - Tuning knob if funnel starves: `ENGAGE_MIN_SCORE` in `.env` (LinkedIn
   posts without 3-5 hashtags lose ~15 pts on the hashtag component).
+
+## 2026-11-10 — mailbox report sweep + republish automation (Devin)
+
+- Swept 7d of tbaltzakis@cloudless.gr IMAP reports (557 msgs). Credential
+  note: `MAIL_TBALTZAKIS_PASSWORD` in `.env` is the IMAP password for
+  dovecot @192.168.1.130:993 (mail_triage.py calls it MAILBOX_PASSWORD).
+- "E2E Survey" lead email spam: ROOT CAUSE = cloudless.gr
+  `e2e/deep/public-flows.spec.ts` mutating survey test runs on EVERY
+  pull_request via `e2e-full-coverage.yml`, creating real leads. FIX
+  ALREADY LANDED: `notify_lead_created` test-marker filter
+  (`_TEST_NOTIFY_MARKERS` incl. `@example.com`) shipped in PR #1556 —
+  verified: last "New lead" email Nov 8 22:42, leads still created Nov
+  9-10 produced ZERO emails. No action needed; leads rows are harmless
+  test data (crm_hygiene may count them as stale New — cosmetic).
+- Failed-post forensics: 30 posts.status=failed in window. Two classes:
+  (a) 17 policy-only skips (dedup/identical-media/media-required) —
+  intentional guardrails, now reclassified `suppressed` by
+  `scripts/republish_failed.py` so daily reports stop flagging them;
+  (b) 7 fixable (SEO<80, media semantic QA, incomplete media) —
+  republished as NEW posts with `apply_quality_pipeline` target SEO 85
+  (achieved 88-98), scheduled 1/day 10:00 UTC on healthy text platforms
+  (linkedin company+personal, facebook page, telegram, bluesky).
+- NEW SCRIPT: `social-automation/backend/scripts/republish_failed.py`
+  (dry-run default, `--apply` to write, `--publish-now`, `--days`,
+  `--min-seo`, `--hour`). Marks policy-only failures suppressed; reruns
+  copy through quality pipeline; creates fresh posts w/
+  meta_data.republished_from + quality_gate report.
+- MEDIA RULE (user directive): republished posts must carry CORRECT
+  media — text-only not acceptable. Original media_ids were NOT copied
+  (media_ids=[] in created posts) because old assets failed semantic QA
+  vs old copy; next step = attach media verified by
+  `verify_media_semantics` vs NEW copy, or generate fresh branded media
+  (carousel_pipeline.compose_branded_slide / ComfyUI FLUX schnell path).
+  Publish-time media_semantic_gate re-validates anyway — a mismatch
+  skips the target, never publishes wrong media.
+- OMV host (100.74.191.58, ssh -i ~/.ssh/omv_id_rsa tbaltzakis@):
+  "180 system errors" = monit loadavg>10 spam + php8.4-fpm OOM kills
+  during RAM saturation (6.9/8GB, k3s+Nextcloud+Prometheus). Transient
+  capacity pressure, php-fpm respawns; dirtymodules.json = [] clean.
+  Watch if OOM kills recur daily.
+- Human gates still open: IG sessionid import, LinkedIn sidecar cookies
+  (li_at/JSESSIONID/bcookie/bscookie), X OAuth consent + X_AUTH_TOKEN,
+  WhatsApp phone verify, TikTok stale-row sidecar login switch.
+- LinkedIn ads: report fixed in PR #1581 (account rollup, honest
+  spend_unavailable on adAnalytics 403 — token lacks
+  partnerApiAdAnalytics scope; durable fix = LinkedIn dev app scope).
