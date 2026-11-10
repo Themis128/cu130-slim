@@ -57,6 +57,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_engagement_score",
         "app.worker.tasks.linkedin_lead_boost",
         "app.worker.tasks.token_expiry",
+        "app.worker.tasks.tiktok_reauth",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -632,6 +633,14 @@ celery_app.conf.update(
         "token-expiry-sweep": {
             "task": "app.worker.tasks.token_expiry.run_token_expiry_sweep",
             "schedule": crontab(minute=50),
+        },
+        # TikTok OAuth re-auth — drives tiktok-browser-sidecar through the
+        # PKCE authorize flow when an account is expired/near expiry.
+        # Self-throttles inside the script (1/hr, 3 fails → daily).
+        "tiktok-reauth": {
+            "task": "app.worker.tasks.tiktok_reauth.run_tiktok_reauth",
+            "schedule": crontab(minute=55),
+            "options": {"queue": "default"},
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
