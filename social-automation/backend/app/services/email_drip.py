@@ -59,6 +59,7 @@ DRIP_FIRST_APPROACH = "first_approach"
 DRIP_FIRST_APPROACH_WARM = "first_approach_warm"
 FIRST_APPROACH_FAMILY = (DRIP_FIRST_APPROACH, DRIP_FIRST_APPROACH_WARM)
 DRIP_RENEWAL = "renewal"
+DRIP_EVERGREEN = "evergreen"
 
 # Inbound/opt-in sources → the contact already came to us → warm copy.
 WARM_SOURCES = {
@@ -413,6 +414,48 @@ async def _aie_course_candidates(
     return out
 
 
+async def _evergreen_candidates(
+    db, team_id: uuid.UUID, now: datetime, lead_map: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Dormant-lead monthly track: leads with NO drip mail (any lane,
+    evergreen included) in the last ``EMAIL_DRIP_EVERGREEN_GAP_DAYS`` days.
+    ``cycle`` is the calendar month so ``_already_dripped`` dedupes within
+    the month while allowing a fresh send next month — no new dedupe
+    machinery. Leads that never got any drip are skipped: first_approach
+    owns the new-lead lane."""
+    settings = get_settings()
+    gap = timedelta(days=getattr(settings, "EMAIL_DRIP_EVERGREEN_GAP_DAYS", 30))
+    keys = (DRIP_FIRST_APPROACH, DRIP_FIRST_APPROACH_WARM, DRIP_RENEWAL, DRIP_EVERGREEN, *DRIP_AIE_STEPS)
+    last_any: dict[str, datetime] = {}
+    try:
+        for key in keys:
+            for email, when in (await _dripped_with_dates(db, team_id, key)).items():
+                if email not in last_any or when > last_any[email]:
+                    last_any[email] = when
+    except Exception:  # noqa: BLE001 — date pull failing must not kill the sweep
+        logger.exception("email drip evergreen: last-mail pull failed")
+        return []
+    cycle = now.strftime("%Y-%m")
+    out: list[dict[str, Any]] = []
+    for email, last in last_any.items():
+        if last > now - gap:
+            continue  # any lane mailed recently — still warm, not dormant
+        lead = lead_map.get(email) or {}
+        name = lead.get("_name")
+        if not _mailable(email, name) or _in_active_conversation(lead):
+            continue
+        out.append(
+            {
+                "email": email,
+                "name": name,
+                "crm_entity": "Lead" if lead.get("id") else None,
+                "crm_id": lead.get("id"),
+                "cycle": cycle,
+            }
+        )
+    return out
+
+
 async def _aie_lead_map() -> dict[str, dict[str, Any]]:
     """email → {id, _name} for CRM leads — recipient naming + note targets."""
     out: dict[str, dict[str, Any]] = {}
@@ -526,7 +569,7 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
     now = datetime.now(UTC)
     settings = get_settings()
     aie_gap = timedelta(days=settings.EMAIL_DRIP_AIE_GAP_DAYS)
-    aie_leads = await _aie_lead_map() if settings.EMAIL_DRIP_AIE_ENABLED else {}
+    aie_leads = await _aie_lead_map() if (settings.EMAIL_DRIP_AIE_ENABLED or getattr(settings, "EMAIL_DRIP_EVERGREEN_ENABLED", True)) else {}
     report: dict[str, Any] = {"dry_run": dry_run, "teams": [], "mailed": 0}
     async with async_session_maker() as db:
         teams = (await db.execute(select(Team))).scalars().all()
@@ -538,6 +581,16 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                 (DRIP_FIRST_APPROACH_WARM, [c for c in fa if c["temp"] == "warm"], DRIP_FIRST_APPROACH_WARM, DRIP_FIRST_APPROACH, FIRST_APPROACH_FAMILY),
                 (DRIP_RENEWAL, await _renewal_candidates(now), None, None, None),
             ]
+            if getattr(settings, "EMAIL_DRIP_EVERGREEN_ENABLED", True):
+                runs.append(
+                    (
+                        DRIP_EVERGREEN,
+                        await _evergreen_candidates(db, team.id, now, aie_leads),
+                        None,
+                        None,
+                        None,
+                    )
+                )
             if settings.EMAIL_DRIP_AIE_ENABLED:
                 for step in DRIP_AIE_STEPS:
                     runs.append(
