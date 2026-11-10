@@ -1208,7 +1208,7 @@ async def _process_inline(
     except Exception as e:
         logger.error(
             "WhatsApp auto-reply failed: %s",
-            _sanitize_log_text(type(e).__name__),
+            _sanitize_log_text(f"{type(e).__name__}: {e}")[:400],
         )
 
 
