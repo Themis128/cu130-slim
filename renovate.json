@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "Europe/Athens",
+  "prConcurrentLimit": 5,
+  "prBodyNotes": [
+    "Images deploy via stack-image-sync.py (GHCR :latest digest drift) + pr-land-watch after merge."
+  ],
+  "minimumReleaseAge": "7 days",
+  "packageRules": [
+    {
+      "description": "Own GHCR images are rebuilt by CI on every merge; :latest drift is handled by stack-image-sync.py — Renovate would just duplicate that lane.",
+      "matchPackagePatterns": ["^ghcr\\.io/themis128/"],
+      "enabled": false
+    },
+    {
+      "matchPackagePatterns": ["^cu130-slim-"],
+      "enabled": false
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "docker major updates",
+      "schedule": ["before 6am on monday"]
+    }
+  ],
+  "docker-compose": {
+    "fileMatch": ["(^|/)docker-compose\\.ya?ml$"]
+  }
+}
