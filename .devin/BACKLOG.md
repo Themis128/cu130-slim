@@ -1098,3 +1098,21 @@ Leftovers:
   1805020980543501, Account status Approved. Business verification on it:
   Unverified (optional); Payment method: none — card entry remains the
   human gate for paid messaging.
+
+## 2026-11-10 (eve) — mail-outbound 401 triage (Devin)
+
+- Alert "MAIL PIPELINE FAIL — mail-outbound /send threw: HTTP Error 401"
+  triaged: worker `MAIL_OUTBOUND_TOKEN` secret was rotated
+  2026-11-08 23:52 UTC (wrangler "Secret Change" deploy, part of
+  cf-worker-bringup Gate-2 completion). Callers holding the pre-rotation
+  token 401'd until credentials converged.
+- Verified live: current token (sha256 49acfab4…) is identical across
+  Infisical prod (daily 05:30 pull source of truth), WSL + Windows
+  `cu130-slim/.env`, and all 6 compose containers (social-api + 4
+  workers + celery-beat). `POST /send` with it → 200 + real delivery;
+  `/health` → ok; wrong token → 401 `{"error":"unauthorized"}` as
+  designed. No mail-outbound errors in container logs (7d).
+- Residual: the probe script that emitted the alert was not found in any
+  repo/cron/host — if it stores its own token copy (Devin Cloud secret,
+  GitHub secret, other machine) it may still hold the OLD token and will
+  keep 401ing. All in-stack credentials are already correct.
