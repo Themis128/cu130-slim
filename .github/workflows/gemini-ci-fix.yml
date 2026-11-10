@@ -103,6 +103,7 @@ jobs:
         id: gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
           GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
         run: |
           cat > /tmp/gemini-prompt.txt <<'PROMPT'
