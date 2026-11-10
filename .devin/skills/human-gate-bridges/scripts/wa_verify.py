@@ -19,7 +19,7 @@ TOK = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
 KEY = os.path.expanduser("~/.ssh/id_rsa_win")
 USER = os.environ.get("OMV_SSH_USER", "")
 HOST = os.environ.get("OMV_SSH_HOST", "")
-CODE_RE = re.compile(r"\b([0-9]{6})\b")
+CODE_RE = re.compile(r"\b(\d{3})[- ]?(\d{3})\b")
 
 
 def graph(path: str, **params) -> dict:
@@ -52,7 +52,7 @@ def adb_code() -> str | None:
                 r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
             m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
             if m:
-                return m.group(1)
+                return m.group(1)+m.group(2)
         except Exception:
             continue
     return None
@@ -72,7 +72,7 @@ def termux_code() -> str | None:
         rows = [l for l in r.stdout.splitlines() if re.search(
             r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
         m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
-        return m.group(1) if m else None
+        return (m.group(1)+m.group(2)) if m else None
     except Exception:
         return None
 
@@ -87,7 +87,7 @@ def mail_code() -> str | None:
          "mailbox INBOX SINCE 1h 2>/dev/null | tail -120"],
         capture_output=True, text=True, timeout=20)
     m = CODE_RE.search(r.stdout)
-    return m.group(1) if m else None
+    return (m.group(1)+m.group(2)) if m else None
 
 
 def main() -> int:

@@ -116,6 +116,48 @@ gone.
   webhook + set WHATSAPP_PHONE_NUMBER_ID=1432734783254091,
   WHATSAPP_BUSINESS_ACCOUNT_ID=1717901383017723 in .env/Infisical.
 
+## 2026-11-10 (night) — WhatsApp Cloud API LIVE ✅
+
+Resolution path chosen: **disconnect + direct Cloud API** (coexistence
+proved Tech-Provider-gated; app chats were year-old spam only — verified
+by scrolling the full chat list, newest 1:1 threads Oct-2025, mostly
+scrape/job-spam; fresh 35MB chat backup taken anyway before deletion).
+
+Done, all verified live:
+- WA Business app account DELETED via ADB (Settings→Account→Delete
+  account→reason→confirm). App now sits at fresh onboarding screen.
+- Graph `request_code` SMS → code `952-226` read off SMS inbox via ADB
+  (note: Meta codes arrive as `XXX-XXX` dashed — wa_verify.py regex
+  `\b\d{6}\b` misses them; verify manually or fix regex) →
+  `verify_code` success → `code_verification_status=VERIFIED`.
+- `POST /1432734783254091/register` success (2SV PIN generated, stored
+  as `WA_REGISTRATION_PIN` in .env).
+- `POST /1717901383017723/subscribed_apps` success — app 1936126137016578
+  ("Cloudless", namespace cloudless_gr) subscribed; webhook callback
+  `https://social.cloudless.gr/api/v1/whatsapp/webhook` verified
+  (challenge echo OK).
+- Phone state: VERIFIED, TIER_250 messaging limit, name_status
+  AVAILABLE_WITHOUT_REVIEW.
+- `.env` gained WHATSAPP_ACCESS_TOKEN (=META_ACCESS_TOKEN),
+  WHATSAPP_APP_ID=1936126137016578, WHATSAPP_BUSINESS_ACCOUNT_ID=
+  1717901383017723, WHATSAPP_PHONE_NUMBER_ID=1432734783254091,
+  WA_REGISTRATION_PIN=<random>. social-api recreated (`up -d`, not
+  `restart` — restart doesn't reload env).
+- `social_accounts` row 77f17091 updated: status=active, platform_type=
+  CLOUD_API, new phone_number_id/waba_id, access_token re-encrypted via
+  encrypt_field, rate-limit fields cleared, bot config preserved.
+- Watchers stopped (wa_code_watch killed, wa_coexist_watch exited on
+  VERIFIED).
+
+Remaining:
+- [ ] Message templates: new WABA has zero templates — utility/marketing
+  templates must be recreated + approved before business-initiated
+  sends; 24h session replies already work.
+- [ ] Real inbound test: someone messages +30 697 777 7838 → should hit
+  webhook → unified inbox + auto-reply bot.
+- [ ] WHATSAPP_ACCESS_TOKEN is a user token (~60d) — mint a system-user
+  token when Business Settings allows (non-expiring).
+
 ## Open — external human gates
 
 - [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
