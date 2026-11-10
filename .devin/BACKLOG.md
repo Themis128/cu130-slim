@@ -718,3 +718,26 @@ Leftovers:
   down_revision = master head `s9p9r8s7t6u5` — merge stays linear.
 - pr-ci-fix-watch.py (home-ops cron, */15) now auto-fixes ruff + alembic
   multi-head/can't-locate failures and Telegram-alerts #ops on the rest.
+
+## 2026-11-10 — report leftovers + token automation (Devin, PR #1575)
+
+- OMV pending config applied (phpfpm) via omv-apply-pending run 42752557563.
+- social-cloudflared was Exited(127) ~1h — stale Docker Desktop bind-mount
+  on entrypoint.sh → Cloudflare Tunnel 1033 killed ALL OAuth callbacks
+  (TikTok re-auth "finished-with-error"). Recreated via
+  `docker compose up -d --no-deps --force-recreate cloudflared`.
+- Token-expiry sweep blind spot fixed in #1575: expired/revoked accounts
+  were invisible (only active/connected scanned, meta-only expiry, `x` vs
+  `twitter` name mismatch). Now column-expiry fallback + 24h dedupe.
+- `scripts/tiktok_reauth.py` (merged #1571) was never scheduled — wired
+  into beat hourly in #1575.
+- Human gates (auto-escalated now, still need a click):
+  X + Instagram + Threads (bridge sessions logged out after novnc restart;
+  X web cookies not stored anywhere), WhatsApp phone verify
+  (payment+code in Meta Business), Facebook personal user-token,
+  TikTok `cloudless.gr` row (sidecar is logged into the other TikTok
+  account — `docker compose exec social-api python
+  scripts/tiktok_reauth.py` can't reach it).
+- PR #1574 (account-connected mail spam fix) merged; social-api restarted.
+- After #1575 merges: `git pull && docker compose restart celery-beat
+  social-worker-default` to load the new beat schedule + task.
