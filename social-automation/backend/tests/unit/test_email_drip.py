@@ -867,3 +867,34 @@ async def test_run_drip_warm_lane_falls_back_to_base_template(monkeypatch):
     )
     assert stats["mailed"] == 1
     assert "no drip_template" not in " ".join(stats["errors"])
+
+
+@pytest.mark.asyncio
+async def test_evergreen_candidates_dormant_only(monkeypatch):
+    """Evergreen = leads with zero drip mail in the gap window, mailable,
+    not In Process; monthly cycle bucket for dedupe."""
+    from datetime import timedelta
+
+    old = datetime.now(UTC) - timedelta(days=40)
+    recent = datetime.now(UTC) - timedelta(days=2)
+
+    async def dates(db, team_id, key):
+        if key == "first_approach":
+            return {"old@corp.io": old, "recent@corp.io": recent,
+                    "conv@corp.io": old}
+        if key == "evergreen":
+            return {"old@corp.io": old}
+        return {}
+
+    monkeypatch.setattr(D, "_dripped_with_dates", dates)
+    leads = {
+        "old@corp.io": {"id": "L1", "status": "New", "_name": "Old"},
+        "recent@corp.io": {"id": "L2", "status": "New", "_name": "Recent"},
+        "conv@corp.io": {"id": "L3", "status": "In Process", "_name": "Conv"},
+    }
+    out = await D._evergreen_candidates(object(), uuid.uuid4(), datetime.now(UTC), leads)
+    emails = {c["email"] for c in out}
+    # dormant (old@) included with month cycle; recently-mailed excluded;
+    # In-Process excluded; never-dripped excluded (no prior drip)
+    assert emails == {"old@corp.io"}
+    assert out[0]["cycle"] == datetime.now(UTC).strftime("%Y-%m")

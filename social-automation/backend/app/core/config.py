@@ -654,6 +654,8 @@ class Settings(BaseSettings):
     EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
     EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
     EMAIL_DRIP_AIE_ENABLED: bool = True  # Oxford AIE 4-step course sequence
+    EMAIL_DRIP_EVERGREEN_ENABLED: bool = True  # monthly dormant-lead value track
+    EMAIL_DRIP_EVERGREEN_GAP_DAYS: int = 30  # days of total drip silence before evergreen
     EMAIL_DRIP_AIE_GAP_DAYS: int = 7  # days between course steps
     LEAD_RESEARCH_ENABLED: bool = True
     LEAD_RESEARCH_HOUR: int = 8  # Europe/Athens via Celery timezone
