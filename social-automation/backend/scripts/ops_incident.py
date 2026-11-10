@@ -72,11 +72,14 @@ async def _list(args) -> None:
 async def _resolve(args) -> None:
     from datetime import UTC, datetime
 
-    from sqlalchemy import select
+    from sqlalchemy import String, cast, select
 
     q = select(OpsIncident).where(OpsIncident.status != IncidentStatus.RESOLVED)
     if args.id_or_fp:
-        q = q.where((OpsIncident.id.cast(str) == args.id_or_fp) | (OpsIncident.fingerprint.startswith(args.id_or_fp)))
+        q = q.where(
+            (cast(OpsIncident.id, String) == args.id_or_fp)
+            | (OpsIncident.fingerprint.startswith(args.id_or_fp))
+        )
     async with async_session_maker() as db:
         rows = (await db.execute(q)).scalars().all()
         for r in rows:
