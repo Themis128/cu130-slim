@@ -29,6 +29,7 @@ Read `social-content-core` first.
 <!-- PLATFORM-FIT:BEGIN instagram -->
 ### What the Instagram audience/algorithm favors
 - Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.
+- 2026 signals: watch time, **sends** and shares are the top ranking inputs (per Instagram's head) — content engineered to be sent to a friend outperforms content engineered to be liked.
 - Prioritize visual quality — the caption supports the media.
 
 <!-- PLATFORM-FIT:END -->
