@@ -81,14 +81,37 @@ for attempt in 1 2 3; do
     sleep 5
 done
 if [ "$OK" != 1 ]; then
-    echo "$LOG_PREFIX copy failed after 3 attempts — aborting ingest" >&2
+    # Fallback: stream a tarball through stdin. docker cp re-reads every
+    # file via DrvFs and flakes with ENOMEM on large trees; a single
+    # sequential tar read is far more reliable (verified 2026-11-10).
+    echo "$LOG_PREFIX docker cp failed — falling back to tar stream"
+    docker exec -u root social-api rm -rf /tmp/kakkava-sofia
+    if ( cd "$SRC" && tar czf - . ) | \
+        docker exec -i -u root social-api sh -c \
+        'mkdir -p /tmp/kakkava-sofia && tar xzf - -C /tmp/kakkava-sofia'; then
+        CONT_COUNT=$(docker exec social-api find /tmp/kakkava-sofia -type f 2>/dev/null | wc -l)
+        if [ "$CONT_COUNT" = "$HOST_COUNT" ]; then
+            OK=1
+        else
+            echo "$LOG_PREFIX tar fallback count mismatch host=$HOST_COUNT container=$CONT_COUNT" >&2
+        fi
+    else
+        echo "$LOG_PREFIX tar fallback failed" >&2
+    fi
+fi
+if [ "$OK" != 1 ]; then
+    echo "$LOG_PREFIX copy failed after 3 attempts + tar fallback — aborting ingest" >&2
     exit 1
 fi
-docker cp "$INGEST_PY" social-api:/tmp/kakkava_brain_ingest.py
+# docker cp also flakes on the script file itself (bind-mount fd error) —
+# stdin is immune to that failure class.
+docker exec -i -u root social-api sh -c 'cat > /tmp/kakkava_brain_ingest.py' \
+    < "$INGEST_PY"
 
 echo "$LOG_PREFIX ingesting into team $TEAM_ID"
-docker exec -e SOCIALAUTO_TEAM_ID="$TEAM_ID" -e KAKKAVA_ROOT=/tmp/kakkava-sofia \
-    social-api python3 /tmp/kakkava_brain_ingest.py
+docker exec -e PYTHONUNBUFFERED=1 -e SOCIALAUTO_TEAM_ID="$TEAM_ID" \
+    -e KAKKAVA_ROOT=/tmp/kakkava-sofia \
+    social-api python3 -u /tmp/kakkava_brain_ingest.py
 
 mv "$NEW_MANIFEST" "$MANIFEST"
 echo "$LOG_PREFIX done — manifest updated"
