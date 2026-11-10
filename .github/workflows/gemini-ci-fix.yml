@@ -41,7 +41,6 @@ jobs:
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.pull_requests[0] &&
-      github.event.workflow_run.pull_requests[0].draft == false &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       !startsWith(github.event.workflow_run.head_branch, 'gemini-ci-fix-')
     runs-on: ubuntu-latest
@@ -67,12 +66,15 @@ jobs:
           git config --global user.email "gemini-ci-fix[bot]@users.noreply.github.com"
           git config --global user.name "gemini-ci-fix[bot]"
 
-      - name: Attempt cap check
-        id: cap
+      - name: Guard checks (draft + attempt cap)
+        id: guard
         run: |
+          IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json isDraft -q .isDraft)
           ATTEMPTS=$(git log --grep='gemini-ci-fix:' --oneline | wc -l | tr -d ' ')
           echo "attempts=$ATTEMPTS" >> "$GITHUB_OUTPUT"
-          if [ "$ATTEMPTS" -ge 3 ]; then
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$ATTEMPTS" -ge 3 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
               --body "Gemini CI auto-fix skipped: $ATTEMPTS automated fix attempts already on this branch (cap=3). Needs human/agent judgment — see failed run: $FAILED_RUN_URL"
@@ -83,7 +85,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
 
       - name: Collect failed job names
-        if: steps.cap.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true'
         id: failed_jobs
         uses: actions/github-script@v7
         with:
@@ -97,7 +99,7 @@ jobs:
             core.setOutput('names', failed.join(', '));
 
       - name: Run Gemini CLI fix
-        if: steps.cap.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true'
         id: gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -140,7 +142,7 @@ jobs:
           tail -40 /tmp/gemini-response.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit and push fix
-        if: steps.cap.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true'
         id: push
         run: |
           if [ -n "$(git status --porcelain -- . ':(exclude).gemini' ':(exclude)*.log')" ]; then
@@ -154,7 +156,7 @@ jobs:
           fi
 
       - name: Comment result on PR
-        if: always() && steps.cap.outputs.skip != 'true'
+        if: always() && steps.guard.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.PR_FIX_PAT }}
         run: |
