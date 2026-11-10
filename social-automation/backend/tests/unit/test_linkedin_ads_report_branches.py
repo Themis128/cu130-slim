@@ -139,3 +139,72 @@ async def test_notebook_skips_missing_attachments(monkeypatch, tmp_path):
     assert out is not None
     _, _, attachments = out
     assert [a["name"] for a in attachments] == ["chart.png"]
+
+
+@pytest.mark.asyncio
+async def test_api_rollup_when_adanalytics_denied(monkeypatch):
+    """adAnalytics 403 + no tracked campaign → inventory rollup with spend flagged unavailable."""
+    import app.services.analytics_sync as A
+
+    monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A, "_linkedin_headers", lambda t: {})
+    campaigns_body = {
+        "elements": [
+            {"id": "c1", "name": "Boost", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}},
+            {"id": "c2", "name": "Old", "status": "COMPLETED", "runSchedule": {"start": 1_757_000_000_000}},
+        ]
+    }
+    http = _Http([_http_resp(200, campaigns_body)])
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
+    err = SimpleNamespace(notes="403 partnerApiAdAnalytics denied")
+    monkeypatch.setattr(A, "_fetch_linkedin_ad_stats", AsyncMock(return_value={"_error": err}))
+    m = R.CampaignMetrics(account_id="acct", campaign_id=None)
+    ok = await R._collect_api_metrics(_DB([]), m)
+    assert ok is True
+    assert m.raw["account_rollup"] is True
+    assert m.raw["spend_unavailable"] is True
+    assert "403" in m.raw["analytics_error"]
+    assert m.status == "active"
+    assert m.campaign_name == "account rollup (2 campaigns)"
+    assert m.raw["source"] == "api"
+    # only the adCampaigns inventory call — no per-campaign fetch without camp
+    assert len(http.urls) == 1 and "adCampaigns" in http.urls[0]
+
+
+@pytest.mark.asyncio
+async def test_api_account_rollup_aggregates_all_campaigns(monkeypatch):
+    """No tracked campaign → account-level spend/clicks/impressions summed across adAnalytics rows."""
+    import app.services.analytics_sync as A
+
+    monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A, "_linkedin_headers", lambda t: {})
+    campaigns_body = {
+        "elements": [
+            {"id": "c1", "name": "Boost", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}},
+            {"id": "c2", "name": "Old", "status": "PAUSED", "runSchedule": {"start": 1_757_000_000_000}},
+        ]
+    }
+    http = _Http([_http_resp(200, campaigns_body)])
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
+    b1 = SimpleNamespace(raw={"costLocal": "10.5"}, clicks=3, impressions=300, engagement=6)
+    b2 = SimpleNamespace(raw={"costLocal": "4.5"}, clicks=2, impressions=100, engagement=4)
+    stats = {"urn:li:sponsoredCampaign:c1": b1, "urn:li:sponsoredCampaign:c2": b2}
+    monkeypatch.setattr(A, "_fetch_linkedin_ad_stats", AsyncMock(return_value=stats))
+    m = R.CampaignMetrics(account_id="acct", campaign_id=None)
+    ok = await R._collect_api_metrics(_DB([]), m)
+    assert ok is True
+    assert m.spend_eur == 15.0
+    assert m.clicks == 5
+    assert m.impressions == 400
+    assert m.raw["account_rollup"] is True
+    assert m.raw["spend_by_campaign"] == {"c1": 10.5, "c2": 4.5}
+    assert m.account_spend_eur == 15.0
+    assert m.campaign_name == "account rollup (2 campaigns)"
+    assert m.status == "active"
+
+
+def test_report_spend_unavailable_note():
+    m = _metrics(status="active", spend_eur=0.0, raw={"spend_unavailable": True, "analytics_error": "403 denied"})
+    out = R.build_report_text(m, None, None)
+    assert "unavailable" in out.lower()
+    assert "denied adAnalytics" in out
