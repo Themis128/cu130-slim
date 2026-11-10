@@ -1187,3 +1187,47 @@ Leftovers:
   (Meta code + fbtrace_id) — pushed onto PR #1650 branch.
 - PR sweep: 12 open PRs all BLOCKED-pending-CI, zero failures,
   auto-merge armed everywhere. #1653 (portfolio watcher) MERGED.
+
+## 2026-11-11 (night) — brain-stack merge treadmill + land-watch image rebuilds (Devin)
+
+- **Landed**: #1651 platform_fit.json 2026 algorithm refresh, #1657
+  kakkava tar-stream fallback + ingest resume, #1662, #1664, #1666.
+  #1653/#1654/#1648/#1647 earlier same evening.
+- **Open at last sweep (8)**: #1672 whatsapp inbound poller, #1668
+  central-brain LLM refine + outcome attribution (3rd-gen rebuild —
+  carries escaped-brace _LLM_PROMPT fix, restored assert db.committed,
+  template-render regression test), #1650 wa-token-decrypt
+  (decrypt_field contract — 5 tests updated, 126/126 pass), #1649
+  media-heal (rollback-expiry fix + JPEG slides + single-image/video
+  guards, 31/31), #1646 hygiene, #1644 template poller, #1637 talk
+  recording, #1623 IG re-auth lane (nav-attempt recovery + 3300s
+  start-stamped throttle + error-status targets + _alert test, 6/6).
+  All auto-merge armed, zero check failures — pure pending-CI treadmill.
+- **#1669 closed** — dangerous revert (+0/-493) that would have deleted
+  engagement_ingest/media_heal/threads_reauth schedules; auto-merge was
+  armed on it.
+- **pr-land-watch upgraded** (home-ops 8df3b94 + 54fd450, direct push —
+  home-ops is not PR-gated): land_pr now `compose build`+`up -d
+  --no-deps` for every compose service whose IMAGE build-context dir
+  changed (all sidecars, env-manager, social-frontend, diffusers,
+  airbyte-mcp, stack-ops, promtail, social-sidecar-base, cloudflared)
+  and rebuilds all 7 backend services when non-mounted backend files
+  (Dockerfile/requirements/pyproject) change. Verified map vs live
+  docker-compose.yml; nextcloud-mcp-server/warp-proxy/linkedin-mcp use
+  prebuilt images (no build:) — correctly excluded. Closes the gap
+  where merged sidecar changes (e.g. #1623 server.js) never deployed.
+  Caveat: messenger-sidecar builds FROM published GHCR
+  social-sidecar-base — docker/ changes reach it only after GHCR publish.
+- **Dirty-checkout note**: main checkout on feat/media-heal-sweep has
+  wa_portfolio_watch.py + wa_inbound_watch.py modifications that are
+  byte-identical to PR #1672's branch (parallel session's leftovers) —
+  left untouched; land-watch auto-unblocks after 30min freshness window.
+- **Verify after #1668 merges**: next central-brain-daily (06:30 Athens)
+  should show recall_cited learnings + platform-fit lines in the LLM
+  prompt, rule fallback on inference failure, and brain_priority/
+  brain_reason/brain_trend in dispatched Post.meta_data.
+- **Verify after #1623 merges**: land-watch should auto-rebuild
+  facebook-browser-sidecar (new map) — confirm /debug/navigation-attempt
+  responds before the next hourly instagram-reauth run.
+- platform-fit-refresh cron first run due Sun 07:00 UTC — check
+  ~/logs/platform-fit-refresh.log after Nov 15.
