@@ -1135,3 +1135,30 @@ Leftovers:
 - social-api crash-looped once when DB stamp (k2f9a1b4c6d8, PR #1614-only
   revision) outlived the mounted checkout — restamped manually; the heal
   script now covers recurrence.
+
+## 2026-11-10 (night) — WhatsApp Cloud API live; template poller + sysuser watch (Devin)
+
+- WhatsApp Cloud API fully live: phone +30 697 777 7838 VERIFIED,
+  TIER_250, app 1936126137016578 subscribed to messaging account
+  1717901383017723 (WAAC 1805020980543501). Webhook signature enforced
+  (FACEBOOK_APP_SECRET falls back to FACEBOOK_CLIENT_SECRET). 4 templates
+  (cloudless_followup/cloudless_alert x en_US/el) resubmitted PENDING
+  after INVALID_FORMAT fix (example.body_text added). Template poller
+  beat */15min restored in prod ahead of PR #1644 merge (files hot-loaded
+  from the PR branch — identical content, unstaged).
+- Send path verified end-to-end: direct WhatsAppAPIClient.send_text probe
+  returned a real wamid — earlier auto-reply Meta 400 was transient /
+  pre-decrypt-fix, not a payload bug. Synthetic inbound rows persist in
+  whatsapp_messages; a REAL inbound WhatsApp message is still the only
+  unverified hop (cannot be fabricated).
+- System-user token blocked on Meta temporary restriction of Business
+  Settings writes. Prerequisite discovered: app must be added to the
+  business portfolio first ("In order to add a system user, an app must
+  be part of this business portfolio"). NEW watcher
+  `.devin/skills/whatsapp-ops/scripts/wa_portfolio_watch.py` retries the
+  Apps->Add->Connect-app-ID flow every 25min for 72h (5min while sidecar
+  asleep), exits on success; log ~/logs/wa-portfolio-watch.log. Once the
+  app lands, system user + token via Graph/UI is the next step.
+- PRs: #1644 template poller (checks pending, auto-merge armed), #1650
+  wa-token-decrypt + idempotent migration (checks running, auto-merge
+  armed). #1641 closed-superseded by merged #1647.
