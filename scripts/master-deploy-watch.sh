@@ -67,6 +67,15 @@ new=$(git rev-parse origin/master)
 last=$(cat "$DW_STATE_DIR/last_sha" 2>/dev/null || echo "")
 [ "$new" = "$last" ] && exit 0
 
+# agents leave the checkout on topic branches — always deploy from master
+if [ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]; then
+  if ! git switch master --quiet >>"$DW_LOG" 2>&1; then
+    ALERT "not-on-master" ":warning: master-deploy-watch: could not switch checkout to master — NOT deploying $new"
+    exit 0
+  fi
+  log "switched checkout to master"
+fi
+
 # first run: adopt current HEAD without deploying (avoids a surprise deploy
 # of whatever accumulated while the watcher didn't exist)
 if [ -z "$last" ]; then
@@ -75,12 +84,9 @@ if [ -z "$last" ]; then
   exit 0
 fi
 
-# ── never deploy over someone's uncommitted TRACKED work ──────────────
-# (untracked files can't block a ff-pull; agents' WIP scripts stay safe)
-if [ -n "$(git status --porcelain | grep -v '^??' | head -1)" ]; then
-  ALERT "dirty-tree-$new" ":warning: master-deploy-watch: $new is on origin/master but the checkout is dirty — NOT deploying. Commit/stash or let the owning agent finish."
-  exit 0
-fi
+# NOTE: no dirty-tree pre-check — `git merge --ff-only` below is itself the
+# guard: it refuses (and we alert) only when incoming changes would touch
+# uncommitted files. Unrelated agent WIP must not block deploys.
 
 # ── take the lock for the whole deploy ────────────────────────────────
 echo "$(date -u +%FT%TZ) master-deploy-watch $new" > "$DEPLOY_LOCK"
@@ -90,7 +96,7 @@ log "master advanced $last -> $new — deploying"
 changed=$(git diff --name-only "$last" "$new" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
 
 if ! git merge --ff-only origin/master >>"$DW_LOG" 2>&1; then
-  ALERT "pull-failed" ":rotating_light: master-deploy-watch: ff-pull of $new failed — master may have diverged; needs a human"
+  ALERT "pull-failed" ":rotating_light: master-deploy-watch: ff-pull of $new failed — diverged master or uncommitted changes in the way; needs a human"
   exit 1
 fi
 
