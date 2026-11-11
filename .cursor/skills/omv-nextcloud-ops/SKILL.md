@@ -248,6 +248,27 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
   Always sends explicit `permissions=1` (read-only): Nextcloud has a bug where
   omitted permissions apply a wrong mask (GH nextcloud/server#37774).
 
+### `scripts/nc_sync_audit.py` — phone-sync hygiene tripwire
+
+Weekly cron (`23 6 * * 1`, `--alert` → TG #ops) audits the Android
+folder-sync/instant-upload surface after the 2026-11-11 dedupe incident:
+
+- `InstantUpload/` children vs expected set — flags the `null/` album-path
+  bug signature and any unexpected folder
+- filename overlap across `InstantUpload/Camera`, `InstantUpload/null/DCIM/Camera`,
+  `PhoneBackup/DCIM/Camera` — catches duplicate upload paths re-appearing
+- recursive `conflicted copy` scan under `InstantUpload` + `PhoneBackup`
+- omv trashbin retention sanity via SSH (`~/.ssh/omv_id_rsa` →
+  `tbaltzakis@192.168.1.200` → `docker exec nextcloud php occ …`)
+
+Exit 0 = clean, 1 = findings (alerted), 2 = config error. Read-only; safe
+for cron. Companion fixer: `scripts/nc_dedupe.py` — checksum-verified
+(`oc:checksums` SHA1) duplicate cleaner; DELETEs byte-identical files in
+dup dirs, MOVEs mismatches to `Conflicts-Archive/Dedupe-<date>/` (reversible).
+Canonical phone config: ONE auto-upload `DCIM/Camera →
+/InstantUpload/Camera` + `DCIM/Screenshots → /InstantUpload/Screenshots`;
+Windows desktop client excludes `PhoneBackup` via `sync-exclude.lst`.
+
 ### WebDAV notes that bit us (verified 2026-10)
 
 - **Two DAV roots exist**: `/remote.php/dav/` (current) and
