@@ -146,6 +146,22 @@ def _adb_bin() -> str:
     return str(win) if win.exists() else "adb"
 
 
+# Meta's logged-out homepage shows a profile picker ("<Name> Continue /
+# Use another profile") instead of the login form — clicking the profile
+# card re-logs the session with NO credentials and NO checkpoint.
+# JS .click() doesn't reach the card's React handler reliably, so we
+# extract the display name and use the sidecar's real-mouse /debug/click.
+_PICKER_NAME_JS = """
+(() => {
+  const m = document.querySelector('[role=main]');
+  if (!m || !/use another profile/i.test(m.innerText || '')) return '';
+  const lines = (m.innerText || '').split('\\n')
+      .map(s => s.trim()).filter(Boolean);
+  return lines[0] || '';
+})()
+"""
+
+
 # "Approve this login" prompt on OTHER logged-in Meta sessions — only
 # fires when approval-context text is present; deny/"wasn't me" never
 # matches. Runs on the engagement-browser bridge (:9223).
@@ -325,6 +341,46 @@ def checkpoint_clicks(rounds: int = 4) -> list[str]:
     return clicks
 
 
+# Meta's notification-based 2FA ("Check your notifications on another
+# device / Waiting for approval") — NOT a code. The sidecar page polls
+# itself: if the user taps "This was me" on their phone/PC the session
+# completes without any code. Detect that state so we can alert + wait.
+_APPROVAL_WAIT_JS = """
+(() => {
+  const t = document.body.innerText || '';
+  if (/waiting for approval|check your notifications on another device/i.test(t))
+    return 'approval-waiting';
+  return 'not-approval-wait';
+})()
+"""
+
+
+def approval_wait(state: dict, poll_s: int = 600) -> bool:
+    """Alert once, then watch for the user to approve on their device."""
+    r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
+    if "approval-waiting" not in str(r.get("result") or ""):
+        return False
+    last_alert = float(state.get("last_approval_alert") or 0)
+    if time.time() - last_alert > 7200:
+        tg_alert(
+            "P2 ig-fb-session-heal: FB login is WAITING for approval — "
+            "tap 'This was me' on the Facebook notification (phone/PC) "
+            "to finish the sidecar login automatically"
+        )
+        state["last_approval_alert"] = time.time()
+        save_state(state)
+    log("2FA is notification-approval — waiting for user tap (max 10m)")
+    deadline = time.time() + poll_s
+    while time.time() < deadline:
+        time.sleep(20)
+        if validate().get("logged_in"):
+            return True
+        r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
+        if "approval-waiting" not in str(r.get("result") or ""):
+            return False
+    return False
+
+
 def tg_alert(text: str) -> None:
     try:
         subprocess.run(
@@ -343,6 +399,23 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     """One full login attempt. Returns ok|2fa-failed|login-failed|throttled."""
     username = env.get("FACEBOOK_USERNAME", "")
     password = env.get("FACEBOOK_PASSWORD", "")
+
+    # fast path: profile-picker "Continue as <name>" re-login (no creds,
+    # no checkpoint risk — doesn't count against the attempt throttle)
+    sidecar("/debug/navigate", {"url": "https://www.facebook.com/"}, timeout=90)
+    time.sleep(5)
+    nm = sidecar("/debug/eval", {"script": _PICKER_NAME_JS}, timeout=60)
+    name = str(nm.get("result") or "").strip().strip('"')
+    log(f"profile picker name -> {name!r}")
+    if name:
+        for target in (name, "Continue"):
+            sidecar("/debug/click", {"text": target}, timeout=60)
+            log(f"picker click -> {target!r}")
+            time.sleep(10)
+            v = validate()
+            if v.get("logged_in"):
+                return "ok"
+
     if not username or not password:
         return "no-creds"
 
@@ -352,18 +425,23 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     r = sidecar("/login", {"username": username, "password": password}, timeout=180)
     log(f"login attempt -> {json.dumps(r)[:300]}")
 
+    was_2fa = False
     if r.get("two_factor_required"):
+        was_2fa = True
         code = fb_code()
-        if not code:
+        if code:
+            log("2FA code retrieved — retrying login")
+            r = sidecar(
+                "/login",
+                {"username": username, "password": password,
+                 "verification_code": code},
+                timeout=180,
+            )
+            log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
+        else:
             log("2FA required but no SMS code retrieved from phone")
-            return "2fa-failed"
-        log("2FA code retrieved — retrying login")
-        r = sidecar(
-            "/login",
-            {"username": username, "password": password, "verification_code": code},
-            timeout=180,
-        )
-        log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
+            if approval_wait(state):
+                return "ok"
 
     clicks = checkpoint_clicks()
     log(f"checkpoint clicks: {clicks}")
@@ -380,7 +458,7 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
         v = validate()
         if v.get("logged_in"):
             return "ok"
-    return "login-failed"
+    return "2fa-failed" if was_2fa else "login-failed"
 
 
 def main() -> int:
