@@ -1485,31 +1485,40 @@ Leftovers:
 - [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
       #1710 (TG credential drops), #1711 (bsky rotation).
 
-## 2026-11-11 (pm3) — Instagram auth-revocation incident + healer gap fixed
+## 2026-11-11 (tg-gate-webhook: credential drops actually work now — PR #1710)
 
-- **Trigger**: Meta invalidated sessions after credential/security events
-  (FB side still in 2FA). IG Graph token → OAuthException 190 revoked;
-  `social_accounts.status` flipped `revoked`. 7 failed targets marked
-  `error_class='terminal'` to stop retry churn until session restored.
-- **Bridge IG web session is ALIVE** (@cloudless.gr, ds_user_id
-  61511170480 matches stored `private_api_ds_user_id`). Extracted fresh
-  sessionid/csrftoken via `POST :9223/session/extract` and wrote
-  `private_api_session_id` (encrypt_field, URL-decoded) into meta_data.
-- **Healer gap found + fixed (PR)**: `session_healer._sync_browser_cookies`
-  persisted cookies to `browser_cookies` but NEVER refreshed
-  `private_api_session_id` — the field the publish ladder actually reads.
-  Now syncs sessionid/csrftoken/ds_user_id → private_api_* on every
-  instagram extract, and un-revokes the account. Hourly `heal_sessions`
-  beat keeps the sidecar credential fresh automatically.
-- **Remaining IG blocker**: aiograpi sidecar rejects even the fresh
-  sessionid (`login_required` → `Exceeded maximum allowed redirects` via
-  WARP proxy; password login broken — IG stopped returning
-  `ig-set-password-encryption-key-id`, aiograpi 1.0.9 crash). IG is
-  risk-engine challenging the private-API client. Durable fixes, in
-  order: (a) INSTAGRAM2_CLIENT_ID/SECRET don't exist in env/compose —
-  wire Instagram Business Login OAuth (instagram2_authorize endpoint
-  exists but unconfigured) so Graph token reconnect is self-serve;
-  (b) upgrade/patch aiograpi for the new password-encryption flow;
-  (c) owner re-login in IG app if checkpoint demanded.
-- **Bluesky**: app-password updated in DB (see pm2 entry); publishes
-  should recover on next attempt.
+- **Root cause of dead Telegram drop lane**: `gate_capture.py`'s
+  `_tg_drops` polled Bot API `getUpdates`, which returns HTTP 409 while
+  the webhook is registered (verified live). AND the documented */15
+  cron was never installed — doubly dead.
+- **New pipe (PR #1710)**: webhook `app/api/telegram.py` matches
+  `\b(bsky|viber|whatsapp|meta)[:\s]+(\S{8,})` on inbound messages →
+  LPUSHes `{plat, secret_enc(Fernet), ts, chat_id}` onto Redis
+  `gate:drops` → acks sender (never echoes secret). `gate_capture.py
+  scan` RPOPs inside social-api (decrypt in-container only), dispatches
+  to the same provisioners as file drops, requeues failures ≤3 tries.
+- **Battle-test catches fixed in the same PR**:
+  - `viber_provision.py`/`bsky_provision.py` exited 0 on API failure →
+    false "wired" + silent drop loss; now rc=1 on connect errors
+    (.cursor mirror updated too).
+  - `_whatsapp_token` overwrote the live WA row with ANY ≥8-char
+    string; now validates the candidate against Graph
+    `/{phone_number_id}?fields=display_phone_number` BEFORE the DB
+    write, aborts rc=2 on rejection (verified live: fake token →
+    "HTTP Error 400", row untouched).
+- **Verified live**: fake viber drop → consumed → provision rc=1
+  ("Invalid auth token") → requeued `tries:1` in Redis, secret stayed
+  Fernet-encrypted at rest. No viber SocialAccount row exists — fake
+  token confirmed not persisted anywhere.
+- **Cron**: `*/15 gate_capture.py scan` installed in user crontab
+  (2026-11-11) — runs old code harmlessly until #1710 merges + master
+  syncs into the checkout.
+- **Post-merge e2e still owed**: synthetic webhook POST (needs the
+  deployed webhook_secret) → Redis item → consumer provisions.
+- **Telegram Desktop OCR lane (parallel work)**: Telegram is the MSIX
+  package `TelegramMessengerLLP.TelegramDesktop`; window capture via
+  PrintWindow(PW_RENDERFULLCONTENT) works without foregrounding —
+  CopyFromScreen captured the overlapping Devin window instead. OCR
+  pipeline (WinRT Await helper required on PS5.1) dumps chat text +
+  word coords to C:\tmp\tg_scan.txt. Scripts in ~/tmp-share/ +
+  C:\tmp\tg_scan2.ps1 on Windows.
