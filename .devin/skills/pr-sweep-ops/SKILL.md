@@ -11,6 +11,15 @@ python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py            # full swe
 
 Chains `pr_watch.py --fix` (approve/update-branch/arm auto-merge) → `pr_rebuild.py --close` on DIRTY PRs → final actionable-failure report. Does NOT blind-resolve conflicts — those are reported for the strategy ladder below. `--no-rebuild` skips phase 2.
 
+## Merge-when-green babysitter
+
+```bash
+python3 .devin/skills/pr-sweep-ops/scripts/pr_merge_when_green.py --once   # single sweep
+python3 .devin/skills/pr-sweep-ops/scripts/pr_merge_when_green.py          # poll until done
+```
+
+Polls open PRs and merges each the instant `mergeStateStatus` is `CLEAN` (required checks green + branch up-to-date), `update-branch`s BEHIND ones, and reports DIRTY/BLOCKED for the ladder. Use it to break the merge treadmill when auto-merge stalls on stale BLOCKED state — it never overrides protection.
+
 ## Protection facts (verified 2026-10-27)
 
 - `master` is protected, strict mode: branches must be up-to-date AND required checks green (`validate`, `secret-scan`).
