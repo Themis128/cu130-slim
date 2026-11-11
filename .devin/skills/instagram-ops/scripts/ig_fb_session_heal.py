@@ -13,6 +13,9 @@ This host-side healer closes that gap unattended:
      /login with ``verification_code``.
   4. Drive post-checkpoint clicks ("This was me", "Save", "Continue")
      via /debug/eval, then re-validate.
+  5. If the sidecar login stalls on Meta's "approve this login" prompt,
+     drive the SAME account's live session on the engagement-browser
+     bridge (:9223) to click the approval — the "other device" lane.
 
 Login attempts are throttled (default 30 min between attempts) — repeated
 FB logins themselves trigger checkpoints. Validation probes are cheap and
@@ -143,6 +146,75 @@ def _adb_bin() -> str:
     return str(win) if win.exists() else "adb"
 
 
+# Meta's logged-out homepage shows a profile picker ("<Name> Continue /
+# Use another profile") instead of the login form — clicking the profile
+# card re-logs the session with NO credentials and NO checkpoint.
+# JS .click() doesn't reach the card's React handler reliably, so we
+# extract the display name and use the sidecar's real-mouse /debug/click.
+_PICKER_NAME_JS = """
+(() => {
+  const m = document.querySelector('[role=main]');
+  if (!m || !/use another profile/i.test(m.innerText || '')) return '';
+  const lines = (m.innerText || '').split('\\n')
+      .map(s => s.trim()).filter(Boolean);
+  return lines[0] || '';
+})()
+"""
+
+
+# "Approve this login" prompt on OTHER logged-in Meta sessions — only
+# fires when approval-context text is present; deny/"wasn't me" never
+# matches. Runs on the engagement-browser bridge (:9223).
+_BRIDGE_APPROVE_JS = """
+(() => {
+  const t = (document.body.innerText || '').slice(0, 4000);
+  const approval = /was this you|approve (this|your) login|login attempt|it was me|this was me|unusual login|did you (try|attempt)/i.test(t);
+  if (!approval) return 'no-approval-prompt';
+  const els = [...document.querySelectorAll(
+      'button,[role=button],a[role=link],div[tabindex]')];
+  const vis = e => { const r = e.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0; };
+  const txt = e => (e.innerText || e.getAttribute('aria-label') || '').trim();
+  const deny = /wasn't me|not me|deny|decline|this was not|don't approve/i;
+  const ok = /this was me|it was me|approve|yes,? (it|this) was me|confirm/i;
+  const b = els.filter(vis).find(e => ok.test(txt(e)) && txt(e).length < 60 && !deny.test(txt(e)));
+  if (b) { b.click(); return 'clicked:' + txt(b).slice(0, 40); }
+  return 'approval-visible-no-button';
+})()
+"""
+
+
+def bridge_eval(expr: str, timeout: int = 45) -> dict:
+    """Evaluate JS on the engagement-browser bridge via docker exec curl.
+
+    The bridge publishes no host port; engagement-browser is a node
+    container with curl. Returns {} when the bridge is asleep/unreachable.
+    """
+    body = json.dumps({"expression": expr})
+    try:
+        out = subprocess.run(
+            ["docker", "exec", "-i", "engagement-browser", "curl",
+             "-sm30", "-X", "POST", "-H", "Content-Type: application/json",
+             "--data-binary", "@-", "http://localhost:9223/session/evaluate"],
+            input=body, capture_output=True, text=True, timeout=timeout,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            return {}
+        return json.loads(out.stdout)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def bridge_approve() -> str:
+    """Click Meta's 'approve this login' prompt on the bridge session."""
+    bridge_eval("location.href='https://www.facebook.com/'", timeout=20)
+    time.sleep(8)
+    r = bridge_eval(_BRIDGE_APPROVE_JS)
+    result = str(r.get("result") or "")[:80]
+    log(f"bridge approve -> {result or r}")
+    return result
+
+
 def fb_code(timeout_s: int = 150) -> str | None:
     """Newest Meta 2FA code from the phone's notification shade (ADB)."""
     env = dict(os.environ, ADB=_adb_bin())
@@ -156,6 +228,103 @@ def fb_code(timeout_s: int = 150) -> str | None:
             return code[0].strip()
     except Exception as exc:  # noqa: BLE001
         log(f"fb_code failed: {exc}")
+    return termux_sms_code() or email_code()
+
+
+def email_code(timeout_s: int = 45) -> str | None:
+    """Fallback lane: Meta emails the login code — poll the mailbox.
+
+    Meta/Facebook send "Your confirmation code" emails to the account
+    address; the cloudless.gr mailbox is IMAP-readable (same creds as
+    report-watch.py). Only codes from Meta senders, <45min old.
+    """
+    import imaplib
+    import re
+
+    env = load_env()
+    password = env.get("MAIL_TBALTZAKIS_PASSWORD") or env.get("MAILBOX_PASSWORD")
+    if not password:
+        return None
+    code_re = re.compile(
+        r"(?:confirmation code|security code|login code|is your code)"
+        r"[^0-9]{0,60}(\d{5,8})|(\d{6,8}) is your (?:Facebook|Instagram|Meta)",
+        re.I,
+    )
+    try:
+        mail = imaplib.IMAP4_SSL("192.168.1.130", 993, timeout=timeout_s)
+        mail.login("tbaltzakis@cloudless.gr", password)
+        mail.select("INBOX")
+        # scan today's mail, filter Meta senders client-side
+        since = time.strftime("%d-%b-%Y", time.gmtime(time.time() - 86400))
+        _, data = mail.search(None, "SINCE", since)
+        ids = (data[0] or b"").split()[-40:]
+        cutoff = time.time() - 45 * 60
+        for mid in reversed(ids):
+            _, msg_data = mail.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)] BODY.PEEK[TEXT])")
+            raw = b""
+            for part in msg_data:
+                if isinstance(part, tuple):
+                    raw += part[1]
+            if not raw:
+                continue
+            # date check on the raw header block
+            head = raw.split(b"\r\n\r\n", 1)[0].decode("utf-8", "replace")
+            if not re.search(r"facebook|meta\.com|instagram", head, re.I):
+                continue
+            m_date = re.search(r"Date:\s*(.+)", head)
+            if m_date:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    if parsedate_to_datetime(m_date.group(1)).timestamp() < cutoff:
+                        continue
+                except Exception:  # noqa: BLE001
+                    pass
+            text = raw.decode("utf-8", "replace")
+            m = code_re.search(text)
+            if m:
+                code = next(g for g in m.groups() if g)
+                mail.logout()
+                return code
+        mail.logout()
+    except Exception as exc:  # noqa: BLE001
+        log(f"email_code failed: {exc}")
+    return None
+
+
+def termux_sms_code(timeout_s: int = 30) -> str | None:
+    """Fallback lane: termux-sms-list over Tailscale ssh (:8022).
+
+    Works when wireless ADB is off but Termux sshd is up — needs a key
+    authorized on the phone (~/.ssh/id_rsa_win historically; tries any
+    local key as fallback). Meta/WhatsApp sender lines only.
+    """
+    import re
+    host = os.environ.get("PHONE_TAILNET_IP", "100.84.31.85")
+    key_candidates = [
+        str(HOME / ".ssh/id_rsa_win"),
+        str(HOME / ".ssh/omv_id_rsa"),
+        str(Path("/mnt/c/Users/tbaltzakis/.ssh/id_rsa")),
+    ]
+    for key in key_candidates:
+        if not Path(key).exists():
+            continue
+        try:
+            out = subprocess.run(
+                ["ssh", "-p", "8022", "-o", "BatchMode=yes",
+                 "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no",
+                 "-i", key, f"u0_a357@{host}", "termux-sms-list -l 8"],
+                capture_output=True, text=True, timeout=timeout_s,
+            )
+            if out.returncode != 0:
+                continue
+            # Meta/WA senders first, then any 6-digit code in recent SMS
+            lines = [l for l in out.stdout.splitlines()
+                     if re.search(r"whatsapp|facebook|meta|auth", l, re.I)]
+            m = re.search(r"\b(\d{3})[- ]?(\d{3})\b", " ".join(lines or out.stdout.splitlines()))
+            if m:
+                return m.group(1) + m.group(2)
+        except Exception:  # noqa: BLE001
+            continue
     return None
 
 
@@ -170,6 +339,104 @@ def checkpoint_clicks(rounds: int = 4) -> list[str]:
             break
         time.sleep(3)
     return clicks
+
+
+# Meta's notification-based 2FA ("Check your notifications on another
+# device / Waiting for approval") — NOT a code. The sidecar page polls
+# itself: if the user taps "This was me" on their phone/PC the session
+# completes without any code. Detect that state so we can alert + wait.
+_APPROVAL_WAIT_JS = """
+(() => {
+  const t = document.body.innerText || '';
+  if (/waiting for approval|check your notifications on another device/i.test(t))
+    return 'approval-waiting';
+  return 'not-approval-wait';
+})()
+"""
+
+
+# Poll the 2FA page WITHOUT navigating — /session/validate does
+# page.goto(facebook.com) which would kill the pending approval flow.
+_APPROVAL_POLL_JS = """
+JSON.stringify({
+  url: location.href,
+  waiting: /waiting for approval|check your notifications on another device/i
+      .test(document.body.innerText || ''),
+})
+"""
+
+
+# "Trust this device and skip this step from now on" — ticking it before
+# the user approves means ONE tap heals every future login too.
+_TRUST_DEVICE_JS = """
+(() => {
+  const vis = e => { const r = e.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0; };
+  const els = [...document.querySelectorAll(
+      '[role=checkbox],input[type=checkbox],[role=button],label,div,span')];
+  const cand = els.filter(vis).filter(e =>
+      /trust this device/i.test(e.innerText || e.getAttribute('aria-label') || '')
+      && (e.innerText || '').length < 120);
+  if (!cand.length) return 'no-trust-option';
+  // prefer the checkbox itself, else the shortest matching text node
+  // (clicking the label text toggles the checkbox via label forwarding)
+  const box = cand.find(e => e.getAttribute('role') === 'checkbox'
+      || e.type === 'checkbox');
+  const target = box || cand.reduce((a, b) =>
+      (a.innerText || '').length <= (b.innerText || '').length ? a : b);
+  const checked = target.getAttribute('aria-checked') === 'true'
+      || target.checked === true;
+  if (checked) return 'already-trusted';
+  target.click();
+  return 'trust-ticked';
+})()
+"""
+
+
+def approval_wait(state: dict, poll_s: int = 600) -> bool:
+    """Alert once, then watch for the user to approve on their device.
+
+    Never calls validate() inside the loop — it navigates away and
+    aborts Meta's pending login. Polls location.href via /debug/eval;
+    the flow is over once the URL leaves two_step_verification.
+    """
+    r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
+    if "approval-waiting" not in str(r.get("result") or ""):
+        return False
+    last_alert = float(state.get("last_approval_alert") or 0)
+    if time.time() - last_alert > 7200:
+        tg_alert(
+            "P2 ig-fb-session-heal: FB login is WAITING for approval — "
+            "tap 'This was me' on the Facebook notification (phone/PC) "
+            "to finish the sidecar login automatically"
+        )
+        state["last_approval_alert"] = time.time()
+        save_state(state)
+    log("2FA is notification-approval — waiting for user tap (max 10m)")
+    tr = sidecar("/debug/eval", {"script": _TRUST_DEVICE_JS}, timeout=60)
+    log(f"trust-device -> {str(tr.get('result') or tr)[:80]}")
+    deadline = time.time() + poll_s
+    while time.time() < deadline:
+        time.sleep(20)
+        r = sidecar("/debug/eval", {"script": _APPROVAL_POLL_JS}, timeout=60)
+        try:
+            poll = json.loads(str(r.get("result") or "{}"))
+        except Exception:  # noqa: BLE001
+            poll = {}
+        if not poll:
+            # transient eval failure (mid-navigation, docker hiccup) —
+            # keep waiting rather than abandoning a live approval flow
+            continue
+        url = str(poll.get("url") or "")
+        if "two_step_verification" not in url and "two_factor" not in url:
+            log(f"approval flow ended -> {url[:80]}")
+            # GET /session persists storageState on success — validate() doesn't
+            s = sidecar("/session", timeout=120)
+            return bool(s.get("logged_in"))
+        if not poll.get("waiting") and "two_step_verification" in url:
+            # user switched to a code-entry variant — bail to caller
+            return False
+    return False
 
 
 def tg_alert(text: str) -> None:
@@ -190,6 +457,23 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     """One full login attempt. Returns ok|2fa-failed|login-failed|throttled."""
     username = env.get("FACEBOOK_USERNAME", "")
     password = env.get("FACEBOOK_PASSWORD", "")
+
+    # fast path: profile-picker "Continue as <name>" re-login (no creds,
+    # no checkpoint risk — doesn't count against the attempt throttle)
+    sidecar("/debug/navigate", {"url": "https://www.facebook.com/"}, timeout=90)
+    time.sleep(5)
+    nm = sidecar("/debug/eval", {"script": _PICKER_NAME_JS}, timeout=60)
+    name = str(nm.get("result") or "").strip().strip('"')
+    log(f"profile picker name -> {name!r}")
+    if name:
+        for target in (name, "Continue"):
+            sidecar("/debug/click", {"text": target}, timeout=60)
+            log(f"picker click -> {target!r}")
+            time.sleep(10)
+            v = validate()
+            if v.get("logged_in"):
+                return "ok"
+
     if not username or not password:
         return "no-creds"
 
@@ -199,18 +483,23 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     r = sidecar("/login", {"username": username, "password": password}, timeout=180)
     log(f"login attempt -> {json.dumps(r)[:300]}")
 
+    was_2fa = False
     if r.get("two_factor_required"):
+        was_2fa = True
         code = fb_code()
-        if not code:
+        if code:
+            log("2FA code retrieved — retrying login")
+            r = sidecar(
+                "/login",
+                {"username": username, "password": password,
+                 "verification_code": code},
+                timeout=180,
+            )
+            log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
+        else:
             log("2FA required but no SMS code retrieved from phone")
-            return "2fa-failed"
-        log("2FA code retrieved — retrying login")
-        r = sidecar(
-            "/login",
-            {"username": username, "password": password, "verification_code": code},
-            timeout=180,
-        )
-        log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
+            if approval_wait(state):
+                return "ok"
 
     clicks = checkpoint_clicks()
     log(f"checkpoint clicks: {clicks}")
@@ -218,7 +507,16 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     v = validate()
     if v.get("logged_in"):
         return "ok"
-    return "login-failed"
+
+    # approval-from-another-device lane: the bridge holds a live Meta
+    # session — let it click the "was this you" prompt, then re-check.
+    appr = bridge_approve()
+    if appr.startswith("clicked"):
+        time.sleep(10)
+        v = validate()
+        if v.get("logged_in"):
+            return "ok"
+    return "2fa-failed" if was_2fa else "login-failed"
 
 
 def main() -> int:
@@ -251,11 +549,16 @@ def main() -> int:
             time.sleep(600)
             continue
 
-        # logged out — throttle actual login attempts
+        # logged out — throttle actual login attempts. Each attempt that
+        # reaches Meta's approval-2FA pushes a notification to the user's
+        # devices, so back off exponentially (x2 per 3 consecutive
+        # failures, cap 4h) instead of pinging every 30min forever.
+        fails = int(state.get("failures") or 0)
+        interval = min(args.min_interval * (2 ** min(fails // 3, 3)), 14400)
         last = float(state.get("last_login_attempt") or 0)
-        if time.time() - last < args.min_interval:
+        if time.time() - last < interval:
             log(f"session down; next login attempt in "
-                f"{int(args.min_interval - (time.time() - last))}s")
+                f"{int(interval - (time.time() - last))}s")
             if args.once:
                 return 3
             time.sleep(300)
