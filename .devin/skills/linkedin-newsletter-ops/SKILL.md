@@ -55,6 +55,17 @@ restarts; only a full engine bounce kills it. Use when the API path
 keeps 502ing to `ReadTimeout`/`RemoteProtocolError` while the sidecar
 itself is healthy.
 
+`scripts/newsletter_publish_autopilot.sh` wraps that in an
+unattended retry loop that runs on the **WSL host** (survives engine
+bounces that kill in-container callers): engine-down →
+`wsl-docker-doctor fix` → wait for api+sidecar healthy → warm feed →
+direct publish → poll result → definitive success exits 0, failures
+cooldown+retry until `--deadline-min` (default 180). flock-guarded;
+status in `~/logs/newsletter_autopilot.status.json`. Launch:
+
+    setsid nohup .devin/skills/linkedin-newsletter-ops/scripts/newsletter_publish_autopilot.sh \
+      > ~/logs/newsletter_autopilot.nohup 2>&1 &
+
 ## Failure modes
 
 - `session dead` → sidecar lost its cookies; re-auth (2FA) then re-export.
