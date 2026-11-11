@@ -39,9 +39,15 @@ Failure classes fixed: `UtilAcceptVsock accept4 failed 110` (vsock decay →
 dead interop + dead docker socket), VM idle-shutdown killing IDE sessions,
 vmmemWSL pinning starving the host.
 
-- **`.wslconfig`**: `vmIdleTimeout=-1` added (never idle) +
-  `autoMemoryReclaim=dropCache` retained (10-07 test: beats `gradual` under
-  host pressure — do NOT flip back). memory=16GB / swap=16GB / procs=8.
+- **`.wslconfig` (current, verified 2026-11-11)**: `vmIdleTimeout=-1`,
+  `autoMemoryReclaim=gradual` — the 2026-11-07 stability fix REVERTED the
+  older dropCache choice (dropCache correlated with VM crashes; gradual is
+  the documented stable default — do NOT flip back to dropCache). Current
+  sizing: memory=12GB / swap=32GB / processors=8. CommitLimit =
+  mem*0.5+swap = 38GB must stay above observed Committed_AS (~34GB);
+  2026-11-11 raised swap 24→32GB after Committed_AS 33.5GB exceeded the
+  30GB limit during a 6-flap evening → guest overcommit → vsock wedge →
+  docker drops. Swap is sparse-VHD backed, no host RAM cost.
   **Do not enable `networkingMode=mirrored`** — tested 2026-09-26, broke
   Docker Desktop host port-forwarding (backup-20260926-mirrored).
 - **`docker-socket-watch` Scheduled Task (Windows, every 2 min)**:
