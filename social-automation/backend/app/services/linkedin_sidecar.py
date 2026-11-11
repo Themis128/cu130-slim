@@ -441,7 +441,7 @@ class LinkedInSidecarClient:
             if value is not None:
                 payload[key] = value
         async with self._client as c:
-            r = await c.post("/newsletter/publish", json=payload, timeout=420.0)
+            r = await c.post("/newsletter/publish", json=payload, timeout=900.0)
             if r.status_code >= 400:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
