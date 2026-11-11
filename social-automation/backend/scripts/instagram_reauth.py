@@ -7,7 +7,9 @@ facebook.com/dialog/oauth page, so the logged-in session on
 facebook-browser-sidecar (:9226) can approve it — same unattended pattern
 as tiktok_reauth.py, different sidecar API (/debug/navigate + /debug/eval).
 
-Runs INSIDE the social-api container (stdlib only). Flow:
+Runs INSIDE the social-api container. DB access uses asyncpg (the only
+sync-usable driver in the image — psycopg was never installed, which made
+this lane exit 2 on every run until 2026-11-11). Flow:
 
   1. Find instagram social_account rows needing re-auth (status in
      active/expired/revoked, or token expiring within 1h) — cheap DB
@@ -43,10 +45,32 @@ import time
 import urllib.parse
 import urllib.request
 
+# Script-mode runs put /app/scripts on sys.path, not /app — app.* imports
+# (token decryption) need the repo root explicitly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 SIDECAR = os.environ.get("FACEBOOK_SIDECAR", "http://facebook-browser-sidecar:9226")
 STATE = "/tmp/instagram-reauth-state.json"
-CALLBACK_MARK = "/api/v1/auth/oauth/instagram/callback"
+# The @cloudless.gr account is login_type=business_login — it was connected
+# through the "Instagram API with Facebook Login" onboarding flow, whose
+# authorize endpoint is instagram-onboarding and whose callback lands on the
+# FACEBOOK oauth callback (state carries p=instagram-onboarding). The plain
+# /oauth/instagram/authorize endpoint 400s because INSTAGRAM_CLIENT_ID is
+# intentionally empty (IG Graph here rides on the Facebook Login app).
+AUTHORIZE_PATH = "/api/v1/auth/oauth/instagram-onboarding/authorize"
+CALLBACK_PATH = "/api/v1/auth/oauth/facebook/callback"
+CALLBACK_MARK = CALLBACK_PATH  # kept for _invoke_callback docstring compat
+
+
+def _is_callback(url: str) -> bool:
+    """True only when the browser actually LANDED on the callback — the
+    consent dialog URL embeds the callback inside redirect_uri=..., so a
+    substring match fires on the dialog itself."""
+    try:
+        return urllib.parse.urlparse(url).path.rstrip("/").endswith(CALLBACK_PATH)
+    except Exception:
+        return CALLBACK_MARK in url
 MAX_CONSECUTIVE_FAILS = 3
 
 # Logged-in check + display name on facebook.com/me (not a login wall).
@@ -151,23 +175,91 @@ def _db_url():
     return url
 
 
+def _pg_fetchall(sql: str, *args):
+    """Run a read query through asyncpg (installed in the image; psycopg
+    and psycopg2 are not)."""
+    import asyncio
+
+    import asyncpg
+
+    async def _go():
+        conn = await asyncpg.connect(_db_url())
+        try:
+            return await conn.fetch(sql, *args)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_go())
+
+
+def _graph_token_alive(enc) -> bool:
+    """True when the stored Graph token still authenticates against
+    graph.instagram.com/v26.0/me. Meta invalidates tokens server-side
+    (OAuthException 190) while token_expires_at stays far in the future,
+    so DB state alone can never detect this — probe once per run.
+    Undecryptable tokens return True (detection falls back to DB state)."""
+    try:
+        from app.core.security import decrypt_token
+
+        tok = decrypt_token(bytes(enc))
+    except Exception:
+        return True
+    url = (
+        "https://graph.instagram.com/v26.0/me?fields=id"
+        f"&access_token={urllib.parse.quote(tok)}"
+    )
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as f:
+            return f.status == 200
+    except Exception:
+        return False
+
+
 def _targets():
     """Instagram accounts needing re-auth."""
     try:
-        import psycopg
+        import asyncpg  # noqa: F401
     except ImportError:
         return None
-    out = []
-    with psycopg.connect(_db_url()) as c, c.cursor() as cur:
-        cur.execute(
-            """SELECT id, account_id, username, status FROM social_accounts
-               WHERE platform='instagram'
-                 AND (status IN ('expired','revoked','error')
-                      OR (status='active'
-                          AND token_expires_at < now() + interval '1 hour'))"""
-        )
-        for row in cur.fetchall():
-            out.append({"id": str(row[0]), "account_id": row[1] or "", "username": row[2] or "", "status": row[3]})
+    rows = _pg_fetchall(
+        """SELECT id, account_id, username, status FROM social_accounts
+           WHERE platform='instagram'
+             AND (status IN ('expired','revoked','error')
+                  OR (status='active'
+                      AND token_expires_at < now() + interval '1 hour'))"""
+    )
+    out = [
+        {
+            "id": str(r["id"]),
+            "account_id": r["account_id"] or "",
+            "username": r["username"] or "",
+            "status": r["status"],
+        }
+        for r in rows
+    ]
+    flagged = {t["id"] for t in out}
+    # Server-side invalidation (OAuthException 190) leaves status='active'
+    # and token_expires_at far in the future — probe Graph /me once per run.
+    for r in _pg_fetchall(
+        """SELECT id, account_id, username, access_token_enc
+           FROM social_accounts
+           WHERE platform='instagram' AND status='active'"""
+    ):
+        rid = str(r["id"])
+        if rid in flagged:
+            continue
+        if not _graph_token_alive(r["access_token_enc"]):
+            out.append(
+                {
+                    "id": rid,
+                    "account_id": r["account_id"] or "",
+                    "username": r["username"] or "",
+                    "status": "active",
+                    "note": "graph-token-dead",
+                }
+            )
+            flagged.add(rid)
     return out
 
 
@@ -298,29 +390,35 @@ def _sidecar_identity() -> dict:
 
 def _targets_refreshed(targets: list) -> tuple[bool, str]:
     try:
-        import psycopg
+        import asyncpg  # noqa: F401
     except ImportError:
-        return True, "no-psycopg"
+        return True, "no-asyncpg"
     ids = [t["account_id"] for t in targets if t.get("account_id")]
     if not ids:
         return True, "no-account-id"
-    with psycopg.connect(_db_url()) as c, c.cursor() as cur:
-        cur.execute(
-            """SELECT account_id, username, status,
-                      COALESCE(token_expires_at > now() + interval '1 hour', false) AS fresh
-               FROM social_accounts
-               WHERE platform='instagram' AND account_id = ANY(%s)""",
-            (ids,),
-        )
-        rows = cur.fetchall()
-    by_id = {r[0]: r for r in rows}
-    bad = [by_id[i] for i in ids if i in by_id and (by_id[i][2] != "active" or not by_id[i][3])]
-    missing = [i for i in ids if i not in by_id]
+    rows = _pg_fetchall(
+        """SELECT account_id, username, status, access_token_enc,
+                  COALESCE(token_expires_at > now() + interval '1 hour', false) AS fresh
+           FROM social_accounts
+           WHERE platform='instagram' AND account_id = ANY($1::text[])""",
+        ids,
+    )
+    by_id = {r["account_id"]: r for r in rows}
+    bad = []
+    missing = []
+    for i in ids:
+        r = by_id.get(i)
+        if r is None:
+            missing.append(i)
+        elif r["status"] != "active" or not r["fresh"]:
+            bad.append((r["username"] or i, r["status"]))
+        elif not _graph_token_alive(r["access_token_enc"]):
+            bad.append((r["username"] or i, "graph-token-dead"))
     if not bad and not missing:
         return True, "all targets refreshed"
     parts = []
     if bad:
-        parts.append("still-dead:" + ",".join(f"{r[1] or r[0]}({r[2]})" for r in bad))
+        parts.append("still-dead:" + ",".join(f"{u}({s})" for u, s in bad))
     if missing:
         parts.append("missing:" + ",".join(m[:12] for m in missing))
     return False, "; ".join(parts)
@@ -355,7 +453,7 @@ def main() -> int:
         print(f"needs_reauth check failed: {e}")
         return 2
     if targets is None:
-        print("psycopg unavailable — cannot check targets")
+        print("asyncpg unavailable — cannot check targets")
         return 2
     if not targets:
         print("no instagram account needs re-auth")
@@ -376,7 +474,7 @@ def main() -> int:
         tok = _admin_token()
         teams = _get(f"{API}/api/v1/teams", headers={"Authorization": f"Bearer {tok}"})
         team_id = (teams[0] if isinstance(teams, list) else teams.get("items", [{}])[0]).get("id")
-        auth = _get(f"{API}/api/v1/auth/oauth/instagram/authorize?team_id={team_id}", headers={"Authorization": f"Bearer {tok}"})
+        auth = _get(f"{API}{AUTHORIZE_PATH}?team_id={team_id}", headers={"Authorization": f"Bearer {tok}"})
         url = auth.get("authorization_url")
         if not url:
             print(f"no authorization_url: {auth}")
@@ -399,7 +497,7 @@ def main() -> int:
     gate = None
     while time.time() < deadline:
         cur = _page_url()
-        if CALLBACK_MARK in cur:
+        if _is_callback(cur):
             break
         snap = _page_snapshot()
         gate = snap.get("gate")
@@ -412,7 +510,7 @@ def main() -> int:
         time.sleep(4)
 
     cur = _page_url()
-    if CALLBACK_MARK not in cur:
+    if not _is_callback(cur):
         print("timed out waiting for OAuth callback")
         _dump_diagnostics("timeout")
         _mark(False)
