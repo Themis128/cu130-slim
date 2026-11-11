@@ -524,9 +524,7 @@ class TestLLMAdjust:
     async def test_disabled_returns_none(self, monkeypatch):
         import app.services.central_brain as cb
 
-        monkeypatch.setattr(
-            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=False)
-        )
+        monkeypatch.setattr(cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=False))
         out = await cb._llm_adjust(
             None,
             SimpleNamespace(id=uuid.uuid4()),
@@ -539,9 +537,7 @@ class TestLLMAdjust:
     async def test_empty_candidates_returns_none(self, monkeypatch):
         import app.services.central_brain as cb
 
-        monkeypatch.setattr(
-            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
-        )
+        monkeypatch.setattr(cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True))
         out = await cb._llm_adjust(
             None,
             SimpleNamespace(id=uuid.uuid4()),
@@ -554,20 +550,13 @@ class TestLLMAdjust:
     async def test_success_returns_refined_decisions(self, monkeypatch):
         import app.services.central_brain as cb
 
-        monkeypatch.setattr(
-            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
-        )
+        monkeypatch.setattr(cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True))
 
         async def fake_recall(*a, **k):
             return {"hits": [{"text": "linkedin carousel got 40 reactions"}]}
 
         async def fake_infer(prompt, **k):
-            return {
-                "text": (
-                    'here you go {"posts":[{"platform":"linkedin",'
-                    '"instruction":"post the edge-latency win","priority":88}]}'
-                )
-            }
+            return {"text": ('here you go {"posts":[{"platform":"linkedin","instruction":"post the edge-latency win","priority":88}]}')}
 
         monkeypatch.setattr("app.services.company_brain.recall_cited", fake_recall)
         monkeypatch.setattr("app.services.inference.call_inference", fake_infer)
@@ -575,11 +564,7 @@ class TestLLMAdjust:
         snap = BrainSnapshot(
             team_id=uuid.uuid4(),
             generated_at=NOW,
-            channels={
-                "linkedin": ChannelState(
-                    platform="linkedin", followers=900, engagement_rate_7d=2.5
-                )
-            },
+            channels={"linkedin": ChannelState(platform="linkedin", followers=900, engagement_rate_7d=2.5)},
             trends=[{"query": "ai agents", "classification": "opportunity", "traffic": "rising"}],
         )
         out = await cb._llm_adjust(
@@ -597,9 +582,7 @@ class TestLLMAdjust:
     async def test_inference_failure_returns_none(self, monkeypatch):
         import app.services.central_brain as cb
 
-        monkeypatch.setattr(
-            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
-        )
+        monkeypatch.setattr(cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True))
 
         async def fake_recall(*a, **k):
             return {"hits": []}

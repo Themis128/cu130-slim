@@ -205,8 +205,10 @@ async def linkedin_issue(
                     detail=f"No published article for slug {body.article_slug!r}",
                 )
             title = title or (article.get("title") or "").strip()
-            html_body = html_body or (article.get("html") or "").strip() or blog_articles.article_markdown_to_html(
-                article.get("contentMarkdown") or article.get("content") or ""
+            html_body = (
+                html_body
+                or (article.get("html") or "").strip()
+                or blog_articles.article_markdown_to_html(article.get("contentMarkdown") or article.get("content") or "")
             )
             seo_description = seo_description or (article.get("excerpt") or None)
             post_description = post_description or blog_articles.clean_social_post(article.get("socialPost") or "") or None

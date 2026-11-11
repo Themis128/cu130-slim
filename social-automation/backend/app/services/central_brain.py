@@ -560,18 +560,9 @@ async def _llm_adjust(
                 f"er7d={state.engagement_rate_7d:.1f} posts7d={state.posts_7d} "
                 f"published7d={state.published_7d} failed7d={state.failed_7d}"
             )
-        trend_lines = "\n".join(
-            f"- {t.get('query')} ({t.get('classification')}, traffic={t.get('traffic')})"
-            for t in snapshot.trends[:5]
-        ) or "(none)"
-        fit_lines = "\n".join(
-            f"- {plat}: {_fit_line(plat) or 'no fit data'}"
-            for plat in sorted({d.platform for d in candidates})
-        )
-        candidate_lines = "\n".join(
-            f"- {d.platform} p{d.priority}: {d.instruction[:200]}"
-            for d in candidates
-        )
+        trend_lines = "\n".join(f"- {t.get('query')} ({t.get('classification')}, traffic={t.get('traffic')})" for t in snapshot.trends[:5]) or "(none)"
+        fit_lines = "\n".join(f"- {plat}: {_fit_line(plat) or 'no fit data'}" for plat in sorted({d.platform for d in candidates}))
+        candidate_lines = "\n".join(f"- {d.platform} p{d.priority}: {d.instruction[:200]}" for d in candidates)
 
         prompt = _LLM_PROMPT.format(
             max_posts=MAX_POST_ACTIONS,
