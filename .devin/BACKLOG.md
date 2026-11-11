@@ -1436,3 +1436,35 @@ Leftovers:
 - **Side note**: user is actively browsing on the Windows desktop —
   the watcher foregrounds the FB window during approval windows only;
   that's the intended trade-off for unattended approval.
+
+## 2026-11-11 (late) — ops-alert remediation sweep
+
+- **worker crash `No module named 'scripts'`** — root cause: `celery` console
+  script doesn't put cwd on sys.path + editable install only exposes `app`.
+  Fixed two ways, both merged: PR #1705 (`PYTHONPATH=/app` in x-worker-env +
+  celery_app sys.path bootstrap). Verified live: workforce_audit returns
+  stats ({'workers': 51, attention: 18}).
+- **Bluesky 429s** — research: createSession limit is only **10/day**
+  (ratelimit-policy 10;w=86400, reset epoch 1794460437 ≈ 2026-11-12 05:13
+  UTC), not 300/day — session persistence is critical. PR #1706 merged:
+  429s soft-defer via retry_after (30min) through capacity-deferral lane.
+  bsky_session was NULL → every publish burned quota; ensure_session +
+  persist_session now self-heal on first post-reset success.
+- **Bluesky 401s** — "Invalid identifier or password" = app password likely
+  revoked. Human gate: new app password at bsky.app → Settings → App
+  passwords, then POST /api/v1/bluesky/connect. Verify after quota reset —
+  retry sweep (15min beat, transient class) will reveal which it is.
+- **Prompt-leak guard** — PR #1708 armed: publish_to_platform fails closed
+  on "PLAIN ENGLISH RULES"/"Text to rewrite:" artifacts (TERMINAL class);
+  media_heal rewrite strips "Rewritten string:" labels. 2 polluted posts
+  (31226b30, 840e9136) content_text repaired by extracting inner post;
+  targets stay gate-skipped (dedup/SEO) — no bypass.
+- **Docker/WSL vsock flapping** — recurring `UtilAcceptVsock accept4 110`.
+  Research (MS/WSL#41286, #40650, #14005, docker/for-win#14832): new-session
+  transport dies while old sessions live; cured only by full
+  stop-DockerDesktop → `wsl --shutdown` → start ladder. Surgical
+  `wsl -t docker-desktop` recycles work temporarily (docker-socket-watch
+  2min task + wsl_docker_doctor.py fix). `wsl --shutdown` kills the IDE —
+  stays a human gate via `%USERPROFILE%\wsl-shutdown.flag` →
+  wsl-recycle-watch. Consider: reduce interop churn (watchdog cadences),
+  keep vmIdleTimeout=-1.
