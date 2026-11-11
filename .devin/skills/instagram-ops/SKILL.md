@@ -1184,3 +1184,37 @@ curl -s http://localhost:8083/api/v1/inbox/inbox \
 - Instagram DM auto-reply with AI (like Page Messenger auto-reply)
 - Instagram DM template management API
 - Instagram DM analytics (response time, volume)
+
+## Full session recovery (password login → private_api sync)
+
+Use when IG publishing fails with Graph `OAuthException 190` (token revoked)
+AND/OR the private API returns `login_required` — i.e. BOTH the Graph token
+and browser sessionids are dead. Proven end-to-end 2026-11-11.
+
+**Root cause / upstream fix**: instagrapi issue #2920 — Instagram killed
+`qe/sync/` on 2026-11-03 so password login crashed on the missing
+`ig-set-password-encryption-key-id` header. aiograpi **>= 2.1.3** fetches
+the key from `launcher/sync/` instead (container already ships 2.1.9).
+Also note: browser/web `sessionid`s are rejected by the private mobile API
+(`login_required` redirect loop) — upstream docs say do ONE password login,
+`dump_settings()`, and reuse that session.
+
+**Tool**: `scripts/ig_session_recover.py` — one command does the whole
+chain: aiograpi password login inside `instagram-private-api` →
+`dump_settings` to `/app/ig_session.json` + copy to the `instagram_sessions`
+volume (`/data/ig_session.json`, survives recreate) → extract
+`sessionid`/`ds_user_id` → `encrypt_field` into
+`social_accounts.meta_data.private_api_session_id` /
+`private_api_ds_user_id` (the fields the publish ladder reads) +
+`status='active'` → requeue `failed/terminal` auth-revoked targets to
+`transient` for `publish-retry-sweep`.
+
+```bash
+python3 .devin/skills/instagram-ops/scripts/ig_session_recover.py           # full
+python3 .devin/skills/instagram-ops/scripts/ig_session_recover.py --dry-run # login+extract only
+```
+
+Requires `INSTAGRAM_USERNAME`/`INSTAGRAM_PASSWORD` in `~/cu130-slim/.env`,
+`instagram-private-api`, `social-api`, `social-postgres` containers up.
+If login hits a challenge/2FA, aiograpi raises — resolve via the phone
+(notification approve or SMS code through `phone-2fa-ops`) and re-run.
