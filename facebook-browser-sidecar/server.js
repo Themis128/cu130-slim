@@ -65,6 +65,7 @@ let context = null;
 let page = null;
 let storageState = null;
 let activePageId = null; // set when switched to a Page profile
+let lastNavAttempt = null; // last main-frame navigation request URL
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return;
@@ -118,6 +119,18 @@ async function ensureBrowser() {
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
   );
   page = await context.newPage();
+  // Record main-frame navigation ATTEMPTS: a redirect to an unreachable
+  // URL (e.g. the http://localhost:8083 OAuth callback, which the sidecar
+  // container cannot reach) fails before commit, so page.url() reports
+  // chrome-error://chromewebdata/ and the real target URL is only visible
+  // as the request URL. /debug/navigation-attempt exposes it.
+  page.on("request", (req) => {
+    try {
+      if (req.isNavigationRequest() && req.frame() === page.mainFrame()) {
+        lastNavAttempt = req.url();
+      }
+    } catch (_) {}
+  });
 }
 
 async function closeBrowser() {
@@ -3222,9 +3235,23 @@ app.post("/debug/navigate", async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: "url is required" });
     await ensureBrowser();
+    lastNavAttempt = null; // fresh flow — drop any stale attempt URL
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     await settle();
     res.json({ status: "ok", url: page.url(), loggedIn: await isLoggedIn() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: last main-frame navigation attempt URL + committed page URL.
+// `attempted` survives failed navigations (chrome-error pages) where
+// page.url() no longer shows the real target — used by instagram_reauth
+// to recover the OAuth callback code+state.
+app.get("/debug/navigation-attempt", async (req, res) => {
+  try {
+    await ensureBrowser();
+    res.json({ attempted: lastNavAttempt || null, url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
