@@ -2822,3 +2822,20 @@ async def test_publish_to_platform_leaves_external_links_untagged(monkeypatch):
     assert result.success is True
     assert "linkedin.com/company/x?utm" not in captured["text"]
     assert "cloudless.gr/contact?utm_source=linkedin" in captured["text"]
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_story_guards():
+    """Story publish fails closed on bad media count and missing session —
+    covers the guard returns ahead of the sidecar upload call."""
+    account = SimpleNamespace(meta_data={})
+    post = SimpleNamespace()
+    result = await pub._publish_instagram_story(account, post, [])
+    assert result.success is False
+    assert "exactly one media" in (result.error or "")
+    result = await pub._publish_instagram_story(account, post, ["a.jpg", "b.jpg"])
+    assert result.success is False
+    assert "exactly one media" in (result.error or "")
+    result = await pub._publish_instagram_story(account, post, ["a.jpg"])
+    assert result.success is False
+    assert "session" in (result.error or "").lower()
