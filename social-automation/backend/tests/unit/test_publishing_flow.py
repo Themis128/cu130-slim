@@ -464,6 +464,64 @@ async def test_publish_bluesky_429_during_post_defers(monkeypatch):
     assert "429" in r.error
 
 
+class _CountDB:
+    """Fake AsyncSession — execute() returns a fixed COUNT(*) scalar."""
+
+    def __init__(self, n):
+        self._n = n
+
+    async def execute(self, *a, **k):
+        n = self._n
+
+        class _R:
+            def scalar_one(self):
+                return n
+
+        return _R()
+
+
+@pytest.mark.asyncio
+async def test_bsky_auth_circuit_threshold():
+    acc = _account("bluesky")
+    assert await P._bsky_auth_circuit_open(_CountDB(3), acc) is True
+    assert await P._bsky_auth_circuit_open(_CountDB(2), acc) is False
+
+
+@pytest.mark.asyncio
+async def test_bsky_auth_circuit_bypassed_by_live_session():
+    """An unexpired stored access_jwt means ensure_session reuses it — no
+    createSession burn — so the breaker must not engage."""
+    import base64
+    import json as _j
+
+    exp = int(datetime.now(UTC).timestamp()) + 3600
+    jwt = (
+        "x."
+        + base64.urlsafe_b64encode(_j.dumps({"exp": exp}).encode()).decode().rstrip("=")
+        + ".y"
+    )
+    acc = _account("bluesky", meta_data={"bsky_session": {"access_jwt": jwt}})
+    assert await P._bsky_auth_circuit_open(_CountDB(99), acc) is False
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_circuit_open_defers_without_login(monkeypatch):
+    """Circuit open → capacity-lane deferral and ensure_session never runs,
+    so dead creds can't keep burning the rate-limited createSession."""
+    import app.services.bluesky_api as bapi
+
+    async def _no_login(*a, **k):
+        raise AssertionError("ensure_session must not run while circuit is open")
+
+    monkeypatch.setattr(bapi, "ensure_session", _no_login)
+    r = await P._publish_bluesky(
+        "pw", "t", _account("bluesky"), _post(), [], None, _CountDB(3)
+    )
+    assert not r.success
+    assert r.retry_after is not None and r.retry_after > datetime.now(UTC)
+    assert "circuit open" in r.error
+
+
 # ── instagram 5-path chain ────────────────────────────────────────────
 
 
