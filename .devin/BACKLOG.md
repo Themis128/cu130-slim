@@ -1356,3 +1356,35 @@ Leftovers:
 - **TikTok #789**: in-app path confirmed correct per TikTok docs (Edit profile → Links → Website, no captcha unlike web). During ADB drive the app session dropped to the login screen — possibly a stray tap or natural expiry; do NOT resume driving while the phone is in active use (screen showed Tailscale admin mid-session). Next: relaunch TikTok, log in with TIKTOK_DEV_* creds if needed, then Edit profile → Links → add https://cloudless.gr/links (or /pricing per funnel decision). Business account may lack the Edit profile button — verify; fallback is business.tiktok.com once bridge session is re-seeded.
 - **Meta #785**: scoped down to `leads_retrieval` App Review only (business verification confirmed not required). Code path exists: `app/api/messenger.py::_ingest_meta_leadgen` fetches lead PII via Graph → EspoCRM. App Review needs: dev-console session (FB sidecar logged out + 2FA; CDP :9222/:9229 lanes down — relaunch ChromeDebug/ChromeDebugBind tasks), Advanced Access (may require business verification after all), use-case description, test-user creds, and a UNIQUE screencast showing login→grant→lead retrieval→CRM writeback. Screencast is the hard gate — needs a real lead-form submission demo.
 - **WA watchers**: all 4 relaunched 2026-11-11 ~15:00 (portfolio/sysuser/inbound/bsh) after Docker restart killed them. Meta restriction (code 10/2859015) still active — sysuser watcher cycling.
+
+## 2026-11-11 (pm) — TikTok #789 deep-dive + automation armed
+
+- **In-app Edit profile does NOT exist for @cloudless.gr** — verified via full
+  uiautomator dumps: profile page + Profile menu (all sections expanded) +
+  Settings→Account contain no "Edit profile" entry. Account is a business
+  account ("Cloudless | Managed Cloud1") whose TikTok Business verification
+  was REJECTED (doc-type mismatch — AFM submitted as ΓΕΜΗ registry cert).
+  TikTok docs: website link needs ≥1000 followers OR Registered Business
+  Account — the rejected verification likely means the account is not
+  "Registered", hence no Links/Website field anywhere (app OR web editor —
+  web editor confirmed only Username/Name/Bio/Save).
+- **Business Center login progress**: ads.tiktok.com/i18n/login "Log in with
+  TikTok" SSO → authorize page offered `tbaltzakis` (personal) → Continue
+  bounced to tiktok.com/login (consumer session cookies cover @cloudless.gr,
+  not tbaltzakis). Email+password path (TIKTOK_DEV_*) reached a **shape-select
+  CAPTCHA** — human gate, TG #ops alert sent. Do not bypass.
+- **Automation armed**: `tt_profile_link.py` committed under
+  tiktok-verification/scripts — ADB-drives Profile→Edit profile→Links→Website
+  with idle-screen/user-active abort heuristics; auto-detects wireless adb
+  serial; cron `*/20 * * * *` flock-guarded → it completes the link by itself
+  if/when the Edit profile entry appears (e.g. after business verification
+  passes or follower threshold). State: `~/.local/state/tt-profile-link.done`.
+- **Real unblock paths for #789** (pick one):
+  1. Fix business verification doc TYPE (skill notes: pick tax-registration/
+     sole-trader type or sole-trader business type, use ΑΑΔΕ ενημερότητα with
+     ΑΦΜ 115307716) → Registered Business Account → Links field appears.
+  2. Solve the BC login CAPTCHA once (noVNC :6085) → complete verification
+     in Business Center web.
+  3. Grow to 1000 followers (slow).
+- **Meta #785**: unchanged — leads_retrieval App Review still needs FB dev
+  console session (sidecar logged out + 2FA) + unique screencast. Human gate.
