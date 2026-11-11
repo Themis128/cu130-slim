@@ -1388,3 +1388,21 @@ Leftovers:
   3. Grow to 1000 followers (slow).
 - **Meta #785**: unchanged — leads_retrieval App Review still needs FB dev
   console session (sidecar logged out + 2FA) + unique screencast. Human gate.
+
+## 2026-11-11 (pm2) — publish-failure sweep fixes
+
+- **Bluesky 401s root-caused + fixed**: stored app password in
+  `social_accounts.access_token_enc` was stale (regenerated app password).
+  `bsky.txt` in Windows secrets dir holds the live one — re-encrypted into
+  the row via `app.core.security.encrypt_token`. Verified `createSession`
+  works from WSL; in-container probe hit 429 rate-limit (transient, clears).
+  NOTE: `BSKY_CREDENTIALS` is NOT in `.env`/container env — only the DB row
+  + secrets file + Infisical. If the app password rotates again, update the
+  DB row the same way (script pattern in session history).
+- **Instagram "requires at least one image" failures**: posts HAD media_ids
+  (R2 assets verified fetchable — `r2_storage.get_object` OK). Failure was
+  transient storage resolution during the Docker/WSL flap, misclassified
+  terminal → attempts exhausted. Requeued the 4 recent IG failed targets as
+  `error_class='transient'` so `publish-retry-sweep` republishes them.
+  R2 path itself is healthy.
+- **Ops-health "38 failed"** = the same bluesky/instagram cluster above.
