@@ -144,6 +144,17 @@ def _x_capacity_backoff() -> datetime:
     return datetime.now(UTC) + timedelta(minutes=minutes)
 
 
+# Unambiguous generation-prompt artifacts observed leaking into
+# content_text (2026-11-11 ops report: "PLAIN ENGLISH RULES (must follow):
+# … Text to rewrite: \"\"\"<post>\"\"\""). Lowercase substrings.
+_PROMPT_LEAK_MARKERS = (
+    "plain english rules",
+    "text to rewrite:",
+    'return json with key "text"',
+    "do not include the original text",
+)
+
+
 def _bsky_rate_limit_backoff() -> datetime:
     """Cooldown before retrying a Bluesky 429.
 
@@ -734,6 +745,21 @@ async def publish_to_platform(
     from app.services.content_sanitizer import sanitize_post_text
 
     post.content_text = sanitize_post_text(post.content_text)
+
+    # Generation-prompt leak guard: small DMR models sometimes return the
+    # instruction wrapper verbatim ("PLAIN ENGLISH RULES (must follow): …
+    # Text to rewrite: \"\"\"<post>\"\"\"") and it lands in content_text.
+    # Publishing that ships the prompt, not the post — fail closed.
+    _cl = (post.content_text or "").lower()
+    _leak = next(
+        (m for m in _PROMPT_LEAK_MARKERS if m in _cl),
+        None,
+    )
+    if _leak:
+        return PublishResult(
+            success=False,
+            error=f"prompt leak: generation instructions found in content ({_leak!r}) — refusing to publish",
+        )
 
     # WhatsApp/Viber are messaging channels, not feed-style social platforms.
     # If a post target includes one (e.g. legacy UI or automation), skip it so
