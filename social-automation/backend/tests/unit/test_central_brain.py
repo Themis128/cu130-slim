@@ -19,6 +19,7 @@ from app.services.central_brain import (
     BrainDecision,
     BrainSnapshot,
     ChannelState,
+    _fit_line,
     _parse_llm_decisions,
     _snapshot_health,
     collect_snapshot,
@@ -498,3 +499,121 @@ class TestParseLLMDecisions:
         assert actions[0].extra_meta["brain_priority"] == 91
         assert "llm-refined" in actions[0].extra_meta["brain_reason"]
         assert actions[0].extra_meta["brain_trend"] == "ai agents"
+
+
+# ── _fit_line + _llm_adjust coverage ──────────────────────────────────
+
+
+class TestFitLine:
+    def test_extracts_audience_fit_tail(self):
+        from app.services.content_guides import PLATFORM_GUIDES
+
+        guide = PLATFORM_GUIDES.get("linkedin", "")
+        line = _fit_line("linkedin")
+        if "Audience fit:" in guide:
+            assert line == guide.split("Audience fit:", 1)[1].strip().rstrip(".")
+        else:
+            assert line == ""
+
+    def test_unknown_platform_returns_empty(self):
+        assert _fit_line("no-such-platform-xyz") == ""
+
+
+class TestLLMAdjust:
+    @pytest.mark.asyncio
+    async def test_disabled_returns_none(self, monkeypatch):
+        import app.services.central_brain as cb
+
+        monkeypatch.setattr(
+            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=False)
+        )
+        out = await cb._llm_adjust(
+            None,
+            SimpleNamespace(id=uuid.uuid4()),
+            BrainSnapshot(team_id=uuid.uuid4(), generated_at=NOW),
+            [_cand("linkedin")],
+        )
+        assert out is None
+
+    @pytest.mark.asyncio
+    async def test_empty_candidates_returns_none(self, monkeypatch):
+        import app.services.central_brain as cb
+
+        monkeypatch.setattr(
+            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
+        )
+        out = await cb._llm_adjust(
+            None,
+            SimpleNamespace(id=uuid.uuid4()),
+            BrainSnapshot(team_id=uuid.uuid4(), generated_at=NOW),
+            [],
+        )
+        assert out is None
+
+    @pytest.mark.asyncio
+    async def test_success_returns_refined_decisions(self, monkeypatch):
+        import app.services.central_brain as cb
+
+        monkeypatch.setattr(
+            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
+        )
+
+        async def fake_recall(*a, **k):
+            return {"hits": [{"text": "linkedin carousel got 40 reactions"}]}
+
+        async def fake_infer(prompt, **k):
+            return {
+                "text": (
+                    'here you go {"posts":[{"platform":"linkedin",'
+                    '"instruction":"post the edge-latency win","priority":88}]}'
+                )
+            }
+
+        monkeypatch.setattr("app.services.company_brain.recall_cited", fake_recall)
+        monkeypatch.setattr("app.services.inference.call_inference", fake_infer)
+
+        snap = BrainSnapshot(
+            team_id=uuid.uuid4(),
+            generated_at=NOW,
+            channels={
+                "linkedin": ChannelState(
+                    platform="linkedin", followers=900, engagement_rate_7d=2.5
+                )
+            },
+            trends=[{"query": "ai agents", "classification": "opportunity", "traffic": "rising"}],
+        )
+        out = await cb._llm_adjust(
+            None,
+            SimpleNamespace(id=uuid.uuid4()),
+            snap,
+            [_cand("linkedin")],
+        )
+        assert out is not None
+        assert out[0].platform == "linkedin"
+        assert out[0].instruction == "post the edge-latency win"
+        assert out[0].priority == 88
+
+    @pytest.mark.asyncio
+    async def test_inference_failure_returns_none(self, monkeypatch):
+        import app.services.central_brain as cb
+
+        monkeypatch.setattr(
+            cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True)
+        )
+
+        async def fake_recall(*a, **k):
+            return {"hits": []}
+
+        async def boom(*a, **k):
+            raise RuntimeError("dmr down")
+
+        monkeypatch.setattr("app.services.company_brain.recall_cited", fake_recall)
+        monkeypatch.setattr("app.services.inference.call_inference", boom)
+
+        out = await cb._llm_adjust(
+            None,
+            SimpleNamespace(id=uuid.uuid4()),
+            BrainSnapshot(team_id=uuid.uuid4(), generated_at=NOW),
+            [_cand("linkedin")],
+        )
+        assert out is None
