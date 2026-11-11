@@ -178,6 +178,44 @@ async def test_db_sync_helpers(monkeypatch):
     assert await H._account_username("twitter") == "cu_dev"
 
 
+@pytest.mark.asyncio
+async def test_sync_browser_cookies_instagram_refreshes_private_api(monkeypatch):
+    """IG bridge extract must refresh private_api_* (the publish-ladder
+    credential) and un-revoke the account — not just browser_cookies."""
+    from app.core.security import decrypt_field
+
+    monkeypatch.setattr(H, "flag_modified", lambda *a, **kw: None)
+    acc = SimpleNamespace(meta_data={}, status="revoked")
+    _patch_db(monkeypatch, _res(scalars_all=[acc]))
+    cookies = {
+        "sessionid": "abc%2Fdef%3D",  # extract returns sessionid URL-encoded
+        "csrftoken": "csrf123",
+        "ds_user_id": "61511170480",
+    }
+    n = await H._sync_browser_cookies("instagram", cookies)
+    assert n == 1
+    meta = acc.meta_data
+    assert meta["browser_cookies"] == cookies
+    assert decrypt_field(meta["private_api_session_id"]) == "abc/def="
+    assert meta["private_api_csrf_token"] == "csrf123"
+    assert meta["private_api_ds_user_id"] == "61511170480"
+    assert acc.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_sync_browser_cookies_instagram_partial_cookies(monkeypatch):
+    """Missing sessionid/ds_user_id leaves private_api_* untouched."""
+    monkeypatch.setattr(H, "flag_modified", lambda *a, **kw: None)
+    acc = SimpleNamespace(meta_data={"private_api_session_id": "enc:keep"}, status="active")
+    _patch_db(monkeypatch, _res(scalars_all=[acc]))
+    n = await H._sync_browser_cookies("instagram", {"csrftoken": "csrf-only"})
+    assert n == 1
+    assert acc.meta_data["private_api_session_id"] == "enc:keep"
+    assert acc.meta_data["private_api_csrf_token"] == "csrf-only"
+    assert "private_api_ds_user_id" not in acc.meta_data
+    assert acc.status == "active"
+
+
 # ── linkedin sidecar heal ─────────────────────────────────────────────
 
 
