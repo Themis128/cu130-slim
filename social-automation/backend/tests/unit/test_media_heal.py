@@ -799,6 +799,33 @@ def test_rewrite_copy_echo_rejected(monkeypatch):
     assert _drive(M._rewrite_copy_for_media(post)) is None
 
 
+def test_rewrite_copy_prompt_echo_rejected(monkeypatch):
+    """Model returns instruction wrapper + original verbatim (smollm2
+    echo, live post 646a0a39) -> rejected, not adopted as copy."""
+    import app.services.dmr as dmr
+
+    original = "Original post copy that is long enough to pass the minimum length guard."
+    echoed = "Rewrite this post for a generic cloud-technology branded image:\n\n" + original
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": echoed}))
+    post = _post(content=original)
+    assert _drive(M._rewrite_copy_for_media(post)) is None
+
+
+def test_rewrite_copy_original_substring_rejected(monkeypatch):
+    """Output that embeds the full original verbatim is a prompt echo,
+    not a rewrite."""
+    import app.services.dmr as dmr
+
+    original = "Original post copy that is long enough to pass the minimum length guard."
+    monkeypatch.setattr(
+        dmr,
+        "call_dmr_chat",
+        AsyncMock(return_value={"text": "Here you go: " + original + " hope that helps"}),
+    )
+    post = _post(content=original)
+    assert _drive(M._rewrite_copy_for_media(post)) is None
+
+
 def test_rewrite_copy_empty_result_rejected(monkeypatch):
     import app.services.dmr as dmr
 
