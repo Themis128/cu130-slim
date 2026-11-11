@@ -35,7 +35,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -164,6 +164,59 @@ def _bsky_rate_limit_backoff() -> datetime:
     """
     minutes = max(5, int(getattr(_settings, "BSKY_RATE_LIMIT_BACKOFF_MINUTES", 30) or 30))
     return datetime.now(UTC) + timedelta(minutes=minutes)
+
+
+_BSKY_AUTH_FAIL_MARKERS = (
+    "login failed (401)",
+    "AuthenticationRequired",
+    "Invalid identifier",
+    "InvalidIdentifier",
+)
+_BSKY_AUTH_FAIL_WINDOW_H = 6
+_BSKY_AUTH_FAIL_THRESHOLD = 3
+
+
+async def _bsky_auth_circuit_open(db: AsyncSession, account: SocialAccount) -> bool:
+    """True when recent Bluesky auth failures say the credentials are dead.
+
+    With ``bsky_session`` absent/expired every publish attempt falls through
+    to ``createSession`` — the strictest rate-limited endpoint on
+    bsky.social — so retrying dead creds burns the daily quota and produces
+    the 401→429 cascade. When ≥3 auth-flavored failures landed in the last
+    ``_BSKY_AUTH_FAIL_WINDOW_H`` hours, defer WITHOUT touching the API.
+
+    The breaker clears itself: a successful rotation writes a fresh
+    ``bsky_session`` whose unexpired access_jwt bypasses the check, and
+    stale failures age out of the window. Fail-closed: if rotation never
+    succeeds the deferral bounds (PUBLISH_DEFER_MAX_HOURS) end the target
+    with an alert instead of an infinite silent loop.
+    """
+    stored = (account.meta_data or {}).get("bsky_session") or {}
+    access_jwt = stored.get("access_jwt")
+    if access_jwt:
+        try:
+            from app.services.bluesky_api import BlueskyClient
+
+            exp = BlueskyClient._jwt_exp(access_jwt)
+            if exp is not None and exp > time.time() + 60:
+                return False  # live session — ensure_session reuses it, no createSession
+        except Exception:  # noqa: BLE001 — unparsable JWT → treat as no session
+            pass
+    since = datetime.now(UTC) - timedelta(hours=_BSKY_AUTH_FAIL_WINDOW_H)
+    cond = or_(*[PostTarget.error_message.ilike(f"%{m}%") for m in _BSKY_AUTH_FAIL_MARKERS])
+    n = (
+        await db.execute(
+            select(func.count())
+            .select_from(PostTarget)
+            .where(
+                PostTarget.social_account_id == account.id,
+                PostTarget.status != "published",
+                PostTarget.updated_at >= since,
+                cond,
+            )
+        )
+    ).scalar_one()
+    return n >= _BSKY_AUTH_FAIL_THRESHOLD
 
 
 def _x_retry_at(exc: TwitterAPIError | None) -> datetime | None:
@@ -918,7 +971,7 @@ async def publish_to_platform(
         return PublishResult(success=False, error=f"Unsupported platform: {account.platform}")
 
     try:
-        if account.platform in ("instagram", "twitter", "telegram"):
+        if account.platform in ("instagram", "twitter", "telegram", "bluesky"):
             return await fn(access_token, text, account, post, media_paths, storage_paths, db)
         return await fn(access_token, text, account, post, media_paths, storage_paths)
     except httpx.HTTPStatusError as exc:
@@ -3638,6 +3691,7 @@ async def _publish_bluesky(
     post: Post,
     media_paths: list[str],
     storage_paths: list[str] | None = None,
+    db: AsyncSession | None = None,
 ) -> PublishResult:
     """Publish to Bluesky via the AT Protocol.
 
@@ -3663,6 +3717,20 @@ async def _publish_bluesky(
         access_token,
         pds_url=pds or "https://bsky.social",
     )
+    if db is not None and await _bsky_auth_circuit_open(db, account):
+        # Credentials are dead and recent attempts prove it — defer through
+        # the capacity lane WITHOUT calling createSession, so retries don't
+        # keep burning the strictest rate limit on bsky.social. Clears when
+        # rotation writes a fresh session or the failures age out.
+        return PublishResult(
+            success=False,
+            retry_after=_bsky_rate_limit_backoff(),
+            error=(
+                "Bluesky auth circuit open — recent login failures indicate "
+                "dead credentials; deferred without a createSession call. "
+                "Rotation (bluesky-credential-watch / daily sweep) restores publishing."
+            ),
+        )
     try:
         await ensure_session(client, (account.meta_data or {}).get("bsky_session"))
         persist_session(account, client)
