@@ -19,13 +19,12 @@ os.environ.setdefault("D1_ENABLED", "false")
 os.environ.setdefault("SOCIAL_ADMIN_EMAIL", "")
 os.environ.setdefault("SOCIAL_ADMIN_PASSWORD", "")
 
-from app.main import app  # noqa: E402
+from app.main import app
 
 routes: dict[str, set[str]] = {}
-for r in app.routes:
-    path = getattr(r, "path", "")
-    methods = ",".join(sorted(getattr(r, "methods", []) - {"HEAD", "OPTIONS"}))
-    if not path or not methods:
+for path, ops in app.openapi().get("paths", {}).items():
+    methods = ",".join(sorted(m.upper() for m in ops if m.upper() not in {"HEAD", "OPTIONS"}))
+    if not methods:
         continue
     seg = path.strip("/").split("/")
     group = seg[2] if len(seg) > 2 and seg[0] == "api" else "(root)"
@@ -47,5 +46,5 @@ for group in sorted(routes):
     out.append("")
     out.extend(sorted(routes[group]))
     out.append("")
-Path("docs/api-surface-inventory.md").write_text("\n".join(out))
+(ROOT / "docs" / "api-surface-inventory.md").write_text("\n".join(out))
 print(f"wrote {sum(len(v) for v in routes.values())} routes")

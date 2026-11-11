@@ -2,9 +2,7 @@
 
 <!-- AUTO-GENERATED from openapi.json — regenerate:
 
-  python3 -c "import json,urllib.request; ..." (see tests/integration/test_docs_surfaces.py)
-
-  or: docker compose exec -T social-api python -m pytest tests/integration/test_docs_surfaces.py --generate-inventory
+  python3 scripts/generate_route_inventory.py
 
 -->
 
@@ -13,24 +11,24 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `(root)`
 
-- `/health` — GET, HEAD
+- `/health` — GET
 
 ## `accounts`
 
-- `/api/v1/accounts` — GET
-- `/api/v1/accounts/connect` — POST
 - `/api/v1/accounts/connect/{platform}` — POST
+- `/api/v1/accounts/connect` — POST
 - `/api/v1/accounts/linkedin/sync-organizations` — POST
-- `/api/v1/accounts/{account_id}` — GET, DELETE
-- `/api/v1/accounts/{account_id}/page-profile` — GET, PUT
 - `/api/v1/accounts/{account_id}/page-profile/assign-manage-task` — POST
 - `/api/v1/accounts/{account_id}/page-profile/cover` — POST
 - `/api/v1/accounts/{account_id}/page-profile/picture` — POST
+- `/api/v1/accounts/{account_id}/page-profile` — GET,PUT
 - `/api/v1/accounts/{account_id}/refresh` — POST
 - `/api/v1/accounts/{account_id}/set-business-account` — POST
 - `/api/v1/accounts/{account_id}/sync-business-accounts` — POST
 - `/api/v1/accounts/{account_id}/test` — POST
 - `/api/v1/accounts/{account_id}/validate` — GET
+- `/api/v1/accounts/{account_id}` — DELETE,GET
+- `/api/v1/accounts` — GET
 
 ## `ads`
 
@@ -39,16 +37,16 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `agency`
 
-- `/api/v1/agency/audits` — GET, POST
 - `/api/v1/agency/audits/{audit_id}` — GET
+- `/api/v1/agency/audits` — GET,POST
 - `/api/v1/agency/catalog` — GET
 - `/api/v1/agency/metrics` — GET
-- `/api/v1/agency/projects` — GET, POST
 - `/api/v1/agency/projects/{project_id}` — GET
-- `/api/v1/agency/proposals` — GET
-- `/api/v1/agency/proposals/{proposal_id}` — GET
+- `/api/v1/agency/projects` — GET,POST
 - `/api/v1/agency/proposals/{proposal_id}/approve` — POST
 - `/api/v1/agency/proposals/{proposal_id}/reject` — POST
+- `/api/v1/agency/proposals/{proposal_id}` — GET
+- `/api/v1/agency/proposals` — GET
 
 ## `ai`
 
@@ -68,15 +66,15 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ai/emoji/generate` — POST
 - `/api/v1/ai/emoji/styles` — GET
 - `/api/v1/ai/generate-blog-article` — POST
-- `/api/v1/ai/generate-carousel` — POST
 - `/api/v1/ai/generate-carousel-pipeline` — POST
+- `/api/v1/ai/generate-carousel` — POST
 - `/api/v1/ai/generate-content` — POST
 - `/api/v1/ai/generate-hashtags` — POST
-- `/api/v1/ai/generate-image` — POST
 - `/api/v1/ai/generate-image-flux` — POST
 - `/api/v1/ai/generate-image-pipeline` — POST
 - `/api/v1/ai/generate-image-prompt` — POST
 - `/api/v1/ai/generate-image/{job_id}` — GET
+- `/api/v1/ai/generate-image` — POST
 - `/api/v1/ai/generate-workflow` — POST
 - `/api/v1/ai/improve-content` — POST
 - `/api/v1/ai/nlp-check` — POST
@@ -88,23 +86,23 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ai/seed-default-workflows` — POST
 - `/api/v1/ai/seo` — POST
 - `/api/v1/ai/spellcheck` — POST
-- `/api/v1/ai/suggest-hashtags` — POST
 - `/api/v1/ai/suggest-hashtags-tiered` — POST
+- `/api/v1/ai/suggest-hashtags` — POST
 - `/api/v1/ai/transcribe` — POST
 - `/api/v1/ai/web-search` — GET
-- `/api/v1/ai/workers-ai/batch` — POST
 - `/api/v1/ai/workers-ai/batch/retrieve` — POST
+- `/api/v1/ai/workers-ai/batch` — POST
 - `/api/v1/ai/workflow-config/{content_type}` — GET
 
 ## `ai-providers`
 
-- `/api/v1/ai-providers` — GET
 - `/api/v1/ai-providers/catalog` — GET
 - `/api/v1/ai-providers/usage` — GET
-- `/api/v1/ai-providers/{name}` — PUT, DELETE
 - `/api/v1/ai-providers/{name}/models` — GET
 - `/api/v1/ai-providers/{name}/reset-circuit` — POST
 - `/api/v1/ai-providers/{name}/test` — POST
+- `/api/v1/ai-providers/{name}` — DELETE,PUT
+- `/api/v1/ai-providers` — GET
 
 ## `analytics`
 
@@ -128,8 +126,8 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/analytics/sync` — POST
 - `/api/v1/analytics/tiktok/videos` — GET
 - `/api/v1/analytics/top-posts` — GET
-- `/api/v1/analytics/web/configs` — GET, POST
-- `/api/v1/analytics/web/configs/{config_id}` — PUT, DELETE
+- `/api/v1/analytics/web/configs/{config_id}` — DELETE,PUT
+- `/api/v1/analytics/web/configs` — GET,POST
 - `/api/v1/analytics/web/summary` — GET
 - `/api/v1/analytics/web/webhooks/cloudless-analytics` — POST
 
@@ -139,9 +137,9 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `auth`
 
-- `/api/v1/auth/2fa` — DELETE
 - `/api/v1/auth/2fa/setup` — POST
 - `/api/v1/auth/2fa/verify` — POST
+- `/api/v1/auth/2fa` — DELETE
 - `/api/v1/auth/account` — DELETE
 - `/api/v1/auth/change-password` — POST
 - `/api/v1/auth/data-deletion` — POST
@@ -149,15 +147,15 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/auth/forgot-password` — POST
 - `/api/v1/auth/linkedin/sync-orgs` — POST
 - `/api/v1/auth/login` — POST
-- `/api/v1/auth/me` — GET, PATCH
-- `/api/v1/auth/notifications/preferences` — GET, PUT
-- `/api/v1/auth/oidc/authorize` — GET
-- `/api/v1/auth/oidc/callback` — GET
+- `/api/v1/auth/me` — GET,PATCH
+- `/api/v1/auth/notifications/preferences` — GET,PUT
 - `/api/v1/auth/oauth/instagram-onboarding/authorize` — GET
 - `/api/v1/auth/oauth/instagram2/authorize` — GET
 - `/api/v1/auth/oauth/instagram2/callback` — GET
 - `/api/v1/auth/oauth/{platform}/authorize` — GET
 - `/api/v1/auth/oauth/{platform}/callback` — GET
+- `/api/v1/auth/oidc/authorize` — GET
+- `/api/v1/auth/oidc/callback` — GET
 - `/api/v1/auth/refresh` — POST
 - `/api/v1/auth/register` — POST
 - `/api/v1/auth/reset-password` — POST
@@ -168,7 +166,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/billing/cancel` — POST
 - `/api/v1/billing/checkout` — POST
 - `/api/v1/billing/config` — GET
-- `/api/v1/billing/discount` — GET, PUT, DELETE
+- `/api/v1/billing/discount` — DELETE,GET,PUT
 - `/api/v1/billing/dodo-webhook` — POST
 - `/api/v1/billing/plans` — GET
 - `/api/v1/billing/polar-webhook` — POST
@@ -184,41 +182,37 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `brand`
 
-- `/api/v1/brand` — GET, POST, PUT, DELETE
 - `/api/v1/brand/ad-kit` — POST
 - `/api/v1/brand/analyze-voice` — POST
-- `/api/v1/brand/assets` — GET, POST
 - `/api/v1/brand/assets/{asset_id}` — DELETE
+- `/api/v1/brand/assets` — GET,POST
 - `/api/v1/brand/autopilot/run` — POST
-- `/api/v1/brand/competitors` — GET
 - `/api/v1/brand/competitors/snapshot` — POST
+- `/api/v1/brand/competitors` — GET
 - `/api/v1/brand/compliance` — POST
-- `/api/v1/brand/digital-card` — GET
 - `/api/v1/brand/digital-card/{token}` — GET
+- `/api/v1/brand/digital-card` — GET
 - `/api/v1/brand/extract` — POST
 - `/api/v1/brand/generate-favicon` — POST
 - `/api/v1/brand/generate-logo` — POST
-- `/api/v1/brand/guidelines` — GET
 - `/api/v1/brand/guidelines/compile` — POST
 - `/api/v1/brand/guidelines/share/{token}` — GET
+- `/api/v1/brand/guidelines` — GET
 - `/api/v1/brand/health` — GET
-- `/api/v1/brand/mentions` — GET
 - `/api/v1/brand/mentions/collect` — POST
+- `/api/v1/brand/mentions` — GET
 - `/api/v1/brand/trends` — GET
-- `/api/v1/brand/visual` — GET, PUT
-- `/api/v1/brand/voice` — GET, PUT
-
-## `calcom`
-
-- `/api/v1/webhooks/calcom` — POST
+- `/api/v1/brand/visual` — GET,PUT
+- `/api/v1/brand/voice` — GET,PUT
+- `/api/v1/brand` — DELETE,GET,POST,PUT
 
 ## `cf-db`
 
 - `/api/v1/cf-db/health` — GET
 - `/api/v1/cf-db/replay` — POST
 - `/api/v1/cf-db/status` — GET
-- `/api/v1/cf-db/sync` — POST
 - `/api/v1/cf-db/sync-tables` — GET
+- `/api/v1/cf-db/sync` — POST
 - `/api/v1/cf-db/tables` — GET
 
 ## `cf-gates`
@@ -233,17 +227,15 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `content`
 
-- `/api/v1/content/briefs` — GET, POST
 - `/api/v1/content/briefs/{brief_id}` — DELETE
+- `/api/v1/content/briefs` — GET,POST
 - `/api/v1/content/link-preview` — GET
-- `/api/v1/content/media` — GET
 - `/api/v1/content/media/upload` — POST
 - `/api/v1/content/media/{media_id}` — DELETE
-- `/api/v1/content/pillars` — GET, POST
-- `/api/v1/content/pillars/{pillar_id}` — PATCH, DELETE
-- `/api/v1/content/posts` — GET, POST
+- `/api/v1/content/media` — GET
+- `/api/v1/content/pillars/{pillar_id}` — DELETE,PATCH
+- `/api/v1/content/pillars` — GET,POST
 - `/api/v1/content/posts/calendar` — GET
-- `/api/v1/content/posts/{post_id}` — GET, PATCH, DELETE
 - `/api/v1/content/posts/{post_id}/approve` — POST
 - `/api/v1/content/posts/{post_id}/comments` — POST
 - `/api/v1/content/posts/{post_id}/cross-post` — POST
@@ -252,33 +244,35 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/content/posts/{post_id}/reject` — POST
 - `/api/v1/content/posts/{post_id}/schedule` — POST
 - `/api/v1/content/posts/{post_id}/submit-review` — POST
+- `/api/v1/content/posts/{post_id}` — DELETE,GET,PATCH
+- `/api/v1/content/posts` — GET,POST
 
 ## `digital-cards`
 
-- `/api/v1/digital-cards` — GET, POST
 - `/api/v1/digital-cards/from-brand` — POST
-- `/api/v1/digital-cards/public/{token}` — GET
 - `/api/v1/digital-cards/public/{token}/track` — POST
-- `/api/v1/digital-cards/{card_id}` — GET, PATCH, DELETE
+- `/api/v1/digital-cards/public/{token}` — GET
 - `/api/v1/digital-cards/{card_id}/send` — POST
 - `/api/v1/digital-cards/{card_id}/vcard` — GET
+- `/api/v1/digital-cards/{card_id}` — DELETE,GET,PATCH
+- `/api/v1/digital-cards` — GET,POST
 
 ## `email-campaigns`
 
-- `/api/v1/email-campaigns` — GET, POST
 - `/api/v1/email-campaigns/crm/clients` — GET
 - `/api/v1/email-campaigns/crm/summary` — GET
-- `/api/v1/email-campaigns/suppressions/list` — GET, POST
-- `/api/v1/email-campaigns/surveys/{token}` — GET, POST
+- `/api/v1/email-campaigns/suppressions/list` — GET,POST
+- `/api/v1/email-campaigns/surveys/{token}` — GET,POST
 - `/api/v1/email-campaigns/unsubscribe/{token}/confirm` — GET
 - `/api/v1/email-campaigns/unsubscribe/{token}/post` — POST
-- `/api/v1/email-campaigns/{campaign_id}` — GET, DELETE
 - `/api/v1/email-campaigns/{campaign_id}/audience` — POST
 - `/api/v1/email-campaigns/{campaign_id}/nudge` — POST
 - `/api/v1/email-campaigns/{campaign_id}/recipients` — GET
-- `/api/v1/email-campaigns/{campaign_id}/responses` — GET
 - `/api/v1/email-campaigns/{campaign_id}/responses/view` — GET
+- `/api/v1/email-campaigns/{campaign_id}/responses` — GET
 - `/api/v1/email-campaigns/{campaign_id}/send` — POST
+- `/api/v1/email-campaigns/{campaign_id}` — DELETE,GET
+- `/api/v1/email-campaigns` — GET,POST
 
 ## `engagement`
 
@@ -299,9 +293,9 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/instagram/app-review/guide` — GET
 - `/api/v1/instagram/app-review/status` — GET
-- `/api/v1/instagram/comments/{comment_id}` — DELETE
 - `/api/v1/instagram/comments/{comment_id}/hide` — POST
 - `/api/v1/instagram/comments/{comment_id}/reply` — POST
+- `/api/v1/instagram/comments/{comment_id}` — DELETE
 - `/api/v1/instagram/comments/{media_id}` — GET
 - `/api/v1/instagram/mentions` — GET
 - `/api/v1/instagram/quota` — GET
@@ -309,10 +303,10 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `leads`
 
-- `/api/v1/leads` — GET, POST
-- `/api/v1/leads/public` — POST
 - `/api/v1/leads/public/audit` — POST
 - `/api/v1/leads/public/survey` — POST
+- `/api/v1/leads/public` — POST
+- `/api/v1/leads` — GET,POST
 
 ## `linkedin`
 
@@ -332,35 +326,41 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/linkedin/intel/ads` — GET
 - `/api/v1/linkedin/intel/run` — POST
 - `/api/v1/linkedin/intel/summary` — GET
-- `/api/v1/linkedin/intel/watchlist` — GET, POST
 - `/api/v1/linkedin/intel/watchlist/{watch_id}` — DELETE
+- `/api/v1/linkedin/intel/watchlist` — GET,POST
 - `/api/v1/linkedin/publish` — POST
-- `/api/v1/linkedin/{account_id}/dm/auto-reply` — GET, PUT
+- `/api/v1/linkedin/{account_id}/dm/auto-reply` — GET,PUT
 - `/api/v1/linkedin/{account_id}/dm/conversations` — GET
-- `/api/v1/linkedin/{account_id}/dm/threads/{thread_id}` — GET
 - `/api/v1/linkedin/{account_id}/dm/threads/{thread_id}/send` — POST
+- `/api/v1/linkedin/{account_id}/dm/threads/{thread_id}` — GET
 
 ## `mcp`
 
 - `/api/v1/mcp/linkedin/profile` — POST
 - `/api/v1/mcp/linkedin/search-people` — POST
-- `/api/v1/mcp/stack` — GET
 - `/api/v1/mcp/stack/{service_id}/screenshot` — GET
 - `/api/v1/mcp/stack/{service_id}/session` — POST
+- `/api/v1/mcp/stack` — GET
+
+## `mcp-gateway`
+
+- `/api/v1/mcp-gateway/servers/{name}/call` — POST
+- `/api/v1/mcp-gateway/servers/{name}/tools` — GET
+- `/api/v1/mcp-gateway/servers` — GET
 
 ## `media`
 
-- `/api/v1/media/assets` — GET
 - `/api/v1/media/assets/bulk-delete` — POST
 - `/api/v1/media/assets/sweep-orphans` — POST
-- `/api/v1/media/assets/{asset_id}` — GET, PATCH, DELETE
 - `/api/v1/media/assets/{asset_id}/similar` — GET
 - `/api/v1/media/assets/{asset_id}/tag` — POST
+- `/api/v1/media/assets/{asset_id}` — DELETE,GET,PATCH
+- `/api/v1/media/assets` — GET
 - `/api/v1/media/avatar-story` — POST
-- `/api/v1/media/collections` — GET, POST
-- `/api/v1/media/collections/{collection_id}` — GET, PATCH, DELETE
-- `/api/v1/media/collections/{collection_id}/assets` — POST
 - `/api/v1/media/collections/{collection_id}/assets/{asset_id}` — DELETE
+- `/api/v1/media/collections/{collection_id}/assets` — POST
+- `/api/v1/media/collections/{collection_id}` — DELETE,GET,PATCH
+- `/api/v1/media/collections` — GET,POST
 - `/api/v1/media/enhance/assets/{asset_id}/add-background` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/alt-text` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/compress` — POST
@@ -381,18 +381,18 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/enhance/batch` — POST
 - `/api/v1/media/enhance/presets` — GET
 - `/api/v1/media/generate-image` — POST
-- `/api/v1/media/generate-video` — POST
 - `/api/v1/media/generate-video/{task_id}` — GET
+- `/api/v1/media/generate-video` — POST
 - `/api/v1/media/search` — GET
-- `/api/v1/media/upload` — POST
 - `/api/v1/media/upload/complete` — POST
 - `/api/v1/media/upload/prepare` — POST
+- `/api/v1/media/upload` — POST
 - `/api/v1/media/view` — GET
 
 ## `media-sources`
 
-- `/api/v1/media-sources/gdrive/connect` — POST
 - `/api/v1/media-sources/gdrive/connect-url` — POST
+- `/api/v1/media-sources/gdrive/connect` — POST
 - `/api/v1/media-sources/gdrive/files` — GET
 - `/api/v1/media-sources/gdrive/import` — POST
 - `/api/v1/media-sources/nextcloud/files` — GET
@@ -401,29 +401,29 @@ asserts every live route appears here — regenerate this file when adding route
 ## `messenger`
 
 - `/api/v1/messenger/sidecar/status` — GET
-- `/api/v1/messenger/webhook` — GET, POST
-- `/api/v1/messenger/{account_id}/auto-reply` — GET, PUT
-- `/api/v1/messenger/{account_id}/bot` — GET, PUT
+- `/api/v1/messenger/webhook` — GET,POST
+- `/api/v1/messenger/{account_id}/auto-reply` — GET,PUT
 - `/api/v1/messenger/{account_id}/bot/activate` — POST
 - `/api/v1/messenger/{account_id}/bot/create` — POST
 - `/api/v1/messenger/{account_id}/bot/deactivate` — POST
 - `/api/v1/messenger/{account_id}/bot/pause-thread/{thread_id}` — POST
 - `/api/v1/messenger/{account_id}/bot/personalities` — GET
 - `/api/v1/messenger/{account_id}/bot/resume-thread/{thread_id}` — POST
-- `/api/v1/messenger/{account_id}/conversations` — GET
+- `/api/v1/messenger/{account_id}/bot` — GET,PUT
 - `/api/v1/messenger/{account_id}/conversations/{conversation_id}` — GET
-- `/api/v1/messenger/{account_id}/personal/auto-reply` — GET, PUT
-- `/api/v1/messenger/{account_id}/personal/conversations` — GET
+- `/api/v1/messenger/{account_id}/conversations` — GET
+- `/api/v1/messenger/{account_id}/personal/auto-reply` — GET,PUT
 - `/api/v1/messenger/{account_id}/personal/conversations/{thread_id}` — GET
+- `/api/v1/messenger/{account_id}/personal/conversations` — GET
 - `/api/v1/messenger/{account_id}/personal/index-brand` — POST
 - `/api/v1/messenger/{account_id}/personal/send` — POST
-- `/api/v1/messenger/{account_id}/personal/threads/{thread_id}/config` — GET, PUT
+- `/api/v1/messenger/{account_id}/personal/threads/{thread_id}/config` — GET,PUT
 - `/api/v1/messenger/{account_id}/personal/threads/{thread_id}/memory` — GET
 - `/api/v1/messenger/{account_id}/personal/threads/{thread_id}/pause` — POST
 - `/api/v1/messenger/{account_id}/personal/threads/{thread_id}/resume` — POST
-- `/api/v1/messenger/{account_id}/profile` — GET, PUT, DELETE
-- `/api/v1/messenger/{account_id}/send` — POST
+- `/api/v1/messenger/{account_id}/profile` — DELETE,GET,PUT
 - `/api/v1/messenger/{account_id}/send-quick-replies` — POST
+- `/api/v1/messenger/{account_id}/send` — POST
 - `/api/v1/messenger/{account_id}/setup` — POST
 - `/api/v1/messenger/{account_id}/unsubscribe` — POST
 - `/api/v1/messenger/{account_id}/user/{psid}` — GET
@@ -445,16 +445,16 @@ asserts every live route appears here — regenerate this file when adding route
 ## `ops`
 
 - `/api/v1/ops/automation-plan` — GET
-- `/api/v1/ops/billing-digest` — POST
 - `/api/v1/ops/billing-digest/preview` — GET
-- `/api/v1/ops/browser-orchestrator` — GET
+- `/api/v1/ops/billing-digest` — POST
 - `/api/v1/ops/browser-orchestrator/release` — POST
+- `/api/v1/ops/browser-orchestrator` — GET
 - `/api/v1/ops/console` — GET
-- `/api/v1/ops/daily-digest` — POST
 - `/api/v1/ops/daily-digest/preview` — GET
+- `/api/v1/ops/daily-digest` — POST
 - `/api/v1/ops/monetization-report` — POST
-- `/api/v1/ops/paddle-digest` — POST
 - `/api/v1/ops/paddle-digest/preview` — GET
+- `/api/v1/ops/paddle-digest` — POST
 - `/api/v1/ops/session-heal` — POST
 - `/api/v1/ops/tiktok-audit` — PUT
 
@@ -468,7 +468,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/profile/browser/start` — POST
 - `/api/v1/profile/browser/status` — GET
 - `/api/v1/profile/browser/stop` — POST
-- `/api/v1/profile/instagram/web-session` — GET, POST
+- `/api/v1/profile/instagram/web-session` — GET,POST
 - `/api/v1/profile/tiktok/accessibility/contrast` — POST
 - `/api/v1/profile/tiktok/ads/personalized` — POST
 - `/api/v1/profile/tiktok/business-verification/fill` — POST
@@ -478,29 +478,29 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/profile/tiktok/privacy/comments` — POST
 - `/api/v1/profile/tiktok/privacy/direct-messages` — POST
 - `/api/v1/profile/tiktok/privacy/private-account` — POST
-- `/api/v1/profile/tiktok/session` — GET, POST
+- `/api/v1/profile/tiktok/session` — GET,POST
 - `/api/v1/profile/tiktok/settings` — GET
-- `/api/v1/profile/{account_id}` — GET, PUT
 - `/api/v1/profile/{account_id}/cover` — POST
 - `/api/v1/profile/{account_id}/login` — POST
 - `/api/v1/profile/{account_id}/picture` — POST
-- `/api/v1/profile/{account_id}/threads/settings` — GET, PUT
+- `/api/v1/profile/{account_id}/threads/settings` — GET,PUT
+- `/api/v1/profile/{account_id}` — GET,PUT
 
 ## `publishing`
 
 - `/api/v1/publishing/history` — GET
-- `/api/v1/publishing/queue` — GET, POST
-- `/api/v1/publishing/queue/{queue_id}` — GET, DELETE
 - `/api/v1/publishing/queue/{queue_id}/cancel` — POST
 - `/api/v1/publishing/queue/{queue_id}/retry` — POST
+- `/api/v1/publishing/queue/{queue_id}` — DELETE,GET
+- `/api/v1/publishing/queue` — GET,POST
 - `/api/v1/publishing/retry/{queue_id}` — POST
 
 ## `reports`
 
-- `/api/v1/reports` — GET
 - `/api/v1/reports/files/{filename}` — GET
 - `/api/v1/reports/notebooks` — GET
 - `/api/v1/reports/run` — POST
+- `/api/v1/reports` — GET
 
 ## `research`
 
@@ -510,18 +510,18 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `secrets`
 
+- `/api/v1/secrets/{key}` — DELETE,GET,POST,PUT
 - `/api/v1/secrets` — GET
-- `/api/v1/secrets/{key}` — GET, POST, PUT, DELETE
 
 ## `service-feed`
 
-- `/api/v1/service-feed` — GET
 - `/api/v1/service-feed/activity` — GET
 - `/api/v1/service-feed/campaigns` — GET
 - `/api/v1/service-feed/clients` — GET
 - `/api/v1/service-feed/digest` — GET
 - `/api/v1/service-feed/leads` — GET
 - `/api/v1/service-feed/status` — GET
+- `/api/v1/service-feed` — GET
 
 ## `support`
 
@@ -533,23 +533,23 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `teams`
 
-- `/api/v1/teams` — GET, POST
 - `/api/v1/teams/accept-invite` — POST
-- `/api/v1/teams/{team_id}` — GET, PATCH, DELETE
 - `/api/v1/teams/{team_id}/invite` — POST
-- `/api/v1/teams/{team_id}/members/{user_id}` — POST, PATCH, DELETE
+- `/api/v1/teams/{team_id}/members/{user_id}` — DELETE,PATCH,POST
+- `/api/v1/teams/{team_id}` — DELETE,GET,PATCH
+- `/api/v1/teams` — GET,POST
 
 ## `telegram`
 
 - `/api/v1/telegram/connect` — POST
 - `/api/v1/telegram/webhook/{account_id}` — POST
-- `/api/v1/telegram/{account_id}/auto-reply` — GET, PUT
-- `/api/v1/telegram/{account_id}/bot` — GET, PUT
+- `/api/v1/telegram/{account_id}/auto-reply` — GET,PUT
 - `/api/v1/telegram/{account_id}/bot/activate` — POST
 - `/api/v1/telegram/{account_id}/bot/create` — POST
 - `/api/v1/telegram/{account_id}/bot/deactivate` — POST
 - `/api/v1/telegram/{account_id}/bot/personalities` — GET
-- `/api/v1/telegram/{account_id}/channel-config` — GET, PUT
+- `/api/v1/telegram/{account_id}/bot` — GET,PUT
+- `/api/v1/telegram/{account_id}/channel-config` — GET,PUT
 - `/api/v1/telegram/{account_id}/channels` — GET
 - `/api/v1/telegram/{account_id}/chat-admins` — GET
 - `/api/v1/telegram/{account_id}/chat-description` — PUT
@@ -558,18 +558,18 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/telegram/{account_id}/credentials` — PUT
 - `/api/v1/telegram/{account_id}/delete-message` — POST
 - `/api/v1/telegram/{account_id}/delete-webhook` — POST
-- `/api/v1/telegram/{account_id}/group-watch` — GET, PUT
 - `/api/v1/telegram/{account_id}/group-watch/activity` — GET
 - `/api/v1/telegram/{account_id}/group-watch/add-chat` — POST
 - `/api/v1/telegram/{account_id}/group-watch/digest-now` — POST
 - `/api/v1/telegram/{account_id}/group-watch/setup-links` — POST
+- `/api/v1/telegram/{account_id}/group-watch` — GET,PUT
 - `/api/v1/telegram/{account_id}/invite-link` — POST
 - `/api/v1/telegram/{account_id}/notify-config` — GET
 - `/api/v1/telegram/{account_id}/pin` — POST
-- `/api/v1/telegram/{account_id}/send` — POST
 - `/api/v1/telegram/{account_id}/send-media-group` — POST
 - `/api/v1/telegram/{account_id}/send-photo` — POST
 - `/api/v1/telegram/{account_id}/send-poll` — POST
+- `/api/v1/telegram/{account_id}/send` — POST
 - `/api/v1/telegram/{account_id}/setup-status` — GET
 - `/api/v1/telegram/{account_id}/setup-webhook` — POST
 - `/api/v1/telegram/{account_id}/threads/pause` — POST
@@ -580,18 +580,18 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/threads/followers` — GET
 - `/api/v1/threads/insights` — GET
-- `/api/v1/threads/posts` — GET
-- `/api/v1/threads/posts/{media_id}` — DELETE
 - `/api/v1/threads/posts/{media_id}/insights` — GET
 - `/api/v1/threads/posts/{media_id}/reply` — POST
-- `/api/v1/threads/profile` — GET, PUT
+- `/api/v1/threads/posts/{media_id}` — DELETE
+- `/api/v1/threads/posts` — GET
+- `/api/v1/threads/profile` — GET,PUT
 - `/api/v1/threads/quota` — GET
-- `/api/v1/threads/{account_id}/dm/auto-reply` — GET, PUT
+- `/api/v1/threads/{account_id}/dm/auto-reply` — GET,PUT
 - `/api/v1/threads/{account_id}/dm/conversations` — GET
 - `/api/v1/threads/{account_id}/dm/login` — POST
 - `/api/v1/threads/{account_id}/dm/session-status` — GET
-- `/api/v1/threads/{account_id}/dm/threads/{thread_id}` — GET
 - `/api/v1/threads/{account_id}/dm/threads/{thread_id}/send` — POST
+- `/api/v1/threads/{account_id}/dm/threads/{thread_id}` — GET
 
 ## `tiktok`
 
@@ -600,33 +600,33 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/tiktok/accounts/{account_id}/publish/cancel` — POST
 - `/api/v1/tiktok/accounts/{account_id}/publish/status` — POST
 - `/api/v1/tiktok/accounts/{account_id}/uploads` — GET
-- `/api/v1/tiktok/accounts/{account_id}/videos` — GET
 - `/api/v1/tiktok/accounts/{account_id}/videos/query` — POST
-- `/api/v1/tiktok/{account_id}/dm/auto-reply` — GET, PUT
+- `/api/v1/tiktok/accounts/{account_id}/videos` — GET
+- `/api/v1/tiktok/{account_id}/dm/auto-reply` — GET,PUT
 - `/api/v1/tiktok/{account_id}/dm/conversations` — GET
 - `/api/v1/tiktok/{account_id}/dm/send` — POST
 
 ## `twitter`
 
-- `/api/v1/twitter/{account_id}/dm/auto-reply` — GET, PUT
+- `/api/v1/twitter/{account_id}/dm/auto-reply` — GET,PUT
 - `/api/v1/twitter/{account_id}/dm/events` — GET
 - `/api/v1/twitter/{account_id}/dm/send` — POST
 
 ## `usage`
 
-- `/api/v1/usage` — GET
 - `/api/v1/usage/history` — GET
+- `/api/v1/usage` — GET
 
 ## `viber`
 
 - `/api/v1/viber/connect` — POST
 - `/api/v1/viber/webhook/{account_id}` — POST
-- `/api/v1/viber/{account_id}/auto-reply` — GET, PUT
+- `/api/v1/viber/{account_id}/auto-reply` — GET,PUT
 - `/api/v1/viber/{account_id}/broadcast` — POST
 - `/api/v1/viber/{account_id}/credentials` — PUT
 - `/api/v1/viber/{account_id}/delete-webhook` — POST
-- `/api/v1/viber/{account_id}/send` — POST
 - `/api/v1/viber/{account_id}/send-picture` — POST
+- `/api/v1/viber/{account_id}/send` — POST
 - `/api/v1/viber/{account_id}/setup-status` — GET
 - `/api/v1/viber/{account_id}/setup-webhook` — POST
 - `/api/v1/viber/{account_id}/threads/{user_id}/pause` — POST
@@ -634,7 +634,8 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `webhooks`
 
-- `/api/v1/webhooks/twitter` — GET, POST
+- `/api/v1/webhooks/calcom` — POST
+- `/api/v1/webhooks/twitter` — GET,POST
 
 ## `whatsapp`
 
@@ -644,52 +645,52 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/whatsapp/register/number` — POST
 - `/api/v1/whatsapp/register/request-code` — POST
 - `/api/v1/whatsapp/register/verify-code` — POST
-- `/api/v1/whatsapp/webhook` — GET, POST
-- `/api/v1/whatsapp/webhooks/subscribe` — POST, DELETE
+- `/api/v1/whatsapp/webhook` — GET,POST
+- `/api/v1/whatsapp/webhooks/subscribe` — DELETE,POST
 - `/api/v1/whatsapp/webhooks/subscriptions/{waba_id}` — GET
-- `/api/v1/whatsapp/{account_id}/auto-reply` — GET, PUT
-- `/api/v1/whatsapp/{account_id}/bot` — GET, PUT
+- `/api/v1/whatsapp/{account_id}/auto-reply` — GET,PUT
 - `/api/v1/whatsapp/{account_id}/bot/activate` — POST
 - `/api/v1/whatsapp/{account_id}/bot/create` — POST
 - `/api/v1/whatsapp/{account_id}/bot/deactivate` — POST
 - `/api/v1/whatsapp/{account_id}/bot/personalities` — GET
+- `/api/v1/whatsapp/{account_id}/bot` — GET,PUT
 - `/api/v1/whatsapp/{account_id}/credentials` — PUT
-- `/api/v1/whatsapp/{account_id}/flows` — GET, POST
 - `/api/v1/whatsapp/{account_id}/flows/from-template` — POST
 - `/api/v1/whatsapp/{account_id}/flows/send` — POST
 - `/api/v1/whatsapp/{account_id}/flows/templates/list` — GET
 - `/api/v1/whatsapp/{account_id}/flows/templates/{template_id}/json` — GET
-- `/api/v1/whatsapp/{account_id}/flows/{flow_id}` — GET, PUT, DELETE
-- `/api/v1/whatsapp/{account_id}/flows/{flow_id}/json` — GET, PUT
+- `/api/v1/whatsapp/{account_id}/flows/{flow_id}/json` — GET,PUT
 - `/api/v1/whatsapp/{account_id}/flows/{flow_id}/publish` — POST
 - `/api/v1/whatsapp/{account_id}/flows/{flow_id}/validate` — POST
+- `/api/v1/whatsapp/{account_id}/flows/{flow_id}` — DELETE,GET,PUT
+- `/api/v1/whatsapp/{account_id}/flows` — GET,POST
 - `/api/v1/whatsapp/{account_id}/index-brand` — POST
 - `/api/v1/whatsapp/{account_id}/phone/register` — POST
 - `/api/v1/whatsapp/{account_id}/phone/request-code` — POST
 - `/api/v1/whatsapp/{account_id}/phone/status` — GET
 - `/api/v1/whatsapp/{account_id}/phone/verify-code` — POST
-- `/api/v1/whatsapp/{account_id}/profile` — GET, PUT
-- `/api/v1/whatsapp/{account_id}/send` — POST
+- `/api/v1/whatsapp/{account_id}/profile` — GET,PUT
 - `/api/v1/whatsapp/{account_id}/send-template` — POST
-- `/api/v1/whatsapp/{account_id}/setup` — POST
+- `/api/v1/whatsapp/{account_id}/send` — POST
 - `/api/v1/whatsapp/{account_id}/setup-status` — GET
+- `/api/v1/whatsapp/{account_id}/setup` — POST
 - `/api/v1/whatsapp/{account_id}/threads/pause` — POST
 - `/api/v1/whatsapp/{account_id}/threads/resume` — POST
-- `/api/v1/whatsapp/{account_id}/threads/{phone}/config` — GET, PUT
+- `/api/v1/whatsapp/{account_id}/threads/{phone}/config` — GET,PUT
 - `/api/v1/whatsapp/{account_id}/threads/{phone}/memory` — GET
 - `/api/v1/whatsapp/{account_id}/threads/{phone}/window` — GET
 
 ## `workflows`
 
-- `/api/v1/workflows` — GET
-- `/api/v1/workflows/content-templates` — GET, POST
-- `/api/v1/workflows/content-templates/{template_id}` — PATCH, DELETE
+- `/api/v1/workflows/content-templates/{template_id}` — DELETE,PATCH
+- `/api/v1/workflows/content-templates` — GET,POST
 - `/api/v1/workflows/deploy/{workflow_id}` — POST
 - `/api/v1/workflows/execute/{workflow_id}` — POST
 - `/api/v1/workflows/generate` — POST
 - `/api/v1/workflows/import-cloudless-carousel` — POST
-- `/api/v1/workflows/templates` — GET, POST
-- `/api/v1/workflows/templates/{template_id}` — GET, PATCH, DELETE
-- `/api/v1/workflows/{workflow_id}` — GET, DELETE
+- `/api/v1/workflows/templates/{template_id}` — DELETE,GET,PATCH
+- `/api/v1/workflows/templates` — GET,POST
 - `/api/v1/workflows/{workflow_id}/executions` — GET
 - `/api/v1/workflows/{workflow_id}/undeploy` — POST
+- `/api/v1/workflows/{workflow_id}` — DELETE,GET
+- `/api/v1/workflows` — GET
