@@ -192,10 +192,7 @@ def _mark(ok: bool) -> None:
 
 def _pin() -> None:
     try:
-        urllib.request.urlopen(
-            urllib.request.Request(
-                "http://stack-ops:8787/keepawake/browser-novnc?ttl=600",
-                method="POST", data=b""), timeout=8)
+        urllib.request.urlopen(urllib.request.Request("http://stack-ops:8787/keepawake/browser-novnc?ttl=600", method="POST", data=b""), timeout=8)
     except Exception:
         pass
 
@@ -206,8 +203,7 @@ def _bridge_eval(expr: str, tries: int = 4) -> dict:
     last = None
     for _ in range(tries):
         try:
-            r = _req(f"{BRIDGE}/session/evaluate",
-                     data={"expression": expr}, timeout=30)
+            r = _req(f"{BRIDGE}/session/evaluate", data={"expression": expr}, timeout=30)
             if r.get("error"):
                 last = r["error"]
                 if "409" in str(last) or "busy" in str(last).lower():

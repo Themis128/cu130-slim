@@ -12,9 +12,7 @@ from app.services.media_url_probe import first_failure, probe_public_media
 @pytest.mark.asyncio
 async def test_probe_ok_image() -> None:
     with respx.mock(assert_all_called=False) as mock:
-        mock.get("https://cdn.example.com/a.jpg").mock(
-            return_value=httpx.Response(200, headers={"content-type": "image/jpeg"})
-        )
+        mock.get("https://cdn.example.com/a.jpg").mock(return_value=httpx.Response(200, headers={"content-type": "image/jpeg"}))
         out = await probe_public_media(["https://cdn.example.com/a.jpg"])
     assert out[0]["ok"] is True
     assert first_failure(out) is None
@@ -23,9 +21,7 @@ async def test_probe_ok_image() -> None:
 @pytest.mark.asyncio
 async def test_probe_rejects_html() -> None:
     with respx.mock(assert_all_called=False) as mock:
-        mock.get("https://cdn.example.com/a.jpg").mock(
-            return_value=httpx.Response(200, headers={"content-type": "text/html"}, text="<html>login</html>")
-        )
+        mock.get("https://cdn.example.com/a.jpg").mock(return_value=httpx.Response(200, headers={"content-type": "text/html"}, text="<html>login</html>"))
         out = await probe_public_media(["https://cdn.example.com/a.jpg"])
     assert out[0]["ok"] is False
     assert "text/html" in out[0]["error"]
