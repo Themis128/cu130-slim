@@ -204,3 +204,21 @@ Fix (works from WSL, no shutdown needed):
 ~20s later the engine answers and containers come back on their restart
 policies. Postgres needs ~30s extra — worker tasks that land in the gap
 fail with `the database system is starting up`; retry them.
+
+### Docker MCP gateway watchdog (every 10 min)
+
+`C:\Users\tbaltzakis\devin-scripts\docker-mcp-watchdog.ps1` (source:
+`scripts/docker-mcp-watchdog.ps1`), scheduled task `DockerMcpGateway-Watchdog`.
+
+Failure class: `docker mcp gateway run` connects to
+`\\.\pipe\dockerBackendApiServer` **once** at startup for its OAuth
+notification monitor and never retries. If Docker Desktop's backend restarts
+after the gateway, the monitor is permanently dead for that process lifetime
+(log shows `Failed to connect to OAuth notifications ... connection refused`).
+Cosmetic while `Authentication disabled`, but fatal for OAuth-based servers.
+
+Logic: compares newest `com.docker.backend*` StartTime vs `docker-mcp`
+StartTime; if backend is newer, probes the pipe, and restarts the gateway via
+the `DockerMcpGateway` logon task only when the pipe accepts connections.
+Also restarts the gateway if the process is simply gone. Log:
+`%USERPROFILE%\logs\docker-mcp-watchdog.log`.
