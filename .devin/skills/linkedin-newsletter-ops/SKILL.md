@@ -34,10 +34,26 @@ csrf-token). Each subscriber → name, headline, profile URL, URN.
 
 ## Publish path (context)
 
-`POST /api/v1/newsletter/linkedin/issue` → `linkedin_newsletter_bridge.py`
-(persistent headed profile, ClipboardEvent paste for Trusted Types; base64
-payload for non-ASCII). Runbook details live in the file's docstring —
-issue #2 was published through it live 2026-10-14.
+`POST /api/v1/newsletter/linkedin/issue` → `LinkedInSidecarClient.
+publish_newsletter_issue` → sidecar `POST :9225/newsletter/publish`
+(warm `/feed/` → `/article/new/` → ProseMirror wait ≤240s + one retry →
+newsletter scope → base64 cover upload → title/body/SEO → publish or
+schedule). `browser="sidecar"` forces it; default falls back to
+`LinkedInNewsletterBridge` (browser-novnc :9223, persistent profile —
+verified for Issue #2 on 2026-10-14, but its LinkedIn session can be
+logged out independently of the sidecar's).
+
+### Direct-sidecar bypass (engine-bounce survival)
+
+`scripts/newsletter_publish_direct.sh` assembles the payload inside
+social-api with app modules (`blog_articles.get_published_article` +
+`newsletter_cover.render_newsletter_cover`), writes it to
+`/app/uploads/newsletter_payload.json` (bind-mounted → host), then fires
+a **detached host curl** straight at `http://<sidecar-ip>:9225/
+newsletter/publish` with `--max-time 1500`. Survives social-api
+restarts; only a full engine bounce kills it. Use when the API path
+keeps 502ing to `ReadTimeout`/`RemoteProtocolError` while the sidecar
+itself is healthy.
 
 ## Failure modes
 
@@ -45,3 +61,40 @@ issue #2 was published through it live 2026-10-14.
 - 403 on voyager → `rw_organization_admin` or member-role gap; or LinkedIn
   changed the endpoint shape — check `parse_subscriber` keys.
 - Empty list → wrong `seriesUrn`, or the newsletter has zero subs.
+
+### 2026-11-11 battle-test additions
+
+- **`article_slug` resolves but body is empty** → R2 article JSON stores
+  `html`/`content`, NOT `contentMarkdown`; `newsletter.py` only read
+  `contentMarkdown` → sidecar got `html_body or text_body is required`.
+  Fixed: prefer `article["html"]`, fall back to markdown→html of
+  `contentMarkdown|content`. Verify slug resolution with
+  `blog_articles.get_published_article(slug)` before blaming the sidecar.
+- **Sidecar `ReadTimeout` at ~420s** → cold editor mount + fill + publish
+  legitimately takes 10–18 min; `LinkedInSidecarClient` timeout raised
+  420→900s. The sidecar keeps working after the client disconnects — a
+  502 does NOT mean nothing published; always verify on LinkedIn before
+  retrying (duplicate issue risk).
+- **`article editor did not mount` / splash-loop** → warm the sidecar
+  first (`POST :9225/debug/navigate {"url":".../feed/"}`, poll `/health`
+  until `page_ok:true`), THEN fire publish. Cold-start inside the
+  publish budget wastes the 240s editor wait on browser boot.
+- **Docker/WSL engine bounces every ~10–20 min** (docker-recovery cron +
+  vsock degradation) kill in-flight API requests → use the direct-sidecar
+  script; run `wsl-docker-doctor fix` between attempts.
+- **pr-land-watch merge treadmill restarts api+workers+beat** on every
+  landed PR and `git pull`s the tree — uncommitted `app/` edits can be
+  wiped mid-session (it now declines when modifications are <30min old,
+  but older dirty files still get reset). Land backend fixes via PR
+  promptly; check `git status` + `grep` your edits before retrying.
+- **Verification surfaces** (sidecar `/debug/eval` needs `expr` wrapped
+  so it `return`s a value; `/debug/eval` 500s while the page navigates —
+  retry):
+  - Newsletter manager: `/mynetwork/network-manager/newsletters/` lists
+    "The Cloudless Build Log · Author — N subscribers" + series URL
+    `/newsletters/the-cloudless-build-log-<id>/`.
+  - Drafts count on `/in/<slug>/recent-activity/all/` — unchanged count
+    after failed attempts means nothing was saved as draft.
+  - `/article/manage/drafts/` = the draft manager.
+  - Do NOT navigate the sidecar page while a publish is in-flight —
+    `page.goto` aborts the handler's evaluate calls and can kill the run.
