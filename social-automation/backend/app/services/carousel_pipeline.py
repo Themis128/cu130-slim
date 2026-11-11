@@ -743,9 +743,9 @@ async def build_ad_brand_kit(
     bg_img = None
     if image_prompt:
         try:
-            bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+            bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE)
             if bg_img is not None:
-                bg_img = await _qa_generated_background(bg_img, image_prompt, CF_TXT2IMG_FREE[0], "ad-kit")
+                bg_img = await _qa_generated_background(bg_img, image_prompt, CF_TXT2IMG_FREE, "ad-kit")
         except Exception as exc:  # noqa: BLE001 — brand canvas alone is fine
             logger.warning("ad-kit background generation failed: %s", exc)
 
