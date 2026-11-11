@@ -216,6 +216,19 @@ async def test_sync_browser_cookies_instagram_partial_cookies(monkeypatch):
     assert acc.status == "active"
 
 
+@pytest.mark.asyncio
+async def test_sync_browser_cookies_instagram_no_csrf(monkeypatch):
+    """Sessionid without csrftoken/ds_user_id skips those private_api_* keys."""
+    monkeypatch.setattr(H, "flag_modified", lambda *a, **kw: None)
+    acc = SimpleNamespace(meta_data={}, status="active")
+    _patch_db(monkeypatch, _res(scalars_all=[acc]))
+    n = await H._sync_browser_cookies("instagram", {"sessionid": "rawsid"})
+    assert n == 1
+    assert "private_api_session_id" in acc.meta_data
+    assert "private_api_csrf_token" not in acc.meta_data
+    assert "private_api_ds_user_id" not in acc.meta_data
+
+
 # ── linkedin sidecar heal ─────────────────────────────────────────────
 
 
