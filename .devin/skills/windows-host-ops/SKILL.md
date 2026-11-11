@@ -81,12 +81,13 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   parser → "Missing closing '}'" syntax errors. Keep these scripts pure
   ASCII (no em-dashes/smart quotes).
 - **Resource Saver**: no `EnableResourceSaver` key in
-  `%APPDATA%\Docker\settings-store.json` → default ON. Resource Saver + WSL
-  `autoMemoryReclaim=gradual` is a documented freeze combo; the host runs
-  `dropCache` which is the safe pairing. Do NOT switch `.wslconfig` back to
-  `gradual` (host-starvation freezes observed); if freezes return, disable
-  Resource Saver in Docker Desktop Settings → Resources instead. Idle
-  container memory is handled in-stack by `stack-ops` (idle-sleep proxy).
+  `%APPDATA%\Docker\settings-store.json` → default ON. NOTE (2026-11-11):
+  `.wslconfig` now runs `autoMemoryReclaim=gradual` — the 2026-11-07
+  stability fix reverted the earlier dropCache choice after dropCache
+  correlated with WSL VM crashes. Do NOT flip back to dropCache. If
+  Resource Saver + gradual freezes return, disable Resource Saver in
+  Docker Desktop Settings → Resources instead. Idle container memory is
+  handled in-stack by `stack-ops` (idle-sleep proxy).
 - Non-task console spawns are NOT fixable via tasks: Chrome extension
   native-messaging (`cmd.exe` from McAfee WebAdvisor etc.), Devin/Windsurf's own
   `wsl.exe`, Lenovo Vantage. Disable the extension if a flash traces to it.
