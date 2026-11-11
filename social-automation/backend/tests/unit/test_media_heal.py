@@ -669,8 +669,45 @@ def test_sweep_exhausted_rewrite_echo_alerts(monkeypatch):
 
     assert out["exhausted"] == [str(pid)]
     assert post.meta_data["media_heal_alerted"] is True
+    assert post.meta_data["media_heal_rewrite_failed"] is True
     assert "media_heal_rewrite_done" not in post.meta_data
     alert.assert_called_once()
+
+
+def test_sweep_exhausted_alerted_only_still_gets_rewrite(monkeypatch):
+    """Migration case: posts alerted by pre-rewrite-tier sweeps carry
+    media_heal_alerted=True but no rewrite flags — they must still get the
+    one bounded rewrite (live post 646a0a39, 2026-11-11)."""
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={
+            "media_heal_attempts": M._MAX_HEAL_ATTEMPTS,
+            "media_heal_alerted": True,
+        },
+        content="Facebook marketing tips for two platforms.",
+    )
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([(acct, "facebook")]),
+        ]
+    )
+    rewrite = AsyncMock(return_value="Cloud cost engineering that actually ships.")
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", rewrite)
+    alert = AsyncMock()
+    _wire(monkeypatch, db, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    rewrite.assert_called_once()
+    assert post.meta_data["media_heal_rewrite_done"] is True
+    alert.assert_not_called()  # already alerted historically — no re-alert
 
 
 # ── _rewrite_copy_for_media unit guards ────────────────────────────────

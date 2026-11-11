@@ -173,9 +173,11 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
         healable, exhausted = await _healable_posts(db)
         for post in exhausted:
             meta = dict(post.meta_data or {})
-            if meta.get("media_heal_rewrite_done") or meta.get("media_heal_alerted"):
-                # Rewrite already spent (or alert already sent) and media
+            if meta.get("media_heal_rewrite_done") or meta.get("media_heal_rewrite_failed"):
+                # Rewrite already spent (success or failure) and media
                 # attempts are still exhausted — terminal, alert once.
+                # NOTE: media_heal_alerted alone does NOT block the rewrite —
+                # posts alerted by pre-rewrite-tier sweeps still deserve it.
                 if not meta.get("media_heal_alerted"):
                     meta["media_heal_alerted"] = True
                     post.meta_data = meta
@@ -196,10 +198,12 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 post.content_text = new_copy
                 healable.append(post)
                 logger.info("media-heal rewrote copy for post %s", post.id)
-            elif not meta.get("media_heal_alerted"):
-                meta["media_heal_alerted"] = True
+            else:
+                meta["media_heal_rewrite_failed"] = True
+                if not meta.get("media_heal_alerted"):
+                    meta["media_heal_alerted"] = True
+                    exhausted_ids.append(str(post.id))
                 post.meta_data = meta
-                exhausted_ids.append(str(post.id))
         # Durable alert flags before the heal loop — a later per-post
         # rollback must not resurrect the Slack alert.
         await db.commit()
