@@ -25,6 +25,7 @@ from app.api import (
     leads,
     linkedin,
     mcp,
+    mcp_gateway,
     media,
     media_enhance,
     media_sources,
@@ -141,6 +142,8 @@ router.include_router(audit.router, prefix="/audit", tags=["audit"])
 router.include_router(agency.router, prefix="/agency", tags=["agency"])
 
 router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
+
+router.include_router(mcp_gateway.router, prefix="/mcp-gateway", tags=["mcp-gateway"])
 
 router.include_router(teams.router, prefix="/teams", tags=["teams"])
 
