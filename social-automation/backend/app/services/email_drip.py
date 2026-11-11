@@ -163,9 +163,7 @@ async def _already_dripped(db, team_id: uuid.UUID, key: str | tuple[str, ...], c
     return {str(e).strip().lower() for (e,) in (await db.execute(q)).all()}
 
 
-async def _dripped_with_dates(
-    db, team_id: uuid.UUID, key: str | tuple[str, ...]
-) -> dict[str, datetime]:
+async def _dripped_with_dates(db, team_id: uuid.UUID, key: str | tuple[str, ...]) -> dict[str, datetime]:
     """email → latest sent_at (or queue time) for a drip key — used by
     sequence steps that unlock N days after the previous step mailed.
 
@@ -414,9 +412,7 @@ async def _aie_course_candidates(
     return out
 
 
-async def _evergreen_candidates(
-    db, team_id: uuid.UUID, now: datetime, lead_map: dict[str, dict[str, Any]]
-) -> list[dict[str, Any]]:
+async def _evergreen_candidates(db, team_id: uuid.UUID, now: datetime, lead_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Dormant-lead monthly track: leads with NO drip mail (any lane,
     evergreen included) in the last ``EMAIL_DRIP_EVERGREEN_GAP_DAYS`` days.
     ``cycle`` is the calendar month so ``_already_dripped`` dedupes within

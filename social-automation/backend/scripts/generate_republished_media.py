@@ -54,15 +54,7 @@ async def main() -> None:
     from app.services.media_storage import persist_generated_image
 
     async with async_session_maker() as db:
-        posts = (
-            (
-                await db.execute(
-                    select(Post).where(Post.meta_data["republished_from"].astext.is_not(None))
-                )
-            )
-            .scalars()
-            .all()
-        )
+        posts = (await db.execute(select(Post).where(Post.meta_data["republished_from"].astext.is_not(None)))).scalars().all()
         print(f"republished posts: {len(posts)}")
 
         made: list[str] = []
