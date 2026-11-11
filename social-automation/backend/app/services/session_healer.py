@@ -210,6 +210,10 @@ async def _sync_storage_state(platform: str, storage_state: dict) -> int:
 
 async def _sync_browser_cookies(platform: str, cookies: dict[str, str]) -> int:
     """Persist a name→value cookie map on all accounts of a platform."""
+    from urllib.parse import unquote
+
+    from app.core.security import encrypt_field
+
     updated = 0
     async with _worker_db() as db:
         result = await db.execute(select(SocialAccount).where(SocialAccount.platform == platform))
@@ -217,6 +221,20 @@ async def _sync_browser_cookies(platform: str, cookies: dict[str, str]) -> int:
             meta = dict(account.meta_data or {})
             meta["browser_cookies"] = cookies
             meta["session_healed_at"] = datetime.now(UTC).isoformat()
+            # Instagram's publish ladder reads private_api_session_id (the
+            # aiograpi sidecar credential), not browser_cookies — refresh it
+            # from the same extraction so a healed web session also heals
+            # private-API publishing. sessionid arrives URL-encoded.
+            if platform == "instagram":
+                sid = unquote(cookies.get("sessionid") or "")
+                if sid:
+                    meta["private_api_session_id"] = encrypt_field(sid)
+                if cookies.get("csrftoken"):
+                    meta["private_api_csrf_token"] = cookies["csrftoken"]
+                if cookies.get("ds_user_id"):
+                    meta["private_api_ds_user_id"] = cookies["ds_user_id"]
+                if account.status == "revoked":
+                    account.status = "active"
             account.meta_data = meta
             flag_modified(account, "meta_data")
             updated += 1
