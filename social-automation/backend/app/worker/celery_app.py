@@ -53,6 +53,7 @@ celery_app = Celery(
         "app.worker.tasks.instagram_token_refresh",
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
+        "app.worker.tasks.whatsapp_templates",
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.synigoros_status",
         "app.worker.tasks.mastersheet_watch",
@@ -1060,6 +1061,13 @@ celery_app.conf.update(
         "check-whatsapp-verification": {
             "task": "app.worker.tasks.whatsapp_verify.check_whatsapp_verification",
             "schedule": crontab(minute="*/30"),  # every 30 minutes
+            "options": {"queue": "default"},
+        },
+        # WhatsApp template status poller — authoritative fallback for the
+        # message_template_status_update webhook; alerts Slack on transitions.
+        "whatsapp-template-status": {
+            "task": "app.worker.tasks.whatsapp_templates.poll_whatsapp_templates",
+            "schedule": crontab(minute="*/15"),  # every 15 minutes
             "options": {"queue": "default"},
         },
         # Telegram channel agent — daily autopilot for the managed channel
