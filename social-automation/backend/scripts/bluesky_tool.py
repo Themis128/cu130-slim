@@ -109,7 +109,7 @@ async def cmd_rotate(account) -> int:
             print("account not found", file=sys.stderr)
             return 1
         result = await rotate_app_password(acc, main_password, db)
-    print(f"rotated app password: {result}")
+    print("rotated:", {k: result[k] for k in ("app_password_name", "created_at")})
     return 0
 
 
