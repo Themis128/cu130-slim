@@ -47,15 +47,7 @@ async def main() -> None:
     from app.services.publishing import _resolve_media_paths, _vision_safe_image_bytes
 
     async with async_session_maker() as db:
-        republished = (
-            (
-                await db.execute(
-                    select(Post).where(Post.meta_data["republished_from"].astext.is_not(None))
-                )
-            )
-            .scalars()
-            .all()
-        )
+        republished = (await db.execute(select(Post).where(Post.meta_data["republished_from"].astext.is_not(None)))).scalars().all()
         print(f"republished posts: {len(republished)}")
 
         needs_media: list[str] = []
