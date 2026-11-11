@@ -156,7 +156,67 @@ def fb_code(timeout_s: int = 150) -> str | None:
             return code[0].strip()
     except Exception as exc:  # noqa: BLE001
         log(f"fb_code failed: {exc}")
-    return termux_sms_code()
+    return termux_sms_code() or email_code()
+
+
+def email_code(timeout_s: int = 45) -> str | None:
+    """Fallback lane: Meta emails the login code — poll the mailbox.
+
+    Meta/Facebook send "Your confirmation code" emails to the account
+    address; the cloudless.gr mailbox is IMAP-readable (same creds as
+    report-watch.py). Only codes from Meta senders, <45min old.
+    """
+    import imaplib
+    import re
+
+    env = load_env()
+    password = env.get("MAIL_TBALTZAKIS_PASSWORD") or env.get("MAILBOX_PASSWORD")
+    if not password:
+        return None
+    code_re = re.compile(
+        r"(?:confirmation code|security code|login code|is your code)"
+        r"[^0-9]{0,60}(\d{5,8})|(\d{6,8}) is your (?:Facebook|Instagram|Meta)",
+        re.I,
+    )
+    try:
+        mail = imaplib.IMAP4_SSL("192.168.1.130", 993, timeout=timeout_s)
+        mail.login("tbaltzakis@cloudless.gr", password)
+        mail.select("INBOX")
+        # scan today's mail, filter Meta senders client-side
+        since = time.strftime("%d-%b-%Y", time.gmtime(time.time() - 86400))
+        _, data = mail.search(None, "SINCE", since)
+        ids = (data[0] or b"").split()[-40:]
+        cutoff = time.time() - 45 * 60
+        for mid in reversed(ids):
+            _, msg_data = mail.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)] BODY.PEEK[TEXT])")
+            raw = b""
+            for part in msg_data:
+                if isinstance(part, tuple):
+                    raw += part[1]
+            if not raw:
+                continue
+            # date check on the raw header block
+            head = raw.split(b"\r\n\r\n", 1)[0].decode("utf-8", "replace")
+            if not re.search(r"facebook|meta\.com|instagram", head, re.I):
+                continue
+            m_date = re.search(r"Date:\s*(.+)", head)
+            if m_date:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    if parsedate_to_datetime(m_date.group(1)).timestamp() < cutoff:
+                        continue
+                except Exception:  # noqa: BLE001
+                    pass
+            text = raw.decode("utf-8", "replace")
+            m = code_re.search(text)
+            if m:
+                code = next(g for g in m.groups() if g)
+                mail.logout()
+                return code
+        mail.logout()
+    except Exception as exc:  # noqa: BLE001
+        log(f"email_code failed: {exc}")
+    return None
 
 
 def termux_sms_code(timeout_s: int = 30) -> str | None:
