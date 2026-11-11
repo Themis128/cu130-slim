@@ -9,8 +9,11 @@ optional ``X-Telegram-Bot-Api-Secret-Token`` verification.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -1562,6 +1565,40 @@ async def resume_thread(
 
 # ── Webhook ──────────────────────────────────────────────────────────
 
+# Credential drops: "bsky <app-password>" | "viber <bot-token>" |
+# "whatsapp|meta <system-user-token>". The webhook cannot run the host-side
+# provision scripts, so drops are queued on the Redis list ``gate:drops``
+# (secret Fernet-encrypted) for gate_capture.py's */15 consumer. Same
+# convention as .devin/skills/human-gate-capture-ops/scripts/gate_capture.py.
+_GATE_DROP_RE = re.compile(
+    r"\b(bsky|viber|whatsapp|meta)[:\s]+([A-Za-z0-9_\-\.]{8,})", re.IGNORECASE
+)
+GATE_DROPS_REDIS_KEY = "gate:drops"
+
+
+async def _enqueue_gate_drop(
+    account: SocialAccount, plat: str, secret: str, inbound: dict[str, Any]
+) -> None:
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(settings.REDIS_URL)
+    try:
+        await r.lpush(
+            GATE_DROPS_REDIS_KEY,
+            json.dumps(
+                {
+                    "plat": plat,
+                    "secret_enc": encrypt_token(secret).decode(),
+                    "ts": time.time(),
+                    "account_id": str(account.id),
+                    "chat_id": str(inbound.get("chat_id") or ""),
+                }
+            ),
+        )
+        await r.expire(GATE_DROPS_REDIS_KEY, 7 * 24 * 3600)
+    finally:
+        await r.aclose()
+
 
 @router.post("/webhook/{account_id}", response_model=dict)
 async def receive_webhook(
@@ -1836,6 +1873,29 @@ async def receive_webhook(
 
     if inbound.get("is_bot"):
         return {"status": "ok", "ignored": True, "reason": "bot_sender"}
+
+    # ── Credential drops for the human-gate provisioner ──
+    try:
+        drop = _GATE_DROP_RE.search(inbound.get("text") or "")
+        if drop:
+            plat, secret = drop.group(1).lower(), drop.group(2)
+            await _enqueue_gate_drop(account, plat, secret, inbound)
+            response["gate_drop"] = plat
+            try:
+                await _client_for(account).send_message(
+                    inbound["chat_id"],
+                    f"Credential drop received ({plat}) — provisioning queued.",
+                    reply_to_message_id=inbound.get("message_id"),
+                )
+            except Exception as _e:  # noqa: BLE001 — ack is best-effort
+                logger.warning("gate-drop ack failed: %s", _sanitize(str(_e)))
+            return response
+    except Exception as exc:  # noqa: BLE001 — never block the webhook on this
+        logger.warning(
+            "Telegram gate-drop enqueue failed account=%s: %s",
+            _sanitize(str(account_id)),
+            _sanitize(str(exc)),
+        )
 
     # ── BotFather cmds typed here by mistake (/mybots etc.) ──
     try:

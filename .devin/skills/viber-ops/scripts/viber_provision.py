@@ -46,8 +46,10 @@ def connect(token, name):
     try:
         d = json.loads(urllib.request.urlopen(r, timeout=30).read())
         print("wired:", json.dumps(d)[:200])
+        return True
     except urllib.error.HTTPError as e:
         print("connect err:", e.code, e.read()[:250])
+        return False
 
 
 def verify():
@@ -70,9 +72,10 @@ def main():
     if a.verify:
         verify()
     elif a.token:
-        connect(a.token, a.name)
+        return 0 if connect(a.token, a.name) else 1
     else:
         ap.print_help()
+    return 0
 
 
 if __name__ == "__main__":
