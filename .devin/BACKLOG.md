@@ -1483,3 +1483,41 @@ Leftovers:
       publish; requeue if still failed.
 - [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
       #1710 (TG credential drops), #1711 (bsky rotation).
+
+## 2026-11-11 (tg-gate-webhook: credential drops actually work now — PR #1710)
+
+- **Root cause of dead Telegram drop lane**: `gate_capture.py`'s
+  `_tg_drops` polled Bot API `getUpdates`, which returns HTTP 409 while
+  the webhook is registered (verified live). AND the documented */15
+  cron was never installed — doubly dead.
+- **New pipe (PR #1710)**: webhook `app/api/telegram.py` matches
+  `\b(bsky|viber|whatsapp|meta)[:\s]+(\S{8,})` on inbound messages →
+  LPUSHes `{plat, secret_enc(Fernet), ts, chat_id}` onto Redis
+  `gate:drops` → acks sender (never echoes secret). `gate_capture.py
+  scan` RPOPs inside social-api (decrypt in-container only), dispatches
+  to the same provisioners as file drops, requeues failures ≤3 tries.
+- **Battle-test catches fixed in the same PR**:
+  - `viber_provision.py`/`bsky_provision.py` exited 0 on API failure →
+    false "wired" + silent drop loss; now rc=1 on connect errors
+    (.cursor mirror updated too).
+  - `_whatsapp_token` overwrote the live WA row with ANY ≥8-char
+    string; now validates the candidate against Graph
+    `/{phone_number_id}?fields=display_phone_number` BEFORE the DB
+    write, aborts rc=2 on rejection (verified live: fake token →
+    "HTTP Error 400", row untouched).
+- **Verified live**: fake viber drop → consumed → provision rc=1
+  ("Invalid auth token") → requeued `tries:1` in Redis, secret stayed
+  Fernet-encrypted at rest. No viber SocialAccount row exists — fake
+  token confirmed not persisted anywhere.
+- **Cron**: `*/15 gate_capture.py scan` installed in user crontab
+  (2026-11-11) — runs old code harmlessly until #1710 merges + master
+  syncs into the checkout.
+- **Post-merge e2e still owed**: synthetic webhook POST (needs the
+  deployed webhook_secret) → Redis item → consumer provisions.
+- **Telegram Desktop OCR lane (parallel work)**: Telegram is the MSIX
+  package `TelegramMessengerLLP.TelegramDesktop`; window capture via
+  PrintWindow(PW_RENDERFULLCONTENT) works without foregrounding —
+  CopyFromScreen captured the overlapping Devin window instead. OCR
+  pipeline (WinRT Await helper required on PS5.1) dumps chat text +
+  word coords to C:\tmp\tg_scan.txt. Scripts in ~/tmp-share/ +
+  C:\tmp\tg_scan2.ps1 on Windows.
