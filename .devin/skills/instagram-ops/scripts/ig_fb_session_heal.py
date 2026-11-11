@@ -355,8 +355,24 @@ _APPROVAL_WAIT_JS = """
 """
 
 
+# Poll the 2FA page WITHOUT navigating — /session/validate does
+# page.goto(facebook.com) which would kill the pending approval flow.
+_APPROVAL_POLL_JS = """
+JSON.stringify({
+  url: location.href,
+  waiting: /waiting for approval|check your notifications on another device/i
+      .test(document.body.innerText || ''),
+})
+"""
+
+
 def approval_wait(state: dict, poll_s: int = 600) -> bool:
-    """Alert once, then watch for the user to approve on their device."""
+    """Alert once, then watch for the user to approve on their device.
+
+    Never calls validate() inside the loop — it navigates away and
+    aborts Meta's pending login. Polls location.href via /debug/eval;
+    the flow is over once the URL leaves two_step_verification.
+    """
     r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
     if "approval-waiting" not in str(r.get("result") or ""):
         return False
@@ -373,10 +389,19 @@ def approval_wait(state: dict, poll_s: int = 600) -> bool:
     deadline = time.time() + poll_s
     while time.time() < deadline:
         time.sleep(20)
-        if validate().get("logged_in"):
-            return True
-        r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
-        if "approval-waiting" not in str(r.get("result") or ""):
+        r = sidecar("/debug/eval", {"script": _APPROVAL_POLL_JS}, timeout=60)
+        try:
+            poll = json.loads(str(r.get("result") or "{}"))
+        except Exception:  # noqa: BLE001
+            poll = {}
+        url = str(poll.get("url") or "")
+        if "two_step_verification" not in url and "two_factor" not in url:
+            log(f"approval flow ended -> {url[:80]}")
+            # GET /session persists storageState on success — validate() doesn't
+            s = sidecar("/session", timeout=120)
+            return bool(s.get("logged_in"))
+        if not poll.get("waiting") and "two_step_verification" in url:
+            # user switched to a code-entry variant — bail to caller
             return False
     return False
 
