@@ -54,6 +54,24 @@ def _run(script: str, args: list[str]) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr)[-400:]
 
 
+def _docker_exec(args: list[str], stdin: str = "",
+                 timeout: int = 60) -> tuple[int, str]:
+    """docker exec wrapper that degrades instead of crashing the scan.
+
+    /usr/bin/docker symlinks into /mnt/wsl/docker-desktop — when Docker
+    Desktop's WSL distro dies the link dangles and subprocess raises
+    FileNotFoundError, which used to abort the WHOLE scan (file drops +
+    waba watch skipped) for the duration of the outage.
+    """
+    try:
+        r = subprocess.run(["docker", "exec", "-i"] + args,
+                           input=stdin, capture_output=True,
+                           text=True, timeout=timeout)
+        return r.returncode, r.stdout + r.stderr
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        return 1, f"docker exec unavailable: {e}"
+
+
 def _redis_drops() -> int:
     """Consume credential drops queued by the Telegram webhook.
 
@@ -87,11 +105,10 @@ async def go():
     print(json.dumps(out))
 asyncio.run(go())
 """
-    r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
-                       input=script, capture_output=True, text=True,
-                       timeout=45)
+    rc, out = _docker_exec(["social-api", "python", "-"], stdin=script,
+                           timeout=45)
     try:
-        drops = json.loads(r.stdout.strip().splitlines()[-1])
+        drops = json.loads(out.strip().splitlines()[-1])
     except Exception:
         return 0
     hits = 0
@@ -140,8 +157,7 @@ def _requeue_drop(d: dict) -> None:
         "    await r.aclose()\n"
         "asyncio.run(go())\n"
     )
-    subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
-                   input=script, capture_output=True, text=True, timeout=30)
+    _docker_exec(["social-api", "python", "-"], stdin=script, timeout=30)
 
 
 def _whatsapp_token(tok: str):
@@ -183,17 +199,16 @@ async def go():
         return 0
 raise SystemExit(asyncio.run(go()))
 """.replace("__TOK__", repr(tok))
-    r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
-                       input=script, capture_output=True, text=True, timeout=60)
-    return r.returncode, r.stdout + r.stderr
+    return _docker_exec(["social-api", "python", "-"], stdin=script,
+                        timeout=60)
 
 
 def _waba_watch() -> None:
     """Telegram when the WABA payment block clears (or appears)."""
-    r = subprocess.run(["docker", "exec", "social-api",
-                        "python", "/app/scripts/whatsapp_tool.py", "waba"],
-                       capture_output=True, text=True, timeout=90)
-    can = "AVAILABLE" if '"can_send_message": "AVAILABLE"' in r.stdout else "BLOCKED"
+    rc, out = _docker_exec(
+        ["social-api", "python", "/app/scripts/whatsapp_tool.py", "waba"],
+        timeout=90)
+    can = "AVAILABLE" if '"can_send_message": "AVAILABLE"' in out else "BLOCKED"
     stf = os.path.join(STATE, "waba_state.txt")
     prev = open(stf).read().strip() if os.path.exists(stf) else ""
     open(stf, "w").write(can)
