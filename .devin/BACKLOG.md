@@ -1315,3 +1315,20 @@ Leftovers:
   docker.sock), docker-recovery + social-stack-watchdog in-WSL.
   No blind-reboot automation added deliberately.
 - CAPTCHA/checkpoint gates remain alert-only by design.
+
+## 2026-11-11 (late2) — approve-from-another-device lane (Devin)
+
+- ig_fb_session_heal.py (PR #1677, 4 commits) gained a 4th resolution
+  path: when the sidecar login stalls on Meta's "was this you / approve
+  login" prompt, it drives the SAME account's live session on the
+  engagement-browser bridge (:9223 /session/evaluate) to click the
+  approval. JS is approval-context-gated (no-approval-prompt otherwise)
+  and never matches deny/"wasn't me". Verified live on facebook.com.
+- Bridge Meta session restored first via sidecar-relogin.py facebook
+  (was LOGIN_WALL -> logged in via instagram.com). sidecar-relogin
+  --watch cron keeps it alive.
+- 2FA code lanes now: ADB sms -> termux-sms tailnet -> Meta email via
+  IMAP (all in PR #1677). Phone physical toggle no longer blocks the
+  heal unless Meta insists on SMS-only delivery.
+- Residual human: CAPTCHA/unusual-activity checkpoints (alert-only by
+  design), and Meta SMS-only 2FA while phone ADB/Termux/email all miss.
