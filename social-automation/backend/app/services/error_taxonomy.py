@@ -62,6 +62,9 @@ _TERMINAL_PATTERNS: tuple[str, ...] = (
     "preflight",
     "url_ownership_unverified",
     "domain not verified",
+    # generation-prompt leaks — deterministic content corruption, never
+    # retryable (the same content_text fails every attempt)
+    "prompt leak",
 )
 
 _TRANSIENT_PATTERNS: tuple[str, ...] = (

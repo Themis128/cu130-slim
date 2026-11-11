@@ -832,3 +832,20 @@ def test_rewrite_copy_empty_result_rejected(monkeypatch):
     monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": ""}))
     post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
     assert _drive(M._rewrite_copy_for_media(post)) is None
+
+
+def test_rewrite_copy_label_prefix_stripped(monkeypatch):
+    """Model wraps the answer as 'Rewritten string: "<post>"' (live report
+    2026-11-11) — the label must be stripped, not published as copy."""
+    import app.services.dmr as dmr
+
+    new = "Cloud cost engineering that actually ships. " * 2
+    monkeypatch.setattr(
+        dmr,
+        "call_dmr_chat",
+        AsyncMock(return_value={"text": f'Rewritten string: "{new}"'}),
+    )
+    post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
+    out = _drive(M._rewrite_copy_for_media(post))
+    assert out == new.strip()
+    assert not out.lower().startswith("rewritten")

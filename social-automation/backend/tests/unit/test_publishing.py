@@ -248,6 +248,22 @@ async def test_publish_to_platform_whatsapp_is_soft_skipped():
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platform_prompt_leak_fails_closed():
+    """Generation-prompt text in content_text must never publish — the
+    2026-11-11 ops report showed 'PLAIN ENGLISH RULES… Text to rewrite:'
+    reaching post targets verbatim."""
+    account = SimpleNamespace(platform="facebook", access_token_enc=b"unused")
+    leaked = (
+        'PLAIN ENGLISH RULES (must follow):\n- Use short words.\n'
+        'Text to rewrite:\n"""Real post copy here."""'
+    )
+    post = SimpleNamespace(content_text=leaked)
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert "prompt leak" in (result.error or "")
+
+
+@pytest.mark.asyncio
 async def test_publish_to_platform_telegram_is_not_a_messaging_skip():
     """Telegram publishes to the managed channel — it must not hit the
     whatsapp/viber messaging-channel skip (whatever later guard fires)."""
