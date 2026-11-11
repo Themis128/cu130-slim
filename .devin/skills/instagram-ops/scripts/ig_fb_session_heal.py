@@ -394,6 +394,10 @@ def approval_wait(state: dict, poll_s: int = 600) -> bool:
             poll = json.loads(str(r.get("result") or "{}"))
         except Exception:  # noqa: BLE001
             poll = {}
+        if not poll:
+            # transient eval failure (mid-navigation, docker hiccup) —
+            # keep waiting rather than abandoning a live approval flow
+            continue
         url = str(poll.get("url") or "")
         if "two_step_verification" not in url and "two_factor" not in url:
             log(f"approval flow ended -> {url[:80]}")
