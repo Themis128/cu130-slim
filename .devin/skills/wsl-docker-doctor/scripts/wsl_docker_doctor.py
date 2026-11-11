@@ -28,6 +28,16 @@ import sys
 import time
 from pathlib import Path
 
+# Minimal-env callers (cron) lack the WSL Windows-interop PATH append, so
+# bare `wsl.exe`/`powershell.exe` probes return rc=127 and every diagnosis
+# false-positives as proxy-dead/fully-down (seen 2026-11-11). Append the
+# interop dirs once at import — harmless when already present.
+_INTEROP_DIRS = [
+    "/mnt/c/Windows/system32",
+    "/mnt/c/Windows/System32/WindowsPowerShell/v1.0",
+]
+os.environ["PATH"] = os.environ.get("PATH", "") + ":" + ":".join(_INTEROP_DIRS)
+
 DISTRO = os.environ.get("WSL_DISTRO", "Ubuntu-24.04")
 ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
 TG = Path(__file__).resolve().parents[1] / "telegram-alert-ops/scripts/tg_alert.py"
