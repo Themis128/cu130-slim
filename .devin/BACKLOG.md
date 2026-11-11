@@ -1136,6 +1136,101 @@ Leftovers:
   revision) outlived the mounted checkout — restamped manually; the heal
   script now covers recurrence.
 
+## 2026-11-10 (night) — WhatsApp Cloud API live; template poller + sysuser watch (Devin)
+
+- WhatsApp Cloud API fully live: phone +30 697 777 7838 VERIFIED,
+  TIER_250, app 1936126137016578 subscribed to messaging account
+  1717901383017723 (WAAC 1805020980543501). Webhook signature enforced
+  (FACEBOOK_APP_SECRET falls back to FACEBOOK_CLIENT_SECRET). 4 templates
+  (cloudless_followup/cloudless_alert x en_US/el) resubmitted PENDING
+  after INVALID_FORMAT fix (example.body_text added). Template poller
+  beat */15min restored in prod ahead of PR #1644 merge (files hot-loaded
+  from the PR branch — identical content, unstaged).
+- Send path verified end-to-end: direct WhatsAppAPIClient.send_text probe
+  returned a real wamid — earlier auto-reply Meta 400 was transient /
+  pre-decrypt-fix, not a payload bug. Synthetic inbound rows persist in
+  whatsapp_messages; a REAL inbound WhatsApp message is still the only
+  unverified hop (cannot be fabricated).
+- System-user token blocked on Meta temporary restriction of Business
+  Settings writes. Prerequisite discovered: app must be added to the
+  business portfolio first ("In order to add a system user, an app must
+  be part of this business portfolio"). NEW watcher
+  `.devin/skills/whatsapp-ops/scripts/wa_portfolio_watch.py` retries the
+  Apps->Add->Connect-app-ID flow every 25min for 72h (5min while sidecar
+  asleep), exits on success; log ~/logs/wa-portfolio-watch.log. Once the
+  app lands, system user + token via Graph/UI is the next step.
+- PRs: #1644 template poller (checks pending, auto-merge armed), #1650
+  wa-token-decrypt + idempotent migration (checks running, auto-merge
+  armed). #1641 closed-superseded by merged #1647.
+
+## 2026-11-10 (night) — WhatsApp battle test + DMR endpoint fix (Devin)
+
+- Battle test PASS: GET challenge echoes, POST no-sig/bad-sig -> 403,
+  valid HMAC -> 200 (~20-30s; chatbot inference is inline). Inbound rows
+  persist; outbound auto-reply row written with real wamid when DMR is
+  healthy. Meta 400s seen in logs = mark_message_read on synthetic
+  wamids (benign, caught) — NOT send failures.
+- ROOT CAUSE of auto-reply outage: `.env` DMR_* URLs pointed at
+  `host.docker.internal:11434` — a foreign Ollama serving only
+  qwen2.5:7b, NOT Docker Model Runner. Canonical per docs/CODEMAP/
+  config.py defaults is `host.docker.internal:12435`
+  (/engines/llama.cpp/v1 etc.). Fixed all 6 DMR vars + embedding model
+  (nomic-embed-text -> hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF, the model
+  dmr-watchdog actually configures). Recreated social-api, celery-beat,
+  4 workers, messenger-sidecar. In-container `_check_dmr_health()` now
+  True; smollm2 serves 200.
+- Remaining flake: docker-model-runner intermittently fails the
+  watchdog's deep /api/ps check (fails reset at 1/3, auto-recovers).
+  App health check can race runner restarts -> occasional "DMR is
+  offline" for one request; CF fallback covers the rest.
+- whatsapp.py auto-reply error log now includes exception detail
+  (Meta code + fbtrace_id) — pushed onto PR #1650 branch.
+- PR sweep: 12 open PRs all BLOCKED-pending-CI, zero failures,
+  auto-merge armed everywhere. #1653 (portfolio watcher) MERGED.
+
+## 2026-11-11 (night) — brain-stack merge treadmill + land-watch image rebuilds (Devin)
+
+- **Landed**: #1651 platform_fit.json 2026 algorithm refresh, #1657
+  kakkava tar-stream fallback + ingest resume, #1662, #1664, #1666.
+  #1653/#1654/#1648/#1647 earlier same evening.
+- **Open at last sweep (8)**: #1672 whatsapp inbound poller, #1668
+  central-brain LLM refine + outcome attribution (3rd-gen rebuild —
+  carries escaped-brace _LLM_PROMPT fix, restored assert db.committed,
+  template-render regression test), #1650 wa-token-decrypt
+  (decrypt_field contract — 5 tests updated, 126/126 pass), #1649
+  media-heal (rollback-expiry fix + JPEG slides + single-image/video
+  guards, 31/31), #1646 hygiene, #1644 template poller, #1637 talk
+  recording, #1623 IG re-auth lane (nav-attempt recovery + 3300s
+  start-stamped throttle + error-status targets + _alert test, 6/6).
+  All auto-merge armed, zero check failures — pure pending-CI treadmill.
+- **#1669 closed** — dangerous revert (+0/-493) that would have deleted
+  engagement_ingest/media_heal/threads_reauth schedules; auto-merge was
+  armed on it.
+- **pr-land-watch upgraded** (home-ops 8df3b94 + 54fd450, direct push —
+  home-ops is not PR-gated): land_pr now `compose build`+`up -d
+  --no-deps` for every compose service whose IMAGE build-context dir
+  changed (all sidecars, env-manager, social-frontend, diffusers,
+  airbyte-mcp, stack-ops, promtail, social-sidecar-base, cloudflared)
+  and rebuilds all 7 backend services when non-mounted backend files
+  (Dockerfile/requirements/pyproject) change. Verified map vs live
+  docker-compose.yml; nextcloud-mcp-server/warp-proxy/linkedin-mcp use
+  prebuilt images (no build:) — correctly excluded. Closes the gap
+  where merged sidecar changes (e.g. #1623 server.js) never deployed.
+  Caveat: messenger-sidecar builds FROM published GHCR
+  social-sidecar-base — docker/ changes reach it only after GHCR publish.
+- **Dirty-checkout note**: main checkout on feat/media-heal-sweep has
+  wa_portfolio_watch.py + wa_inbound_watch.py modifications that are
+  byte-identical to PR #1672's branch (parallel session's leftovers) —
+  left untouched; land-watch auto-unblocks after 30min freshness window.
+- **Verify after #1668 merges**: next central-brain-daily (06:30 Athens)
+  should show recall_cited learnings + platform-fit lines in the LLM
+  prompt, rule fallback on inference failure, and brain_priority/
+  brain_reason/brain_trend in dispatched Post.meta_data.
+- **Verify after #1623 merges**: land-watch should auto-rebuild
+  facebook-browser-sidecar (new map) — confirm /debug/navigation-attempt
+  responds before the next hourly instagram-reauth run.
+- platform-fit-refresh cron first run due Sun 07:00 UTC — check
+  ~/logs/platform-fit-refresh.log after Nov 15.
 
 ## 2026-11-10 (night) — brain-stack upgrades (PRs #1651 #1652)
 
