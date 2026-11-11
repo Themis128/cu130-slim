@@ -704,16 +704,55 @@ async function handleLogin(req, res) {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
-    await page.waitForSelector('input[name="email"]', { timeout: 30000 });
+    await page.waitForTimeout(3000);
 
-    await page.fill('input[name="email"]', username);
-    await page.fill('input[name="pass"]', password);
-    await page.press('input[name="pass"]', "Enter");
+    // Meta A/B serves three login surfaces on /login:
+    //  a) classic form — input[name=email] + input[name=pass]
+    //  b) profile picker — "<Name> Continue / Use another profile"
+    //  c) Meta-Account page — profile pre-selected, password-only
+    // Detect and drive each; a bare waitForSelector(email) times out on b/c.
+    const hasEmail = async () => {
+      const loc = page.locator('input[name="email"]').first();
+      return (await loc.count()) > 0 && (await loc.isVisible().catch(() => false));
+    };
+    if (!(await hasEmail())) {
+      // (b) picker: real-mouse click on the profile card's Continue —
+      // el.click() does not reach Meta's React handler reliably.
+      const cont = page
+        .locator('[role="main"] [role="button"]')
+        .filter({ hasText: /^Continue$/ })
+        .first();
+      if ((await cont.count()) > 0) {
+        await cont.click({ timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(3000);
+      }
+    }
+    if (await hasEmail()) {
+      await page.fill('input[name="email"]', username);
+      await page.fill('input[name="pass"]', password);
+      await page.press('input[name="pass"]', "Enter");
+    } else {
+      // (c) password-only variant — profile already chosen
+      const pass = page.locator('input[name="pass"]').first();
+      await pass.waitFor({ state: "visible", timeout: 30000 });
+      await pass.fill(password);
+      await pass.press("Enter");
+    }
 
-    // Wait for navigation
-    await page.waitForTimeout(8000);
-
-    const currentUrl = page.url();
+    // Wait for navigation — Meta's post-submit redirect is client-side
+    // and slow; a single 8s snapshot misreports two_factor as failure.
+    let currentUrl = page.url();
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(4000);
+      currentUrl = page.url();
+      if (
+        currentUrl.includes("checkpoint") ||
+        currentUrl.includes("two_factor") ||
+        (await isLoggedIn())
+      ) {
+        break;
+      }
+    }
 
     // Check for 2FA / checkpoint
     if (
