@@ -204,6 +204,22 @@ class BlueskyClient:
         self.did = data.get("did", self.did)
         return data
 
+    async def create_app_password(self, name: str = "socialauto") -> dict[str, Any]:
+        """``POST com.atproto.server.createAppPassword`` — mint a new app
+        password. Requires a FULL-account session (main password) — app
+        passwords cannot create app passwords (atproto PR #826 scope rule).
+        Returns ``{name, password, createdAt, privileged}``."""
+        url = self._xrpc("com.atproto.server.createAppPassword")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers=self._auth_headers(),
+                json={"name": name},
+            )
+            if resp.status_code != 200:
+                raise BlueskyAPIError(resp.status_code, resp.text, url)
+            return resp.json()
+
     async def get_profile(self, actor: str | None = None) -> dict[str, Any]:
         """``GET app.bsky.actor.getProfile`` — public profile + counts."""
         url = self._xrpc("app.bsky.actor.getProfile")
@@ -341,3 +357,45 @@ def persist_session(account: Any, client: BlueskyClient) -> None:
     meta["bsky_session"] = session_state()
     account.meta_data = meta
     flag_modified(account, "meta_data")
+
+
+async def rotate_app_password(account: Any, main_password: str, db: Any) -> dict[str, Any]:
+    """Rotate the stored Bluesky app password using the account's MAIN
+    password — the only credential scope allowed to call
+    ``createAppPassword`` (app passwords cannot mint app passwords).
+
+    Flow: createSession(main password) → createAppPassword → verify the
+    new app password with its own createSession → encrypt + persist on
+    ``account.access_token_enc`` + seed ``bsky_session`` → commit.
+    Raises BlueskyAPIError on any PDS failure; caller decides retry/alert.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.core.security import encrypt_token
+
+    pds = (account.meta_data or {}).get("pds_url") or BSKY_PDS_DEFAULT
+    handle = account.username or ""
+
+    admin = BlueskyClient(handle, main_password, pds_url=pds)
+    await admin.create_session()
+    minted = await admin.create_app_password(name="socialauto-rotated")
+    new_password = minted.get("password")
+    if not new_password:
+        raise BlueskyAPIError(0, "createAppPassword returned no password", pds)
+
+    # Verify before persisting — never store an untested credential.
+    check = BlueskyClient(handle, new_password, pds_url=pds)
+    await check.create_session()
+
+    account.access_token_enc = encrypt_token(new_password)
+    meta = dict(account.meta_data or {})
+    meta["bsky_session"] = check.session_state()
+    meta["bsky_app_password_name"] = minted.get("name")
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {
+        "rotated": True,
+        "app_password_name": minted.get("name"),
+        "created_at": minted.get("createdAt"),
+    }
