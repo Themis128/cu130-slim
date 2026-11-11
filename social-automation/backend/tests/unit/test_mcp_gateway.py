@@ -301,3 +301,48 @@ async def test_api_call_tool_404_502_ok(monkeypatch):
     out = await gw_api.call_server_tool("real", gw_api.CallBody(tool="t", arguments={"x": 1}, timeout=5.0), SimpleNamespace())
     assert out["result"] == {"done": 1}
     gw_api.mcp_gateway.call_tool.assert_awaited_with("real", "t", {"x": 1}, timeout=5.0)
+
+
+# ── residual branch coverage ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rpc_initialize_without_session_id():
+    """Server that never returns mcp-session-id — call still proceeds."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body.get("method")
+        if method == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 0, "result": {}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body.get("id"), "result": {"ok": 1}})
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("http://gw.test/mcp").mock(side_effect=handler)
+        out = await gw._rpc(httpx.AsyncClient(), _server(), "tools/list", {}, 7)
+    assert out["result"] == {"ok": 1}
+    assert "t" not in gw._session_cache
+
+
+def test_parse_jsonrpc_sse_skips_bad_data_lines():
+    sse = httpx.Response(
+        200,
+        text=('event: message\ndata: {not json\ndata: {"jsonrpc":"2.0","id":1,"result":{"c":3}}\n\n'),
+        headers={"content-type": "text/event-stream"},
+    )
+    assert gw._parse_jsonrpc(sse)["result"] == {"c": 3}
+    only_bad = httpx.Response(
+        200,
+        text="event: message\ndata: {oops\n\n",
+        headers={"content-type": "text/event-stream"},
+    )
+    assert gw._parse_jsonrpc(only_bad) == {}
+
+
+@pytest.mark.asyncio
+async def test_call_tool_disabled_server(monkeypatch):
+    _registry(monkeypatch, [_server(name="off", enabled=False)])
+    out = await gw.call_tool("off", "x")
+    assert out == {"ok": False, "error": "server disabled"}
