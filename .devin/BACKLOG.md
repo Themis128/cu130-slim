@@ -1570,3 +1570,28 @@ Leftovers:
   (5-min WSL integration, 2-min docker-socket-watch, social-stack) cover
   it. If flaps persist, next lever is DMR model memory (~6.5GB host-side
   llama-servers) or Docker Desktop version bump.
+
+## 2026-11-11 (late3) — Nextcloud phone-sync dedupe + permanent tripwire
+
+- **Incident**: Android app had 3 overlapping camera auto-upload entries →
+  ~1,080 dup files across `InstantUpload/Camera`, `InstantUpload/null/…`,
+  `PhoneBackup/DCIM/Camera` + repeated sync conflicts.
+- **Fixed both sides**: phone auto-upload now = 1× `DCIM/Camera →
+  /InstantUpload/Camera` + `DCIM/Screenshots → /InstantUpload/Screenshots`
+  (dup entries disabled via ADB/UI); server dedupe done — canonical 654
+  files intact, `null/` tree gone, `PhoneBackup/DCIM/Camera` emptied,
+  11 checksum-mismatched uniques preserved in
+  `Conflicts-Archive/Dedupe-20261111/`; empty dir removed; 0 conflict
+  files remain.
+- **Automated**: `nc_sync_audit.py` (omv-nextcloud-ops, PR #1724) —
+  weekly Mon 06:23 cron with `--alert` → TG #ops; flags `null/` bug
+  regression, dup upload dirs, conflicted copies, omv trashbin reachability.
+  `nc_dedupe.py` productized as the reversible fixer (oc:checksums →
+  DELETE identical / MOVE mismatches to archive).
+- **Windows client**: `PhoneBackup` added to `sync-exclude.lst`
+  (backup `sync-exclude.lst.bak-20261111`) — takes effect on next client
+  restart; excludes the full-phone mirror from desktop sync.
+- **Note**: phone on latest Nextcloud 35.0.2 (= GitHub stable-35.0.2);
+  `null` path was config, not version. nc_sync_audit.py + SKILL.md also
+  exist untracked in main checkout for the cron — identical content, safe
+  to remove after #1724 merges + pull.
