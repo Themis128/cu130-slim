@@ -135,6 +135,14 @@ async def _rewrite_copy_for_media(post: Post) -> str | object | None:
         return _REWRITE_DEFER
     if len(text) < 40 or text == original:
         return None
+    # Small local models sometimes echo the instruction wrapper or the
+    # original verbatim (live: post 646a0a39 got "Rewrite this post for a
+    # generic cloud-technology branded image:\n\n<original>" as its new
+    # copy). A real rewrite never contains the full original or the
+    # instruction preamble — fail closed instead.
+    low = text.lower()
+    if "rewrite this post" in low or original.lower() in low:
+        return None
     return text
 
 
