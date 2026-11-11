@@ -710,6 +710,54 @@ def test_sweep_exhausted_alerted_only_still_gets_rewrite(monkeypatch):
     alert.assert_not_called()  # already alerted historically — no re-alert
 
 
+def test_sweep_exhausted_rewrite_defer_does_not_burn_attempt(monkeypatch):
+    """DMR cold-start/offline -> _REWRITE_DEFER: no rewrite_failed, no
+    alert, defers counter incremented, retried next sweep."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=M._REWRITE_DEFER))
+    alert = AsyncMock()
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 0
+    assert out["exhausted"] == []
+    assert post.meta_data["media_heal_rewrite_defers"] == 1
+    assert "media_heal_rewrite_failed" not in post.meta_data
+    assert "media_heal_alerted" not in post.meta_data
+    publish.assert_not_called()
+    alert.assert_not_called()
+
+
+def test_sweep_exhausted_rewrite_defer_cap_terminates(monkeypatch):
+    """After _MAX_REWRITE_DEFERS infra defers the post fails closed:
+    rewrite_failed + one alert, no infinite defer loop."""
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={
+            "media_heal_attempts": M._MAX_HEAL_ATTEMPTS,
+            "media_heal_rewrite_defers": M._MAX_REWRITE_DEFERS - 1,
+        },
+    )
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=M._REWRITE_DEFER))
+    alert = AsyncMock()
+    _wire(monkeypatch, db, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["exhausted"] == [str(pid)]
+    assert post.meta_data["media_heal_rewrite_failed"] is True
+    assert post.meta_data["media_heal_alerted"] is True
+    alert.assert_called_once()
+
+
 # ── _rewrite_copy_for_media unit guards ────────────────────────────────
 
 
@@ -732,12 +780,14 @@ def test_rewrite_copy_success(monkeypatch):
     assert _drive(M._rewrite_copy_for_media(post)) == new.strip()
 
 
-def test_rewrite_copy_dmr_failure_returns_none(monkeypatch):
+def test_rewrite_copy_dmr_failure_defers(monkeypatch):
+    """DMR transport failure -> _REWRITE_DEFER sentinel (transient infra),
+    not None — the caller must not burn the rewrite attempt on it."""
     import app.services.dmr as dmr
 
     monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dmr down")))
     post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
-    assert _drive(M._rewrite_copy_for_media(post)) is None
+    assert _drive(M._rewrite_copy_for_media(post)) is M._REWRITE_DEFER
 
 
 def test_rewrite_copy_echo_rejected(monkeypatch):
