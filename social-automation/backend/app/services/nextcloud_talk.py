@@ -361,29 +361,55 @@ def find_recording_file(messages: list[dict]) -> dict | None:
         if not fid:
             continue
         if name.endswith(_VIDEO_EXT) or "recording" in name or "recording" in str(params.get("type") or ""):
-            found = {"file_id": int(fid), "name": name, "message_id": msg.get("id")}
+            found = {
+                "file_id": int(fid),
+                "name": name,
+                "message_id": msg.get("id"),
+                "path": str(fobj.get("path") or "") or None,
+            }
     return found
 
 
-async def download_talk_file(file_id: int) -> tuple[bytes, str] | None:
-    """Download a Talk-shared file via ``/index.php/f/{id}`` (auth → DAV)."""
+async def download_talk_file(
+    file_id: int, path: str | None = None
+) -> tuple[bytes, str] | None:
+    """Download a Talk-shared file.
+
+    ``/index.php/f/{id}`` returns the HTML file viewer, not bytes — the raw
+    payload comes from WebDAV ``files/{user}/{path}`` using the ``path``
+    carried in ``messageParameters.file``. Falls back to ``/f/{id}`` only
+    when no path is known, and rejects HTML so Whisper never sees a page.
+    """
     if not talk_enabled() or not isinstance(file_id, int) or file_id <= 0:
         return None
     base = _base_url()
     if not base:
         return None
     s = get_settings()
+    user = getattr(s, "NEXTCLOUD_USERNAME", "") or ""
+    dav = getattr(s, "NEXTCLOUD_DAV_URL", "") or ""
+    dav_root = dav.split("/remote.php")[0] if dav else ""
+    urls: list[str] = []
+    if path and dav_root and user:
+        from urllib.parse import quote
+
+        urls.append(f"{dav_root}/remote.php/dav/files/{quote(user)}/{quote(path.lstrip('/'))}")
+    urls.append(f"{base}/index.php/f/{file_id}")
     try:
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-            resp = await client.get(
-                f"{base}/index.php/f/{file_id}",
-                auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
-            )
-            if resp.status_code != 200 or not resp.content:
-                logger.warning("Talk file download failed: HTTP %s", resp.status_code)
-                return None
-            ctype = resp.headers.get("content-type", "").split(";")[0] or "application/octet-stream"
-            return resp.content, ctype
+            for url in urls:
+                resp = await client.get(
+                    url,
+                    auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
+                )
+                if resp.status_code != 200 or not resp.content:
+                    continue
+                ctype = resp.headers.get("content-type", "").split(";")[0] or "application/octet-stream"
+                if ctype == "text/html":
+                    continue
+                return resp.content, ctype
+            logger.warning("Talk file download failed: no usable response for file %s", file_id)
+            return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Talk file download failed: %s", exc)
         return None
