@@ -1468,3 +1468,18 @@ Leftovers:
   stays a human gate via `%USERPROFILE%\wsl-shutdown.flag` →
   wsl-recycle-watch. Consider: reduce interop churn (watchdog cadences),
   keep vmIdleTimeout=-1.
+
+## 2026-11-11 — Bluesky credential automation (Devin)
+
+- [x] PR #1711 `feat/bluesky-credential-rotation`: `rotate_app_password()`
+      (main-pw createSession → createAppPassword → verify → persist) +
+      daily beat `bluesky-credential-sweep` (04:20) + `bluesky_tool.py rotate`.
+      Auto-merge armed. Requires `BSKY_MAIN_PASSWORD` in env/Infisical for
+      fully unattended rotation; without it the sweep alerts once.
+- [ ] Set `BSKY_MAIN_PASSWORD` (Bluesky account main password) in
+      `.env` + Infisical, or mint a new app password at bsky.app →
+      Settings → App passwords and reconnect via POST /api/v1/bluesky/connect.
+- [ ] After quota reset (~05:13 UTC) verify posts 02853052…/6844e52e…
+      publish; requeue if still failed.
+- [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
+      #1710 (TG credential drops), #1711 (bsky rotation).
