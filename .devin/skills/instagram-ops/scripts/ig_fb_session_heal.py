@@ -13,6 +13,9 @@ This host-side healer closes that gap unattended:
      /login with ``verification_code``.
   4. Drive post-checkpoint clicks ("This was me", "Save", "Continue")
      via /debug/eval, then re-validate.
+  5. If the sidecar login stalls on Meta's "approve this login" prompt,
+     drive the SAME account's live session on the engagement-browser
+     bridge (:9223) to click the approval — the "other device" lane.
 
 Login attempts are throttled (default 30 min between attempts) — repeated
 FB logins themselves trigger checkpoints. Validation probes are cheap and
@@ -141,6 +144,59 @@ def _adb_bin() -> str:
         "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe"
     )
     return str(win) if win.exists() else "adb"
+
+
+# "Approve this login" prompt on OTHER logged-in Meta sessions — only
+# fires when approval-context text is present; deny/"wasn't me" never
+# matches. Runs on the engagement-browser bridge (:9223).
+_BRIDGE_APPROVE_JS = """
+(() => {
+  const t = (document.body.innerText || '').slice(0, 4000);
+  const approval = /was this you|approve (this|your) login|login attempt|it was me|this was me|unusual login|did you (try|attempt)/i.test(t);
+  if (!approval) return 'no-approval-prompt';
+  const els = [...document.querySelectorAll(
+      'button,[role=button],a[role=link],div[tabindex]')];
+  const vis = e => { const r = e.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0; };
+  const txt = e => (e.innerText || e.getAttribute('aria-label') || '').trim();
+  const deny = /wasn't me|not me|deny|decline|this was not|don't approve/i;
+  const ok = /this was me|it was me|approve|yes,? (it|this) was me|confirm/i;
+  const b = els.filter(vis).find(e => ok.test(txt(e)) && txt(e).length < 60 && !deny.test(txt(e)));
+  if (b) { b.click(); return 'clicked:' + txt(b).slice(0, 40); }
+  return 'approval-visible-no-button';
+})()
+"""
+
+
+def bridge_eval(expr: str, timeout: int = 45) -> dict:
+    """Evaluate JS on the engagement-browser bridge via docker exec curl.
+
+    The bridge publishes no host port; engagement-browser is a node
+    container with curl. Returns {} when the bridge is asleep/unreachable.
+    """
+    body = json.dumps({"expression": expr})
+    try:
+        out = subprocess.run(
+            ["docker", "exec", "-i", "engagement-browser", "curl",
+             "-sm30", "-X", "POST", "-H", "Content-Type: application/json",
+             "--data-binary", "@-", "http://localhost:9223/session/evaluate"],
+            input=body, capture_output=True, text=True, timeout=timeout,
+        )
+        if out.returncode != 0 or not out.stdout.strip():
+            return {}
+        return json.loads(out.stdout)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def bridge_approve() -> str:
+    """Click Meta's 'approve this login' prompt on the bridge session."""
+    bridge_eval("location.href='https://www.facebook.com/'", timeout=20)
+    time.sleep(8)
+    r = bridge_eval(_BRIDGE_APPROVE_JS)
+    result = str(r.get("result") or "")[:80]
+    log(f"bridge approve -> {result or r}")
+    return result
 
 
 def fb_code(timeout_s: int = 150) -> str | None:
@@ -315,6 +371,15 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     v = validate()
     if v.get("logged_in"):
         return "ok"
+
+    # approval-from-another-device lane: the bridge holds a live Meta
+    # session — let it click the "was this you" prompt, then re-check.
+    appr = bridge_approve()
+    if appr.startswith("clicked"):
+        time.sleep(10)
+        v = validate()
+        if v.get("logged_in"):
+            return "ok"
     return "login-failed"
 
 
