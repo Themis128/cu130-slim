@@ -1292,3 +1292,26 @@ Leftovers:
   + watchdog pairing. Deferred — see wsl-docker-doctor skill.
 - PR #1677 auto-merge armed; script activates once merged AND the main
   checkout returns to master (cron guards on file existence).
+
+## 2026-11-11 (late) — phone lanes over tailnet + residual automation (Devin)
+
+- **Phone reachability mapped**: galaxy-s22 alive on tailnet
+  (100.84.31.85, ping OK) and LAN; Termux sshd :8022 ANSWERS but no
+  authorized key — `id_rsa_win` is gone from both WSL ~/.ssh and
+  Windows .ssh (only omv_id_rsa + Windows id_rsa exist, both denied).
+  Wireless debugging OFF: :5555 refused on LAN+tailnet, `adb mdns
+  services` empty. One physical step needed: re-enable wireless
+  debugging (or USB `adb tcpip 5555`) AND/OR re-authorize a pubkey in
+  Termux (~/.ssh/authorized_keys).
+- **Automated the recovery**: `phone-adb-watch.sh` (home-ops, */5min
+  cron) discovers mDNS _adb-tls-connect endpoints + tries :5555 on
+  LAN/tailnet — ADB comes back automatically once debugging returns.
+  ig_fb_session_heal.py (PR #1677, now 2 commits) gained a
+  termux-sms-list fallback lane over tailnet ssh :8022 — activates
+  automatically if a key is ever restored.
+- **WSL/Docker crash class**: already covered by existing infra —
+  Watch-VsockHealth.ps1 (daily 04:45 probe-first wsl --shutdown),
+  Watch-DockerWslIntegration.ps1 (*/5min terminate+repair on dead
+  docker.sock), docker-recovery + social-stack-watchdog in-WSL.
+  No blind-reboot automation added deliberately.
+- CAPTCHA/checkpoint gates remain alert-only by design.
