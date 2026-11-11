@@ -1253,3 +1253,24 @@ Leftovers:
   `team_10024d25_..._brain` should reach ~365+.
 - **platform-fit-refresh cron**: installed 2026-11-09, first scheduled
   run Sun 2026-11-15 07:00 — no log yet is EXPECTED, not a failure.
+
+## 2026-11-11 (fb-session-heal battle test)
+
+- `ig_fb_session_heal.py` live-verified end-to-end: profile-picker →
+  credential submit → real Meta `two_factor` page. Credentials are
+  VALID — Meta's 2FA for this account is **notification approval**
+  ("This was me" on phone/PC), not SMS. `approval_wait()` lane added:
+  TG alert (2h dedup) + non-navigating poll (validate() would kill the
+  pending flow — fixed), persists via GET /session.
+- FB sidecar `/login` only handled the classic email+pass form — Meta
+  A/B now serves picker + password-only Meta-Account variants, and the
+  2FA redirect lands after the old 8s snapshot (misreported as
+  "login failed"). Fix in PR #1689 (auto-merge armed); image already
+  built+deployed live from the PR branch.
+- BLOCKER: docker/WSL crashed 3x in ~45min during testing — each crash
+  kills the pending 2FA approval page. Durable fix remains `wsl
+  --shutdown` at a quiet moment (kills in-WSL crons; Windows scheduled
+  tasks recover the stack). Until then heals are luck-of-the-window.
+- Residual human step: tap "This was me" on the FB notification
+  (Galaxy S22+ or Windows PC) — TG #ops alert fires when a login
+  reaches the approval-wait state.
