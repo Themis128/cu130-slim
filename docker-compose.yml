@@ -13,6 +13,11 @@ x-public-dns: &public-dns
 x-worker-env: &worker-env
   - TZ=Europe/Athens
   - APP_TIMEZONE=Europe/Athens
+  # `celery` console script does not put the cwd on sys.path, and the
+  # editable install only exposes the `app` package — lazy `import scripts.*`
+  # in worker tasks (workforce_audit, trend_ingest, ...) raised
+  # ModuleNotFoundError until /app was on PYTHONPATH.
+  - PYTHONPATH=/app
   - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-0}
   - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
   - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
