@@ -321,3 +321,57 @@ async def test_auth_headers_requires_session():
     c = api.BlueskyClient("h", "p")
     with pytest.raises(api.BlueskyAPIError):
         c._auth_headers()
+
+
+# ---------- app-password rotation ----------
+
+
+@pytest.mark.asyncio
+async def test_create_app_password(client):
+    client._access_jwt = "jwt"
+    fake = _FakeAsyncClient(_FakeResponse(200, {"name": "socialauto", "password": "aaaa-bbbb"}))
+    with patch("httpx.AsyncClient", return_value=fake):
+        out = await client.create_app_password(name="socialauto")
+    assert out["password"] == "aaaa-bbbb"
+    assert "createAppPassword" in fake.calls[0]["url"]
+    assert fake.calls[0]["headers"]["Authorization"] == "Bearer jwt"
+
+
+@pytest.mark.asyncio
+async def test_rotate_app_password_full_flow():
+    account = type("A", (), {"username": "h.bsky.social", "meta_data": {}, "access_token_enc": b"old", "id": "x"})()
+
+    minted = []
+
+    class _C:
+        def __init__(self, handle, pw, pds_url=None):
+            self.pw = pw
+
+        async def create_session(self):
+            return {}
+
+        def session_state(self):
+            return {"access_jwt": "a", "refresh_jwt": "r", "did": "d"}
+
+        async def create_app_password(self, name="x"):
+            minted.append(self.pw)
+            return {"name": name, "password": "new-pw-1234", "createdAt": "t"}
+
+    commits = []
+
+    class _DB:
+        async def commit(self):
+            commits.append(1)
+
+    with patch("app.services.bluesky_api.BlueskyClient", _C), patch(
+        "app.core.security.encrypt_token", lambda t: b"enc:" + t.encode()
+    ), patch("sqlalchemy.orm.attributes.flag_modified"):
+        from app.services.bluesky_api import rotate_app_password
+
+        out = await rotate_app_password(account, "main-pw", _DB())
+    assert out["rotated"] is True
+    assert account.access_token_enc == b"enc:new-pw-1234"
+    assert account.meta_data["bsky_session"]["access_jwt"] == "a"
+    assert commits == [1]
+    # admin client used main pw, verifier used the minted app password
+    assert minted == ["main-pw"]

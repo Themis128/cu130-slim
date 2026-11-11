@@ -13,6 +13,10 @@ Commands:
     facets <t>  dry-run the richtext facet detector on a text string —
                 see byte offsets and detected links/mentions/hashtags
                 without posting
+    rotate      rotate the stored app password via the account MAIN
+                password (BSKY_MAIN_PASSWORD env) — createSession →
+                createAppPassword → verify → persist. Use after 401s
+                ("Invalid identifier or password").
 
 Options: -a/--account ACCOUNT_UUID (defaults to first bluesky account).
 Never prints app passwords or JWTs.
@@ -91,9 +95,27 @@ def cmd_facets(text: str) -> None:
         print(f"  [{idx['byteStart']}..{idx['byteEnd']}] {kind}: {span!r} → {detail}")
 
 
+async def cmd_rotate(account) -> int:
+    from app.db.session import async_session_maker
+    from app.services.bluesky_api import rotate_app_password
+
+    main_password = os.environ.get("BSKY_MAIN_PASSWORD") or ""
+    if not main_password:
+        print("set BSKY_MAIN_PASSWORD to the account's MAIN Bluesky password", file=sys.stderr)
+        return 2
+    async with async_session_maker() as db:
+        acc = await db.get(type(account), account.id)
+        if acc is None:
+            print("account not found", file=sys.stderr)
+            return 1
+        result = await rotate_app_password(acc, main_password, db)
+    print(f"rotated app password: {result}")
+    return 0
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("cmd", choices=("accounts", "status", "facets"))
+    parser.add_argument("cmd", choices=("accounts", "status", "facets", "rotate"))
     parser.add_argument("arg", nargs="?", default=None)
     parser.add_argument("-a", "--account", default=None)
     args = parser.parse_args()
@@ -122,6 +144,8 @@ async def main() -> int:
 
     if args.cmd == "status":
         await cmd_status(account)
+    elif args.cmd == "rotate":
+        return await cmd_rotate(account)
     return 0
 
 

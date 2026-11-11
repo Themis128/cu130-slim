@@ -114,6 +114,7 @@ celery_app = Celery(
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.workforce_audit",
+        "app.worker.tasks.bluesky_credential",
         "app.worker.tasks.meeting_notes",
     ],
 )
@@ -335,6 +336,7 @@ celery_app.conf.update(
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
         "app.worker.tasks.ops_agent.ops_agent_sweep": {"queue": "default"},
         "app.worker.tasks.workforce_audit.run_workforce_audit": {"queue": "default"},
+        "app.worker.tasks.bluesky_credential.run_bluesky_credential_sweep": {"queue": "default"},
         "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -585,6 +587,13 @@ celery_app.conf.update(
         "workforce-audit": {
             "task": "app.worker.tasks.workforce_audit.run_workforce_audit",
             "schedule": crontab(minute="*/30"),
+        },
+        # Daily Bluesky app-password rotation check — rotates via
+        # createAppPassword when recent targets show 401 auth failures and
+        # BSKY_MAIN_PASSWORD is configured; alerts once otherwise.
+        "bluesky-credential-sweep": {
+            "task": "app.worker.tasks.bluesky_credential.run_bluesky_credential_sweep",
+            "schedule": crontab(minute=20, hour=4),
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
         # CI/test probes, surface stale New leads past the follow-up SLA.
