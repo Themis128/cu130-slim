@@ -144,6 +144,17 @@ def _x_capacity_backoff() -> datetime:
     return datetime.now(UTC) + timedelta(minutes=minutes)
 
 
+def _bsky_rate_limit_backoff() -> datetime:
+    """Cooldown before retrying a Bluesky 429.
+
+    ``com.atproto.server.createSession`` is the strictest rate-limited
+    endpoint on bsky.social — observed multi-minute windows. 30 min keeps
+    retries rare without stalling the queue past the deferral bounds.
+    """
+    minutes = max(5, int(getattr(_settings, "BSKY_RATE_LIMIT_BACKOFF_MINUTES", 30) or 30))
+    return datetime.now(UTC) + timedelta(minutes=minutes)
+
+
 def _x_retry_at(exc: TwitterAPIError | None) -> datetime | None:
     """When X API write capacity should return, from the documented headers.
 
@@ -3630,6 +3641,18 @@ async def _publish_bluesky(
         await ensure_session(client, (account.meta_data or {}).get("bsky_session"))
         persist_session(account, client)
     except BlueskyAPIError as exc:
+        if exc.status_code == 429:
+            # createSession is the strictest rate-limited bsky endpoint —
+            # defer through the capacity lane instead of hard-failing +
+            # alerting on every publish during the cooldown window.
+            return PublishResult(
+                success=False,
+                retry_after=_bsky_rate_limit_backoff(),
+                error=(
+                    "Bluesky rate limited (429 RateLimitExceeded) — deferred, "
+                    "will retry automatically after the cooldown."
+                ),
+            )
         return PublishResult(
             success=False,
             error=f"Bluesky login failed ({exc.status_code}): {exc.response_text[:200]}",
@@ -3671,6 +3694,15 @@ async def _publish_bluesky(
             video=video,
         )
     except BlueskyAPIError as exc:
+        if exc.status_code == 429:
+            return PublishResult(
+                success=False,
+                retry_after=_bsky_rate_limit_backoff(),
+                error=(
+                    "Bluesky rate limited (429) during publish — deferred, "
+                    "will retry automatically after the cooldown."
+                ),
+            )
         return PublishResult(
             success=False,
             error=f"Bluesky publish failed ({exc.status_code}): {exc.response_text[:300]}",

@@ -409,6 +409,61 @@ async def test_publish_bluesky_video_and_errors(monkeypatch, tmp_path):
     assert not r2.success and "login failed" in r2.error.lower()
 
 
+@pytest.mark.asyncio
+async def test_publish_bluesky_429_defers(monkeypatch):
+    """429 RateLimitExceeded must soft-defer via retry_after, not hard-fail."""
+    import app.services.bluesky_api as bapi
+
+    class _BErr(Exception):
+        status_code = 429
+        response_text = '{"error":"RateLimitExceeded"}'
+
+    monkeypatch.setattr(bapi, "BlueskyAPIError", _BErr)
+
+    class _Bsky429:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def create_session(self):
+            raise _BErr("rate limited")
+
+    monkeypatch.setattr(bapi, "BlueskyClient", _Bsky429)
+    r = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [], None)
+    assert not r.success
+    assert r.retry_after is not None and r.retry_after > datetime.now(UTC)
+    assert "429" in r.error
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_429_during_post_defers(monkeypatch):
+    import app.services.bluesky_api as bapi
+
+    class _BErr(Exception):
+        status_code = 429
+        response_text = "slow down"
+
+    monkeypatch.setattr(bapi, "BlueskyAPIError", _BErr)
+
+    class _BskyPost429:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def create_session(self):
+            pass
+
+        async def upload_blob(self, data, mime):
+            return {"ref": "b"}
+
+        async def create_post(self, text, images=None, video=None):
+            raise _BErr("post rate limited")
+
+    monkeypatch.setattr(bapi, "BlueskyClient", _BskyPost429)
+    r = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [], None)
+    assert not r.success
+    assert r.retry_after is not None
+    assert "429" in r.error
+
+
 # ── instagram 5-path chain ────────────────────────────────────────────
 
 
