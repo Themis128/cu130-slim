@@ -29,18 +29,14 @@ async def _probe_one(client: httpx.AsyncClient, url: str, timeout: float) -> dic
             ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
             ok_status = 200 <= resp.status_code < 300
             if not ok_status:
-                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype or None,
-                        "error": f"HTTP {resp.status_code}"}
+                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype or None, "error": f"HTTP {resp.status_code}"}
             if ctype and ctype in _BLOCKED_TYPES:
-                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype,
-                        "error": f"served {ctype} instead of media"}
+                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype, "error": f"served {ctype} instead of media"}
             if ctype and not ctype.startswith(_ALLOWED_PREFIXES):
-                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype,
-                        "error": f"unexpected content-type {ctype}"}
+                return {"url": url, "ok": False, "status": resp.status_code, "content_type": ctype, "error": f"unexpected content-type {ctype}"}
             return {"url": url, "ok": True, "status": resp.status_code, "content_type": ctype or None}
     except Exception as exc:  # noqa: BLE001
-        return {"url": url, "ok": False, "status": None, "content_type": None,
-                "error": f"{type(exc).__name__}: {exc}"[:200]}
+        return {"url": url, "ok": False, "status": None, "content_type": None, "error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 async def probe_public_media(urls: list[str], *, timeout: float = 10.0) -> list[dict[str, Any]]:
