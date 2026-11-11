@@ -88,13 +88,9 @@ async def _poll() -> dict[str, Any]:
             stats["templates"] += len(templates)
 
             known: dict[str, str] = dict(meta.get("whatsapp_templates") or {})
-            pending_since: dict[str, str] = dict(
-                meta.get("whatsapp_template_pending_since") or {}
-            )
+            pending_since: dict[str, str] = dict(meta.get("whatsapp_template_pending_since") or {})
             pending_since_orig = dict(pending_since)
-            stale_alerted: set[str] = set(
-                meta.get("whatsapp_template_stale_alerted") or []
-            )
+            stale_alerted: set[str] = set(meta.get("whatsapp_template_stale_alerted") or [])
             stale_alerted_orig = set(stale_alerted)
             now = datetime.now(UTC)
             current: dict[str, str] = {}
@@ -140,9 +136,7 @@ async def _poll() -> dict[str, Any]:
                 if now - since > PENDING_STALE_AFTER:
                     name, _, lang = key.partition("|")
                     alerts.append(
-                        f"WhatsApp template `{name}` ({lang}) still PENDING "
-                        f">48h — Meta review window exceeded; open a "
-                        f"support ticket in Business Support Home"
+                        f"WhatsApp template `{name}` ({lang}) still PENDING >48h — Meta review window exceeded; open a support ticket in Business Support Home"
                     )
                     stale_alerted.add(key)
                     dirty = True
