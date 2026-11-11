@@ -132,16 +132,16 @@ def test_whatsapp_client_encrypted_token_decrypted(monkeypatch):
         seen["raw"] = raw
         return "EAAdec"
 
-    monkeypatch.setattr(whatsapp, "decrypt_token", _dec)
+    monkeypatch.setattr(whatsapp, "decrypt_field", _dec)
     client = _get_whatsapp_client(
         _wa_account(
             {
-                "access_token": "enc-blob",
+                "access_token": "enc:blob",
                 "phone_number_id": "123",
             }
         )
     )
-    assert seen["raw"] == "enc-blob" and client.phone_number_id == "123"
+    assert seen["raw"] == "enc:blob" and client.phone_number_id == "123"
 
 
 # ── Telegram helpers ─────────────────────────────────────────────────
