@@ -27,8 +27,14 @@ from datetime import UTC, datetime
 from celery import shared_task
 from sqlalchemy import select
 
-from app.models.content import Post, PostStatus, PostTarget
-from app.services.carousel_pipeline import compose_branded_slide
+from app.models.content import MediaAsset, Post, PostStatus, PostTarget
+from app.models.social_account import SocialAccount
+from app.services.carousel_pipeline import (
+    _cf_generate_background,
+    _qa_generated_background,
+    compose_branded_slide,
+)
+from app.services.cf_models import CF_TXT2IMG_FREE
 from app.services.media_storage import persist_generated_image
 from app.services.slack_notifications import post_alert_to_slack
 from app.worker._async import run_async, task_session
@@ -38,6 +44,23 @@ logger = logging.getLogger(__name__)
 
 _MAX_HEAL_ATTEMPTS = 2
 _MAX_POSTS_PER_RUN = 10
+
+# One bounded copy rewrite per post, granted only after media attempts are
+# exhausted — the semantic-QA-reject class where even on-topic branded
+# media can't match copy that references specifics a brand graphic can't
+# depict (e.g. "Facebook marketing", "two platforms"). The rewrite keeps
+# facts/links/CTA and the publish path's own NLP/SEO/semantic gates
+# re-verify the result, so a bad rewrite fails closed.
+_REWRITE_SYSTEM = (
+    "You repair social posts that failed an image-semantics check. The "
+    "image is a generic Cloudless cloud-technology branded graphic. Rewrite "
+    "the post so its claims and visual references are things such a graphic "
+    "CAN depict: cloud infrastructure, cost savings, engineering outcomes, "
+    "digital transformation, technology. Preserve exactly: every URL/link, "
+    "the call-to-action, all facts and numbers, hashtags, and the voice. "
+    "Do NOT invent metrics, claims, or outcomes. Return ONLY the rewritten "
+    "post text — no commentary, no quotes."
+)
 
 # Error substrings (lowercased) that mean "the media was the problem" —
 # retrying identical bytes cannot help, but new branded media can.
@@ -52,6 +75,10 @@ _EXCLUDED_MARKERS = (
     "identical media",
     "duplicate content",
 )
+
+# Platforms that only accept video — a healed single image can never
+# satisfy them, so their targets are excluded from the republish set.
+_VIDEO_ONLY_PLATFORMS = {"tiktok", "youtube"}
 
 
 def _is_media_failure(error: str | None) -> bool:
@@ -72,6 +99,33 @@ def _split_copy(text: str) -> tuple[str, str]:
             title, rest = text.split(sep, 1)
             return title.strip()[:110], rest.strip()[:240]
     return text[:110], ""
+
+
+async def _rewrite_copy_for_media(post: Post) -> str | None:
+    """LLM-rewrite post copy so a branded graphic can semantically match it.
+
+    Returns the new text, or None when the rewrite is unavailable, echoes
+    the original, or is too short to be a real post. Never raises.
+    """
+    original = (post.content_text or "").strip()
+    if len(original) < 40:
+        return None
+    try:
+        from app.services.dmr import call_dmr_chat
+
+        res = await call_dmr_chat(
+            f"Rewrite this post for a generic cloud-technology branded image:\n\n{original}",
+            system=_REWRITE_SYSTEM,
+            max_tokens=600,
+            temperature=0.4,
+        )
+        text = (res.get("text") or "").strip().strip("\"'")
+    except Exception as exc:
+        logger.info("media-heal rewrite failed for %s: %s", post.id, exc)
+        return None
+    if len(text) < 40 or text == original:
+        return None
+    return text
 
 
 async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
@@ -110,6 +164,21 @@ async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
             continue
         if any(t.status == "published" for t in targets):
             continue
+        # Only single-image posts are healable — a carousel or video/reel
+        # must keep its own media type; swapping it for one slide would
+        # ship the wrong media.
+        if post.media_ids:
+            assets = (
+                (
+                    await db.execute(
+                        select(MediaAsset).where(MediaAsset.id.in_(post.media_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(assets) != 1 or not (assets[0].mime_type or "").startswith("image/"):
+                continue
         attempts = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
         if attempts >= _MAX_HEAL_ATTEMPTS:
             exhausted.append(post)
@@ -130,18 +199,87 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
         healable, exhausted = await _healable_posts(db)
         for post in exhausted:
             meta = dict(post.meta_data or {})
-            if not meta.get("media_heal_alerted"):
+            if meta.get("media_heal_rewrite_done") or meta.get("media_heal_alerted"):
+                # Rewrite already spent (or alert already sent) and media
+                # attempts are still exhausted — terminal, alert once.
+                if not meta.get("media_heal_alerted"):
+                    meta["media_heal_alerted"] = True
+                    post.meta_data = meta
+                    exhausted_ids.append(str(post.id))
+                continue
+            # First exhaustion → one bounded copy rewrite, then exactly one
+            # more heal cycle (attempts reset so the next heal goes straight
+            # to the creative FLUX-background path with the new copy).
+            try:
+                new_copy = await _rewrite_copy_for_media(post)
+            except Exception:
+                new_copy = None
+            if new_copy:
+                meta["media_heal_original_copy"] = post.content_text
+                meta["media_heal_rewrite_done"] = True
+                meta["media_heal_attempts"] = _MAX_HEAL_ATTEMPTS - 1
+                post.meta_data = meta
+                post.content_text = new_copy
+                healable.append(post)
+                logger.info("media-heal rewrote copy for post %s", post.id)
+            elif not meta.get("media_heal_alerted"):
                 meta["media_heal_alerted"] = True
                 post.meta_data = meta
                 exhausted_ids.append(str(post.id))
+        # Durable alert flags before the heal loop — a later per-post
+        # rollback must not resurrect the Slack alert.
+        await db.commit()
+        # Snapshot ids up front: a per-post rollback() expires EVERY
+        # instance in the session, so iterating the ORM objects directly
+        # would lazy-load expired attributes (MissingGreenlet) on the next
+        # post. Refresh each post inside the loop instead and log by id.
+        healable_ids = [p.id for p in healable]
         healed = 0
-        for post in healable:
+        for pid, post in zip(healable_ids, healable):
             try:
+                await db.refresh(post)
                 title, body = _split_copy(post.content_text or "")
                 if not title:
                     continue
+                # Resolve republish targets first — video-only platforms
+                # can't take a healed image, so a post with no image-capable
+                # target is skipped before any media work happens.
+                target_rows = (
+                    await db.execute(
+                        select(PostTarget.social_account_id, SocialAccount.platform)
+                        .join(
+                            SocialAccount,
+                            PostTarget.social_account_id == SocialAccount.id,
+                        )
+                        .where(PostTarget.post_id == pid)
+                    )
+                ).all()
+                account_ids = [
+                    str(acc_id)
+                    for acc_id, platform in target_rows
+                    if platform not in _VIDEO_ONLY_PLATFORMS
+                ]
+                if not account_ids:
+                    continue
+                attempts_done = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
+                bg_img = None
+                if attempts_done + 1 >= _MAX_HEAL_ATTEMPTS:
+                    # Final attempt: plain brand slides already failed QA —
+                    # generate an on-topic FLUX background (CF-first,
+                    # ComfyUI fallback, garbled-text pixel QA) blended under
+                    # the brand canvas so the image depicts the copy.
+                    image_prompt = f"{title}, professional business photography concept"
+                    try:
+                        bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE)
+                        if bg_img is not None:
+                            bg_img = await _qa_generated_background(
+                                bg_img, image_prompt, CF_TXT2IMG_FREE, "media-heal"
+                            )
+                    except Exception as exc:
+                        logger.info("media-heal bg generation skipped for %s: %s", pid, exc)
+                        bg_img = None
                 img = compose_branded_slide(
-                    None,
+                    bg_img,
                     index=1,
                     total=1,
                     slide_type="content",
@@ -149,8 +287,13 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     body=body,
                     motif="cloud",
                 )
+                # JPEG, not PNG — Instagram's content publishing API only
+                # accepts JPEG image_url, and JPEG is safe on every other
+                # image-capable target.
+                if getattr(img, "mode", None) and img.mode != "RGB":
+                    img = img.convert("RGB")
                 buf = io.BytesIO()
-                img.save(buf, format="PNG")
+                img.save(buf, format="JPEG", quality=90)
                 asset = await persist_generated_image(
                     db,
                     team_id=post.team_id,
@@ -158,7 +301,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     image_bytes=buf.getvalue(),
                     prompt=f"media-heal: {title}",
                     source="media-heal",
-                    extension=".png",
+                    extension=".jpg",
                     max_edge=0,
                 )
                 meta = dict(post.meta_data or {})
@@ -167,16 +310,19 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 meta["media_healed_at"] = datetime.now(UTC).isoformat()
                 post.meta_data = meta
                 post.media_ids = [asset.id]
+                pid_str = str(pid)
+                # Per-post commit: only dispatch publish jobs for work that
+                # actually landed — a flush/commit failure rolls back this
+                # post alone instead of poisoning the whole sweep.
+                await db.commit()
                 healed += 1
-                targets = (
-                    await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
-                ).scalars().all()
-                account_ids = [str(t.social_account_id) for t in targets]
-                if account_ids:
-                    publish_jobs.append((str(post.id), account_ids))
+                publish_jobs.append((pid_str, account_ids))
             except Exception as exc:
-                logger.warning("media-heal failed for post %s: %s", post.id, exc)
-        await db.commit()
+                logger.warning("media-heal failed for post %s: %s", pid, exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
     logger.info("media-heal: healed=%d exhausted=%d", healed, len(exhausted_ids))
     return publish_jobs, exhausted_ids
 
