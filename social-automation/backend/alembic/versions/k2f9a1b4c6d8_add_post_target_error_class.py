@@ -20,8 +20,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("post_targets", sa.Column("error_class", sa.String(length=20), nullable=True))
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("post_targets")}
+    if "error_class" not in cols:
+        op.add_column("post_targets", sa.Column("error_class", sa.String(length=20), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("post_targets", "error_class")
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("post_targets")}
+    if "error_class" in cols:
+        op.drop_column("post_targets", "error_class")
