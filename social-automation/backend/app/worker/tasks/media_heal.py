@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_HEAL_ATTEMPTS = 2
 _MAX_POSTS_PER_RUN = 10
+# A rewrite deferred by transient infra (DMR cold-start/offline) must not
+# burn the one rewrite shot — but it can't defer forever either.
+_MAX_REWRITE_DEFERS = 3
+# Sentinel returned by _rewrite_copy_for_media when the LLM backend itself
+# is unavailable — distinct from a genuinely bad/empty rewrite.
+_REWRITE_DEFER = object()
 
 # One bounded copy rewrite per post, granted only after media attempts are
 # exhausted — the semantic-QA-reject class where even on-topic branded
@@ -101,11 +107,13 @@ def _split_copy(text: str) -> tuple[str, str]:
     return text[:110], ""
 
 
-async def _rewrite_copy_for_media(post: Post) -> str | None:
+async def _rewrite_copy_for_media(post: Post) -> str | object | None:
     """LLM-rewrite post copy so a branded graphic can semantically match it.
 
-    Returns the new text, or None when the rewrite is unavailable, echoes
-    the original, or is too short to be a real post. Never raises.
+    Returns the new text, ``_REWRITE_DEFER`` when the LLM backend is
+    unavailable (transient — caller retries next sweep), or None when the
+    rewrite is unavailable for content reasons, echoes the original, or is
+    too short to be a real post. Never raises.
     """
     original = (post.content_text or "").strip()
     if len(original) < 40:
@@ -121,8 +129,10 @@ async def _rewrite_copy_for_media(post: Post) -> str | None:
         )
         text = (res.get("text") or "").strip().strip("\"'")
     except Exception as exc:
-        logger.info("media-heal rewrite failed for %s: %s", post.id, exc)
-        return None
+        # call_dmr_chat only raises for transport/infra failures — a bad
+        # rewrite comes back as text and is rejected by the guards below.
+        logger.info("media-heal rewrite deferred for %s: %s", post.id, exc)
+        return _REWRITE_DEFER
     if len(text) < 40 or text == original:
         return None
     return text
@@ -190,6 +200,20 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 new_copy = await _rewrite_copy_for_media(post)
             except Exception:
                 new_copy = None
+            if new_copy is _REWRITE_DEFER:
+                # Infra down (e.g. DMR cold-start after a worker restart) —
+                # don't burn the rewrite or fire the alert; retry next
+                # sweep, capped so a permanently broken backend still
+                # terminates.
+                defers = int(meta.get("media_heal_rewrite_defers", 0) or 0) + 1
+                meta["media_heal_rewrite_defers"] = defers
+                if defers >= _MAX_REWRITE_DEFERS:
+                    meta["media_heal_rewrite_failed"] = True
+                    if not meta.get("media_heal_alerted"):
+                        meta["media_heal_alerted"] = True
+                        exhausted_ids.append(str(post.id))
+                post.meta_data = meta
+                continue
             if new_copy:
                 meta["media_heal_original_copy"] = post.content_text
                 meta["media_heal_rewrite_done"] = True
