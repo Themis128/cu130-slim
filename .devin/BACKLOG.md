@@ -1274,3 +1274,85 @@ Leftovers:
 - Residual human step: tap "This was me" on the FB notification
   (Galaxy S22+ or Windows PC) — TG #ops alert fires when a login
   reaches the approval-wait state.
+
+## 2026-11-11 (newsletter publish + social queue battle test)
+
+- **Social queue fully drained**: publish_queue 499 completed / 32 failed /
+  0 pending-processing; posts: 307 published, 21 draft, 4 scheduled
+  (Nov 12), 26 pending post_targets are future-scheduled (normal beat
+  dispatch). Regenerated dead R2 media for all pending posts with real
+  cloudless.gr branding via `backend/scripts/gen_cloudless_brand_slides.py`
+  (#0b0f15 canvas, #22d3e6 accent, CloudMark + Instrument Sans, "Clear
+  skies. Zero friction."); media text spellchecked clean after stripping
+  URLs/hashtags. Fixed polluted `content_text` on post 02853052 (raw LLM
+  prompt scaffolding → restored from meta_data, SEO 100) and requeued
+  dedup-skipped posts with distinct card layouts.
+- **Newsletter publish root causes fixed (PR #1693, merged)**:
+  `newsletter.py` article_slug path read `contentMarkdown` but R2 stores
+  `html`/`content` → sidecar got empty body; now prefers `article["html"]`.
+  `LinkedInSidecarClient` timeout 420s→900s (cold editor mount takes
+  10–18min; sidecar keeps running after client disconnect — a 502 does
+  NOT prove non-publication, always verify on LinkedIn first).
+- **New tooling (PR #1694, merged)**: `newsletter_publish_direct.sh`
+  (payload assembly inside social-api → detached host curl straight at
+  sidecar :9225 — survives social-api restarts) +
+  `newsletter_publish_autopilot.sh` (host-side retry loop, flock-guarded,
+  doctor-fix on engine-down, 3h deadline). Deployed copies live at
+  `~/scripts/newsletter-ops/` (outside repo — immune to land-watch
+  dirty-tree wipes). Autopilot RUNNING since 15:01, status:
+  `~/logs/newsletter_autopilot.status.json`.
+- **Verification surfaces documented** in linkedin-newsletter-ops
+  SKILL.md: newsletter manager `/mynetwork/network-manager/newsletters/`
+  (The Cloudless Build Log · Author, 185 subs, series
+  `the-cloudless-build-log-7511859883881914368`), drafts count on
+  activity page, `/article/manage/drafts/`; do NOT navigate sidecar page
+  mid-publish.
+- **Infra**: WSL vsock still degraded (proxy-dead→vsock-degraded
+  oscillation) — durable fix remains `wsl --shutdown` at a quiet moment.
+  pr-land-watch merge treadmill (#1683–#1694 landed today) restarts
+  api+workers+beat per merge and wiped uncommitted app/ edits once —
+  it now declines when tracked modifications are <30min old.
+- **Open**: newsletter issue publish in-flight via autopilot; confirm
+  `status: published` in autopilot log + Issue appears on the series
+  page. Bridge LinkedIn session (browser-novnc) is LOGGED OUT — only
+  needed if sidecar path fails; re-login via noVNC :6080.
+
+## 2026-11-11 (FB/IG session-heal: Accounts Center lane + bridge recovery)
+
+- **engagement-browser bridge self-heal**: after Docker/WSL crashes the
+  container reports healthy but the internal Chromium is dead — every
+  `/session/evaluate` returns "Target page, context or browser has been
+  closed". Fix: `POST /session/start {"platform":"instagram","force":true}`
+  relaunches the browser and restores the persisted IG session (verified:
+  feed loads, Accounts Center reachable). The healer's `bridge_approve()`
+  should treat this error as "restart session then retry once" — TODO.
+- **Meta Accounts Center login-activity lane (NEW, verified live)**:
+  `accountscenter.instagram.com/password_and_security/login_activity/`
+  shows "We detected unrecognized logins. Review devices" → per-login
+  "This was me / This wasn't me". This is a trusted-device approval
+  surface reachable through the bridge's IG session — BUT it only covers
+  profiles in the Meta Account, which has **1 profile**
+  (`baltzakis_themistoklis` = IG). The Facebook account is NOT linked,
+  and facebook.com on the bridge is logged out → **does not apply to the
+  FB sidecar heal**. It WOULD apply if IG ever hits approval-2FA on a
+  second device: the surviving IG session can self-approve via this page.
+- **FB approval remains the irreducible human step**: sidecar
+  `/session` reports `has_session:true` but `logged_in:false` (stored
+  state dead). All remote lanes re-verified dead: ADB off, Termux
+  unauthorized, Phone Link DB encrypted, no FB session on bridge /
+  messenger-sidecar / debug Chrome, no TOTP/backup codes stored, no
+  Meta self-approve API (mautrix/facebook confirms same design).
+- **Healer state**: `failures:1`, exponential backoff armed
+  (30m→1h→2h→4h cap); trust-device tick confirmed live on the 2FA page;
+  next */30 cron re-sends the approval notification + TG #ops alert.
+  One "This was me" tap on phone/PC likely ends FB 2FA permanently.
+- **PRs**: #1690 (healer v2: picker fast-path, approval-wait non-nav
+  poll, trust-tick, backoff, bridge approve) rebased onto master,
+  auto-merge armed. #1689 (sidecar /login variants) MERGED — deployed
+  image matches.
+
+## 2026-11-11 — TikTok #789 / Meta #785 status
+
+- **TikTok #789**: in-app path confirmed correct per TikTok docs (Edit profile → Links → Website, no captcha unlike web). During ADB drive the app session dropped to the login screen — possibly a stray tap or natural expiry; do NOT resume driving while the phone is in active use (screen showed Tailscale admin mid-session). Next: relaunch TikTok, log in with TIKTOK_DEV_* creds if needed, then Edit profile → Links → add https://cloudless.gr/links (or /pricing per funnel decision). Business account may lack the Edit profile button — verify; fallback is business.tiktok.com once bridge session is re-seeded.
+- **Meta #785**: scoped down to `leads_retrieval` App Review only (business verification confirmed not required). Code path exists: `app/api/messenger.py::_ingest_meta_leadgen` fetches lead PII via Graph → EspoCRM. App Review needs: dev-console session (FB sidecar logged out + 2FA; CDP :9222/:9229 lanes down — relaunch ChromeDebug/ChromeDebugBind tasks), Advanced Access (may require business verification after all), use-case description, test-user creds, and a UNIQUE screencast showing login→grant→lead retrieval→CRM writeback. Screencast is the hard gate — needs a real lead-form submission demo.
+- **WA watchers**: all 4 relaunched 2026-11-11 ~15:00 (portfolio/sysuser/inbound/bsh) after Docker restart killed them. Meta restriction (code 10/2859015) still active — sysuser watcher cycling.
