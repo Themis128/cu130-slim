@@ -366,6 +366,33 @@ JSON.stringify({
 """
 
 
+# "Trust this device and skip this step from now on" — ticking it before
+# the user approves means ONE tap heals every future login too.
+_TRUST_DEVICE_JS = """
+(() => {
+  const vis = e => { const r = e.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0; };
+  const els = [...document.querySelectorAll(
+      '[role=checkbox],input[type=checkbox],[role=button],label,div,span')];
+  const cand = els.filter(vis).filter(e =>
+      /trust this device/i.test(e.innerText || e.getAttribute('aria-label') || '')
+      && (e.innerText || '').length < 120);
+  if (!cand.length) return 'no-trust-option';
+  // prefer the checkbox itself, else the shortest matching text node
+  // (clicking the label text toggles the checkbox via label forwarding)
+  const box = cand.find(e => e.getAttribute('role') === 'checkbox'
+      || e.type === 'checkbox');
+  const target = box || cand.reduce((a, b) =>
+      (a.innerText || '').length <= (b.innerText || '').length ? a : b);
+  const checked = target.getAttribute('aria-checked') === 'true'
+      || target.checked === true;
+  if (checked) return 'already-trusted';
+  target.click();
+  return 'trust-ticked';
+})()
+"""
+
+
 def approval_wait(state: dict, poll_s: int = 600) -> bool:
     """Alert once, then watch for the user to approve on their device.
 
@@ -386,6 +413,8 @@ def approval_wait(state: dict, poll_s: int = 600) -> bool:
         state["last_approval_alert"] = time.time()
         save_state(state)
     log("2FA is notification-approval — waiting for user tap (max 10m)")
+    tr = sidecar("/debug/eval", {"script": _TRUST_DEVICE_JS}, timeout=60)
+    log(f"trust-device -> {str(tr.get('result') or tr)[:80]}")
     deadline = time.time() + poll_s
     while time.time() < deadline:
         time.sleep(20)
@@ -520,11 +549,16 @@ def main() -> int:
             time.sleep(600)
             continue
 
-        # logged out — throttle actual login attempts
+        # logged out — throttle actual login attempts. Each attempt that
+        # reaches Meta's approval-2FA pushes a notification to the user's
+        # devices, so back off exponentially (x2 per 3 consecutive
+        # failures, cap 4h) instead of pinging every 30min forever.
+        fails = int(state.get("failures") or 0)
+        interval = min(args.min_interval * (2 ** min(fails // 3, 3)), 14400)
         last = float(state.get("last_login_attempt") or 0)
-        if time.time() - last < args.min_interval:
+        if time.time() - last < interval:
             log(f"session down; next login attempt in "
-                f"{int(args.min_interval - (time.time() - last))}s")
+                f"{int(interval - (time.time() - last))}s")
             if args.once:
                 return 3
             time.sleep(300)
