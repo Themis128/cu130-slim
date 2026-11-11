@@ -8,7 +8,11 @@ back to SMTP on any mail-outbound error, so brief 401s are graceful):
   1. Infisical prod        — source of truth for the daily .env pull
   2. .env files            — WSL checkout + Windows checkout (compose
                              interpolation source; /mnt/c path optional)
-  3. CF Worker secret      — PATCH secrets-bulk on mail-outbound
+  3. CF Worker secret      — wrangler secret put on mail-outbound
+                             (secrets-bulk PATCH silently no-ops — verified
+                             2026-11-11; wrangler creates a real deployment)
+  3b. Windows caller json   — %APPDATA%/devin/secrets/mail-outbound.json
+                             (mail-pipeline-watch reads its Bearer from here)
   4. docker compose up -d  — recreate the 6 env consumers (api + 4
                              workers + beat) under .deploy.lock
   5. smoke                 — POST /send must return {"ok":true}
@@ -53,6 +57,12 @@ CONSUMERS = ["social-api", "social-worker-publishing", "social-worker-media",
              "social-worker-default", "social-worker-messenger", "celery-beat"]
 ENV_FILES = [REPO_ROOT / ".env",
              Path("/mnt/c/Users/tbaltzakis/cu130-slim/.env")]
+# Windows-side callers (mail-pipeline-watch / mail-outbound-heal.py under
+# %APPDATA%/devin/skills) read the Bearer token from this json — it must
+# rotate in lockstep with .env or the two healers fight over the worker
+# secret (observed 2026-11-11: alternating 401/OK every ~15min).
+WIN_MAIL_JSON = Path("/mnt/c/Users/tbaltzakis/AppData/Roaming/devin/"
+                     "secrets/mail-outbound.json")
 DEPLOY_LOCK = REPO_ROOT / ".deploy.lock"
 
 
@@ -207,6 +217,49 @@ def update_env_files(key: str, value: str) -> list[str]:
     return touched
 
 
+def update_win_mail_json(value: str) -> str | None:
+    """Sync %APPDATA%/devin/secrets/mail-outbound.json token. Returns path
+    when changed, None when absent/already-matching."""
+    if not WIN_MAIL_JSON.exists():
+        return None
+    try:
+        d = json.loads(WIN_MAIL_JSON.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if d.get("token") == value:
+        return None
+    d["token"] = value
+    WIN_MAIL_JSON.write_text(json.dumps(d, indent=2))
+    return str(WIN_MAIL_JSON)
+
+
+def wrangler_secret_put(worker: str, key: str, value: str,
+                        cf_tok: str, account: str) -> None:
+    """Set a worker secret via `wrangler secret put` on the Windows side.
+
+    The secrets-bulk PATCH endpoint silently no-ops on this account
+    (verified 2026-11-11 — returns success but the worker keeps the old
+    secret), which is how MAIL_OUTBOUND_TOKEN drifted in the first place.
+    wrangler secret put creates a real secret-versioned deployment.
+    """
+    tmp = "/mnt/c/Users/tbaltzakis/cf-worker-secret-tmp"
+    Path(tmp).mkdir(parents=True, exist_ok=True)
+    win_tmp = "C:\\Users\\tbaltzakis\\cf-worker-secret-tmp"
+    ps = (f"$env:CLOUDFLARE_API_TOKEN='{cf_tok}'; "
+          f"$env:CLOUDFLARE_ACCOUNT_ID='{account}'; "
+          f"Set-Location {win_tmp}; "
+          f"'{value}' | npx.cmd --yes wrangler@latest secret put {key} "
+          f"--name {worker}")
+    r = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+         "-Command", ps],
+        capture_output=True, text=True, timeout=600)
+    out = (r.stdout or "") + (r.stderr or "")
+    if r.returncode != 0 or "Success" not in out:
+        raise RuntimeError(f"wrangler secret put failed rc={r.returncode}: "
+                           f"{out[-300:]}")
+
+
 def cf_secret_bulk(account: str, cf_token: str, worker: str,
                    updates: dict[str, str | None]) -> None:
     secrets_map = {}
@@ -309,13 +362,18 @@ def main() -> int:
         print(f"WARN infisical step failed ({e}) — continuing; "
               f"re-run infisical-sync push or update manually", file=sys.stderr)
 
-    # 2. .env files
+    # 2. .env files + Windows caller json (mail-outbound token only)
     touched = update_env_files(args.secret, new)
     step(f".env updated: {', '.join(touched)}")
+    if args.secret == "MAIL_OUTBOUND_TOKEN":
+        win = update_win_mail_json(new)
+        if win:
+            step(f"win secrets json updated: {win}")
 
-    # 3. CF worker secret
-    cf_secret_bulk(account, cf_tok, args.worker, {args.secret: new})
-    step(f"CF worker {args.worker} secret patched")
+    # 3. CF worker secret — wrangler secret put, NOT secrets-bulk PATCH
+    #    (PATCH silently no-ops on this account; see wrangler_secret_put)
+    wrangler_secret_put(args.worker, args.secret, new, cf_tok, account)
+    step(f"CF worker {args.worker} secret {args.secret} set via wrangler")
 
     # 4. recreate consumers
     if not args.skip_compose:
