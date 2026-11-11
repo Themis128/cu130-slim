@@ -184,11 +184,11 @@ async def test_delete_room():
 def test_find_recording_file_picks_video():
     msgs = [
         {"id": 1, "messageParameters": {"file": {"id": 11, "name": "photo.png"}}},
-        {"id": 2, "messageParameters": {"file": {"id": 22, "name": "call-2026-11-10.mp4"}}},
+        {"id": 2, "messageParameters": {"file": {"id": 22, "name": "call-2026-11-10.mp4", "path": "calls/rec.mp4"}}},
         {"id": 3, "message": "thanks"},
     ]
     rec = TALK.find_recording_file(msgs)
-    assert rec == {"file_id": 22, "name": "call-2026-11-10.mp4", "message_id": 2}
+    assert rec == {"file_id": 22, "name": "call-2026-11-10.mp4", "message_id": 2, "path": "calls/rec.mp4"}
 
 
 def test_find_recording_file_matches_recording_name():
@@ -1049,6 +1049,33 @@ async def test_download_talk_file_success():
     with patch.object(TALK, "get_settings", return_value=_settings()):
         assert await TALK.download_talk_file(0) is None
         assert await TALK.download_talk_file(-3) is None
+
+
+@pytest.mark.asyncio
+async def test_download_talk_file_prefers_dav_path():
+    _Client.resp = _Resp(200, content=b"mp4", headers={"content-type": "video/mp4"})
+    with (
+        patch.object(TALK, "get_settings", return_value=_settings()),
+        patch.object(TALK.httpx, "AsyncClient", _Client),
+    ):
+        got = await TALK.download_talk_file(42, path="calls/rec file.mp4")
+    assert got == (b"mp4", "video/mp4")
+    assert "/remote.php/dav/files/" in _Client.calls[0]["url"]
+    assert "calls/rec%20file.mp4" in _Client.calls[0]["url"]
+    assert len(_Client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_download_talk_file_rejects_html_viewer():
+    _Client.resp = _Resp(200, content=b"<!DOCTYPE html>", headers={"content-type": "text/html; charset=UTF-8"})
+    with (
+        patch.object(TALK, "get_settings", return_value=_settings()),
+        patch.object(TALK.httpx, "AsyncClient", _Client),
+    ):
+        assert await TALK.download_talk_file(42, path="calls/rec.mp4") is None
+    # tried DAV path then /f/{id} fallback — both returned the HTML viewer
+    assert len(_Client.calls) == 2
+    assert _Client.calls[1]["url"].endswith("/index.php/f/42")
 
 
 def test_find_recording_file_non_dict_params():
