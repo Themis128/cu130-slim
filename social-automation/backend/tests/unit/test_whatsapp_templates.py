@@ -216,3 +216,38 @@ def test_task_wrapper_error(monkeypatch):
     monkeypatch.setattr(WT, "run_async", _raise)
     out = WT.poll_whatsapp_templates()
     assert out == {"error": "boom"}
+
+
+@pytest.mark.asyncio
+async def test_poll_stale_pending_alerts_once(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    old = (datetime.now(UTC) - timedelta(hours=72)).isoformat()
+    meta = {
+        "waba_id": "w6",
+        "whatsapp_templates": {"old_tpl|en": "PENDING"},
+        "whatsapp_template_pending_since": {"old_tpl|en": old},
+    }
+    acct = _acct(meta)
+    db = _DB([acct])
+    monkeypatch.setattr(WT, "task_session", lambda: _ACM(db))
+    monkeypatch.setattr(WT, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(
+        WT,
+        "_fetch_templates",
+        AsyncMock(return_value=[{"name": "old_tpl", "language": "en", "status": "PENDING"}]),
+    )
+    slack = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", slack)
+
+    out = await WT._poll()
+    assert out["changes"] == 0 and db.commits == 1
+    text = slack.await_args.args[0]
+    assert "still PENDING" in text and "old_tpl" in text
+    assert acct.meta_data["whatsapp_template_stale_alerted"] == ["old_tpl|en"]
+
+    # Second poll: already alerted — no repeat Slack message.
+    slack.reset_mock()
+    out2 = await WT._poll()
+    assert out2["changes"] == 0
+    slack.assert_not_awaited()
