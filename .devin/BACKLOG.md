@@ -1522,3 +1522,85 @@ Leftovers:
   pipeline (WinRT Await helper required on PS5.1) dumps chat text +
   word coords to C:\tmp\tg_scan.txt. Scripts in ~/tmp-share/ +
   C:\tmp\tg_scan2.ps1 on Windows.
+
+- **Trigger**: Meta invalidated sessions after credential/security events
+  (FB side still in 2FA). IG Graph token → OAuthException 190 revoked;
+  `social_accounts.status` flipped `revoked`. 7 failed targets marked
+  `error_class='terminal'` to stop retry churn until session restored.
+- **Bridge IG web session is ALIVE** (@cloudless.gr, ds_user_id
+  61511170480 matches stored `private_api_ds_user_id`). Extracted fresh
+  sessionid/csrftoken via `POST :9223/session/extract` and wrote
+  `private_api_session_id` (encrypt_field, URL-decoded) into meta_data.
+- **Healer gap found + fixed (PR)**: `session_healer._sync_browser_cookies`
+  persisted cookies to `browser_cookies` but NEVER refreshed
+  `private_api_session_id` — the field the publish ladder actually reads.
+  Now syncs sessionid/csrftoken/ds_user_id → private_api_* on every
+  instagram extract, and un-revokes the account. Hourly `heal_sessions`
+  beat keeps the sidecar credential fresh automatically.
+- **Remaining IG blocker**: aiograpi sidecar rejects even the fresh
+  sessionid (`login_required` → `Exceeded maximum allowed redirects` via
+  WARP proxy; password login broken — IG stopped returning
+  `ig-set-password-encryption-key-id`, aiograpi 1.0.9 crash). IG is
+  risk-engine challenging the private-API client. Durable fixes, in
+  order: (a) INSTAGRAM2_CLIENT_ID/SECRET don't exist in env/compose —
+  wire Instagram Business Login OAuth (instagram2_authorize endpoint
+  exists but unconfigured) so Graph token reconnect is self-serve;
+  (b) upgrade/patch aiograpi for the new password-encryption flow;
+  (c) owner re-login in IG app if checkpoint demanded.
+- **Bluesky**: app-password updated in DB (see pm2 entry); publishes
+  should recover on next attempt.
+
+## 2026-11-11 (late) — Meta #785 leads_retrieval: use case added, usage saved
+
+- **Root cause of earlier stall found**: `leads_retrieval` does NOT live under
+  Facebook Login for Business or the Instagram use cases. Correct use case =
+  **"Capture & manage ad leads with Marketing API"**
+  (`use_case_enum=MARKETING_API_LEADS_CAPTURE`).
+- **DONE — use case added**: `Use cases → Add use cases → filter All → card
+  "Capture & manage ad leads with Marketing API"`. The card is a
+  `role=button` div (~706px wide); click its center — selection shows
+  `aria-checked/pressed=true` on an ancestor; then catalog **Save**
+  (~1412,810). Card then appears in the main use-case list with Customize.
+- **DONE — permission queued**: Customize → Permissions and features →
+  `leads_retrieval` row → Actions → "Go to App Review". Confirmed in
+  `/app-review/submissions` New requests list.
+- **DONE — allowed usage for leads_retrieval**: submission wizard →
+  "Go to allowed usage" → per-permission slide-over panel (position:absolute)
+  → textarea (React native setter + input/change events) + compliance
+  checkbox + Save. Text describes real flow: lead ads on our Page →
+  `_ingest_meta_leadgen` (app/api/messenger.py) → Graph leadgen fetch →
+  EspoCRM Lead. Status now shows **Edit** (saved).
+- **REMAINING in Allowed usage** (both pulled in by the leads use case,
+  both show "Get started"):
+  1. `pages_manage_ads` — panel needs: description (FILLED, save unverified —
+     panel closed during docker flap, re-check), **screencast upload**,
+     **1 API test call** (Testing tab; attempted
+     `GET /116436681562585/leadgen_forms` → 403 "Requires pages_manage_ads" —
+     proves boundary but token lacks the permission), compliance checkbox.
+  2. `Marketing API Access Tier` — Get started, requirements TBD.
+- **Token reality**: page token (`social_accounts.meta_data.page_token`,
+  EAAG… len 214) predates the new permissions → 403 on leadgen_forms.
+  To get a token carrying pages_manage_ads/leads_retrieval the FB user must
+  re-authorize via OAuth dialog with the new scopes — the same flow the
+  screencast must show anyway. Standard dialog/oauth scope list in
+  `app/api/auth.py` does NOT include the new perms; they belong to the
+  Marketing API lead-ads use case — check whether dialog/oauth accepts them
+  in `scope=` or whether a Facebook Login for Business `config_id`
+  (Configurations section) is required.
+- **Honest-demo constraint**: app does NOT create/manage ads (no Marketing
+  API ad-write calls in codebase; ads_management/ads_read appear only in
+  OAuth scope lists). pages_manage_ads usage text must say it's a required
+  dependency for lead retrieval, NOT ad management. The disabled ad account
+  `657781691826702` may block creating a real lead ad — alternative real
+  demo: `POST /{leadgen-form-id}/test_leads` fires a genuine leadgen webhook
+  → `_ingest_meta_leadgen` → EspoCRM (needs a form id; create via
+  `POST /{page-id}/leadgen_forms` once token has permission).
+- **Infra**: docker daemon flapped 5-6× this session (SIGBUS/vsock);
+  sidecar loses page state each restart but FB session cookies persist
+  (`has_session:true` after relaunch). All console progress is
+  server-side saved — safe to resume at the submission URL.
+- **Resume**: reopen submission URL → Allowed usage → finish
+  pages_manage_ads (screencast + test call + checkbox) + Marketing API
+  Access Tier → verify Verification/App settings/Data handling/
+  Reviewer instructions still complete → Submit for review.
+  Then TikTok #789 unchanged (CAPTCHA + doc-type, watcher cron-armed).
