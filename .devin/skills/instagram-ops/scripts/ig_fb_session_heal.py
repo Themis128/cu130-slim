@@ -156,6 +156,43 @@ def fb_code(timeout_s: int = 150) -> str | None:
             return code[0].strip()
     except Exception as exc:  # noqa: BLE001
         log(f"fb_code failed: {exc}")
+    return termux_sms_code()
+
+
+def termux_sms_code(timeout_s: int = 30) -> str | None:
+    """Fallback lane: termux-sms-list over Tailscale ssh (:8022).
+
+    Works when wireless ADB is off but Termux sshd is up — needs a key
+    authorized on the phone (~/.ssh/id_rsa_win historically; tries any
+    local key as fallback). Meta/WhatsApp sender lines only.
+    """
+    import re
+    host = os.environ.get("PHONE_TAILNET_IP", "100.84.31.85")
+    key_candidates = [
+        str(HOME / ".ssh/id_rsa_win"),
+        str(HOME / ".ssh/omv_id_rsa"),
+        str(Path("/mnt/c/Users/tbaltzakis/.ssh/id_rsa")),
+    ]
+    for key in key_candidates:
+        if not Path(key).exists():
+            continue
+        try:
+            out = subprocess.run(
+                ["ssh", "-p", "8022", "-o", "BatchMode=yes",
+                 "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no",
+                 "-i", key, f"u0_a357@{host}", "termux-sms-list -l 8"],
+                capture_output=True, text=True, timeout=timeout_s,
+            )
+            if out.returncode != 0:
+                continue
+            # Meta/WA senders first, then any 6-digit code in recent SMS
+            lines = [l for l in out.stdout.splitlines()
+                     if re.search(r"whatsapp|facebook|meta|auth", l, re.I)]
+            m = re.search(r"\b(\d{3})[- ]?(\d{3})\b", " ".join(lines or out.stdout.splitlines()))
+            if m:
+                return m.group(1) + m.group(2)
+        except Exception:  # noqa: BLE001
+            continue
     return None
 
 
