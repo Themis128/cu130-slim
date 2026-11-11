@@ -265,9 +265,7 @@ def test_client_plaintext_token_no_decrypt(monkeypatch):
 
 def test_client_encrypted_token_decrypted(monkeypatch):
     seen = []
-    monkeypatch.setattr(
-        whatsapp, "decrypt_field", lambda t: seen.append(t) or "EAdecrypted"
-    )
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: seen.append(t) or "EAdecrypted")
     acc = _wa_account(meta_data={"access_token": "enc:blob", "phone_number_id": "12345"})
     client = _get_whatsapp_client(acc)
     assert client.phone_number_id == "12345"

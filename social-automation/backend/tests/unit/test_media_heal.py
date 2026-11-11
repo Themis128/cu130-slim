@@ -340,9 +340,7 @@ def test_sweep_alert_and_sync_failures_swallowed(monkeypatch):
     _wire(monkeypatch, db, alert=alert)
     import app.services.db_sync as db_sync
 
-    monkeypatch.setattr(
-        db_sync, "sync_after_worker_task", AsyncMock(side_effect=RuntimeError("d1 down"))
-    )
+    monkeypatch.setattr(db_sync, "sync_after_worker_task", AsyncMock(side_effect=RuntimeError("d1 down")))
 
     out = M.run_media_heal_sweep()
     assert out["exhausted"] == [str(pid)]
@@ -445,9 +443,7 @@ def test_sweep_bg_exception_falls_back_to_canvas(monkeypatch):
     compose = Mock(return_value=_Img())
     _wire(monkeypatch, db)
     monkeypatch.setattr(M, "compose_branded_slide", compose)
-    monkeypatch.setattr(
-        M, "_cf_generate_background", AsyncMock(side_effect=RuntimeError("cf down"))
-    )
+    monkeypatch.setattr(M, "_cf_generate_background", AsyncMock(side_effect=RuntimeError("cf down")))
     monkeypatch.setattr(M, "publish_post_now", Mock(return_value={"success": True, "results": []}))
 
     out = M.run_media_heal_sweep()
@@ -694,9 +690,7 @@ def test_rewrite_copy_success(monkeypatch):
     import app.services.dmr as dmr
 
     new = "Cloud infrastructure that actually reduces cost. " * 2
-    monkeypatch.setattr(
-        dmr, "call_dmr_chat", AsyncMock(return_value={"text": new})
-    )
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": new}))
     post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
     assert _drive(M._rewrite_copy_for_media(post)) == new.strip()
 
@@ -704,9 +698,7 @@ def test_rewrite_copy_success(monkeypatch):
 def test_rewrite_copy_dmr_failure_returns_none(monkeypatch):
     import app.services.dmr as dmr
 
-    monkeypatch.setattr(
-        dmr, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dmr down"))
-    )
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dmr down")))
     post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
     assert _drive(M._rewrite_copy_for_media(post)) is None
 
@@ -715,9 +707,7 @@ def test_rewrite_copy_echo_rejected(monkeypatch):
     import app.services.dmr as dmr
 
     original = "Original post copy that is long enough to pass the minimum length guard."
-    monkeypatch.setattr(
-        dmr, "call_dmr_chat", AsyncMock(return_value={"text": original})
-    )
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": original}))
     post = _post(content=original)
     assert _drive(M._rewrite_copy_for_media(post)) is None
 

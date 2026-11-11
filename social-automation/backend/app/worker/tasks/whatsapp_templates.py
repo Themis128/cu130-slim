@@ -99,10 +99,7 @@ async def _poll() -> dict[str, Any]:
                 if prev != status:
                     stats["changes"] += 1
                     reason = t.get("rejected_reason") or ""
-                    alerts.append(
-                        f"WhatsApp template `{t.get('name')}` ({t.get('language')}) "
-                        f"{prev} → {status}" + (f" — {reason}" if reason else "")
-                    )
+                    alerts.append(f"WhatsApp template `{t.get('name')}` ({t.get('language')}) {prev} → {status}" + (f" — {reason}" if reason else ""))
                     dirty = True
             # Templates that disappeared from the WABA are worth a note too.
             for key in known:

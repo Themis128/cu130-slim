@@ -370,9 +370,7 @@ def find_recording_file(messages: list[dict]) -> dict | None:
     return found
 
 
-async def download_talk_file(
-    file_id: int, path: str | None = None
-) -> tuple[bytes, str] | None:
+async def download_talk_file(file_id: int, path: str | None = None) -> tuple[bytes, str] | None:
     """Download a Talk-shared file.
 
     ``/index.php/f/{id}`` returns the HTML file viewer, not bytes — the raw

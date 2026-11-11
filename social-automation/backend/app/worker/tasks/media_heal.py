@@ -131,35 +131,17 @@ async def _rewrite_copy_for_media(post: Post) -> str | None:
 async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
     """Return (healable, exhausted) posts for media-failed targets."""
     rows = (
-        (
-            await db.execute(
-                select(PostTarget.post_id)
-                .where(PostTarget.status.in_(["skipped", "failed"]))
-                .where(PostTarget.error_message.is_not(None))
-            )
-        )
+        (await db.execute(select(PostTarget.post_id).where(PostTarget.status.in_(["skipped", "failed"])).where(PostTarget.error_message.is_not(None))))
         .scalars()
         .all()
     )
     if not rows:
         return [], []
-    posts = (
-        (
-            await db.execute(
-                select(Post)
-                .where(Post.id.in_(set(rows)))
-                .where(Post.status.in_([PostStatus.FAILED, PostStatus.SUPPRESSED]))
-            )
-        )
-        .scalars()
-        .all()
-    )
+    posts = (await db.execute(select(Post).where(Post.id.in_(set(rows))).where(Post.status.in_([PostStatus.FAILED, PostStatus.SUPPRESSED])))).scalars().all()
     healable: list[Post] = []
     exhausted: list[Post] = []
     for post in posts:
-        targets = (
-            await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
-        ).scalars().all()
+        targets = (await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))).scalars().all()
         if not any(_is_media_failure(t.error_message) for t in targets):
             continue
         if any(t.status == "published" for t in targets):
@@ -168,15 +150,7 @@ async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
         # must keep its own media type; swapping it for one slide would
         # ship the wrong media.
         if post.media_ids:
-            assets = (
-                (
-                    await db.execute(
-                        select(MediaAsset).where(MediaAsset.id.in_(post.media_ids))
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))).scalars().all()
             if len(assets) != 1 or not (assets[0].mime_type or "").startswith("image/"):
                 continue
         attempts = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
@@ -254,11 +228,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                         .where(PostTarget.post_id == pid)
                     )
                 ).all()
-                account_ids = [
-                    str(acc_id)
-                    for acc_id, platform in target_rows
-                    if platform not in _VIDEO_ONLY_PLATFORMS
-                ]
+                account_ids = [str(acc_id) for acc_id, platform in target_rows if platform not in _VIDEO_ONLY_PLATFORMS]
                 if not account_ids:
                     continue
                 attempts_done = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
@@ -272,9 +242,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                     try:
                         bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE)
                         if bg_img is not None:
-                            bg_img = await _qa_generated_background(
-                                bg_img, image_prompt, CF_TXT2IMG_FREE, "media-heal"
-                            )
+                            bg_img = await _qa_generated_background(bg_img, image_prompt, CF_TXT2IMG_FREE, "media-heal")
                     except Exception as exc:
                         logger.info("media-heal bg generation skipped for %s: %s", pid, exc)
                         bg_img = None
