@@ -1406,3 +1406,32 @@ Leftovers:
   `error_class='transient'` so `publish-retry-sweep` republishes them.
   R2 path itself is healthy.
 - **Ops-health "38 failed"** = the same bluesky/instagram cluster above.
+
+## 2026-11-11 (pm3) — Instagram auth-revocation incident + healer gap fixed
+
+- **Trigger**: Meta invalidated sessions after credential/security events
+  (FB side still in 2FA). IG Graph token → OAuthException 190 revoked;
+  `social_accounts.status` flipped `revoked`. 7 failed targets marked
+  `error_class='terminal'` to stop retry churn until session restored.
+- **Bridge IG web session is ALIVE** (@cloudless.gr, ds_user_id
+  61511170480 matches stored `private_api_ds_user_id`). Extracted fresh
+  sessionid/csrftoken via `POST :9223/session/extract` and wrote
+  `private_api_session_id` (encrypt_field, URL-decoded) into meta_data.
+- **Healer gap found + fixed (PR)**: `session_healer._sync_browser_cookies`
+  persisted cookies to `browser_cookies` but NEVER refreshed
+  `private_api_session_id` — the field the publish ladder actually reads.
+  Now syncs sessionid/csrftoken/ds_user_id → private_api_* on every
+  instagram extract, and un-revokes the account. Hourly `heal_sessions`
+  beat keeps the sidecar credential fresh automatically.
+- **Remaining IG blocker**: aiograpi sidecar rejects even the fresh
+  sessionid (`login_required` → `Exceeded maximum allowed redirects` via
+  WARP proxy; password login broken — IG stopped returning
+  `ig-set-password-encryption-key-id`, aiograpi 1.0.9 crash). IG is
+  risk-engine challenging the private-API client. Durable fixes, in
+  order: (a) INSTAGRAM2_CLIENT_ID/SECRET don't exist in env/compose —
+  wire Instagram Business Login OAuth (instagram2_authorize endpoint
+  exists but unconfigured) so Graph token reconnect is self-serve;
+  (b) upgrade/patch aiograpi for the new password-encryption flow;
+  (c) owner re-login in IG app if checkpoint demanded.
+- **Bluesky**: app-password updated in DB (see pm2 entry); publishes
+  should recover on next attempt.
