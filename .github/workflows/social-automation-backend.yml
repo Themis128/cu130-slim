@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
+      new_app_files: ${{ steps.filter.outputs.new_app_files }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,6 +52,13 @@ jobs:
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
           fi
+          # PR-added backend app/ files feed the per-file coverage gate in
+          # the test job — comma-separated, empty when none were added.
+          added=$(git diff --name-only --diff-filter=A \
+            "origin/${BASE_REF}...HEAD" \
+            | grep -E '^social-automation/backend/app/.*\.py$' \
+            | paste -sd, - || true)
+          echo "new_app_files=$added" >> "$GITHUB_OUTPUT"
 
   test:
     needs: changes
@@ -153,6 +161,18 @@ jobs:
           SECRET_KEY: test-secret-key-for-testing-only
           ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
           JWT_SECRET_KEY: test-jwt-secret-key-for-testing-only
+
+      - name: New-file coverage gate
+        # Names PR-added app/ files below the floor — the global gates only
+        # report totals, so a single untested module fails opaquely.
+        if: github.event_name == 'pull_request'
+        env:
+          NEW_APP_FILES: ${{ needs.changes.outputs.new_app_files }}
+        run: |
+          cd social-automation/backend
+          printf '%s' "$NEW_APP_FILES" | tr ',' '\n' > /tmp/new_app_files.txt
+          python scripts/check_new_file_coverage.py coverage.json \
+            --min-lines 80.0 /tmp/new_app_files.txt
 
       - name: Upload coverage
         uses: codecov/codecov-action@v7
