@@ -6,6 +6,11 @@ Drop conventions (any filename match; first line = the secret):
     viber*.txt      → viber bot token           → viber_provision --token
     (files are consumed + shredded after a successful wire)
 
+Telegram drops: message the bot "bsky <pw>" / "viber <tok>" /
+"whatsapp|meta <token>" — the webhook queues it on Redis ``gate:drops``
+and this consumer provisions it (getUpdates can't coexist with the
+webhook — HTTP 409).
+
     gate_capture.py scan    # one-shot sweep (cron: */15 * * * *)
     gate_capture.py status  # what's wired, what's still missing
 """
@@ -49,56 +54,52 @@ def _run(script: str, args: list[str]) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr)[-400:]
 
 
-_TG_PARSE = __import__("re").compile(
-    r"\b(bsky|viber|whatsapp|meta)[:\s]+([A-Za-z0-9_\-\.]{8,})", __import__("re").I)
+def _redis_drops() -> int:
+    """Consume credential drops queued by the Telegram webhook.
 
-
-def _tg_drops() -> int:
-    """Poll the bot's getUpdates for 'bsky <pw>' / 'viber <tok>' drops and
-    provision them — the phone-friendly alternative to file drops."""
+    The webhook (app/api/telegram.py) matches ``bsky|viber|whatsapp|meta
+    <secret>`` messages and LPUSHes {plat, secret_enc(Fernet), ts} onto the
+    Redis list ``gate:drops`` — getUpdates polling is impossible while the
+    webhook is registered (HTTP 409). This pops items inside social-api
+    (decrypt there, never on the host plaintext-at-rest), provisions them
+    with the same dispatch as file drops, and requeues failures (≤3 tries).
+    """
     script = """
-import asyncio, json, re
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select
-from app.models import SocialAccount
+import asyncio, json
+import redis.asyncio as aioredis
 from app.core.config import get_settings
 from app.core.security import decrypt_token
-import httpx
 async def go():
-    eng = create_async_engine(get_settings().DATABASE_URL)
-    S = sessionmaker(eng, class_=AsyncSession)
-    async with S() as db:
-        acc = (await db.execute(select(SocialAccount).where(
-            SocialAccount.platform=='telegram',
-            SocialAccount.status=='active').limit(1))).scalar_one()
-        enc = acc.meta_data.get('bot_token_enc')
-        tok = decrypt_token(enc.encode() if isinstance(enc,str) else enc) \
-            if enc else decrypt_token(acc.access_token_enc)
-        r = await httpx.AsyncClient().get(
-            f'https://api.telegram.org/bot{tok}/getUpdates',
-            params={'offset': -20, 'timeout': 2})
-        out = []
-        for u in r.json().get('result', []):
-            m = u.get('message') or {}
-            txt = m.get('text') or ''
-            out.append(txt)
-        print(json.dumps(out))
+    r = aioredis.from_url(get_settings().REDIS_URL)
+    out = []
+    for _ in range(25):
+        raw = await r.rpop('gate:drops')
+        if not raw:
+            break
+        try:
+            d = json.loads(raw)
+            d['secret'] = decrypt_token(d['secret_enc'].encode())
+            d['_raw'] = raw.decode() if isinstance(raw, bytes) else raw
+            out.append(d)
+        except Exception:
+            pass
+    await r.aclose()
+    print(json.dumps(out))
 asyncio.run(go())
 """
     r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
                        input=script, capture_output=True, text=True,
                        timeout=45)
     try:
-        msgs = json.loads(r.stdout.strip().splitlines()[-1])
+        drops = json.loads(r.stdout.strip().splitlines()[-1])
     except Exception:
         return 0
     hits = 0
-    for m in msgs:
-        hit = _TG_PARSE.search(m or "")
-        if not hit:
+    for d in drops:
+        plat = str(d.get("plat") or "").lower()
+        sec = str(d.get("secret") or "")
+        if plat not in ("bsky", "viber", "whatsapp", "meta") or len(sec) < 8:
             continue
-        plat, sec = hit.group(1).lower(), hit.group(2)
         if plat in ("whatsapp", "meta"):
             rc, out = _whatsapp_token(sec)
         else:
@@ -113,31 +114,75 @@ asyncio.run(go())
             print(f"tg {plat} drop → wired")
         else:
             print(f"tg {plat} drop → rc={rc} {out[:60]}")
+            _requeue_drop(d)
     return hits
 
 
+def _requeue_drop(d: dict) -> None:
+    """Push a failed drop back onto ``gate:drops`` (max 3 retries) so a
+    transient provision failure doesn't silently lose the credential."""
+    tries = int(d.get("tries") or 0) + 1
+    raw = d.get("_raw")
+    if tries > 3 or not raw:
+        return
+    try:
+        obj = json.loads(raw)
+        obj["tries"] = tries
+        payload = json.dumps(obj)
+    except Exception:
+        return
+    script = (
+        "import asyncio, redis.asyncio as aioredis\n"
+        "from app.core.config import get_settings\n"
+        "async def go():\n"
+        "    r = aioredis.from_url(get_settings().REDIS_URL)\n"
+        f"    await r.lpush('gate:drops', {payload!r})\n"
+        "    await r.aclose()\n"
+        "asyncio.run(go())\n"
+    )
+    subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
+                   input=script, capture_output=True, text=True, timeout=30)
+
+
 def _whatsapp_token(tok: str):
-    """Update the revoked whatsapp row's access_token_enc + flip to active."""
+    """Validate a candidate WA system-user token against Graph API, then
+    update the whatsapp row's access_token_enc + flip to active. A bad
+    drop must never overwrite the live token — validation runs BEFORE the
+    DB write and any Graph error aborts without touching the row."""
     script = """
-import asyncio
+import asyncio, json, os, urllib.request
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 from app.models import SocialAccount
 from app.core.config import get_settings
 from app.core.security import encrypt_token
+TOK = __TOK__
 async def go():
     eng = create_async_engine(get_settings().DATABASE_URL)
     S = sessionmaker(eng, class_=AsyncSession)
     async with S() as db:
         acc = (await db.execute(select(SocialAccount).where(
             SocialAccount.platform=='whatsapp').limit(1))).scalar_one()
-        acc.access_token_enc = encrypt_token(%r)
+        md = acc.meta_data or {}
+        phone_id = md.get('phone_number_id') or os.environ.get('WHATSAPP_PHONE_NUMBER_ID')
+        if not phone_id:
+            print('no phone_number_id — cannot validate'); return 2
+        url = ('https://graph.facebook.com/v21.0/' + str(phone_id)
+               + '?fields=display_phone_number&access_token=' + TOK)
+        try:
+            d = json.loads(urllib.request.urlopen(url, timeout=15).read())
+        except Exception as e:
+            print('graph validate failed:', e); return 2
+        if 'error' in d or 'display_phone_number' not in d:
+            print('token rejected by graph:', json.dumps(d.get('error', d))[:200]); return 2
+        acc.access_token_enc = encrypt_token(TOK)
         acc.status = 'active'
         await db.commit()
-        print('token updated, status=active')
-asyncio.run(go())
-""" % tok
+        print('token validated + updated, status=active')
+        return 0
+raise SystemExit(asyncio.run(go()))
+""".replace("__TOK__", repr(tok))
     r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
                        input=script, capture_output=True, text=True, timeout=60)
     return r.returncode, r.stdout + r.stderr
@@ -163,7 +208,7 @@ def _waba_watch() -> None:
 
 
 def scan() -> int:
-    hits = _tg_drops()
+    hits = _redis_drops()
     for f in sorted(glob.glob(os.path.join(DL, "*"))):
         name = os.path.basename(f).lower()
         if not os.path.isfile(f) or f in _done():
