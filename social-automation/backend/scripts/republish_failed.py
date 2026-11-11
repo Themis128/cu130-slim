@@ -94,9 +94,7 @@ async def main() -> None:
         for post in posts:
             if (post.content_text or "").strip().lower().startswith(("calendar e2e", "e2e ")):
                 continue  # test artifacts, not content
-            targets = (
-                (await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))).scalars().all()
-            )
+            targets = (await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))).scalars().all()
             reasons = [((t.error_message or "").lower()) for t in targets if t.status == "skipped"]
             if reasons and all(any(m in r for m in POLICY_MARKERS) for r in reasons):
                 suppressed.append(str(post.id))
@@ -118,8 +116,10 @@ async def main() -> None:
         )
         for acc in accounts:
             healthy_accounts.setdefault(acc.platform, []).append(acc)
-        print(f"healthy text-platform accounts: {sum(len(v) for v in healthy_accounts.values())} "
-              f"({', '.join(f'{k}:{len(v)}' for k, v in sorted(healthy_accounts.items()))})")
+        print(
+            f"healthy text-platform accounts: {sum(len(v) for v in healthy_accounts.values())} "
+            f"({', '.join(f'{k}:{len(v)}' for k, v in sorted(healthy_accounts.items()))})"
+        )
 
         created: list[str] = []
         skipped_posts: list[tuple[str, str]] = []
