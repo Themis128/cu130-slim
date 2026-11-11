@@ -15,6 +15,7 @@ No-op when the account has no ``waba_id`` or the token can't read templates.
 
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 GRAPH_API_VERSION = "v26.0"
 GRAPH_BASE = "https://graph.facebook.com"
+# Meta documents template review at up to 24-48h; past that the fix is a
+# support ticket, so alert once per template instead of polling forever.
+PENDING_STALE_AFTER = timedelta(hours=48)
 
 
 async def _fetch_templates(waba_id: str, token: str) -> list[dict] | None:
@@ -84,6 +88,15 @@ async def _poll() -> dict[str, Any]:
             stats["templates"] += len(templates)
 
             known: dict[str, str] = dict(meta.get("whatsapp_templates") or {})
+            pending_since: dict[str, str] = dict(
+                meta.get("whatsapp_template_pending_since") or {}
+            )
+            pending_since_orig = dict(pending_since)
+            stale_alerted: set[str] = set(
+                meta.get("whatsapp_template_stale_alerted") or []
+            )
+            stale_alerted_orig = set(stale_alerted)
+            now = datetime.now(UTC)
             current: dict[str, str] = {}
             dirty = False
             for t in templates:
@@ -91,6 +104,11 @@ async def _poll() -> dict[str, Any]:
                 status = t.get("status") or "UNKNOWN"
                 current[key] = status
                 prev = known.get(key)
+                if status == "PENDING":
+                    pending_since.setdefault(key, now.isoformat())
+                else:
+                    pending_since.pop(key, None)
+                    stale_alerted.discard(key)
                 if prev is None:
                     # First sight — record silently (avoids alert storms on
                     # first run after deploy).
@@ -108,8 +126,34 @@ async def _poll() -> dict[str, Any]:
                     alerts.append(f"WhatsApp template `{key}` removed from WABA")
                     dirty = True
 
-            if dirty:
+            # Stale-PENDING escalation: Meta's documented review window is
+            # ~24-48h; beyond that the remediation is a support ticket.
+            for key, since_iso in pending_since.items():
+                if key in stale_alerted or key not in current:
+                    continue
+                try:
+                    since = datetime.fromisoformat(since_iso)
+                except ValueError:
+                    pending_since[key] = now.isoformat()
+                    dirty = True
+                    continue
+                if now - since > PENDING_STALE_AFTER:
+                    name, _, lang = key.partition("|")
+                    alerts.append(
+                        f"WhatsApp template `{name}` ({lang}) still PENDING "
+                        f">48h — Meta review window exceeded; open a "
+                        f"support ticket in Business Support Home"
+                    )
+                    stale_alerted.add(key)
+                    dirty = True
+
+            # Drop tracking for templates no longer on the WABA.
+            pending_since = {k: v for k, v in pending_since.items() if k in current}
+
+            if dirty or pending_since != pending_since_orig or stale_alerted != stale_alerted_orig:
                 meta["whatsapp_templates"] = current
+                meta["whatsapp_template_pending_since"] = pending_since
+                meta["whatsapp_template_stale_alerted"] = sorted(stale_alerted)
                 account.meta_data = meta
                 flag_modified(account, "meta_data")
                 await db.commit()
