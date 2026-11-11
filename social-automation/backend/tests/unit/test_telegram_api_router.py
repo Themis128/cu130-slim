@@ -9,6 +9,7 @@ webhook's auth gate.
 
 from __future__ import annotations
 
+import json
 import sys
 import uuid
 from types import ModuleType, SimpleNamespace
@@ -1098,6 +1099,104 @@ async def test_webhook_inbound_guards(monkeypatch):
     )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["auto_reply"] is False
+
+
+class _FakeGateRedis:
+    def __init__(self, store):
+        self._store = store
+
+    async def lpush(self, key, val):
+        self._store["key"] = key
+        self._store["val"] = val
+
+    async def expire(self, key, ttl):
+        self._store["ttl"] = ttl
+
+    async def aclose(self):
+        self._store["closed"] = True
+
+
+def _patch_gate_redis(monkeypatch, store=None, side_effect=None):
+    import redis.asyncio as aioredis
+
+    if side_effect is not None:
+        monkeypatch.setattr(aioredis, "from_url", lambda url: (_ for _ in ()).throw(side_effect))
+        return
+    store = store if store is not None else {}
+    monkeypatch.setattr(aioredis, "from_url", lambda url: _FakeGateRedis(store))
+    return store
+
+
+@pytest.mark.asyncio
+async def test_webhook_gate_drop_enqueues_and_acks(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    client = _FakeClient()
+    _patch_client(monkeypatch, client)
+    _patch_crypto(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {
+            "text": "bsky:example-app-password-123",
+            "chat_id": 42,
+            "message_id": 7,
+            "chat_type": "private",
+        },
+    )
+    store = _patch_gate_redis(monkeypatch)
+
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["gate_drop"] == "bsky"
+    assert store["key"] == "gate:drops"
+    assert store["closed"] is True
+    payload = json.loads(store["val"])
+    assert payload["plat"] == "bsky"
+    assert payload["secret_enc"] == "enc-bytes"
+    assert payload["chat_id"] == "42"
+    assert payload["account_id"] == str(acc.id)
+    assert store["ttl"] == 7 * 24 * 3600
+    client.send_message.assert_awaited_once()
+    assert "Credential drop received" in client.send_message.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_webhook_gate_drop_ack_failure_tolerated(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    client = _FakeClient(send_message=RuntimeError("tg down"))
+    _patch_client(monkeypatch, client)
+    _patch_crypto(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {
+            "text": "viber:abcdef123456",
+            "chat_id": 9,
+            "chat_type": "private",
+        },
+    )
+    store = _patch_gate_redis(monkeypatch)
+
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["gate_drop"] == "viber"
+    assert json.loads(store["val"])["plat"] == "viber"
+
+
+@pytest.mark.asyncio
+async def test_webhook_gate_drop_enqueue_failure_tolerated(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _patch_crypto(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {
+            "text": "whatsapp:tok_abcdef123456",
+            "chat_id": 3,
+            "chat_type": "private",
+        },
+    )
+    _patch_gate_redis(monkeypatch, side_effect=RuntimeError("redis down"))
+
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert "gate_drop" not in out
+    assert out["status"] == "ok"
 
 
 @pytest.mark.asyncio
