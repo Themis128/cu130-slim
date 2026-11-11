@@ -33,7 +33,15 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[5]
+def _repo_root() -> Path:
+    p = Path(__file__).resolve()
+    for parent in p.parents:
+        if (parent / ".env").exists() and (parent / ".devin").is_dir():
+            return parent
+    return Path.home() / "cu130-slim"
+
+
+REPO_ROOT = _repo_root()
 NS = {"d": "DAV:"}
 
 EXPECTED_INSTANTUPLOAD = {"Camera", "Screenshots", "Telegram Images"}
