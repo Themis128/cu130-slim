@@ -80,7 +80,7 @@ def _login() -> str:
     return d.get("access_token") or d.get("token")
 
 
-def _connect(handle: str, app_password: str) -> None:
+def _connect(handle: str, app_password: str) -> bool:
     tok = _login()
     r = urllib.request.Request(
         f"{API}/api/v1/bluesky/connect",
@@ -91,8 +91,10 @@ def _connect(handle: str, app_password: str) -> None:
     try:
         d = json.loads(urllib.request.urlopen(r, timeout=30).read())
         print("wired:", json.dumps(d)[:200])
+        return True
     except urllib.error.HTTPError as e:
         print("connect err:", e.code, e.read()[:200])
+        return False
 
 
 def from_password(handle: str, password: str) -> None:
@@ -155,7 +157,7 @@ def main() -> int:
     elif a.cmd == "create":
         create(a.handle, a.email, a.phone, a.code)
     else:
-        _connect(a.handle, a.app_password)
+        return 0 if _connect(a.handle, a.app_password) else 1
     return 0
 
 

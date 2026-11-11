@@ -18,7 +18,20 @@ python3 .devin/skills/human-gate-capture-ops/scripts/gate_capture.py scan     # 
 python3 .devin/skills/human-gate-capture-ops/scripts/gate_capture.py status
 ```
 
-Cron: `*/15 * * * * python3 .../gate_capture.py scan >> /tmp/gate_capture.log 2>&1`
+Cron: `*/15 * * * * python3 .../gate_capture.py scan >> ~/logs/gate-capture.log 2>&1`
+(user crontab — installed 2026-11-11)
+
+## Telegram drops (webhook → Redis → this consumer)
+
+Message the bot `bsky <pw>` / `viber <tok>` / `whatsapp <token>` /
+`meta <token>` (same regex as the file drops). The webhook can't run the
+host provision scripts, and `getUpdates` polling 409s while the webhook
+is registered — so `app/api/telegram.py` matches the pattern, LPUSHes
+`{plat, secret_enc, ts, chat_id}` onto Redis list `gate:drops` (Fernet-
+encrypted secret), and acks the sender. `gate_capture.py scan` RPOPs the
+list inside `social-api` (decrypt happens in-container), provisions via
+the same dispatch as file drops, and requeues failures ≤3 tries. Secret
+never touches host disk or logs.
 
 ## Interview-coach key (already a non-gate)
 
