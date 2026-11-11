@@ -1406,3 +1406,33 @@ Leftovers:
   `error_class='transient'` so `publish-retry-sweep` republishes them.
   R2 path itself is healthy.
 - **Ops-health "38 failed"** = the same bluesky/instagram cluster above.
+
+## 2026-11-11 (fb-approval-watch: Windows OCR lane for "This was me")
+
+- **New automation (home-ops `b5e3063`, live via user crontab */2min)**:
+  `scripts/fb-approval-watch.sh` watches `ig-fb-session-heal.log`; when a
+  "notification-approval" window is active (≤15min, ≤3 passes/window) it
+  opens facebook.com in the user's real Windows Chrome via win_agent
+  (:8765) and runs `C:\tmp\fb_win_ocr.ps1` (source:
+  `home-ops/scripts/fb_win_ocr.ps1`) — foregrounds the FB window
+  (AttachThreadInput+SetForegroundWindow), captures its rect, OCRs via
+  Windows.Media.Ocr, and clicks the first approve-class word
+  ("this was me"/"approve"/"was this you"/…) ONLY when zero deny-class
+  words are on screen. Log: `~/logs/fb-approval-watch.log`.
+- **Verified mechanically**: window foregrounding, region capture, OCR
+  line/word extraction with bounding boxes, deny-guard logic — all live
+  on the real desktop. NOT yet validated against a real approval dialog
+  (last window 16:31 ended ~16:36 before UI could be confirmed; Meta
+  killed that pending approval early — possibly attempt-frequency
+  escalation, another reason the healer backoff matters).
+- **Uncertainty**: whether Meta renders the pending approval as an
+  on-page modal vs notification-bell item vs dedicated URL — if it's
+  bell-only, v1 (home-page scan) won't see it; next iteration should
+  also try `facebook.com/notifications` via SendKeys navigation.
+- **FB UWP app lane dead**: `FACEBOOK.FACEBOOK` package installed but
+  launches and exits instantly (deprecated 2023 build). Messenger UWP
+  likely same. Chrome web-AX also dead (WM_GETOBJECT OBJID_CLIENT
+  returns handle but renderer never exposes web content — Chrome 157).
+- **Side note**: user is actively browsing on the Windows desktop —
+  the watcher foregrounds the FB window during approval windows only;
+  that's the intended trade-off for unattended approval.

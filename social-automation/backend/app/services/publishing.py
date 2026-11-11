@@ -27,6 +27,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import secrets
 import time
 import urllib.parse
@@ -100,6 +101,15 @@ _FB_GROUP_MARKERS = (
 )
 _TT_OWNERSHIP_MARKERS = ("url_ownership_unverified",)
 _TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
+# LLM prompt/scaffold envelopes that must never reach a platform — leaked
+# into content_text by the media-heal rewrite lane on 2026-11-11 (11 live
+# posts deleted). Matches at start-of-text or anywhere for JSON blobs.
+_LLM_SCAFFOLD_RE = re.compile(
+    r"(?i)(?:^\s*(?:PLAIN ENGLISH RULES|Rewritten string:|Final check:|"
+    r"This is a social media caption rewritten|Publish on LinkedIn at \d|"
+    r"/no_think\b)|(?:^\s*\{\s*\"(?:text|caption|post)\"\s*:))"
+)
+
 _TT_CANCELLED_MARKERS = ("publish_cancelled",)
 _X_QUOTA_MARKERS = (
     "credits-depleted",
@@ -774,6 +784,22 @@ async def publish_to_platform(
                 "Suspected mangled copy — refusing to publish. Suspicious "
                 f"token(s): {', '.join(gibberish[:5])} (usually a dropped "
                 "space or stray capital). Fix the post text and retry."
+            ),
+        )
+
+    # LLM-scaffolding guard (2026-11-11 incident): the media-heal rewrite
+    # lane leaked prompt envelopes into content_text and 11 posts shipped
+    # "PLAIN ENGLISH RULES…", "Rewritten string: …", raw {"text": …} JSON
+    # and meta-commentary to live LinkedIn/FB/Telegram accounts. Reject the
+    # known scaffolding signatures before any platform dispatch.
+    if _LLM_SCAFFOLD_RE.search(text):
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "Refusing to publish — content looks like LLM scaffolding, "
+                "not post copy (prompt rules, rewrite envelope, raw JSON, "
+                "or meta-commentary). Fix the post text and retry."
             ),
         )
 
