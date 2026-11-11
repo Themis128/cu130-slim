@@ -262,7 +262,10 @@ folder-sync/instant-upload surface after the 2026-11-11 dedupe incident:
   `tbaltzakis@192.168.1.200` → `docker exec nextcloud php occ …`)
 
 Exit 0 = clean, 1 = findings (alerted), 2 = config error. Read-only; safe
-for cron. Canonical phone config: ONE auto-upload `DCIM/Camera →
+for cron. Companion fixer: `scripts/nc_dedupe.py` — checksum-verified
+(`oc:checksums` SHA1) duplicate cleaner; DELETEs byte-identical files in
+dup dirs, MOVEs mismatches to `Conflicts-Archive/Dedupe-<date>/` (reversible).
+Canonical phone config: ONE auto-upload `DCIM/Camera →
 /InstantUpload/Camera` + `DCIM/Screenshots → /InstantUpload/Screenshots`;
 Windows desktop client excludes `PhoneBackup` via `sync-exclude.lst`.
 
