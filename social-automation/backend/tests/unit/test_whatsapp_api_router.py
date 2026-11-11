@@ -254,23 +254,31 @@ def test_client_400_no_credentials():
 
 def test_client_plaintext_token_no_decrypt(monkeypatch):
     called = []
-    monkeypatch.setattr(whatsapp, "decrypt_token", lambda t: called.append(t) or "dec")
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: called.append(t) or t)
     acc = _wa_account()
     client = _get_whatsapp_client(acc)
     assert client.phone_number_id == "1334613883061552"
-    assert not called  # "EA..." tokens skip decryption
+    # decrypt_field sees every string token but only decrypts "enc:" values —
+    # plaintext passes through unchanged.
+    assert called == ["EAAtoken123"]
 
 
 def test_client_encrypted_token_decrypted(monkeypatch):
-    monkeypatch.setattr(whatsapp, "decrypt_token", lambda t: "EAdecrypted")
-    acc = _wa_account(meta_data={"access_token": "gAAAAenc", "phone_number_id": "12345"})
+    seen = []
+    monkeypatch.setattr(
+        whatsapp, "decrypt_field", lambda t: seen.append(t) or "EAdecrypted"
+    )
+    acc = _wa_account(meta_data={"access_token": "enc:blob", "phone_number_id": "12345"})
     client = _get_whatsapp_client(acc)
     assert client.phone_number_id == "12345"
+    assert seen == ["enc:blob"]
 
 
 def test_client_decrypt_failure_falls_back(monkeypatch):
-    monkeypatch.setattr(whatsapp, "decrypt_token", lambda t: (_ for _ in ()).throw(ValueError("bad")))
-    acc = _wa_account(meta_data={"access_token": "weirdtoken", "phone_number_id": "12345"})
+    # decrypt_field returns None for undecryptable "enc:" values — the
+    # stored string is kept, same fallback as the old try/except.
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: None)
+    acc = _wa_account(meta_data={"access_token": "enc:bad", "phone_number_id": "12345"})
     client = _get_whatsapp_client(acc)  # plaintext fallback, no raise
     assert client.phone_number_id == "12345"
 
@@ -1370,12 +1378,12 @@ async def test_promote_flow_decrypts_non_ea_token(monkeypatch):
     r = SimpleNamespace(get=AsyncMock(return_value=None), setex=AsyncMock())
     sent = []
     calls = []
-    monkeypatch.setattr(whatsapp, "decrypt_token", lambda t: calls.append(t) or "EAdecrypted")
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: calls.append(t) or "EAdecrypted")
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
-    acc = _promo_account(access_token="gAAAAenc")
+    acc = _promo_account(access_token="enc:blob")
     await whatsapp._maybe_promote_flow(acc, "+30", "greeting")
-    assert calls == ["gAAAAenc"]
+    assert calls == ["enc:blob"]
     assert sent[0]["init"]["access_token"] == "EAdecrypted"
 
 
