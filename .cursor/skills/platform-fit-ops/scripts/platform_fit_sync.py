@@ -158,7 +158,13 @@ def resolve_team_id() -> str:
 
 def seed_brain(fit: dict) -> bool:
     team_id = resolve_team_id()
-    payload = json.dumps({"team_id": team_id, "text": brain_markdown(fit)})
+    payload = json.dumps({
+        "team_id": team_id,
+        "text": brain_markdown(fit),
+        # Non-ASCII must ride the env payload (json escapes it) — a literal
+        # em-dash inside the -c code gets mangled to ??? under POSIX locale.
+        "note_title": "Platform Content Fit — Reference",
+    })
     code = (
         "import asyncio, json, os\n"
         "from app.services.company_brain import remember, _write_nextcloud_note\n"
@@ -166,7 +172,7 @@ def seed_brain(fit: dict) -> bool:
         "async def main():\n"
         "    m = await remember(p['team_id'], 'platform-fit-reference', p['text'],\n"
         "                        metadata={'kind': 'platform-fit', 'day': 'reference'})\n"
-        "    n = await _write_nextcloud_note('Platform Content Fit — Reference', p['text'])\n"
+        "    n = await _write_nextcloud_note(p['note_title'], p['text'])\n"
         "    print('memory:', m, 'note:', n)\n"
         "asyncio.run(main())\n"
     )
