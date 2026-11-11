@@ -1550,57 +1550,23 @@ Leftovers:
 - **Bluesky**: app-password updated in DB (see pm2 entry); publishes
   should recover on next attempt.
 
-## 2026-11-11 (late) — Meta #785 leads_retrieval: use case added, usage saved
+## 2026-11-11 (late2) — WSL/Docker flap root cause found + fixed
 
-- **Root cause of earlier stall found**: `leads_retrieval` does NOT live under
-  Facebook Login for Business or the Instagram use cases. Correct use case =
-  **"Capture & manage ad leads with Marketing API"**
-  (`use_case_enum=MARKETING_API_LEADS_CAPTURE`).
-- **DONE — use case added**: `Use cases → Add use cases → filter All → card
-  "Capture & manage ad leads with Marketing API"`. The card is a
-  `role=button` div (~706px wide); click its center — selection shows
-  `aria-checked/pressed=true` on an ancestor; then catalog **Save**
-  (~1412,810). Card then appears in the main use-case list with Customize.
-- **DONE — permission queued**: Customize → Permissions and features →
-  `leads_retrieval` row → Actions → "Go to App Review". Confirmed in
-  `/app-review/submissions` New requests list.
-- **DONE — allowed usage for leads_retrieval**: submission wizard →
-  "Go to allowed usage" → per-permission slide-over panel (position:absolute)
-  → textarea (React native setter + input/change events) + compliance
-  checkbox + Save. Text describes real flow: lead ads on our Page →
-  `_ingest_meta_leadgen` (app/api/messenger.py) → Graph leadgen fetch →
-  EspoCRM Lead. Status now shows **Edit** (saved).
-- **REMAINING in Allowed usage** (both pulled in by the leads use case,
-  both show "Get started"):
-  1. `pages_manage_ads` — panel needs: description (FILLED, save unverified —
-     panel closed during docker flap, re-check), **screencast upload**,
-     **1 API test call** (Testing tab; attempted
-     `GET /116436681562585/leadgen_forms` → 403 "Requires pages_manage_ads" —
-     proves boundary but token lacks the permission), compliance checkbox.
-  2. `Marketing API Access Tier` — Get started, requirements TBD.
-- **Token reality**: page token (`social_accounts.meta_data.page_token`,
-  EAAG… len 214) predates the new permissions → 403 on leadgen_forms.
-  To get a token carrying pages_manage_ads/leads_retrieval the FB user must
-  re-authorize via OAuth dialog with the new scopes — the same flow the
-  screencast must show anyway. Standard dialog/oauth scope list in
-  `app/api/auth.py` does NOT include the new perms; they belong to the
-  Marketing API lead-ads use case — check whether dialog/oauth accepts them
-  in `scope=` or whether a Facebook Login for Business `config_id`
-  (Configurations section) is required.
-- **Honest-demo constraint**: app does NOT create/manage ads (no Marketing
-  API ad-write calls in codebase; ads_management/ads_read appear only in
-  OAuth scope lists). pages_manage_ads usage text must say it's a required
-  dependency for lead retrieval, NOT ad management. The disabled ad account
-  `657781691826702` may block creating a real lead ad — alternative real
-  demo: `POST /{leadgen-form-id}/test_leads` fires a genuine leadgen webhook
-  → `_ingest_meta_leadgen` → EspoCRM (needs a form id; create via
-  `POST /{page-id}/leadgen_forms` once token has permission).
-- **Infra**: docker daemon flapped 5-6× this session (SIGBUS/vsock);
-  sidecar loses page state each restart but FB session cookies persist
-  (`has_session:true` after relaunch). All console progress is
-  server-side saved — safe to resume at the submission URL.
-- **Resume**: reopen submission URL → Allowed usage → finish
-  pages_manage_ads (screencast + test call + checkbox) + Marketing API
-  Access Tier → verify Verification/App settings/Data handling/
-  Reviewer instructions still complete → Submit for review.
-  Then TikTok #789 unchanged (CAPTCHA + doc-type, watcher cron-armed).
+- **Root cause**: guest `Committed_AS` 33.5GB exceeded WSL CommitLimit
+  (mem*0.5+swap = 6+24 = 30GB) during the evening's 6 flaps → guest
+  overcommit → vsock wedge → docker socket/interop drops. Same class as
+  the 2026-11-06 fix; commit growth since then (51 containers + DMR
+  models) pushed peak over the limit again.
+- **Fix applied**: `.wslconfig` swap 24GB→32GB → CommitLimit 38GB.
+  Recycled via `wsl-shutdown.flag` + `wsl-recycle-watch` task; verified
+  SwapTotal=32GB, Committed_AS 33.8GB < CommitLimit 39.7GB, 52
+  containers back, social-api + FB sidecar healthy. Host free RAM also
+  recovered 1.2→7GB post-recycle.
+- **Doc drift corrected**: skills still claimed `autoMemoryReclaim=
+  dropCache` — actual config is `gradual` since the 2026-11-07 stability
+  fix (dropCache correlated with VM crashes). Both wsl-docker-doctor and
+  windows-host-ops SKILL.md updated (.devin + .cursor mirrors).
+- **Residual**: vsock decay is still the known-flaky layer; watchdogs
+  (5-min WSL integration, 2-min docker-socket-watch, social-stack) cover
+  it. If flaps persist, next lever is DMR model memory (~6.5GB host-side
+  llama-servers) or Docker Desktop version bump.
