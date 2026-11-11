@@ -1,7 +1,19 @@
+import sys
+from pathlib import Path
+
 from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import settings
+
+# The `celery` console script does not put the cwd on sys.path and the
+# editable install only exposes the `app` package — lazy `import scripts.*`
+# in worker tasks (workforce_audit, trend_ingest) raised ModuleNotFoundError.
+# Bootstrap /app (this file's grandparent dir) so `scripts/` resolves in
+# every worker + beat process and their prefork children.
+_APP_ROOT = str(Path(__file__).resolve().parents[2])
+if _APP_ROOT not in sys.path:
+    sys.path.insert(0, _APP_ROOT)
 
 celery_app = Celery(
     "social_automation",
