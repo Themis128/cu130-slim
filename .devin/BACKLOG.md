@@ -1819,3 +1819,31 @@ Newly discovered gates:
   `Created`; recovered via docker start; hash-prefixed orphan workers
   self-cleaned. compose up -d social-api in flight to bake THREADS_*
   env vars (cross-distro token bug may still bite).
+
+## CF edge expansion backlog (2026-11-12 — post AWS->CF migration)
+
+Deferred items from the "exploit the CF layer" review. Infra done:
+portfolio@portfolio.cloudless.gr live, www-cloudless static assets,
+cloudless-gr-web AWS retired, cf-workers-health watcher (10 probes,
+home-ops) covering portfolio+www+mail-outbound+lead-scheduler+
+funnel-events+postiz-ai-proxy+cloudless.gr.
+
+- [ ] **social.cloudless.gr edge-static frontend** — serve social-frontend
+  static assets from a Worker, proxy /api/* to the cloudflared tunnel
+  origin. Availability win: frontend survives Windows-host sleep.
+  social-frontend is Next.js standalone (middleware + API proxy) — needs
+  `output: export` assessment or a thin worker script + assets split.
+- [ ] **edge-forms worker (D1 + Turnstile)** — generic contact/waitlist
+  endpoint writing to D1, reusable by portfolio/www/cloudless.gr forms.
+  BLOCKED: no CF token has Turnstile scope (deploy/api/ai tokens all 10000
+  on /challenges/widgets) — needs dashboard widget or new token scope.
+- [ ] **Workers AI scoring lane for SocialAuto** — content-quality/lead
+  scoring fallback to CF Workers AI (@cf/meta/llama-3.3-70b) when DMR is
+  down; CLOUDFLARE_AI_API_TOKEN already in .env. Wire as provider in
+  app/services AI call sites behind existing fallback pattern.
+- [ ] **fleet cron probes → Worker Cron Triggers** — optional: move pure
+  HTTP health probes into a CF Worker cron so they survive host sleep;
+  TG alerting already available via bot API from worker.
+- [ ] **baltzakisthemis.com** — registrar clientHold at Amazon Registrar
+  (since 2026-10-22); lift hold in AWS console if domain wanted back.
+  Portfolio no longer depends on it (portfolio.cloudless.gr live).
