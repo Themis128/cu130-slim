@@ -37,7 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import decrypt_token
+from app.core.security import decrypt_field, decrypt_token
 from app.models.social_account import SocialAccount
 from app.services.browser_bridge import BrowserBridgeClient
 from app.services.browser_orchestrator import browser_session
@@ -108,6 +108,141 @@ def _run_async(coro):
     return run_async(coro)
 
 
+class InstagramPrivateDMClient:
+    """DM lane backed by instagrapi (private mobile API) via sessionid.
+
+    Mirrors the ``InstagramAPIClient`` surface the poll loop uses —
+    ``get_conversations`` / ``get_dm_messages`` / ``send_dm`` /
+    ``mark_dm_read`` / ``send_typing_indicator`` / ``get_me`` — returning
+    Graph-shaped payloads so downstream processing is unchanged. Used when
+    the Graph token is dead and the browser-bridge inbox endpoint is gone;
+    the session healer keeps ``private_api_session_id`` fresh from the
+    logged-in web session.
+    """
+
+    def __init__(
+        self,
+        session_id: str,
+        proxy: str | None = None,
+        settings_blob: str | None = None,
+    ) -> None:
+        self._session_id = session_id
+        self._proxy = proxy
+        self._settings_blob = settings_blob
+        self._cl: object | None = None
+
+    def _client(self):
+        if self._cl is None:
+            from instagrapi import Client
+
+            cl = Client()
+            if self._proxy:
+                try:
+                    cl.set_proxy(self._proxy)
+                except Exception:
+                    logger.warning("instagrapi DM: could not set proxy %s", self._proxy)
+            cl.set_locale("el_GR")
+            cl.set_timezone_offset(10800)
+            if self._settings_blob:
+                # Full dump_settings() blob carries the device fingerprint +
+                # cookies + headers — resumes the same "phone" instead of a
+                # cold sessionid login, which is what triggers IG checkpoints.
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    "w", suffix=".json", delete=False
+                ) as fh:
+                    fh.write(self._settings_blob)
+                    blob_path = fh.name
+                try:
+                    cl.load_settings(blob_path)
+                    # sessionid still does the auth; the blob only restores
+                    # the device fingerprint/headers so IG sees the same
+                    # "phone" resuming, not a fresh device.
+                    cl.login_by_sessionid(self._session_id)
+                finally:
+                    try:
+                        import os as _os
+
+                        _os.unlink(blob_path)
+                    except OSError:
+                        pass
+            else:
+                cl.login_by_sessionid(self._session_id)
+            self._cl = cl
+        return self._cl
+
+    async def probe(self) -> None:
+        await asyncio.to_thread(self._client)
+
+    async def get_me(self) -> dict:
+        cl = await asyncio.to_thread(self._client)
+        return {"user_id": str(cl.user_id)}
+
+    async def get_conversations(self, limit: int = 25) -> dict:
+        def _do() -> dict:
+            cl = self._client()
+            my_pk = cl.user_id
+            data = []
+            for t in cl.direct_threads(amount=limit):
+                users = [
+                    {"id": str(u.pk), "username": getattr(u, "username", "") or ""}
+                    for u in (t.users or [])
+                    if u.pk != my_pk
+                ]
+                msgs = t.messages or []
+                latest = msgs[-1] if msgs else None
+                embedded = (
+                    [{"from": {"id": str(latest.user_id)}, "message": latest.text or ""}]
+                    if latest is not None
+                    else []
+                )
+                data.append(
+                    {
+                        "id": str(t.id),
+                        "participants": {"data": users},
+                        "messages": {"data": embedded},
+                    }
+                )
+            return {"data": data}
+
+        return await asyncio.to_thread(_do)
+
+    async def get_dm_messages(self, convo_id: str, limit: int = 20) -> dict:
+        def _do() -> dict:
+            cl = self._client()
+            msgs = cl.direct_messages(int(convo_id), amount=limit)
+            return {
+                "data": [
+                    {"from": {"id": str(m.user_id)}, "message": m.text or ""}
+                    for m in msgs
+                ]
+            }
+
+        return await asyncio.to_thread(_do)
+
+    async def send_dm(self, recipient_id: str, message: str) -> dict:
+        def _do() -> dict:
+            cl = self._client()
+            cl.direct_send(message, [int(recipient_id)])
+            return {"id": "ok"}
+
+        return await asyncio.to_thread(_do)
+
+    async def mark_dm_read(self, conversation_id: str, recipient_id: str = "") -> dict:
+        def _do() -> dict:
+            cl = self._client()
+            msgs = cl.direct_messages(int(conversation_id), amount=1)
+            if msgs:
+                cl.direct_message_seen(int(conversation_id), msgs[-1].id)
+            return {}
+
+        return await asyncio.to_thread(_do)
+
+    async def send_typing_indicator(self, recipient_id: str) -> dict:
+        return {}
+
+
 @celery_app.task(name="app.worker.tasks.instagram_messenger.poll_instagram_messenger")
 def poll_instagram_messenger() -> dict:
     """Poll Instagram DM conversations and send AI auto-replies."""
@@ -138,8 +273,9 @@ async def _poll_instagram_messenger_async() -> dict:
             if not auto_reply.get("enabled", False):
                 continue
 
-            # Check for access token — Instagram DMs require API access
-            if not account.access_token_enc:
+            # Check for access token — Instagram DMs require API access.
+            # The private-API session lane (session healer) also qualifies.
+            if not account.access_token_enc and not (meta.get("private_api_session_id")):
                 stats["skipped_no_token"] += 1
                 logger.info(
                     "Instagram DM: account %s (%s) has no access token — connect via OAuth with instagram_business_manage_messages scope. Skipping.",
@@ -296,6 +432,28 @@ async def _process_account(
                     exc,
                 )
             client = None
+
+    # Private mobile API (instagrapi via sessionid) — works when the Graph
+    # token is dead and the browser-bridge inbox endpoint is gone. The
+    # session healer keeps private_api_session_id fresh from the web login.
+    if client is None:
+        private_sid = decrypt_field(meta.get("private_api_session_id"))
+        if private_sid:
+            try:
+                proxy = getattr(get_settings(), "INSTAGRAM_PROXY", "") or None
+                settings_blob = decrypt_field(meta.get("private_api_session_settings"))
+                candidate = InstagramPrivateDMClient(
+                    session_id=private_sid, proxy=proxy, settings_blob=settings_blob
+                )
+                await candidate.probe()
+                client = candidate
+                logger.info("Instagram DM: using private API session for %s", account.id)
+            except Exception as exc:
+                logger.warning(
+                    "Instagram DM: private API session failed for %s: %s",
+                    account.id,
+                    exc,
+                )
 
     # Fall back to browser bridge (uses logged-in Instagram web session)
     bridge = None

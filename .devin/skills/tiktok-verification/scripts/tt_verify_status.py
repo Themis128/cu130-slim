@@ -9,6 +9,7 @@ Usage: tt_verify_status.py [--once] [--json]
 State: ~/.local/state/tiktok-verify/status
 """
 import json
+import re
 import subprocess
 import sys
 import time
@@ -20,6 +21,11 @@ VERIFY_URL = ("https://www.tiktok.com/business-suite/business-registration/"
               "verify?source=onboarding")
 STATE_DIR = Path.home() / ".local/state/tiktok-verify"
 STATE_FILE = STATE_DIR / "status"
+KNOWN_FILE = STATE_DIR / "known_status"
+# States that carry a real verification verdict. Anything else (page_drift,
+# unknown) means the sidecar landed on an onboarding/registration surface
+# instead of the status page — NOT a status change, so it must never alert.
+KNOWN_STATES = {"under_review", "approved", "disapproved", "unsubmitted"}
 TG_ALERT = (Path.home() / "cu130-slim/.devin/skills/"
             "telegram-alert-ops/scripts/tg_alert.py")
 
@@ -83,7 +89,18 @@ text:(document.querySelector('.verification-verify-page')||document.body).innerT
         return "disapproved", reason or "disapproved"
     if "verify your business" in low:
         return "unsubmitted", "form present, not yet submitted"
-    return "unknown", f"url={page.get('url','?')} text={text[:200]!r}"
+    # The verify URL can land on TikTok's business-registration onboarding
+    # instead of the status page (session/flow drift). That's a navigation
+    # problem, not a verdict — classify it separately so it can't masquerade
+    # as a status change.
+    url = page.get("url", "")
+    drifted = "verify" not in url.lower() or bool(
+        re.search(r"registration|onboarding|get started|business information", low)
+        and not re.search(r"verif", low)
+    )
+    if drifted:
+        return "page_drift", f"verify page not reached: url={url[:120]} text={text[:160]!r}"
+    return "unknown", f"url={url[:120]} text={text[:200]!r}"
 
 
 def main():
@@ -100,19 +117,29 @@ def main():
         return 0
 
     print(f"[*] tiktok-verify: {status} — {detail}")
-    if prev and prev.split("|")[0] != status:
-        msg = (f"TikTok business verification: {prev.split('|')[0]} → "
+    # Alert only on real verdict transitions. page_drift/unknown are
+    # navigation artifacts — record them but never page #ops for them,
+    # and never let them mask the last known verdict.
+    prev_known = KNOWN_FILE.read_text().strip() if KNOWN_FILE.exists() else ""
+    if status in KNOWN_STATES:
+        KNOWN_FILE.write_text(status + "\n")
+    if (
+        prev_known
+        and status in KNOWN_STATES
+        and prev_known != status
+    ):
+        msg = (f"TikTok business verification: {prev_known} → "
                f"{status}. {detail}")
-        if status == "approved":
-            sev = "P2"
-        elif status == "disapproved":
-            sev = "P2"
-        else:
-            sev = "P3"
+        sev = "P2" if status in ("approved", "disapproved") else "P3"
         subprocess.run(
             ["python3", str(TG_ALERT), sev, msg],
             capture_output=True, timeout=60)
         print(f"[*] alerted: {msg}")
+    elif not prev_known and status in KNOWN_STATES:
+        print(f"[*] first known status: {status} — baseline recorded, no alert")
+    elif prev and prev.split("|")[0] != status:
+        print(f"[*] raw status changed ({prev.split('|')[0]} → {status}) "
+              "but no verdict transition — staying quiet")
     elif not prev:
         print("[*] first run — baseline recorded, no alert")
     return 0

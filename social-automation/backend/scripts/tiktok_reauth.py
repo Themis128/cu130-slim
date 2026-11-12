@@ -429,17 +429,36 @@ def main() -> int:
         _mark(False)
         return 4
 
-    # wait for the backend callback to complete the code exchange
+    # The backend callback is a JSON API — it renders
+    # {"message":"tiktok account connected successfully","account_id":…}
+    # (or {"detail": …} on failure) IN-PLACE; it never redirects to a
+    # frontend page, so the URL keeps CALLBACK_MARK forever. Poll the
+    # rendered body for the verdict instead of waiting for navigation
+    # (2026-11-12: every real success was reported finished-with-error).
     deadline = time.time() + 90
+    body = ""
     while time.time() < deadline:
-        cur = _page_url()
-        if CALLBACK_MARK not in cur and "social.cloudless.gr" in cur:
-            break  # landed on frontend success/error page
+        body = _eval_str("document.body ? document.body.innerText : ''", timeout=30)
+        low = body.lower()
+        if "connected successfully" in low or '"detail"' in low or "error" in low[:300]:
+            break
         time.sleep(3)
 
     final_url = _page_url()
     print(f"final url: {final_url[:140]}")
-    ok = "social.cloudless.gr" in final_url and "error" not in final_url.lower()
+    print(f"callback body: {body[:200]}")
+    low = body.lower()
+    api_ok = "connected successfully" in low
+    api_fail = bool(body.strip()) and not api_ok
+    # Keep the legacy URL heuristic for any future redirecting callback.
+    redirect_ok = (
+        CALLBACK_MARK not in final_url
+        and "social.cloudless.gr" in final_url
+        and "error" not in final_url.lower()
+    )
+    ok = api_ok or (redirect_ok and not api_fail)
+    if api_fail and not api_ok:
+        print(f"callback reported failure: {body[:300]}")
     if ok:
         # The OAuth flow authorizes whichever TikTok account the sidecar is
         # logged into — verify the TARGET rows actually refreshed, not just

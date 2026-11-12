@@ -9,6 +9,7 @@ guard, send/mark-read/memory bookkeeping).
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -306,3 +307,329 @@ async def test_process_account_lead_capture(monkeypatch):
     assert n == 1
     # lead reply sent via Graph, not the generic AI reply
     assert client.send_dm.await_args.args[1] == "qualifying question?"
+
+
+# ── InstagramPrivateDMClient (instagrapi sessionid lane) ─────────────
+
+
+class _FakeIGClient:
+    """Stand-in for instagrapi.Client recording calls."""
+
+    instances: list = []
+
+    def __init__(self) -> None:
+        self.calls: list = []
+        self.user_id = 42
+        self.threads: list = []
+        self.msgs: dict = {}
+        _FakeIGClient.instances.append(self)
+
+    def set_proxy(self, proxy: str) -> None:
+        self.calls.append(("set_proxy", proxy))
+
+    def set_locale(self, locale: str) -> None:
+        self.calls.append(("set_locale", locale))
+
+    def set_timezone_offset(self, offset: int) -> None:
+        self.calls.append(("set_timezone_offset", offset))
+
+    def login_by_sessionid(self, sid: str) -> None:
+        self.calls.append(("login_by_sessionid", sid))
+
+    def load_settings(self, path: str) -> None:
+        self.calls.append(("load_settings", path))
+        self._loaded = open(path).read()
+
+    def dump_settings(self, path: str) -> None:
+        self.calls.append(("dump_settings", path))
+
+    def direct_threads(self, amount: int = 25):
+        return self.threads[:amount]
+
+    def direct_messages(self, thread_id: int, amount: int = 20):
+        return self.msgs.get(thread_id, [])[:amount]
+
+    def direct_send(self, text: str, user_ids: list) -> None:
+        self.calls.append(("direct_send", text, user_ids))
+
+    def direct_message_seen(self, thread_id: int, msg_id) -> None:
+        self.calls.append(("direct_message_seen", thread_id, msg_id))
+
+
+def _fake_instagrapi(monkeypatch, client: _FakeIGClient | None = None):
+    import sys
+    import types
+
+    _FakeIGClient.instances = []
+    mod = types.ModuleType("instagrapi")
+    mod.Client = _FakeIGClient
+    monkeypatch.setitem(sys.modules, "instagrapi", mod)
+    return client
+
+
+def _ig_thread(tid="t1", users=None, messages=None):
+    return SimpleNamespace(
+        id=tid,
+        users=users if users is not None else [
+            SimpleNamespace(pk=42, username="me"),
+            SimpleNamespace(pk=7, username="bob"),
+        ],
+        messages=messages if messages is not None else [],
+    )
+
+
+@pytest.mark.asyncio
+async def test_private_dm_client_lazy_init_and_probe(monkeypatch):
+    _fake_instagrapi(monkeypatch)
+    c = IG.InstagramPrivateDMClient(session_id="sid-1", proxy="http://p:1")
+    await c.probe()
+    cl = _FakeIGClient.instances[0]
+    assert ("set_proxy", "http://p:1") in cl.calls
+    assert ("set_locale", "el_GR") in cl.calls
+    assert ("set_timezone_offset", 10800) in cl.calls
+    assert ("login_by_sessionid", "sid-1") in cl.calls
+    # second call reuses the same client — no re-login
+    await c.probe()
+    assert len(_FakeIGClient.instances) == 1
+
+
+@pytest.mark.asyncio
+async def test_private_dm_client_no_proxy_and_proxy_failure(monkeypatch):
+    _fake_instagrapi(monkeypatch)
+    c = IG.InstagramPrivateDMClient(session_id="sid-2")
+    await c.probe()
+    cl = _FakeIGClient.instances[0]
+    assert not any(call[0] == "set_proxy" for call in cl.calls)
+
+    class _BadProxy(_FakeIGClient):
+        def set_proxy(self, proxy):
+            raise RuntimeError("no proxy")
+
+    import sys
+    import types
+
+    mod = types.ModuleType("instagrapi")
+    mod.Client = _BadProxy
+    monkeypatch.setitem(sys.modules, "instagrapi", mod)
+    c2 = IG.InstagramPrivateDMClient(session_id="sid-3", proxy="http://bad")
+    await c2.probe()  # proxy failure is logged, login still proceeds
+    assert _BadProxy.instances[-1].calls[-1] == ("login_by_sessionid", "sid-3")
+
+
+@pytest.mark.asyncio
+async def test_private_dm_client_conversations_and_messages(monkeypatch):
+    _fake_instagrapi(monkeypatch)
+    c = IG.InstagramPrivateDMClient(session_id="sid-4")
+    await c.probe()
+    cl = _FakeIGClient.instances[0]
+    cl.threads = [
+        _ig_thread(
+            tid="t1",
+            messages=[SimpleNamespace(user_id=7, text="hello there")],
+        ),
+        _ig_thread(tid="t2", users=[SimpleNamespace(pk=42, username="me")], messages=[]),
+    ]
+    cl.msgs[1] = [
+        SimpleNamespace(user_id=7, text="first", id="m1"),
+        SimpleNamespace(user_id=42, text="reply", id="m2"),
+    ]
+
+    convos = await c.get_conversations(limit=10)
+    assert len(convos["data"]) == 2
+    t1 = convos["data"][0]
+    assert t1["id"] == "t1"
+    # self (pk 42) filtered out of participants; embedded latest inbound msg
+    assert t1["participants"]["data"] == [{"id": "7", "username": "bob"}]
+    assert t1["messages"]["data"] == [{"from": {"id": "7"}, "message": "hello there"}]
+    # thread with no messages → empty embedded list
+    assert convos["data"][1]["messages"]["data"] == []
+
+    msgs = await c.get_dm_messages("1", limit=5)
+    assert msgs["data"] == [
+        {"from": {"id": "7"}, "message": "first"},
+        {"from": {"id": "42"}, "message": "reply"},
+    ]
+
+    me = await c.get_me()
+    assert me == {"user_id": "42"}
+
+
+@pytest.mark.asyncio
+async def test_private_dm_client_send_and_mark_read(monkeypatch):
+    _fake_instagrapi(monkeypatch)
+    c = IG.InstagramPrivateDMClient(session_id="sid-5")
+    await c.probe()
+    cl = _FakeIGClient.instances[0]
+    cl.msgs[9] = [SimpleNamespace(user_id=7, text="hi", id="m9")]
+
+    out = await c.send_dm("7", "hey")
+    assert out == {"id": "ok"}
+    assert ("direct_send", "hey", [7]) in cl.calls
+
+    await c.mark_dm_read("9")
+    assert ("direct_message_seen", 9, "m9") in cl.calls
+
+    # empty thread → mark_dm_read is a no-op beyond the fetch
+    cl.msgs[10] = []
+    await c.mark_dm_read("10")
+    assert not any(call[0] == "direct_message_seen" and call[1] == 10 for call in cl.calls)
+
+    assert await c.send_typing_indicator("7") == {}
+
+
+# ── _process_account private-API fallback ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_account_private_api_fallback(monkeypatch):
+    _bot_patches(monkeypatch)
+    # Graph probe fails with a non-rate-limit error → private lane tried
+    bad_graph = _graph_client()
+    bad_graph.get_conversations.side_effect = RuntimeError("token dead")
+    monkeypatch.setattr(IG, "InstagramAPIClient", lambda **kw: bad_graph)
+    monkeypatch.setattr(IG, "decrypt_field", lambda v: "sid-enc" if v else None)
+
+    private = _graph_client(
+        conversations=[_convo(last_msg="hi there")],
+        messages=[{"from": {"id": "user-9"}, "message": "hi there"}],
+    )
+    private.probe = AsyncMock()
+    monkeypatch.setattr(IG, "InstagramPrivateDMClient", lambda **kw: private)
+
+    account = _account(
+        meta_data={"instagram_auto_reply": {"enabled": True}, "private_api_session_id": "enc-sid"}
+    )
+    n = await IG._process_account(SimpleNamespace(), account, {"enabled": True}, {}, "", "", "http://dmr")
+    assert n == 1
+    private.probe.assert_awaited_once()
+    private.get_conversations.assert_awaited()
+    private.send_dm.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_account_private_api_probe_fails_to_bridge(monkeypatch):
+    _bot_patches(monkeypatch)
+    bad_graph = _graph_client()
+    bad_graph.get_conversations.side_effect = RuntimeError("token dead")
+    monkeypatch.setattr(IG, "InstagramAPIClient", lambda **kw: bad_graph)
+    monkeypatch.setattr(IG, "decrypt_field", lambda v: "sid-enc" if v else None)
+
+    private = _graph_client()
+    private.probe = AsyncMock(side_effect=RuntimeError("bad session"))
+    monkeypatch.setattr(IG, "InstagramPrivateDMClient", lambda **kw: private)
+
+    bridge = SimpleNamespace(
+        ensure_session=AsyncMock(),
+        get_instagram_dm_conversations=AsyncMock(return_value={"conversations": [{"id": "bc1", "participant_id": "u9", "name": "bob"}]}),
+        get_instagram_dm_messages=AsyncMock(return_value={"messages": [{"is_sent_by_viewer": False, "text": "yo"}]}),
+        send_instagram_dm_message=AsyncMock(return_value={"ok": True}),
+    )
+    monkeypatch.setattr(IG, "BrowserBridgeClient", lambda **kw: bridge)
+
+    class _BSession:
+        async def __aenter__(self):
+            return bridge
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(IG, "browser_session", lambda *a, **kw: _BSession())
+    account = _account(meta_data={"instagram_auto_reply": {"enabled": True}, "private_api_session_id": "enc-sid"})
+    n = await IG._process_account(SimpleNamespace(), account, {"enabled": True}, {}, "", "", "http://dmr")
+    assert n == 1
+    bridge.send_instagram_dm_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_process_account_no_private_sid_goes_to_bridge(monkeypatch):
+    _bot_patches(monkeypatch)
+    bad_graph = _graph_client()
+    bad_graph.get_conversations.side_effect = RuntimeError("token dead")
+    monkeypatch.setattr(IG, "InstagramAPIClient", lambda **kw: bad_graph)
+    monkeypatch.setattr(IG, "decrypt_field", lambda v: None)
+    factory = Mock(side_effect=AssertionError("private client must not be built"))
+    monkeypatch.setattr(IG, "InstagramPrivateDMClient", factory)
+
+    bridge = SimpleNamespace(ensure_session=AsyncMock(side_effect=RuntimeError("no bridge")))
+    monkeypatch.setattr(IG, "BrowserBridgeClient", lambda **kw: bridge)
+    n = await IG._process_account(SimpleNamespace(), _account(), {"enabled": True}, {}, "", "", "http://dmr")
+    assert n == 0
+    factory.assert_not_called()
+
+
+# ── poll loop: private session qualifies without access token ─────────
+
+
+@pytest.mark.asyncio
+async def test_poll_private_session_counts_as_credential(monkeypatch):
+    no_token_with_session = _account(
+        access_token_enc=None,
+        meta_data={
+            "instagram_auto_reply": {"enabled": True},
+            "private_api_session_id": "sid",
+        },
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=_Res([no_token_with_session])),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(IG, "_worker_db", lambda: _SessionCtx(db))
+    monkeypatch.setattr(IG, "flag_modified", lambda *a: None, raising=False)
+    import sqlalchemy.orm.attributes as SOA
+
+    monkeypatch.setattr(SOA, "flag_modified", lambda *a: None)
+    proc = AsyncMock(return_value=1)
+    monkeypatch.setattr(IG, "_process_account", proc)
+
+    out = await IG._poll_instagram_messenger_async()
+    assert out["accounts_checked"] == 1
+    assert out["skipped_no_token"] == 0
+    proc.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_private_dm_client_settings_blob_path(monkeypatch):
+    """settings_blob → load_settings(fingerprint) THEN login_by_sessionid."""
+    _fake_instagrapi(monkeypatch)
+    blob = json.dumps({"device": "fingerprint-1", "cookies": {}})
+    c = IG.InstagramPrivateDMClient(session_id="sid-9", settings_blob=blob)
+    await c.probe()
+    cl = _FakeIGClient.instances[0]
+    kinds = [call[0] for call in cl.calls]
+    assert "load_settings" in kinds
+    assert kinds.index("load_settings") < kinds.index("login_by_sessionid")
+    # blob content was actually written to the temp file load_settings read
+    assert cl._loaded == blob
+
+
+@pytest.mark.asyncio
+async def test_process_account_private_api_uses_settings_blob(monkeypatch):
+    _bot_patches(monkeypatch)
+    bad_graph = _graph_client()
+    bad_graph.get_conversations.side_effect = RuntimeError("token dead")
+    monkeypatch.setattr(IG, "InstagramAPIClient", lambda **kw: bad_graph)
+    monkeypatch.setattr(IG, "decrypt_field", lambda v: "sid-enc" if "session_id" in str(v) else ("blob-enc" if "settings" in str(v) else None))
+
+    private = _graph_client(
+        conversations=[_convo(last_msg="yo")],
+        messages=[{"from": {"id": "user-9"}, "message": "yo"}],
+    )
+    private.probe = AsyncMock()
+    captured = {}
+
+    def _factory(**kw):
+        captured.update(kw)
+        return private
+
+    monkeypatch.setattr(IG, "InstagramPrivateDMClient", _factory)
+    account = _account(
+        meta_data={
+            "instagram_auto_reply": {"enabled": True},
+            "private_api_session_id": "enc-session_id",
+            "private_api_session_settings": "enc-settings",
+        }
+    )
+    n = await IG._process_account(SimpleNamespace(), account, {"enabled": True}, {}, "", "", "http://dmr")
+    assert n == 1
+    assert captured["session_id"] == "sid-enc"
+    assert captured["settings_blob"] == "blob-enc"
