@@ -376,12 +376,26 @@ def _credential_login(base):
             return {"ok": False, "reason": f"login-eval:{r}",
                     "state": probe}
         # post-submit flow: wait, click through interstitials, handle 2FA
-        for attempt in range(12):
+        eval_fails = 0
+        for attempt in range(14):
             time.sleep(5)
             st = probe_state(c)
             print(f"post-login poll {attempt}: url={st.get('url','')[:70]} "
                   f"in={st.get('loggedIn')} ckpt={st.get('checkpoint')} "
                   f"code={st.get('needCode')}", flush=True)
+            if st.get("url") == "eval-failed":
+                eval_fails += 1
+                if eval_fails >= 3:
+                    # FB checkpoint pages can wedge the renderer — reload
+                    # resumes the server-side checkpoint state.
+                    print("tab wedged — reloading", flush=True)
+                    c.cmd("Page.enable")
+                    c.cmd("Page.reload", {"ignoreCache": True},
+                          timeout=15)
+                    eval_fails = 0
+                    time.sleep(10)
+                continue
+            eval_fails = 0
             if st.get("loggedIn"):
                 cookies = c.get_cookies(urls=[
                     "https://www.facebook.com", "https://facebook.com"])
