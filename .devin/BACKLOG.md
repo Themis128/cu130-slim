@@ -1847,3 +1847,22 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] **baltzakisthemis.com** — registrar clientHold at Amazon Registrar
   (since 2026-10-22); lift hold in AWS console if domain wanted back.
   Portfolio no longer depends on it (portfolio.cloudless.gr live).
+
+## 2026-11-12 — ntfy central alert lane (phone push)
+
+- [x] PR #1752 merged — severity alerts fan out to ntfy `cloudless-alerts`
+  (priority 5/4/3/2 for critical/ops/intel/digest) alongside Slack+TG.
+  Covers `send_telegram_alert`, `post_alert_to_slack`, daily digest,
+  `tg_alert.py` skill (devin+cursor mirrors), 12 home-ops watchers via
+  `home-ops/scripts/ntfy_notify.py`. Relay acct `alert-relay` write-only;
+  token in repo `.env` (`NTFY_ALERT_BASE_URL`/`NTFY_ALERT_TOKEN`; topic
+  defaults `cloudless-alerts`). Phone subscribed to all 3 topics on
+  `ntfy.cloudless.gr`, verified live.
+- [ ] **deploy pending**: containers bind-mount the shared checkout, which
+  sits on `feat/dmr-tunnel-gate` (active WIP). ntfy backend code activates
+  on next `checkout master && pull` + restart of social-api + 4 workers +
+  celery-beat. `.env` vars already present — no compose change needed
+  (Settings reads mounted `/app/.env`).
+- [ ] Optional: audit remaining producers that bypass the patched choke
+  points (n8n workflows, email-only alerts, `post_publishing_to_slack`
+  variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
