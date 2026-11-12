@@ -65,9 +65,12 @@ fallback.
 | Containers (Docker Engine) | `http://host.docker.internal:12435` or `http://172.17.0.1:12435` |
 
 > **WSL2 note**: On Docker Desktop/WSL2, the TCP port 12435 may not be
-> reachable from the host. Use `docker model` CLI commands as fallback.
-> All MCP tools and scripts automatically fall back to CLI when the API
-> is unreachable.
+> reachable from the host — verified 2026-11-12: `localhost`, the WSL
+> gateway and the resolv.conf nameserver all refuse; only containers reach
+> it via `host.docker.internal`. `_common.py` therefore falls back to a
+> `docker exec` HTTP call inside `social-api` (override with
+> `DMR_CONTAINER`/`DMR_CONTAINER_BASE`) when the direct request fails, so
+> all scripts below work from WSL unchanged.
 
 ### OpenAI-compatible (primary)
 
@@ -470,6 +473,7 @@ Environment variables:
 | `scripts/dmr-vram.py` | GPU VRAM, utilization, power + budget guide |
 | `scripts/dmr-route.py` | Preview platform-aware routing without sending a request |
 | `scripts/dmr-validate.py` | Check all expected models are pulled |
+| `scripts/dmr-env-check.py` | Reconcile `.env` `DMR_*_MODEL` refs vs `/engines/v1/models` — classifies OK / PULLABLE / CUSTOM, `--pull` pulls missing refs sequentially (concurrent pulls hit Windows blob file-locks), `--probe` runs a minimal inference call per model |
 | `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 
