@@ -12,6 +12,16 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DOCKER = (
+    "/mnt/c/Users/tbaltzakis/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe"
+    if Path(
+        "/mnt/c/Users/tbaltzakis/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe"
+    ).exists()
+    else "docker"
+)
 
 TOOLS = {
     "meta":      ["python", "scripts/meta_tool.py", "accounts"],
@@ -27,13 +37,19 @@ BAD = ("401", "revoked", "expired", "not_verified", "unauthorized", "fail")
 
 
 def run(name: str, cmd: list[str]) -> tuple[str, str]:
-    full = ["docker", "compose", "exec", "-T", "social-api", *cmd]
+    full = [DOCKER, "compose", "exec", "-T", "social-api", *cmd]
     try:
-        r = subprocess.run(full, capture_output=True, text=True, timeout=90)
+        r = subprocess.run(
+            full, capture_output=True, text=True, timeout=90, cwd=REPO_ROOT
+        )
         out = (r.stdout + r.stderr).strip()
+        # Non-zero exit or daemon/exec failure is a failed probe, not "ok".
+        if r.returncode != 0 or not out:
+            flag = "BAD"
+        else:
+            flag = "BAD" if any(b in out.lower() for b in BAD) else "ok"
     except Exception as e:  # noqa: BLE001
-        out = str(e)
-    flag = "BAD" if any(b in out.lower() for b in BAD) else "ok"
+        return "BAD", str(e)
     return flag, out
 
 
