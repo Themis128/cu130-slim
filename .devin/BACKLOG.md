@@ -1886,3 +1886,34 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] Host gates warn: RAM pressure (WSL avail 3.7GB / host free 1.4GB),
   dmr_tunnel retry loops alive, cdp_lane :9229 relaunched — self-healing
   lanes active, monitor only.
+
+## 2026-11-12 (late) — DMR chatbot model fixed via env pin; C: disk at 99%
+
+- [x] **DMR_CHATBOT_MODEL failure class resolved**: root cause was NOT the
+  missing 4B pull — `.env` pinned every DMR_*_MODEL to `smollm2` except
+  `DMR_CHATBOT_MODEL`, which fell through to the config default
+  `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` (never registered —
+  6 pull attempts all died at finalization). Added
+  `DMR_CHATBOT_MODEL=smollm2` to both `.env` copies; verified live in
+  social-api settings (`CHATBOT: smollm2`). smollm2 serves verified
+  (chat completion 200). IG DM auto-replies no longer hit model-not-found.
+- [x] **docker image prune -a**: reclaimed 27.5GB inside docker-desktop
+  (old <none> rebuild layers + unused MCP/tool images). C: free space did
+  NOT grow — `docker_data.vhdx` is 199GB and does not auto-shrink.
+- [ ] **C: at 99% (8.9GB free)** — likely contributor to DMR pull SIGBUS
+  crashes at finalization. Needs `Optimize-VHD`/diskpart compact of
+  `docker_data.vhdx` (requires Docker Desktop shutdown — schedule it).
+- [ ] **DMR pull still broken**: attempt #6 downloaded 2.5GB then the
+  engine pipe vanished mid-finalize (same as #1-5). Runner scheduler also
+  wedges with 3 models stuck "Loading..." (qwen3:8b, llama3.2, qwen3-vl);
+  `docker model unload --all` cleared queue once. All lanes now pinned to
+  resident smollm2 — acceptable degradation; revisit 4B/8B when Docker
+  Desktop is stable or move DMR to omv (vLLM path exists in config).
+- [ ] **DMR_EMBEDDING_MODEL=nomic-embed-text → 404** (not in DMR catalog;
+  installed model is `docker.io/ai/qwen3-embedding`). Chroma has 0
+  collections so no vector-compat risk, but embed calls currently fail →
+  CF fallback. Decide: repin to qwen3-embedding (1024d) or accept CF.
+- [ ] WSL↔Windows vsock interop degraded late-session (docker.exe +
+  powershell.exe both failing `UtilAcceptVsock`); stack itself stayed up
+  (social.cloudless.gr 200 via tunnel). Durable fix remains `wsl
+  --shutdown` — do NOT run mid-session.
