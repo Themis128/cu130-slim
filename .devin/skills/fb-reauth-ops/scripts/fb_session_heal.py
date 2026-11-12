@@ -488,7 +488,41 @@ def _credential_login(base):
     return with_fb_tab(base, fn, settle_url=LOGIN_URL)
 
 
+def _mem_available_mb() -> int | None:
+    """Free RAM in MB. The wedged renderers live in Windows Chrome, so
+    prefer the Windows host's FreePhysicalMemory over WSL's own
+    MemAvailable (which looks healthy while the host starves)."""
+    ps = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    if os.path.exists(ps):
+        try:
+            out = subprocess.run(
+                [ps, "-NoProfile", "-Command",
+                 "[math]::Floor((Get-CimInstance Win32_OperatingSystem)"
+                 ".FreePhysicalMemory/1KB)"],
+                capture_output=True, text=True, timeout=20)
+            val = int((out.stdout or "").strip())
+            if val > 0:
+                return val
+        except Exception:
+            pass
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return None
+
+
 def cmd_heal(_args):
+    # FB checkpoint/login pages are heavy — on a RAM-starved host the
+    # renderer wedges mid-flow (2026-11-12: every attempt died on the
+    # checkpoint page). Defer instead of burning an attempt + leaving
+    # wedged tabs; the */30 cron retries when pressure drops.
+    avail = _mem_available_mb()
+    if avail is not None and avail < 2500:
+        print(f"ram-too-low ({avail}MB available < 2500) — deferring heal")
+        return 0
     base = _cdp_base()
     if not base:
         print("no-cdp")
