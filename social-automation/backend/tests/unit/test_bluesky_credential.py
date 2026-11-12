@@ -159,9 +159,7 @@ async def test_probe_401_means_dead():
     from app.services.bluesky_api import BlueskyAPIError
 
     client = AsyncMock()
-    client.create_session = AsyncMock(
-        side_effect=BlueskyAPIError(401, "AuthenticationRequired", "u")
-    )
+    client.create_session = AsyncMock(side_effect=BlueskyAPIError(401, "AuthenticationRequired", "u"))
     with (
         patch("app.core.security.decrypt_token", return_value="pw"),
         patch("app.services.bluesky_api.BlueskyClient", return_value=client),
@@ -174,9 +172,7 @@ async def test_probe_429_is_inconclusive():
     from app.services.bluesky_api import BlueskyAPIError
 
     client = AsyncMock()
-    client.create_session = AsyncMock(
-        side_effect=BlueskyAPIError(429, "rate limited", "u")
-    )
+    client.create_session = AsyncMock(side_effect=BlueskyAPIError(429, "rate limited", "u"))
     with (
         patch("app.core.security.decrypt_token", return_value="pw"),
         patch("app.services.bluesky_api.BlueskyClient", return_value=client),

@@ -136,11 +136,7 @@ class TwitterAPIClient:
         # flag can flip via `docker restart` — no recreate needed.
         from app.core.config import settings as _settings
 
-        self._oauth1_fallback = (
-            media_signer is not None
-            or __import__("os").environ.get("X_OAUTH1_FALLBACK") == "1"
-            or _settings.X_OAUTH1_FALLBACK
-        )
+        self._oauth1_fallback = media_signer is not None or __import__("os").environ.get("X_OAUTH1_FALLBACK") == "1" or _settings.X_OAUTH1_FALLBACK
 
     def _build_oauth1(self):
         """Read OAuth1.0a app creds from env — fallback when the OAuth2
