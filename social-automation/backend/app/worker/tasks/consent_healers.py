@@ -360,9 +360,7 @@ def heal_consents() -> dict:
 def media_backfill() -> dict:
     """Sweep draft posts flagged needs_media — generate+attach an image so
     they become schedulable (the flag was a dead signal; this consumes it)."""
-    import asyncio
-
-    return asyncio.run(_media_backfill())
+    return run_async(_media_backfill())
 
 
 async def _media_backfill() -> dict:
