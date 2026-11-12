@@ -58,17 +58,14 @@ async def _stored_password_dead(account) -> bool | None:
 
 
 async def _sweep() -> dict:
+    from app.core.config import settings
     from app.models.content import PostTarget
     from app.models.social_account import SocialAccount
     from app.services.bluesky_api import (
-        BSKY_PDS_DEFAULT,
         BlueskyAPIError,
-        BlueskyClient,
         rotate_app_password,
     )
     from app.services.slack_notifications import send_telegram_alert
-
-    from app.core.config import settings
 
     main_password = (
         os.environ.get("BSKY_MAIN_PASSWORD")
