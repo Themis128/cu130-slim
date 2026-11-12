@@ -96,6 +96,9 @@ trap 'rm -f "$DEPLOY_LOCK"' EXIT
 log "master advanced $last -> $new — deploying"
 changed=$(git diff --name-only "$last" "$new" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
 
+held=""
+stash_msg=""
+
 if ! git merge --ff-only origin/master >>"$DW_LOG" 2>&1; then
   # ── auto-hold ONLY the WIP files this merge would touch, then retry ──
   # Agents keep uncommitted work in the shared checkout; a blanket dirty
