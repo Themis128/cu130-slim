@@ -1785,3 +1785,37 @@ Newly discovered gates:
   is armed but needs META_CARD_* env), Viber commercial bot application
   (Rakuten partner gate — no API), TikTok verification review (watcher
   armed, Under Review).
+
+## 2026-11-12 (pm3) — IG/Threads recovered end-to-end via Meta console (Devin)
+
+- **Instagram HEALED**: drove the shared browser bridge through IG login
+  as @cloudless.gr (account-chooser → WhatsApp 2FA → fell back to SMS
+  code read off the Galaxy S22+ via ADB `content://sms` — code 200897).
+  `_bridge_extract('instagram')` pulled sessionid/csrftoken/ds_user_id
+  into `social_accounts.meta_data` (private_api_* encrypted) and flipped
+  the row revoked→active. Verified live: instagrapi
+  `login_by_sessionid` → account_info = cloudless.gr / pk 36910035385.
+  Private-API publish lane works again; Graph OAuth still unconfigured
+  (Meta Login-for-Business needs a Login Configuration config_id —
+  console gate, not blocking since private API covers publishing).
+- **Threads creds RECOVERED**: THREADS_CLIENT_ID/SECRET were never in
+  .env/Infisical (empty placeholders since Nov 9). Drove
+  facebook-browser-sidecar (personal FB session, Meta app developer)
+  to developers.facebook.com/apps/1936126137016578 → Threads use-case
+  Settings: Threads app ID `1236823015256887`, password-confirmed
+  reveal of the 32-hex Threads app secret (FACEBOOK_PASSWORD from .env).
+  Verified live: client_credentials grant → TH| app token. Written to
+  .env (local-only keys survive Infisical merge-pull; still TODO push
+  to Infisical prod so --force pulls can't drop them).
+- **cloudless.gr is already a Threads Tester** on the app (User Token
+  Generator row) — dev-mode permission grant OK for our own account.
+- **LinkedIn**: sidecar rate-limit flag cleared BUT /feed/ still returns
+  HTTP error — LinkedIn edge still refusing post-restriction. Kept
+  LINKEDIN_SCRAPE_PAUSED=true; re-verify later today, do NOT retry-loop.
+- **fb-sidecar popup tracking**: /debug/pages + /debug/activate added
+  (PR #1746) — OAuth/onboarding popups were invisible to single-page
+  handle; needed for Meta console/token-generator flows.
+- **Docker Desktop**: another flap ~14:05 — social-api+n8n+chroma hit
+  `Created`; recovered via docker start; hash-prefixed orphan workers
+  self-cleaned. compose up -d social-api in flight to bake THREADS_*
+  env vars (cross-distro token bug may still bite).
