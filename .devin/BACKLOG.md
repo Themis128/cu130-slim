@@ -1915,3 +1915,18 @@ restored after the #1785 unbound-var bug killed deploy-watch mid-run:
   in .env, model pulled + resident.
 - [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
   to `docker exec` inside social-api (PR #1781 merged).
+
+## Engagement dispatch crash-loop — FIXED (2026-11-13)
+
+- `dispatch_engagements` was crash-looping ~41 failures/12min:
+  `AttributeError: 'EngagementAction' object has no attribute 'meta_data'`.
+  Task writes `gate_notified`/`skip_count` markers; model lacked the column
+  and migration `f7g8h9i0j1k2` sat on a dead alembic branch (never applied —
+  prod `alembic_version` was `k2f9a1b4c6d8`).
+- Fix merged via PR #1780: `meta_data` mapped_column on `EngagementAction`
+  + migration `c9d8e7f6a5b4` on the live head (idempotent — the orphaned
+  migration also applies on fresh `upgrade heads` builds).
+- Verified live: `alembic current = c9d8e7f6a5b4 (head)`, zero
+  meta_data errors post-restart (was 41/12min).
+- Gotcha for future migration authors: check `alembic heads` AND grep
+  existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
