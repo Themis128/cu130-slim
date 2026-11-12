@@ -27,9 +27,9 @@ import json
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from email.header import decode_header
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -43,7 +43,6 @@ IMAP_HOST = "192.168.1.130"
 IMAP_PORT = 993
 MAIL_USER = "tbaltzakis@cloudless.gr"
 WORKER_CONTAINER = "social-worker-default"
-
 
 # ── expected reports ──────────────────────────────────────────────────────
 # kind "count": `pattern` must match >= expected_count messages since local
@@ -232,28 +231,6 @@ def resend(task: str, kwargs: dict) -> bool:
         return False
 
 
-def _msg_is_today(m: dict, today) -> bool:
-    """Date-header parse best-effort: the IMAP query is already scoped to the
-    last 10 days, so when the Date header won't parse we count the message
-    (false positives are unlikely for daily-cadence reports)."""
-    try:
-        dt = parsedate_to_datetime(m["date"])
-        return dt.astimezone(TZ).date() == today
-    except Exception:  # noqa: BLE001
-        return True
-
-
-def _newest_date(hits: list[dict]):
-    best = None
-    for m in hits:
-        try:
-            d = parsedate_to_datetime(m["date"]).date()
-            best = d if best is None or d > best else best
-        except Exception:  # noqa: BLE001
-            continue
-    return best
-
-
 def check(password: str, do_resend: bool, do_alert: bool) -> int:
     now = datetime.now(TZ)
     today = now.date()
@@ -274,7 +251,8 @@ def check(password: str, do_resend: bool, do_alert: bool) -> int:
                 continue
             exp = spec["expected"]
             need = exp(today) if callable(exp) else exp
-            got = sum(1 for m in hits if _msg_is_today(m, today))
+            got = sum(1 for m in hits
+                      if _msg_is_today(m, today))
             if got >= need:
                 results.append((spec["key"], "ok", f"{got}/{need}"))
             else:
@@ -324,6 +302,30 @@ def check(password: str, do_resend: bool, do_alert: bool) -> int:
         print(f"{key:<{w}}  {status:<14} {detail}")
     return 1 if any(s.startswith("MISSING") or s == "STALE"
                     for _, s, _ in results) else 0
+
+
+def _msg_is_today(m: dict, today) -> bool:
+    """Date-header parse best-effort: the IMAP query is already scoped to the
+    last 10 days, so when the Date header won't parse we count the message
+    (false positives are unlikely for daily-cadence reports)."""
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(m["date"])
+        return dt.astimezone(TZ).date() == today
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _newest_date(hits: list[dict]):
+    from email.utils import parsedate_to_datetime
+    best = None
+    for m in hits:
+        try:
+            d = parsedate_to_datetime(m["date"]).date()
+            best = d if best is None or d > best else best
+        except Exception:  # noqa: BLE001
+            continue
+    return best
 
 
 def main() -> int:
