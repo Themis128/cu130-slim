@@ -466,6 +466,17 @@ export const accountsApi = {
     api.post(`/accounts/${id}/page-profile/assign-manage-task`, { business_id: businessId, business_user_id: businessUserId }),
 }
 
+// Bluesky (AT Protocol) — handle + app-password connect (no OAuth).
+export const blueskyApi = {
+  connect: (handle: string, appPassword: string, pdsUrl?: string) =>
+    api.post('/bluesky/connect', {
+      handle,
+      app_password: appPassword,
+      ...(pdsUrl ? { pds_url: pdsUrl } : {}),
+    }),
+  status: (accountId: string) => api.get(`/bluesky/${accountId}/status`),
+}
+
 // Free Meta organic-growth endpoints. Paid promotion is intentionally not
 // represented here; these calls only schedule owned-account publishing.
 export const metaGrowthApi = {

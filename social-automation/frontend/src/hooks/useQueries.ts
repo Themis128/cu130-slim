@@ -4,6 +4,7 @@ import {
   mediaApi,
   workflowApi,
   accountsApi,
+  blueskyApi,
   profileApi,
   secretsApi,
   publishingApi,
@@ -374,6 +375,17 @@ export function useConnectAccount() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ platform, teamId }: { platform: string; teamId: string }) => accountsApi.connect(platform, teamId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useConnectBluesky() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ handle, appPassword, pdsUrl }: { handle: string; appPassword: string; pdsUrl?: string }) =>
+      blueskyApi.connect(handle, appPassword, pdsUrl),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
     },
