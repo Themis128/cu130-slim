@@ -64,3 +64,43 @@ vmmemWSL pinning starving the host.
   residual known-flaky layer; config + self-heal is the mitigation.
 - Docker settings-store: IntegratedWslDistros must include Ubuntu-24.04
   (verified); AutoStart + WslEngineEnabled on.
+
+## Daemon-topology classes (2026-11-12 — socket theft + proxy unit)
+
+New failure classes beyond the 2026-11-02 set — `status` now probes all of
+them (`docker.service`/`docker.socket` must stay disabled,
+`dd-user-distro-proxy.service` must stay active):
+
+- **Native-docker socket theft** — WSL `docker.service`/`docker.socket`
+  can re-enable and steal `/run/docker.sock`, answering `docker info`
+  with an EMPTY native engine while the real stack sits `Exited(127)` on
+  docker-desktop. Recovery lanes then pull the whole image set into a
+  daemon that hosts nothing. Fix: `systemctl disable --now docker.socket
+  docker.service` (no sudo needed via `wsl.exe -u root`).
+- **Proxy unit** — `dd-user-distro-proxy.service` (systemd, root,
+  `Restart=always`) runs `docker-desktop-user-distro proxy` and re-binds
+  `/var/run/docker.sock` → Docker Desktop, restoring bare `docker` after
+  the native units are gone. It crash-loops until Docker Desktop
+  re-registers `distro-services/ubuntu-24-04.sock` — that's the signal to
+  `docker desktop restart`, not to fight the unit.
+- **Cron PATH** — root cron can't resolve `docker.exe`; recovery/watch
+  scripts must use the absolute path
+  `/mnt/c/Users/tbaltzakis/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe`
+  (see `docker-engine-ops` skill — it owns the pinning convention +
+  `docker_engine_guard.py` verifier).
+- `fix` ladder unchanged; for this class the answer is almost always
+  steps 2–3 above, not `wsl --shutdown`.
+
+## Hashed `.env` bind-mount decay (transient, self-resolving)
+
+Containers in `Created` state failing `docker start` with
+`mount src=/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/<distro>/<64-hex>`
+not found: the hashed bind re-prepares on retry — it is transient
+VM-side decay, NOT permanent (verified 2026-11-04). Workaround:
+probe-mount the same path in a throwaway container first
+(`docker run --rm --pull never -v "$PWD/.env:/app/.env:ro" <img> true`),
+then `docker compose up -d --pull never` / `docker start` succeeds.
+Scripted: `scripts/safe-recreate.sh <services>` does probe → up →
+start-fallback. `scripts/compose-converge.sh` is the bounded healer
+(CORE allowlist, restart-only — replaced whole-project `up -d` which
+OOM-churned the stack mid-recreate, killing api+workers twice).

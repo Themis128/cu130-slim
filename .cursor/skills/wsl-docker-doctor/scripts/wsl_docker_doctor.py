@@ -28,6 +28,16 @@ import sys
 import time
 from pathlib import Path
 
+# Minimal-env callers (cron) lack the WSL Windows-interop PATH append, so
+# bare `wsl.exe`/`powershell.exe` probes return rc=127 and every diagnosis
+# false-positives as proxy-dead/fully-down (seen 2026-11-11). Append the
+# interop dirs once at import — harmless when already present.
+_INTEROP_DIRS = [
+    "/mnt/c/Windows/system32",
+    "/mnt/c/Windows/System32/WindowsPowerShell/v1.0",
+]
+os.environ["PATH"] = os.environ.get("PATH", "") + ":" + ":".join(_INTEROP_DIRS)
+
 DISTRO = os.environ.get("WSL_DISTRO", "Ubuntu-24.04")
 ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
 TG = Path(__file__).resolve().parents[1] / "telegram-alert-ops/scripts/tg_alert.py"
@@ -80,6 +90,15 @@ def status():
     print(f"in-session docker info      : {'OK' if ins else 'FAIL'}")
     print(f"fresh wsl --exec docker info: {'OK' if fresh else 'FAIL'} {fout[:80]}")
     print(f"user-distro proxy           : {'alive' if proxy else 'DEAD'} {pinfo.splitlines()[-1][:80] if pinfo else ''}")
+    # 2026-11-12 classes: native docker.service socket-theft + proxy unit
+    for unit, want in (("docker.service", "disabled"), ("docker.socket", "disabled"),
+                       ("dd-user-distro-proxy.service", "active")):
+        rc, en, _ = run(["systemctl", "is-enabled", unit], timeout=10)
+        rc2, ac, _ = run(["systemctl", "is-active", unit], timeout=10)
+        en, ac = en.strip(), ac.strip()
+        bad = (want == "disabled" and (en != "disabled" or ac == "active")) or \
+              (want == "active" and ac != "active")
+        print(f"{unit:32} : {'OK' if not bad else 'FAIL'} {en}/{ac}")
     print(f"win interop (powershell.exe): {'OK' if inter else 'FAIL'}")
     vs = fvs or ivs
     print(f"vsock errors observed       : {'YES — degraded' if vs else 'no'}")
