@@ -232,7 +232,7 @@ async def test_rewrite_plain_english_scaffolding_guard(monkeypatch):
     # Model echoes the whole prompt envelope — must fall back to original,
     # never store the scaffolding as post copy.
     leaked_prompt = (
-        'PLAIN ENGLISH RULES (must follow):\n- Use short words.\n\n'
+        "PLAIN ENGLISH RULES (must follow):\n- Use short words.\n\n"
         'Text to rewrite:\n"""' + original + '"""\n\n'
         'IMPORTANT: Return ONLY valid JSON with key "text". /no_think'
     )
