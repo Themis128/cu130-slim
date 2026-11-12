@@ -73,10 +73,20 @@ Suggested cron (user): `*/30 * * * * python3 .../docker_engine_guard.py --alert`
 3. `proxy-dead` / bare docker unreachable →
    `systemctl restart dd-user-distro-proxy` (unit file:
    `/etc/systemd/system/dd-user-distro-proxy.service`; it crash-loops
-   until DD re-registers `distro-services/ubuntu-24-04.sock`).
+   until DD re-registers `distro-services/ubuntu-24.04.sock`).
 4. Engine flapping / distro-services socket missing →
    `docker.exe desktop restart`, then re-check the guard.
-5. Everything else → `wsl-docker-doctor` skill (`fix` ladder L1–L4).
+5. `engine-down` persisting after restart → read
+   `%LOCALAPPDATA%\Docker\log\host\com.docker.backend.exe.log` for the
+   `wsl-bootstrap` stderr — the 2026-11-12 blocker was
+   `copying wsl distro proxy binary: ... docker-desktop-user-distro:
+   text file busy` (ETXTBSY): the proxy unit exec'd the binary straight
+   out of `/mnt/wsl/docker-desktop/`, so every DD bootstrap failed
+   overwriting it. **Fixed permanently**: the unit now execs a copy at
+   `/usr/local/bin/dd-user-distro-proxy` — never point ExecStart back
+   into `/mnt/wsl/docker-desktop/`. If ETXTBSY recurs, check for other
+   processes holding files under that mount.
+6. Everything else → `wsl-docker-doctor` skill (`fix` ladder L1–L4).
 
 ## History
 
@@ -84,3 +94,10 @@ Suggested cron (user): `*/30 * * * * python3 .../docker_engine_guard.py --alert`
   the socket → mass Exited(127), wrong-daemon pulls. Fixed by disabling
   native units, pinning all lanes to docker.exe, creating the proxy
   unit, and `docker desktop restart` to restore distro-services.
+- 2026-11-12 (same day, second wave): DD engine refused to start —
+  wsl-bootstrap ETXTBSY on the proxy binary held open by our own
+  `dd-user-distro-proxy.service`. Fix: `systemctl stop` the unit →
+  `docker desktop restart` → re-point ExecStart to
+  `/usr/local/bin/dd-user-distro-proxy` (a copy) so DD can always
+  overwrite the original. Guard caught it live via `engine-down` +
+  `distro-services-missing`.
