@@ -34,9 +34,7 @@ def line_pct(entry: dict | None) -> float:
     return 100.0 * summary.get("covered_lines", 0) / statements
 
 
-def evaluate(
-    files: dict, targets: list[str], min_lines: float
-) -> tuple[bool, list[str], list[str]]:
+def evaluate(files: dict, targets: list[str], min_lines: float) -> tuple[bool, list[str], list[str]]:
     """Return (ok, failing 'path: pct%' strings, checked paths)."""
     failures: list[str] = []
     checked: list[str] = []
@@ -72,9 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         for f in failures:
             print(f"  {f}", file=sys.stderr)
         return 1
-    print(
-        f"new-file coverage gate OK ({len(checked)} added app/ files >= {args.min_lines}%)"
-    )
+    print(f"new-file coverage gate OK ({len(checked)} added app/ files >= {args.min_lines}%)")
     return 0
 
 

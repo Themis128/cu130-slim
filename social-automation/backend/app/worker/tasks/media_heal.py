@@ -131,12 +131,17 @@ async def _rewrite_copy_for_media(post: Post) -> str | object | None:
         text = (res.get("text") or "").strip().strip("\"'")
         # Small models wrap the answer in a label ("Rewritten string: \"...\"")
         # — strip a leading label+quotes so the prefix never reaches copy.
-        text = re.sub(
-            r'^(rewritten\s+(string|text|post|version)|rewrite[d]?|text|answer|response)\s*[:=]\s*["\']?',
-            "",
-            text,
-            flags=re.IGNORECASE,
-        ).strip().strip("\"'").strip()
+        text = (
+            re.sub(
+                r'^(rewritten\s+(string|text|post|version)|rewrite[d]?|text|answer|response)\s*[:=]\s*["\']?',
+                "",
+                text,
+                flags=re.IGNORECASE,
+            )
+            .strip()
+            .strip("\"'")
+            .strip()
+        )
     except Exception as exc:
         # call_dmr_chat only raises for transport/infra failures — a bad
         # rewrite comes back as text and is rejected by the guards below.

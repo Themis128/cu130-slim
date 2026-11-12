@@ -495,11 +495,7 @@ async def test_bsky_auth_circuit_bypassed_by_live_session():
     import json as _j
 
     exp = int(datetime.now(UTC).timestamp()) + 3600
-    jwt = (
-        "x."
-        + base64.urlsafe_b64encode(_j.dumps({"exp": exp}).encode()).decode().rstrip("=")
-        + ".y"
-    )
+    jwt = "x." + base64.urlsafe_b64encode(_j.dumps({"exp": exp}).encode()).decode().rstrip("=") + ".y"
     acc = _account("bluesky", meta_data={"bsky_session": {"access_jwt": jwt}})
     assert await P._bsky_auth_circuit_open(_CountDB(99), acc) is False
 
@@ -514,9 +510,7 @@ async def test_publish_bluesky_circuit_open_defers_without_login(monkeypatch):
         raise AssertionError("ensure_session must not run while circuit is open")
 
     monkeypatch.setattr(bapi, "ensure_session", _no_login)
-    r = await P._publish_bluesky(
-        "pw", "t", _account("bluesky"), _post(), [], None, _CountDB(3)
-    )
+    r = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [], None, _CountDB(3))
     assert not r.success
     assert r.retry_after is not None and r.retry_after > datetime.now(UTC)
     assert "circuit open" in r.error

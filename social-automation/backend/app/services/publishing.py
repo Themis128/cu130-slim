@@ -3742,10 +3742,7 @@ async def _publish_bluesky(
             return PublishResult(
                 success=False,
                 retry_after=_bsky_rate_limit_backoff(),
-                error=(
-                    "Bluesky rate limited (429 RateLimitExceeded) — deferred, "
-                    "will retry automatically after the cooldown."
-                ),
+                error=("Bluesky rate limited (429 RateLimitExceeded) — deferred, will retry automatically after the cooldown."),
             )
         return PublishResult(
             success=False,
@@ -3792,10 +3789,7 @@ async def _publish_bluesky(
             return PublishResult(
                 success=False,
                 retry_after=_bsky_rate_limit_backoff(),
-                error=(
-                    "Bluesky rate limited (429) during publish — deferred, "
-                    "will retry automatically after the cooldown."
-                ),
+                error=("Bluesky rate limited (429) during publish — deferred, will retry automatically after the cooldown."),
             )
         return PublishResult(
             success=False,

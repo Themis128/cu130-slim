@@ -25,9 +25,7 @@ class _DB:
         self.commits = 0
 
     async def execute(self, _stmt):
-        if self._account is not None and self._recent is None or (
-            self._account is not None and self._recent is not None
-        ):
+        if self._account is not None and self._recent is None or (self._account is not None and self._recent is not None):
             pass
         return _Result(self._account)
 
@@ -81,9 +79,7 @@ async def test_sweep_no_account():
 @pytest.mark.asyncio
 async def test_sweep_no_401_noop():
     db = _make_db(_account(), False)
-    with patch.object(bc, "task_session", lambda: _SessionCtx(db)), patch(
-        "app.services.slack_notifications.send_telegram_alert", new=AsyncMock()
-    ):
+    with patch.object(bc, "task_session", lambda: _SessionCtx(db)), patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock()):
         out = await bc._sweep()
     assert out["rotated"] is False
     assert "no recent 401" in out["reason"]
@@ -93,10 +89,13 @@ async def test_sweep_no_401_noop():
 async def test_sweep_401_without_main_password_alerts():
     db = _make_db(_account(), True)
     alert = AsyncMock(return_value=True)
-    with patch.object(bc, "task_session", lambda: _SessionCtx(db)), patch.dict(
-        "os.environ", {}, clear=False
-    ), patch("app.services.slack_notifications.send_telegram_alert", new=alert):
+    with (
+        patch.object(bc, "task_session", lambda: _SessionCtx(db)),
+        patch.dict("os.environ", {}, clear=False),
+        patch("app.services.slack_notifications.send_telegram_alert", new=alert),
+    ):
         import os
+
         os.environ.pop("BSKY_MAIN_PASSWORD", None)
         out = await bc._sweep()
     assert out["rotated"] is False
@@ -109,11 +108,14 @@ async def test_sweep_401_rotates_and_alerts():
     acc = _account()
     db = _make_db(acc, True)
     alert = AsyncMock(return_value=True)
-    with patch.object(bc, "task_session", lambda: _SessionCtx(db)), patch.dict(
-        "os.environ", {"BSKY_MAIN_PASSWORD": "main-pw"}
-    ), patch("app.services.slack_notifications.send_telegram_alert", new=alert), patch(
-        "app.services.bluesky_api.rotate_app_password",
-        new=AsyncMock(return_value={"rotated": True, "app_password_name": "x"}),
+    with (
+        patch.object(bc, "task_session", lambda: _SessionCtx(db)),
+        patch.dict("os.environ", {"BSKY_MAIN_PASSWORD": "main-pw"}),
+        patch("app.services.slack_notifications.send_telegram_alert", new=alert),
+        patch(
+            "app.services.bluesky_api.rotate_app_password",
+            new=AsyncMock(return_value={"rotated": True, "app_password_name": "x"}),
+        ),
     ):
         out = await bc._sweep()
     assert out["rotated"] is True

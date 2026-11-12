@@ -71,6 +71,8 @@ def _is_callback(url: str) -> bool:
         return urllib.parse.urlparse(url).path.rstrip("/").endswith(CALLBACK_PATH)
     except Exception:
         return CALLBACK_MARK in url
+
+
 MAX_CONSECUTIVE_FAILS = 3
 
 # Logged-in check + display name on facebook.com/me (not a login wall).
@@ -204,10 +206,7 @@ def _graph_token_alive(enc) -> bool:
         tok = decrypt_token(bytes(enc))
     except Exception:
         return True
-    url = (
-        "https://graph.instagram.com/v26.0/me?fields=id"
-        f"&access_token={urllib.parse.quote(tok)}"
-    )
+    url = f"https://graph.instagram.com/v26.0/me?fields=id&access_token={urllib.parse.quote(tok)}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=15) as f:

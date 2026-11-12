@@ -1570,15 +1570,11 @@ async def resume_thread(
 # provision scripts, so drops are queued on the Redis list ``gate:drops``
 # (secret Fernet-encrypted) for gate_capture.py's */15 consumer. Same
 # convention as .devin/skills/human-gate-capture-ops/scripts/gate_capture.py.
-_GATE_DROP_RE = re.compile(
-    r"\b(bsky|viber|whatsapp|meta)[:\s]+([A-Za-z0-9_\-\.]{8,})", re.IGNORECASE
-)
+_GATE_DROP_RE = re.compile(r"\b(bsky|viber|whatsapp|meta)[:\s]+([A-Za-z0-9_\-\.]{8,})", re.IGNORECASE)
 GATE_DROPS_REDIS_KEY = "gate:drops"
 
 
-async def _enqueue_gate_drop(
-    account: SocialAccount, plat: str, secret: str, inbound: dict[str, Any]
-) -> None:
+async def _enqueue_gate_drop(account: SocialAccount, plat: str, secret: str, inbound: dict[str, Any]) -> None:
     import redis.asyncio as aioredis
 
     r = aioredis.from_url(settings.REDIS_URL)
