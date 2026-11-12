@@ -1896,29 +1896,71 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - Tooling: `scripts/dmr-env-drift.py` + incident section in
   docker-model-runner SKILL.md — PR #1774.
 
-## LinkedIn unused dev-app surfaces — implemented (2026-11-12)
+## Recovered stash items + engagement fix (2026-11-13)
 
-PR #1786 (`feat/linkedin-unused-surfaces`, auto-merge armed):
+Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
+restored after the #1785 unbound-var bug killed deploy-watch mid-run:
+
+- [ ] **DMR runner scheduler wedges on this host** — after Docker Desktop
+  restart, /engines/v1/models returns 200 but chat completions hang;
+  `docker model ps` shows models stuck "Loading..." indefinitely
+  (qwen3:8b, qwen3-vl observed 2026-11-13). dmr-watchdog's restart path
+  can't work on Docker Desktop (`docker-model-runner` is not a container
+  in this engine). Only recovery seen: full `docker desktop restart`.
+  Root cause likely RAM pressure: WSL ~11Gi total, ~5Gi available; the
+  canonical fleet can't all co-reside. Options: lower keep_alive /
+  trim `_BEST_PRACTICE_CONFIGS`, or raise WSL memory.
+- [x] DMR_CHATBOT_MODEL missing — RESOLVED 2026-11-13: canonical
+  `DMR_CHATBOT_MODEL=hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
+  in .env, model pulled + resident.
+- [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
+  to `docker exec` inside social-api (PR #1781 merged).
+
+## Engagement dispatch crash-loop — FIXED (2026-11-13)
+
+- `dispatch_engagements` was crash-looping ~41 failures/12min:
+  `AttributeError: 'EngagementAction' object has no attribute 'meta_data'`.
+  Task writes `gate_notified`/`skip_count` markers; model lacked the column
+  and migration `f7g8h9i0j1k2` sat on a dead alembic branch (never applied —
+  prod `alembic_version` was `k2f9a1b4c6d8`).
+- Fix merged via PR #1780: `meta_data` mapped_column on `EngagementAction`
+  + migration `c9d8e7f6a5b4` on the live head (idempotent — the orphaned
+  migration also applies on fresh `upgrade heads` builds).
+- Verified live: `alembic current = c9d8e7f6a5b4 (head)`, zero
+  meta_data errors post-restart (was 41/12min).
+- Gotcha for future migration authors: check `alembic heads` AND grep
+  existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
+
+## LinkedIn unused dev-app surfaces — implemented (2026-11-12/13)
+
+PR #1789 (`feat/linkedin-unused-surfaces-rebuilt`, auto-merge armed; #1786
+superseded by rebuild):
 - `linkedin_actor`: comments via official CM API first (person token,
   `author_urn`); API refusal → skip (no sidecar retry), infra failure →
   sidecar fallback. Likes remain sidecar-only.
 - `linkedin_events.create_org_event` fixed to real schema
   (`startsAt` + `type.online.format.external`); description omitted —
-  MultiLocaleRichText localized-map shape 422s live. CLI:
-  `scripts/linkedin_event.py list|create`.
-- LIVE: org event `7526770135387529216` created (Thu 2026-11-20
-  17:00–17:45 EET, url → cloudless.gr/contact). CAVEAT: `GET/PATCH
-  /rest/events/{id}` and all list finders 404 on API versions
-  202603/202610 — event accepted (201) but not yet retrievable; likely
-  needs the "post the event" step or propagation. Verify on the Company
-  Page events tab.
-- Announcement draft post `9678a774-dae5-48e9-8b1a-1a178841b5a9`
-  (LinkedIn org target, status=draft) — needs human approve/publish.
-- `route_linkedin_leads` now streams `lead_created` conversion
-  (SHA256 email + lead response id) after EspoCRM upsert; non-blocking.
-  NOTE: `lead_created` conversion rule must exist in Campaign Manager —
-  verify before expecting attribution.
+  MultiLocaleRichText localized-map shape 422s live. NEW
+  `post_org_event()` + `linkedin_event.py post` — events are drafts until
+  a `/rest/posts` call references `urn:li:event:{id}` (this was the GET
+  404 cause).
+- LIVE: org event `7526770135387529216` created AND posted
+  (`urn:li:ugcPost:7526789120099086336`, GET now 200, vanityName
+  `freelive-theaiauditmostsmbsskip…`, LISTED) — Thu 2026-11-20
+  17:00–17:45 EET, url → cloudless.gr/contact.
+- Announcement post `9678a774-dae5-48e9-8b1a-1a178841b5a9` SCHEDULED
+  2026-11-19 07:00 UTC (day-before reminder).
+- `route_linkedin_leads` streams `lead_created` conversion (SHA256 email
+  + lead response id) after EspoCRM upsert; non-blocking. NOTE:
+  `lead_created` rule must exist in Campaign Manager — verify.
+- vhdx-compact RESOLVED: root causes were missing UTF-8 BOM (PS5.1 parse
+  fail) + vhdx still locked. Script now stops Docker forcefully, waits
+  for exclusive handle, BOM'd. Ran 00:43→~01:30: vhdx 185.5→158.8GB,
+  C: 8.7→~52GB free. Fixes in home-ops `f4aa003`.
+- DMR env drift RESOLVED: `compose up -d` recreate baked canonical
+  DMR_*_MODEL fleet into containers; 4/4 workers pong.
 - Portal gates still open: Member DP (Member) on app 265077368 +
-  Matched Audiences case on 264925843 — probe blocked by LinkedIn 429
-  on the debug-Chrome session (2026-11-12); retry after cooldown.
-- Tests: 10 new cases, 56 passed locally; workers restarted.
+  Matched Audiences case on 264925843 — `scripts/li-portal-gate-watch.sh`
+  cron (every 2h, 24h dedup) retries the probe and drives the modal once
+  LinkedIn's 429 clears.
+- Tests: 11 new cases; ruff clean; workers restarted.
