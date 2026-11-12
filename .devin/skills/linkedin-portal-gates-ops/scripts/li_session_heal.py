@@ -23,6 +23,13 @@ localhost:9222 (direct debug Chrome). Requires websocket-client.
 Cookie jar lives OUTSIDE the repo (~/.local/state) — session material is
 never committed. li_at/JSESSIONID are the critical pair; the full set is
 stored so a heal restores the exact session, not a partial one.
+
+Self-renewal (verified mechanic, linkedin-jobs-scraper auth research):
+a matched li_rm (.www.linkedin.com) + bcookie (.linkedin.com) pair mints
+a FRESH li_at when an authenticated route (/feed/) loads — no password,
+no checkpoint. --capture stores the whole jar so the pair is always
+kept; _heal_with_cookies detects the pair and polls the jar for the
+minted li_at, then re-captures so rotated cookies stay fresh.
 """
 import argparse
 import json
@@ -381,19 +388,44 @@ def _heal_with_cookies(base):
         return {"ok": False,
                 "reason": f"jar-missing:{sorted(needed - have)}"}
 
+    LI_URLS = ["https://www.linkedin.com", "https://linkedin.com"]
+
     def fn(c):
         c.cmd("Network.enable")
         r = c.set_cookies(cookies)
         if "_error" in r:
             return {"ok": False, "reason": f"setCookies:{r['_error']}"}
-        # reload the probe page so the new cookies take effect
         c.cmd("Page.enable")
+        # li_rm+bcookie mint a fresh li_at when /feed/ loads — poll the
+        # cookie jar for the mint (Set-Cookie lands after navigation
+        # returns, ~10s budget per the reference implementation), then
+        # re-capture whatever the browser now holds so rotated
+        # li_rm/bcookie/li_at stay fresh in the jar.
+        names = {x.get("name") for x in cookies}
+        has_pair = {"li_rm", "bcookie"} <= names
+        old_li_at = next((x.get("value") for x in cookies
+                          if x.get("name") == "li_at"), None)
         c.cmd("Page.reload", {"ignoreCache": True})
-        time.sleep(8)
+        budget = 24 if has_pair else 8
+        minted = False
+        deadline = time.time() + budget
+        while time.time() < deadline:
+            time.sleep(4)
+            jar = {x.get("name"): x.get("value")
+                   for x in c.get_cookies(urls=LI_URLS)}
+            if jar.get("li_at") and jar["li_at"] != old_li_at:
+                minted = True
+                break
+        fresh = c.get_cookies(urls=LI_URLS)
+        if fresh:
+            _save_cookies(fresh)
         st = probe_state(c)
-        return {"ok": bool(st.get("loggedIn")), "state": st,
-                "reason": None if st.get("loggedIn")
-                else "cookies-rejected"}
+        out = {"ok": bool(st.get("loggedIn")), "state": st,
+               "minted_li_at": minted}
+        if not st.get("loggedIn"):
+            out["reason"] = ("cookies-rejected-mint-failed" if has_pair
+                             else "cookies-rejected")
+        return out
     tab = _open_tab(base, PROBE_URL)
     time.sleep(6)
     c = CDP(tab["webSocketDebuggerUrl"])
