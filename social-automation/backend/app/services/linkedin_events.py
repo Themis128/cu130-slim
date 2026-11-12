@@ -12,6 +12,7 @@ from app.models.social_account import SocialAccount
 from app.worker._async import task_session
 
 REST = "https://api.linkedin.com/rest"
+MAX_COMMENTARY_CHARS = 3000
 HDRS = {
     "Linkedin-Version": "202610",
     "X-Restli-Protocol-Version": "2.0.0",
@@ -73,6 +74,36 @@ async def create_org_event(
             body = r.json() if r.text else {}
             urn = r.headers.get("x-restli-id") or body.get("id") or body.get("entity")
             return {"urn": urn, "status": r.status_code}
+        return {"error": r.status_code, "body": r.text[:300]}
+
+
+async def post_org_event(event_id: int | str, *, commentary: str = "") -> dict:
+    """Publish an event — required before it is fetchable or visible.
+
+    Per LinkedIn docs an event stays a draft until a Posts API call
+    references ``urn:li:event:{id}`` via ``content.reference.id``.
+    """
+    ctx = await _org_token()
+    if not ctx:
+        return {"skip": "no-linkedin-org-account"}
+    token, org = ctx
+    payload = {
+        "author": org,
+        "commentary": commentary[:MAX_COMMENTARY_CHARS],
+        "visibility": "PUBLIC",
+        "distribution": {
+            "feedDistribution": "MAIN_FEED",
+            "targetEntities": [],
+            "thirdPartyDistributionChannels": [],
+        },
+        "content": {"reference": {"id": f"urn:li:event:{event_id}"}},
+        "lifecycleState": "PUBLISHED",
+        "isReshareDisabledByAuthor": False,
+    }
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.post(f"{REST}/posts", json=payload)
+        if r.status_code in (200, 201):
+            return {"post_urn": r.headers.get("x-restli-id"), "status": r.status_code}
         return {"error": r.status_code, "body": r.text[:300]}
 
 

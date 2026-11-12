@@ -29,12 +29,20 @@ async def _main() -> int:
     c.add_argument("--end", required=True)
     c.add_argument("--desc", default="")
     c.add_argument("--url", default=None)
+    p = sub.add_parser("post", help="publish an event (makes it visible)")
+    p.add_argument("event_id")
+    p.add_argument("--commentary", default="")
     args = ap.parse_args()
 
     if args.cmd == "list":
         out = await linkedin_events.list_org_events()
         print(json.dumps(out, indent=2, default=str)[:4000])
         return 0
+
+    if args.cmd == "post":
+        out = await linkedin_events.post_org_event(args.event_id, commentary=args.commentary)
+        print(json.dumps(out, indent=2, default=str))
+        return 0 if out.get("post_urn") else 1
 
     start = int(datetime.fromisoformat(args.start).timestamp() * 1000)
     end = int(datetime.fromisoformat(args.end).timestamp() * 1000)

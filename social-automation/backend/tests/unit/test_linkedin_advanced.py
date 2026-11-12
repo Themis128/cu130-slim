@@ -108,6 +108,45 @@ async def test_create_org_event_api_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_post_org_event_payload(monkeypatch):
+    monkeypatch.setattr(EV, "_org_token", AsyncMock(return_value=("tok", "urn:li:organization:9")))
+    sent: dict = {}
+
+    class _Resp:
+        status_code = 201
+        text = ""
+        headers = {"x-restli-id": "urn:li:share:post-1"}
+
+        def json(self):
+            return {}
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, **kw):
+            sent["url"] = url
+            sent["json"] = json
+            return _Resp()
+
+    monkeypatch.setattr(EV.httpx, "AsyncClient", _Client)
+    out = await EV.post_org_event("evt-42", commentary="join us")
+    assert out == {"post_urn": "urn:li:share:post-1", "status": 201}
+    p = sent["json"]
+    assert sent["url"].endswith("/rest/posts")
+    assert p["author"] == "urn:li:organization:9"
+    assert p["content"] == {"reference": {"id": "urn:li:event:evt-42"}}
+    assert p["lifecycleState"] == "PUBLISHED"
+    assert p["commentary"] == "join us"
+
+
+@pytest.mark.asyncio
 async def test_ad_library_no_token(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(AL, "task_session", lambda: _AsyncCM(db))
