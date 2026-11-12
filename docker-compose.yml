@@ -32,6 +32,12 @@ x-worker-env: &worker-env
   - N8N_API_KEY=${N8N_API_KEY}
   - N8N_USER=${N8N_USER}
   - N8N_PASSWORD=${N8N_PASSWORD}
+  # Reauth lanes (scripts/{tiktok,instagram,threads}_reauth.py, linkedin_cli)
+  # call the ops API with the admin user — without these every worker-side
+  # reauth check exited rc=2 'SOCIAL_ADMIN_EMAIL' (2026-11-12).
+  - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
+  - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
+  - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
   - COMFYUI_URL=http://stack-ops:8199
   - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
   - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
