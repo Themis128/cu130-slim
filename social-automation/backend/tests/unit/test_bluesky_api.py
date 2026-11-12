@@ -451,6 +451,7 @@ async def test_rotate_app_password_second_call_unique_names():
 @pytest.mark.asyncio
 async def test_revoke_app_password_error_paths(client):
     """revoke_app_password raises BlueskyAPIError on non-200; rotate swallows it."""
+    client.set_session("acc", "ref", "did:plc:x")
     fake = _FakeAsyncClient(_FakeResponse(500, {"error": "boom"}))
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         with pytest.raises(api.BlueskyAPIError):
@@ -498,3 +499,14 @@ async def test_revoke_app_password_error_paths(client):
         out = await rotate_app_password(account, "main-pw", _DB())
     assert out["rotated"] is True
     assert account.access_token_enc == b"enc"
+
+
+@pytest.mark.asyncio
+async def test_revoke_app_password_success(client):
+    client.set_session("acc", "ref", "did:plc:x")
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
+        await client.revoke_app_password("sa-rot-old")
+    assert fake.calls[0]["method"] == "POST"
+    assert "revokeAppPassword" in fake.calls[0]["url"]
+    assert fake.calls[0]["json"] == {"name": "sa-rot-old"}
