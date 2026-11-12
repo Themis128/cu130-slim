@@ -14,10 +14,7 @@ _SPEC.loader.exec_module(gate)
 
 def _files(entries):
     """entries: {path: (covered_lines, num_statements)}"""
-    return {
-        path: {"summary": {"covered_lines": c, "num_statements": s}}
-        for path, (c, s) in entries.items()
-    }
+    return {path: {"summary": {"covered_lines": c, "num_statements": s}} for path, (c, s) in entries.items()}
 
 
 def test_all_targets_meet_floor():
@@ -48,12 +45,7 @@ def test_main_filters_prefix_and_writes_report(tmp_path, capsys):
     report = tmp_path / "coverage.json"
     report.write_text(json.dumps({"files": _files({"app/services/x.py": (50, 100)})}))
     listing = tmp_path / "files.txt"
-    listing.write_text(
-        "social-automation/backend/app/services/x.py\n"
-        "social-automation/backend/tests/unit/test_x.py\n"
-        "docs/readme.md\n"
-        "\n"
-    )
+    listing.write_text("social-automation/backend/app/services/x.py\nsocial-automation/backend/tests/unit/test_x.py\ndocs/readme.md\n\n")
     assert gate.main([str(report), str(listing), "--min-lines", "80"]) == 1
     err = capsys.readouterr().err
     assert "app/services/x.py: 50.0%" in err

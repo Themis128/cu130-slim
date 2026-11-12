@@ -38,9 +38,7 @@ async def _sweep() -> dict:
 
     main_password = os.environ.get("BSKY_MAIN_PASSWORD") or ""
     async with task_session() as db:
-        account = (
-            await db.execute(select(SocialAccount).where(SocialAccount.platform == "bluesky"))
-        ).scalars().first()
+        account = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "bluesky"))).scalars().first()
         if account is None:
             return {"skipped": "no bluesky account"}
 
@@ -73,15 +71,13 @@ async def _sweep() -> dict:
         except BlueskyAPIError as exc:
             await send_telegram_alert(
                 "ops",
-                f"bluesky-credential: rotation failed ({exc.status_code}): "
-                f"{exc.response_text[:200]}",
+                f"bluesky-credential: rotation failed ({exc.status_code}): {exc.response_text[:200]}",
             )
             return {"rotated": False, "error": str(exc)[:200]}
 
         await send_telegram_alert(
             "ops",
-            "bluesky-credential: app password rotated automatically after "
-            "401 auth failures — publishes resume on next retry sweep.",
+            "bluesky-credential: app password rotated automatically after 401 auth failures — publishes resume on next retry sweep.",
         )
         logger.info("bluesky app password rotated for account %s", account.id)
         return result

@@ -253,10 +253,7 @@ async def test_publish_to_platform_prompt_leak_fails_closed():
     2026-11-11 ops report showed 'PLAIN ENGLISH RULES… Text to rewrite:'
     reaching post targets verbatim."""
     account = SimpleNamespace(platform="facebook", access_token_enc=b"unused")
-    leaked = (
-        'PLAIN ENGLISH RULES (must follow):\n- Use short words.\n'
-        'Text to rewrite:\n"""Real post copy here."""'
-    )
+    leaked = 'PLAIN ENGLISH RULES (must follow):\n- Use short words.\nText to rewrite:\n"""Real post copy here."""'
     post = SimpleNamespace(content_text=leaked)
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is False

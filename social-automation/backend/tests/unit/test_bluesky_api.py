@@ -363,9 +363,11 @@ async def test_rotate_app_password_full_flow():
         async def commit(self):
             commits.append(1)
 
-    with patch("app.services.bluesky_api.BlueskyClient", _C), patch(
-        "app.core.security.encrypt_token", lambda t: b"enc:" + t.encode()
-    ), patch("sqlalchemy.orm.attributes.flag_modified"):
+    with (
+        patch("app.services.bluesky_api.BlueskyClient", _C),
+        patch("app.core.security.encrypt_token", lambda t: b"enc:" + t.encode()),
+        patch("sqlalchemy.orm.attributes.flag_modified"),
+    ):
         from app.services.bluesky_api import rotate_app_password
 
         out = await rotate_app_password(account, "main-pw", _DB())
