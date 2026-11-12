@@ -1652,3 +1652,88 @@ Newly discovered gates:
   the recording-share fallback and anything else on the omv tunnel.
 - Junk-response caveat: a test fill submitted placeholder data once —
   real submission superseded it; if LinkedIn flags the orphan, resubmit.
+
+## 2026-11-12 — LinkedIn account restriction + stack recovery (Devin)
+
+- **LinkedIn restriction**: account flagged for "unusually high volume of
+  profile data access" — lifts 2026-11-12 ~05:24 UTC (Nov 11 21:24 PST).
+  Almost certainly self-inflicted: sidecar feed scrape + intel/leads +
+  messenger poll + invites + session checks all hit linkedin.com pages.
+- **Throttle shipped (PR #1735)**: `LINKEDIN_SCRAPE_PAUSED=true` in .env —
+  beat drops `engagement-ingest-li-feed`, `poll-linkedin-messenger`,
+  `send-linkedin-invites`, `newsletter-subs-sync`. API lanes (CM stats,
+  ads, lead sync) + publish queue untouched. Sidecar `rate-limit.json`
+  extended to 2026-11-13 05:24 UTC as a hard guard (all sidecar actions
+  refuse until then; publish falls back to official API).
+- **Resume plan**: after lift, verify sidecar `/health` (has_session,
+  browser_connected, page_ok) with ONE navigation — do NOT reopen all
+  lanes at once. Re-enable ingest first at reduced cadence, keep
+  comments/reposts human-gated, watch for re-restriction.
+- **Docker Desktop incident**: DD 4.98 `invalid cross distro token` —
+  user-distro proxy can't validate mounts; `compose up`/recreate fails,
+  but `docker start`/`restart` works (mounts already resolved). All 54
+  containers recovered via watchdog `docker start`. STILL OPEN: any
+  future recreate needs the DD fix (re-enable WSL integration for
+  Ubuntu-24.04 or DD update); bare `docker` works via
+  dd-user-distro-proxy for the apiproxy path.
+- **Dev-app audit fixed (PR #1736)**: app_audit.py false-[ok] on daemon
+  failure; now pins docker.exe + repo cwd + fails on non-zero exit.
+  Live results: **BAD** — X bearer 401, Bluesky app-password 401,
+  Instagram @cloudless.gr row `status=revoked` (verify whether stale
+  flag or real), Meta stale rows (threads revoked, FB personal expired,
+  canonical page active). **OK** — LinkedIn tokens→2027, TikTok,
+  WhatsApp VERIFIED TIER_250 (was NOT_VERIFIED), Viber.
+- **Scope-exploitation audit still partial**: accounts/status verified;
+  granted-vs-used scope matrix per app not yet run (linkedin_tool
+  introspection, meta debug_token, x scopes).
+- **LinkedIn engagement**: zero candidates ever — ingest was
+  rate-limited pre-restriction; now intentionally paused. Resume
+  gradually per plan above; company-relevance targeting tweak still TODO.
+- **Video cadence**: not started — branded-video-pipeline drafts pending.
+
+## 2026-11-12 (pm) — remaining-gate automation sweep (Devin)
+
+- **TikTok QR → phone path**: `human-gate-bridges/scripts/tiktok_qr_phone.py`
+  — waits for the :9223 QR page, screenshots via `/session/screenshot`,
+  decodes payload (zxing-cpp → cv2 fallback), fires an Android VIEW
+  intent on the phone (`TK_ADB_SERIAL`, default 192.168.1.77:5555), then
+  hands off to `scripts/tiktok_qr_watch.py` which requires real
+  sessionid/sid_tt before seeding the :9224 sidecar. Non-URL payloads
+  report manual-scan fallback.
+- **LinkedIn :9229 session heal**: `li_session_heal.py` (status/capture/
+  heal/daemon/seed) — stores the full cookie jar outside the repo
+  (~/.local/state/li-portal-session, li_at verified present, 54 cookies),
+  re-injects via CDP on logout, falls back to LINKEDIN_* credential login,
+  TG-alerts on human-needed (deduped). Wired: cron */30 `heal`.
+  Live test 2026-11-12: cookies rejected + credential login hit a
+  Cloudflare challenge — page was chrome-error (connectivity), lane is
+  armed and retries; needs one manual LinkedIn login in that Chrome if
+  it persists.
+- **Viber capture consolidated**: real implementation now at
+  `viber-bot-ops/scripts/viber_phone_capture.py` (device pick prefers
+  192.168.x over the camera ADB endpoint, monkey launch, search→bot→
+  Edit Info→App Token→Termux clipboard→viber_provision). The shallow
+  `human-gate-capture-ops` copy is now a delegate shim. Blocker unchanged:
+  no bot exists (commercial-only creation).
+- **FB OAuth reauth hardened**: `fb_reauth.py` now tries :9229 relay +
+  localhost:9222, opens its OWN tab (was hijacking first page), clicks
+  through the consent SPA, reports callback-landed vs needs-human, and
+  uses docker.exe for the signed-state mint. Blocked live by Docker
+  Desktop flap (npipe engine unreachable at run time) — retry when DD
+  is stable.
+- **Meta billing auto-submit**: `meta_payment_helper.py` gains opt-in
+  `META_BILLING_AUTOSUBMIT=1` (fill → click submit). Default stays
+  fill-only/PCI-manual; no official API exists — documented.
+- **TikTok biz-verify API documented** in `tiktok-verification` SKILL.md:
+  Marketing API `/business/verification/{status,filetype,upload,submit}`
+  — needs approved TikTok-for-Business app + genuine docs; pursue only
+  if the current Under-Review resubmit is rejected.
+- **Gmail MCP plugin**: repo OAuth verified (refresh token live);
+  IDE plugin connector is client-side — needs `devin auth login` /
+  plugin re-auth in Devin Desktop. Documented in gmail-ops SKILL.md.
+- **ChromeDebug task**: verified already interactive current-user
+  (LogonTrigger, conhost --headless, LastResult 0) — no password path
+  needed; no change required.
+- **WhatsApp coexist watch**: PIN-fallback (`PHONE_PIN`, opt-in) +
+  fresh-SMS autofill (`WA_SMS_AUTOFILL`) + device pinning landed earlier
+  this sweep; live run correctly refused stale/unrelated SMS codes.

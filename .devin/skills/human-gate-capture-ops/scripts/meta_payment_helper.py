@@ -5,7 +5,15 @@ never stored, never printed.
 
     META_CARD_NUMBER=… META_CARD_EXP=MM/YY META_CARD_CVC=… \\
         meta_payment_helper.py fill
+    META_BILLING_AUTOSUBMIT=1 meta_payment_helper.py fill   # also click submit
     meta_payment_helper.py check   # session + billing page state
+
+PCI note: card data stays in env only — never stored, never printed.
+Default behaviour fills the form and STOPS before submit (human confirms).
+META_BILLING_AUTOSUBMIT=1 is the explicit opt-in for unattended submit —
+set it only if you accept card details transiting this script unattended.
+There is no official Meta API for adding payment methods; this CDP path
+is the only automation surface.
 """
 import json
 import os
@@ -67,9 +75,32 @@ r.call(el,v)
                         "params": {"expression": js, "returnByValue": True}}))
     found = json.loads(ws.recv())["result"]["result"].get("value")
     print("fields found:", found)
+
+    autosubmit = os.environ.get("META_BILLING_AUTOSUBMIT") == "1"
+    if not autosubmit:
+        ws.close()
+        print("card data received — form fill requires the billing page "
+              "open; complete the submit click manually "
+              "(PCI: we fill, you confirm). Set META_BILLING_AUTOSUBMIT=1 "
+              "to opt into unattended submit.")
+        return 0
+
+    # opt-in unattended submit — click the primary submit/save button
+    sub_js = """(()=>{
+      const els=[...document.querySelectorAll(
+        'button,[role=button],input[type=submit]')];
+      const b=els.find(e=>/save|submit|add|confirm|continue/i
+        .test((e.innerText||e.value||'').trim())
+        && (e.innerText||e.value||'').trim().length<40);
+      if(b){b.click();return 'clicked:'+(b.innerText||b.value).trim()}
+      return 'no-submit-button';
+    })()"""
+    ws.send(json.dumps({"id": 3, "method": "Runtime.evaluate",
+                        "params": {"expression": sub_js,
+                                   "returnByValue": True}}))
+    print("autosubmit:", json.loads(ws.recv())["result"]["result"]
+          .get("value"))
     ws.close()
-    print("card data received — form fill requires the billing page open; "
-          "complete the submit click manually (PCI: we fill, you confirm)")
     return 0
 
 

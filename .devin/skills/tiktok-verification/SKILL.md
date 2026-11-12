@@ -117,3 +117,20 @@ cert.png attached + name `Μπαλτζάκης Θεμιστοκλής` + AFM 115
 Note: cert address (Οδός Ιωάννη 15, 19400) differs from the form's
 business address (Thermopilon 15, Koropi 19441) — if TikTok rejects on
 address next, that's the next field to reconcile (fiscal vs operating).
+
+## Marketing API verification path (programmatic, needs app approval)
+
+The TikTok for Business **Marketing API** exposes a dedicated business
+verification surface — useful if web resubmits keep failing:
+
+- `GET  /open_api/v1.3/business/verification/status`  — current state
+- `GET  /open_api/v1.3/business/verification/filetype` — accepted doc types
+- `POST /open_api/v1.3/business/verification/upload`   — multipart doc upload
+- `POST /open_api/v1.3/business/verification/submit`   — submit for review
+
+Prereqs: an approved **TikTok for Business** developer app (separate from
+the consumer Login Kit app — review takes ~2-3 days) and a
+non-expiring access token. Docs must be genuine owner documents — the
+same ΑΑΔΕ/ΓΕΜΗ rules above apply; the API does not bypass review.
+Worth pursuing only if the current web "Under Review" resubmit is
+rejected again; track status with `tt_verify_status.py` (6h cron).

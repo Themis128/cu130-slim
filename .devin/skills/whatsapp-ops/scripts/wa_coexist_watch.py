@@ -16,9 +16,16 @@ On VERIFIED it finishes the gate unattended:
   - converges the backend compose services (skipped while .deploy.lock is fresh)
   - TG-alerts #ops, drops a done-marker so cron relaunches no-op
 
-Logs state transitions to ~/logs/wa-coexist-watch.log. Never taps, types,
-or sends anything on the phone — the only human step is the fingerprint/PIN
-unlock that lets the app finish the link.
+Logs state transitions to ~/logs/wa-coexist-watch.log.
+
+Phone-drive (opt-in boundaries):
+  - PHONE_PIN in .env  -> biometric/unlock prompt gets "Use PIN" + PIN
+    entry (never spoofs the fingerprint itself).
+  - WA_SMS_AUTOFILL!=0 -> the WA number-verification screen reads the
+    SMS inbox over ADB and types the code (default on; =0 disables).
+  - WA_ADB_SERIAL pins a device; otherwise the first ADB 'device' state
+    is used (LAN alias preferred — the phone is IP-connected).
+Without PHONE_PIN the watcher stays read-only on the biometric gate.
 """
 import json
 import os
@@ -28,7 +35,10 @@ import time
 import urllib.request
 
 ADB = "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe"
-SERIAL = "RFCTA0AEKZP"
+ADB_FALLBACKS = [ADB, "adb", "/mnt/c/platform-tools/adb.exe"]
+# The phone is IP-connected (LAN + tailnet aliases of the same device) —
+# discover at runtime instead of a fixed serial.
+SERIAL = os.environ.get("WA_ADB_SERIAL", "")
 ENV = "/home/tbaltzakis/cu130-slim/.env"
 ENV_WIN = "/mnt/c/Users/tbaltzakis/cu130-slim/.env"
 LOG = os.path.expanduser("~/logs/wa-coexist-watch.log")
@@ -260,23 +270,196 @@ def finish_gate(waba_id):
        + ". Backend converge issued; webhook subscribe is the next check.")
 
 
+def adb_bin():
+    import shutil
+    for c in ADB_FALLBACKS:
+        if c.endswith(".exe") or shutil.which(c):
+            return c
+    return ADB
+
+
+def pick_device():
+    """First ADB device in 'device' state. WA_ADB_SERIAL pins one."""
+    if SERIAL:
+        return SERIAL
+    try:
+        out = subprocess.run([adb_bin(), "devices"], capture_output=True,
+                             text=True, timeout=15).stdout
+    except Exception:
+        return ""
+    devs = [ln.split()[0] for ln in out.splitlines()[1:]
+            if ln.strip() and ln.rstrip().endswith("device")]
+    # prefer the LAN alias (Termux SSH host) when both aliases are present
+    for d in devs:
+        if d.startswith("192.168."):
+            return d
+    return devs[0] if devs else ""
+
+
+def adb(*args, timeout=30):
+    dev = pick_device()
+    if not dev:
+        return ""
+    return subprocess.run([adb_bin(), "-s", dev, "shell", *args],
+                          capture_output=True, text=True,
+                          timeout=timeout).stdout
+
+
+def env_get(key, default=""):
+    return env_map(ENV).get(key, os.environ.get(key, default))
+
+
+def screen_xml():
+    adb("uiautomator", "dump", "/sdcard/ui.xml", timeout=40)
+    return adb("cat", "/sdcard/ui.xml", timeout=20)
+
+
+def screen_nodes(xml=None):
+    """[(text, cx, cy)] for nodes carrying text."""
+    xml = xml if xml is not None else screen_xml()
+    out = []
+    for m in re.finditer(
+            r'(?:text|content-desc)="([^"]*)"[^>]*'
+            r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
+        t, x1, y1, x2, y2 = m.groups()
+        if t.strip():
+            out.append((t, (int(x1) + int(x2)) // 2,
+                        (int(y1) + int(y2)) // 2))
+    return out
+
+
+def tap_text(nodes, needle):
+    nl = needle.lower()
+    for t, x, y in nodes:
+        if nl in t.lower():
+            adb("input", "tap", str(x), str(y))
+            return t
+    return None
+
+
+# ── phone-drive: biometric/PIN unlock + SMS-code verify ──────────────────
+# Opt-in boundaries:
+#   PHONE_PIN set      -> biometric prompt gets "Use PIN" + PIN entry
+#   WA_SMS_AUTOFILL!=0 -> verification-code screen reads the SMS inbox
+#                         and types the code (default ON — it completes a
+#                         verification the owner already triggered)
+UNLOCK_RE = re.compile(r"unlock to link|confirm it'?s you|verify it'?s you|"
+                       r"fingerprint|face unlock|biometric|use pin|"
+                       r"use passcode|enter your pin", re.I)
+VERIFY_RE = re.compile(r"verification code|verifying your number|"
+                       r"enter the \d+-digit code|didn'?t receive code", re.I)
+
+_sms_last_code = None
+_sms_last_try = 0.0
+_pin_last_try = 0.0
+_resend_last = 0.0
+
+
+def read_whatsapp_code(max_age_s=1200):
+    """Newest FRESH WhatsApp SMS code (epoch-ms within max_age_s), or None.
+
+    Stale codes are worse than none — WA rejects them and burns an attempt.
+    Returns the 6-digit code only when the SMS is recent enough to belong
+    to the current verification round.
+    """
+    out = adb("content", "query", "--uri", "content://sms/inbox",
+              "--projection", "address,date,body", "--sort", "date DESC",
+              timeout=25)
+    now_ms = time.time() * 1000
+    for line in out.splitlines():
+        if not re.search(r"whatsapp", line, re.I):
+            continue
+        dm = re.search(r"date=(\d+)", line)
+        if dm and now_ms - int(dm.group(1)) > max_age_s * 1000:
+            continue
+        m = re.search(r"(\d{3})[-\s]?(\d{3})", line)
+        if m:
+            return m.group(1) + m.group(2)
+    return None
+
+
+def maybe_pin_unlock(nodes, joined):
+    """Biometric gate -> Use PIN -> type PIN on the pad. PHONE_PIN only."""
+    global _pin_last_try
+    pin = env_get("PHONE_PIN")
+    if not pin or not UNLOCK_RE.search(joined):
+        return False
+    if time.time() - _pin_last_try < 300:  # at most one attempt / 5 min
+        return False
+    _pin_last_try = time.time()
+    log("phone-drive: biometric gate detected — trying PIN fallback")
+    # choose the PIN fallback if offered
+    for label in ("Use PIN", "Use passcode", "Enter PIN", "PIN instead",
+                  "Use pattern"):
+        if tap_text(nodes, label):
+            log(f"phone-drive: tapped '{label}'")
+            time.sleep(2.5)
+            nodes = screen_nodes()
+            break
+    # PIN pad: tap digit nodes in order; fallback input text
+    ok = True
+    for d in pin:
+        hit = tap_text(nodes, d)
+        if not hit:
+            ok = False
+            break
+        time.sleep(0.4)
+        nodes = screen_nodes()
+    if not ok:
+        # custom pad without text nodes — try direct input
+        adb("input", "text", pin)
+        log("phone-drive: PIN pad had no digit nodes — used input text")
+    time.sleep(2)
+    return True
+
+
+def maybe_sms_verify(nodes, joined):
+    """Verification-code screen -> read SMS -> type code. Default ON."""
+    global _sms_last_code, _sms_last_try, _resend_last
+    if env_get("WA_SMS_AUTOFILL", "1") == "0":
+        return False
+    if not VERIFY_RE.search(joined):
+        return False
+    code = read_whatsapp_code()
+    if not code:
+        # no fresh SMS — resend once per 10 min via the fallback link
+        if time.time() - _resend_last > 600:
+            _resend_last = time.time()
+            if tap_text(nodes, "Didn't receive code"):
+                log("phone-drive: tapped 'Didn't receive code?'")
+                time.sleep(3)
+                nodes = screen_nodes()
+                for opt in ("SMS", "Text message", "Call me", "Voice"):
+                    if tap_text(nodes, opt):
+                        log(f"phone-drive: resend via '{opt}'")
+                        break
+        return False
+    if code == _sms_last_code and time.time() - _sms_last_try < 600:
+        return False  # already tried this code recently
+    _sms_last_code, _sms_last_try = code, time.time()
+    log(f"phone-drive: WA code {code[:3]}*** — filling verify field")
+    # focus the code field then type — WA auto-submits on 6 digits
+    tap_text(nodes, "Verification code") or tap_text(nodes, "code")
+    time.sleep(0.8)
+    adb("input", "text", code)
+    time.sleep(1)
+    return True
+
+
 def app_screen():
     try:
-        subprocess.run(
-            [ADB, "-s", SERIAL, "shell", "uiautomator", "dump", "/sdcard/ui.xml"],
-            capture_output=True, timeout=30,
-        )
-        out = subprocess.run(
-            [ADB, "-s", SERIAL, "shell", "cat", "/sdcard/ui.xml"],
-            capture_output=True, timeout=30,
-        ).stdout.decode("utf-8", "replace")
+        xml = screen_xml()
+        nodes = screen_nodes(xml)
+        if not nodes:
+            return "EMPTY"
+        joined = " | ".join(t for t, _, _ in nodes[:12])
+        if maybe_pin_unlock(nodes, joined) or maybe_sms_verify(nodes, joined):
+            time.sleep(4)
+            nodes = screen_nodes()
+            joined = " | ".join(t for t, _, _ in nodes[:12]) if nodes else joined
+        return joined[:300]
     except Exception as e:
         return f"ADB_ERR:{e}"
-    texts = re.findall(r'text="([^"]+)"', out)
-    texts = [t for t in texts if t.strip()]
-    if not texts:
-        return "EMPTY"
-    return " | ".join(texts[:8])[:300]
 
 
 def main():
@@ -284,8 +467,11 @@ def main():
         log("already VERIFIED (done-marker present) — exiting")
         return
     tok = token()
-    log(f"wa-coexist-watch start serial={SERIAL} poll={POLL_S}s "
-        f"timeout={TIMEOUT_H}h token={'yes' if tok else 'NO'}")
+    dev = pick_device()
+    log(f"wa-coexist-watch start device={dev or 'NONE'} poll={POLL_S}s "
+        f"timeout={TIMEOUT_H}h token={'yes' if tok else 'NO'} "
+        f"pin_fallback={'PHONE_PIN' in env_map(ENV)} "
+        f"sms_autofill={env_get('WA_SMS_AUTOFILL', '1')}")
     deadline = time.time() + TIMEOUT_H * 3600
     last_screen = last_graph = None
     alerted_timeout = False
