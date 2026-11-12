@@ -23,6 +23,7 @@ class EngagementAction(Base):
     status: Mapped[str] = mapped_column(String(30), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     acted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
 
 
 class EngagementCandidate(Base):
