@@ -109,10 +109,11 @@ def _cdp_base():
     return None
 
 
-def _open_tab(base, url):
-    req = urllib.request.Request(
-        base + "/json/new?" + urllib.parse.quote(url, safe=""),
-        method="PUT")
+def _open_tab(base):
+    # about:blank first — very long OAuth URLs occasionally fail to load
+    # through /json/new?<url>; Page.navigate over the ws is reliable.
+    req = urllib.request.Request(base + "/json/new?about:blank",
+                                 method="PUT")
     return json.loads(urllib.request.urlopen(req, timeout=15).read())
 
 
@@ -123,15 +124,19 @@ def _close_tab(base, tab_id):
         pass
 
 
-def _ws_eval(ws_url, js, mid=1):
+def _ws_eval(ws_url, js, mid=1, method=None, params=None):
     import websocket
     ws = websocket.create_connection(ws_url, suppress_origin=True,
                                      timeout=20)
     try:
-        ws.send(json.dumps({"id": mid, "method": "Runtime.evaluate",
-                            "params": {"expression": js,
-                                       "returnByValue": True,
-                                       "awaitPromise": True}}))
+        if method:
+            ws.send(json.dumps({"id": mid, "method": method,
+                                "params": params or {}}))
+        else:
+            ws.send(json.dumps({"id": mid, "method": "Runtime.evaluate",
+                                "params": {"expression": js,
+                                           "returnByValue": True,
+                                           "awaitPromise": True}}))
         while True:
             r = json.loads(ws.recv())
             if r.get("id") == mid:
@@ -151,8 +156,11 @@ def main() -> int:
         print("CDP not bound — tried " + ", ".join(CDP_CANDIDATES))
         return 1
     url = _auth_url()
-    tab = _open_tab(base, url)
+    tab = _open_tab(base)
     ws_url = tab.get("webSocketDebuggerUrl", "")
+    _ws_eval(ws_url, None, mid=0, method="Page.enable")
+    _ws_eval(ws_url, None, mid=0, method="Page.navigate",
+             params={"url": url})
     print(f"cdp={base} tab={tab.get('id','')[:8]} — driving consent")
     deadline = time.time() + 150
     last = ""
@@ -170,6 +178,10 @@ def main() -> int:
             print("page:", cur[:110])
             last = cur
         if CALLBACK_MARK in cur or "facebook.com" not in cur:
+            break
+        if "/login" in cur or "checkpoint" in cur:
+            print("facebook session logged out — human login needed "
+                  "in the debug browser first")
             break
         try:
             click = _ws_eval(ws_url, _CLICK_JS)
