@@ -244,8 +244,14 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
         elif account.platform == "tiktok":
             from app.services.tiktok_api import TikTokAPIClient
 
-            client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
-            data = (await client.get_stats()).get("data") or {}
+            scopes = set(account.scopes or [])
+            if scopes and not scopes & {"user.info.stats", "user.info.profile"}:
+                # Scopes recorded at OAuth time prove the grant is absent —
+                # skip the API call instead of emitting a guaranteed 401.
+                data = {}
+            else:
+                client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
+                data = (await client.get_stats()).get("data") or {}
             live = int(data.get("follower_count") or 0) or None
         elif account.platform == "twitter":
             from app.services.twitter_api import TwitterAPIClient
@@ -290,24 +296,26 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
             day -= timedelta(days=1)
         metrics["days_held"] = held
     if account.platform == "tiktok":
-        try:
-            from app.services.tiktok_api import TikTokAPIClient
+        tiktok_scopes = set(account.scopes or [])
+        if not tiktok_scopes or "video.list" in tiktok_scopes:
+            try:
+                from app.services.tiktok_api import TikTokAPIClient
 
-            client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
-            ts_cutoff = datetime.now(UTC).timestamp() - 30 * 86400
-            total, cursor = 0, 0
-            while True:
-                data = (await client.list_videos(cursor=cursor, max_count=20)).get("data") or {}
-                vids = data.get("videos") or []
-                if not vids:
-                    break
-                for v in vids:
-                    if (v.get("create_time") or 0) >= ts_cutoff:
-                        total += int(v.get("view_count") or 0)
-                if not data.get("has_more"):
-                    break
-                cursor = data.get("cursor") or 0
-            metrics["views_30d"] = total
-        except Exception as exc:  # noqa: BLE001
-            log.info("tiktok views_30d failed: %s", str(exc)[:120])
+                client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
+                ts_cutoff = datetime.now(UTC).timestamp() - 30 * 86400
+                total, cursor = 0, 0
+                while True:
+                    data = (await client.list_videos(cursor=cursor, max_count=20)).get("data") or {}
+                    vids = data.get("videos") or []
+                    if not vids:
+                        break
+                    for v in vids:
+                        if (v.get("create_time") or 0) >= ts_cutoff:
+                            total += int(v.get("view_count") or 0)
+                    if not data.get("has_more"):
+                        break
+                    cursor = data.get("cursor") or 0
+                metrics["views_30d"] = total
+            except Exception as exc:  # noqa: BLE001
+                log.info("tiktok views_30d failed: %s", str(exc)[:120])
     return metrics

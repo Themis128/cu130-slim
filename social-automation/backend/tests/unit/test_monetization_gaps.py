@@ -33,6 +33,7 @@ def _account(platform="instagram", account_type="user", username="u", meta=None)
         account_id="acct-123",
         status="active",
         meta_data=meta or {},
+        scopes=[],
         access_token_enc=encrypt_token("tok"),
     )
 
@@ -251,6 +252,32 @@ async def test_gather_metrics_tiktok_views_empty_and_error(monkeypatch):
     monkeypatch.setattr("app.services.tiktok_api.TikTokAPIClient", _Boom)
     out2 = await M.gather_account_metrics(_Db(results=[_Rows([])]), acc)
     assert "views_30d" not in out2  # error swallowed, key absent
+
+
+@pytest.mark.asyncio
+async def test_gather_metrics_tiktok_scope_gate_skips_api(monkeypatch):
+    """Scopes recorded at OAuth time prove the grant is absent — no API call."""
+    acc = _account("tiktok")
+    acc.scopes = ["user.info.basic"]  # neither user.info.stats nor video.list
+    calls = []
+
+    class _TT:
+        def __init__(self, *a, **kw):
+            calls.append("init")
+
+        async def get_stats(self):
+            calls.append("get_stats")
+            return {"data": {"follower_count": 1}}
+
+        async def list_videos(self, cursor=0, max_count=20):
+            calls.append("list_videos")
+            return {"data": {"videos": [], "has_more": False}}
+
+    monkeypatch.setattr("app.services.tiktok_api.TikTokAPIClient", _TT)
+    out = await M.gather_account_metrics(_Db(results=[_Rows([])]), acc)
+    assert calls == []
+    assert "followers_live" not in out or out.get("followers_live") is not True
+    assert "views_30d" not in out
 
 
 @pytest.mark.asyncio
