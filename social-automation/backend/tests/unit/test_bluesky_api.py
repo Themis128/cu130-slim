@@ -433,8 +433,9 @@ async def test_rotate_app_password_second_call_unique_names():
         patch("app.core.security.encrypt_token", lambda t: b"enc"),
         patch("sqlalchemy.orm.attributes.flag_modified"),
     ):
-        from app.services.bluesky_api import rotate_app_password
         import time as _time
+
+        from app.services.bluesky_api import rotate_app_password
 
         await rotate_app_password(account, "main-pw", _DB())
         # force a different second timestamp if the same second is reused
