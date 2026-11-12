@@ -270,3 +270,113 @@ async def test_timed_context_manager(monkeypatch):
         async with af._timed("fn2", "txt"):
             raise ValueError("boom")
     assert [(r[0], r[1]) for r in rec] == [("fn", "ok"), ("fn2", "error")]
+
+
+class _RespOK:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"choices": [{"message": {"content": "  CF ANSWER  "}}]}
+
+
+class _FlakyClient:
+    """Fails every DMR post; succeeds only on the Cloudflare AI endpoint."""
+
+    calls: list = []
+
+    def __init__(self, timeout=None):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None, **kw):
+        _FlakyClient.calls.append(url)
+        if "api.cloudflare.com" in url:
+            return _RespOK()
+        raise RuntimeError("dmr down")
+
+
+class _DeadClient:
+    calls: list = []
+
+    def __init__(self, timeout=None):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None, **kw):
+        _DeadClient.calls.append(url)
+        raise RuntimeError("all down")
+
+
+@pytest.fixture
+def cf_settings(monkeypatch):
+    monkeypatch.setattr(
+        af,
+        "get_settings",
+        lambda: _settings(CLOUDFLARE_AI_API_TOKEN="tok", CLOUDFLARE_ACCOUNT_ID="acct"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_falls_back_to_workers_ai(monkeypatch, cf_settings):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    _FlakyClient.calls = []
+    monkeypatch.setattr(af.httpx, "AsyncClient", _FlakyClient)
+    assert await af._chat("p", 5) == "CF ANSWER"
+    cf_calls = [u for u in _FlakyClient.calls if "api.cloudflare.com" in u]
+    assert cf_calls and cf_calls[0].endswith("/ai/v1/chat/completions")
+
+
+@pytest.mark.asyncio
+async def test_chat_raises_when_dmr_and_cf_down(monkeypatch, cf_settings):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    _DeadClient.calls = []
+    monkeypatch.setattr(af.httpx, "AsyncClient", _DeadClient)
+    with pytest.raises(RuntimeError):
+        await af._chat("p", 5)
+    assert any("api.cloudflare.com" in u for u in _DeadClient.calls)
+
+
+@pytest.mark.asyncio
+async def test_cf_chat_unconfigured_returns_none(client):
+    assert await af._cf_chat("p", 5) is None
+
+
+@pytest.mark.asyncio
+async def test_cf_chat_http_failure_returns_none(monkeypatch, cf_settings):
+    class _BadResp:
+        def raise_for_status(self):
+            raise RuntimeError("cf 500")
+
+        def json(self):
+            return {}
+
+    class _CFClient:
+        def __init__(self, timeout=None):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, **kw):
+            return _BadResp()
+
+    monkeypatch.setattr(af.httpx, "AsyncClient", _CFClient)
+    assert await af._cf_chat("p", 5) is None
