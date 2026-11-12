@@ -226,13 +226,22 @@ def with_fb_tab(base, fn, settle_url=None):
     tab = _find_fb_tab(base)
     created = False
     if tab is not None:
-        c = CDP(tab["webSocketDebuggerUrl"])
+        try:
+            c = CDP(tab["webSocketDebuggerUrl"])
+        except Exception as e:
+            # /json can list a target that already died — "No such target
+            # id" on handshake. Treat it like a wedged tab.
+            print(f"stale FB tab target ({e}) — replacing", flush=True)
+            _close_tab(base, tab.get("id", ""))
+            tab = None
+    if tab is not None:
         try:
             if settle_url and settle_url not in (tab.get("url") or ""):
                 c.cmd("Page.enable")
                 c.cmd("Page.navigate", {"url": settle_url})
             if _wait_eval_live(c, tries=10):
                 time.sleep(3)
+                c.tab_id = tab.get("id", "")
                 return fn(c)
         finally:
             c.close()
@@ -242,11 +251,20 @@ def with_fb_tab(base, fn, settle_url=None):
         _close_tab(base, tab.get("id", ""))
     tab = _open_fb_tab(base, url)
     created = True
-    c = CDP(tab["webSocketDebuggerUrl"])
+    try:
+        c = CDP(tab["webSocketDebuggerUrl"])
+    except Exception as e:
+        # fresh target raced away — one retry with a brand-new tab
+        print(f"fresh FB tab connect failed ({e}) — retrying once",
+              flush=True)
+        _close_tab(base, tab.get("id", ""))
+        tab = _open_fb_tab(base, url)
+        c = CDP(tab["webSocketDebuggerUrl"])
     try:
         if not _wait_eval_live(c):
             return {"ok": False, "reason": "tab-unresponsive"}
         time.sleep(3)
+        c.tab_id = tab.get("id", "")
         return fn(c)
     finally:
         c.close()
@@ -345,7 +363,9 @@ def _credential_login(base):
     if not (user and pw):
         return {"ok": False, "reason": "no-credentials"}
 
-    def fn(c):
+    def _submit_flow(c):
+        """Navigate to the login page, wait for the form, submit creds.
+        Returns (ok, probe-dict)."""
         c.cmd("Page.enable")
         c.cmd("Page.navigate", {"url": LOGIN_URL})
         print("navigated to login — waiting for form", flush=True)
@@ -368,16 +388,39 @@ def _credential_login(base):
                 break
             time.sleep(3)
         if not form_ready:
-            return {"ok": False, "reason": "no-login-form",
-                    "state": probe}
+            return False, probe
         print("login form ready — submitting", flush=True)
         r = _eval_quick(c, EVAL_LOGIN % (json.dumps(user), json.dumps(pw)), timeout=25)
         if r != "submitted":
-            return {"ok": False, "reason": f"login-eval:{r}",
-                    "state": probe}
+            return False, {"login_eval": r}
+        return True, probe
+
+    def _swap_tab(c):
+        """Renderer dead beyond reload — close the tab and open a fresh
+        one at the login page. Checkpoint state is server-side, so the
+        flow resumes on the new tab."""
+        _close_tab(base, getattr(c, "tab_id", "") or "")
+        c.close()
+        tab = _open_fb_tab(base, LOGIN_URL)
+        nc = CDP(tab["webSocketDebuggerUrl"])
+        nc.tab_id = tab.get("id", "")
+        if not _wait_eval_live(nc, tries=12):
+            nc.close()
+            return None
+        nc.cmd("Page.enable")
+        return nc
+
+    def fn(c):
+        ok, probe = _submit_flow(c)
+        if not ok:
+            reason = (f"login-eval:{probe['login_eval']}"
+                      if probe.get("login_eval") else "no-login-form")
+            return {"ok": False, "reason": reason, "state": probe}
         # post-submit flow: wait, click through interstitials, handle 2FA
         eval_fails = 0
-        for attempt in range(14):
+        reloads = 0
+        swaps = 0
+        for attempt in range(20):
             time.sleep(5)
             st = probe_state(c)
             print(f"post-login poll {attempt}: url={st.get('url','')[:70]} "
@@ -386,6 +429,30 @@ def _credential_login(base):
             if st.get("url") == "eval-failed":
                 eval_fails += 1
                 if eval_fails >= 3:
+                    reloads += 1
+                    if reloads >= 2 and swaps < 2:
+                        # reload can't revive a dead renderer — replace
+                        # the tab and resubmit credentials on the fresh
+                        # one (seen 2026-11-12: reload looped 11 polls
+                        # then gave up post-login-incomplete).
+                        print("tab unrecoverable — swapping for a fresh tab",
+                              flush=True)
+                        nc = _swap_tab(c)
+                        if nc is None:
+                            return {"ok": False,
+                                    "reason": "tab-swap-unresponsive"}
+                        c = nc
+                        swaps += 1
+                        reloads = 0
+                        eval_fails = 0
+                        ok, probe = _submit_flow(c)
+                        if not ok:
+                            reason = (f"login-eval:{probe['login_eval']}"
+                                      if probe.get("login_eval")
+                                      else "no-login-form")
+                            return {"ok": False, "reason": reason,
+                                    "state": probe}
+                        continue
                     # FB checkpoint pages can wedge the renderer — reload
                     # resumes the server-side checkpoint state.
                     print("tab wedged — reloading", flush=True)
@@ -396,6 +463,7 @@ def _credential_login(base):
                     time.sleep(10)
                 continue
             eval_fails = 0
+            reloads = 0
             if st.get("loggedIn"):
                 cookies = c.get_cookies(urls=[
                     "https://www.facebook.com", "https://facebook.com"])
@@ -420,7 +488,41 @@ def _credential_login(base):
     return with_fb_tab(base, fn, settle_url=LOGIN_URL)
 
 
+def _mem_available_mb() -> int | None:
+    """Free RAM in MB. The wedged renderers live in Windows Chrome, so
+    prefer the Windows host's FreePhysicalMemory over WSL's own
+    MemAvailable (which looks healthy while the host starves)."""
+    ps = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    if os.path.exists(ps):
+        try:
+            out = subprocess.run(
+                [ps, "-NoProfile", "-Command",
+                 "[math]::Floor((Get-CimInstance Win32_OperatingSystem)"
+                 ".FreePhysicalMemory/1KB)"],
+                capture_output=True, text=True, timeout=20)
+            val = int((out.stdout or "").strip())
+            if val > 0:
+                return val
+        except Exception:
+            pass
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return None
+
+
 def cmd_heal(_args):
+    # FB checkpoint/login pages are heavy — on a RAM-starved host the
+    # renderer wedges mid-flow (2026-11-12: every attempt died on the
+    # checkpoint page). Defer instead of burning an attempt + leaving
+    # wedged tabs; the */30 cron retries when pressure drops.
+    avail = _mem_available_mb()
+    if avail is not None and avail < 2500:
+        print(f"ram-too-low ({avail}MB available < 2500) — deferring heal")
+        return 0
     base = _cdp_base()
     if not base:
         print("no-cdp")
