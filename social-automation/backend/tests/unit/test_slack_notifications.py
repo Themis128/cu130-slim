@@ -757,3 +757,86 @@ async def test_fanout_talk_failure_is_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
     await SN._fanout_talk("text", "digest")  # must not raise
+
+
+# ---------- ntfy fan-out ----------
+
+
+class _FakeNtfyClient:
+    def __init__(self, response=None, exc=None):
+        self._response = response
+        self._exc = exc
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, content=None, headers=None, json=None):
+        self.calls.append({"url": url, "content": content, "headers": headers})
+        if self._exc is not None:
+            raise self._exc
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_ntfy_alert_posts_when_configured():
+    settings = SimpleNamespace(
+        NTFY_ALERT_BASE_URL="https://ntfy.example.com/",
+        NTFY_ALERT_TOKEN="tk-test",
+        NTFY_ALERT_TOPIC="cloudless-alerts",
+    )
+    fake = _FakeNtfyClient(response=_FakeResponse(200, "ok"))
+
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn._post_ntfy_alert("ops", "disk full")
+
+    assert len(fake.calls) == 1
+    call = fake.calls[0]
+    assert call["url"] == "https://ntfy.example.com/cloudless-alerts"
+    assert call["content"] == b"disk full"
+    assert call["headers"]["Authorization"] == "Bearer tk-test"
+    assert call["headers"]["Priority"] == "4"
+    assert call["headers"]["Tags"] == "ops"
+    assert "Mozilla" in call["headers"]["User-Agent"]
+
+
+@pytest.mark.asyncio
+async def test_ntfy_alert_uses_default_topic_and_priority():
+    settings = SimpleNamespace(
+        NTFY_ALERT_BASE_URL="https://ntfy.example.com",
+        NTFY_ALERT_TOKEN="tk-test",
+    )
+    fake = _FakeNtfyClient(response=_FakeResponse(200, "ok"))
+
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn._post_ntfy_alert("unknown-sev", "hi")
+
+    call = fake.calls[0]
+    assert call["url"] == "https://ntfy.example.com/cloudless-alerts"
+    assert call["headers"]["Priority"] == "3"
+
+
+@pytest.mark.asyncio
+async def test_ntfy_alert_swallows_errors():
+    settings = SimpleNamespace(
+        NTFY_ALERT_BASE_URL="https://ntfy.example.com",
+        NTFY_ALERT_TOKEN="tk-test",
+    )
+    fake = _FakeNtfyClient(exc=RuntimeError("ntfy down"))
+
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn._post_ntfy_alert("ops", "boom")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_ntfy_alert_skips_when_unconfigured():
+    settings = SimpleNamespace()
+    fake = _FakeNtfyClient(response=_FakeResponse(200, "ok"))
+
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn._post_ntfy_alert("ops", "boom")
+
+    assert fake.calls == []
