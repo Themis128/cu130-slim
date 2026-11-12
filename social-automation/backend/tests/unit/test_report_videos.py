@@ -38,10 +38,14 @@ def _db(rows=None, get_map=None):
 
 def _session(*dbs):
     it = iter(dbs)
+    last = dbs[-1]
 
     @asynccontextmanager
     async def _cm():
-        yield next(it)
+        try:
+            yield next(it)
+        except StopIteration:
+            yield last
 
     return _cm
 
@@ -73,11 +77,13 @@ class _Res:
 
 def _task(rows, res=None, get_map=None, extra_db=None):
     """Run the task with rows in db1, res as AsyncResult, db2 from get_map."""
-    dbs = [_db(rows=rows)]
+    shared = {r.id: r for r in rows}
+    shared.update(get_map or {})
+    dbs = [_db(rows=rows, get_map=shared)]
     if extra_db is not None:
         dbs.append(extra_db)
-    elif get_map is not None:
-        dbs.append(_db(get_map=get_map))
+    else:
+        dbs.append(_db(get_map=shared))
     cm = _session(*dbs)
     with (
         patch.object(RV, "run_async", _drain),
