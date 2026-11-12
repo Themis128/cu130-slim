@@ -398,6 +398,7 @@ async def test_rotate_app_password_full_flow():
     assert account.meta_data["bsky_app_password_name"] == names[0]
 
 
+@pytest.mark.asyncio
 async def test_rotate_app_password_second_call_unique_names():
     """Two rotations must not reuse a fixed app-password name."""
     account = type(
