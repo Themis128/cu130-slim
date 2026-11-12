@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Trash2, ExternalLink,
   ChevronDown, ChevronRight, Copy, Settings2, BookOpen,
   ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw,
-  Building2, User, Plus, Send,
+  Building2, User, Plus, Send, Cloud,
 } from 'lucide-react'
 import { ThreadsIcon } from '@/components/ui/ThreadsIcon'
 
@@ -19,12 +19,16 @@ function TikTokIcon({ className }: { className?: string }) {
 }
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/Dialog'
+import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Separator } from '@/components/ui/Separator'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { PageProfileEditor } from '@/components/ui/PageProfileEditor'
 import { ProfileEditor } from '@/components/ui/ProfileEditor'
-import { useAccounts, useConnectAccount, useDisconnectAccount, useScheduledPosts, useSyncBusinessAccounts, useSetBusinessAccount } from '@/hooks/useQueries'
+import { useAccounts, useConnectAccount, useConnectBluesky, useDisconnectAccount, useScheduledPosts, useSyncBusinessAccounts, useSetBusinessAccount } from '@/hooks/useQueries'
 import type { SocialAccount, Post, PostTarget } from '@/types'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
@@ -335,6 +339,29 @@ const platforms: PlatformSetup[] = [
       },
     ],
   },
+  {
+    id: 'bluesky',
+    name: 'Bluesky',
+    icon: Cloud,
+    color: 'bg-blue-500',
+    textColor: 'text-blue-500',
+    description: 'AT Protocol — app-password auth, no OAuth, free API',
+    devPortalUrl: 'https://bsky.app',
+    scopes: ['atproto'],
+    envVars: [],
+    steps: [
+      {
+        text: 'In the Bluesky app or web, go to Settings → Privacy and security → App passwords → Add App Password. Copy the xxxx-xxxx-xxxx-xxxx value (shown once).',
+        code: 'https://bsky.app/settings/app-passwords',
+      },
+      {
+        text: 'Click Connect below and paste your handle (e.g. you.bsky.social) plus the app password. SocialAuto validates it with a live session before saving.',
+      },
+      {
+        text: 'No developer portal or OAuth app needed — Bluesky app passwords are the whole credential.',
+      },
+    ],
+  },
 ]
 
 const platformColors: Record<string, string> = {
@@ -345,6 +372,7 @@ const platformColors: Record<string, string> = {
   threads: 'bg-gray-900',
   tiktok: 'bg-black',
   telegram: 'bg-sky-600',
+  bluesky: 'bg-blue-500',
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
@@ -471,7 +499,12 @@ export default function AccountsPage() {
   const [selectedProfileAccount, setSelectedProfileAccount] = useState<SocialAccount | null>(null)
   const { data: accounts, isLoading } = useAccounts()
   const connectMutation = useConnectAccount()
+  const connectBlueskyMutation = useConnectBluesky()
   const disconnectMutation = useDisconnectAccount()
+  const [bskyDialogOpen, setBskyDialogOpen] = useState(false)
+  const [bskyHandle, setBskyHandle] = useState('')
+  const [bskyAppPassword, setBskyAppPassword] = useState('')
+  const [bskyPdsUrl, setBskyPdsUrl] = useState('')
   const syncBusinessMutation = useSyncBusinessAccounts()
   const setBusinessMutation = useSetBusinessAccount()
 
@@ -499,6 +532,11 @@ export default function AccountsPage() {
       window.location.href = '/telegram'
       return
     }
+    // Bluesky uses handle + app password — credential dialog, not OAuth.
+    if (platformId === 'bluesky') {
+      setBskyDialogOpen(true)
+      return
+    }
     // Messenger uses Facebook OAuth — redirect to Facebook connect
     const connectPlatform = platformId === 'messenger' ? 'facebook' : platformId
     setConnectingPlatform(platformId)
@@ -519,6 +557,29 @@ export default function AccountsPage() {
       )
     } finally {
       setConnectingPlatform(null)
+    }
+  }
+
+  const handleBlueskyConnect = async () => {
+    try {
+      const res = await connectBlueskyMutation.mutateAsync({
+        handle: bskyHandle.trim(),
+        appPassword: bskyAppPassword.trim(),
+        pdsUrl: bskyPdsUrl.trim() || undefined,
+      })
+      const data = (res as { data?: { handle?: string; followers?: number } })?.data
+      toast.success(`Bluesky connected${data?.handle ? ` as ${data.handle}` : ''}`)
+      setBskyDialogOpen(false)
+      setBskyHandle('')
+      setBskyAppPassword('')
+      setBskyPdsUrl('')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(
+        typeof detail === 'string'
+          ? detail
+          : formatErrorToast('Couldn’t connect Bluesky. Check the handle and app password.', err)
+      )
     }
   }
 
@@ -971,6 +1032,20 @@ export default function AccountsPage() {
                         <p className="text-xs text-muted-foreground text-center">
                           Sign in with your personal or business account. After connecting, you can sync business pages.
                         </p>
+                        {platform.id === 'bluesky' ? (
+                          <Button
+                            className="w-full"
+                            onClick={() => handleConnect(platform.id)}
+                            disabled={connectBlueskyMutation.isPending}
+                          >
+                            {connectBlueskyMutation.isPending ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="mr-2 h-4 w-4" />
+                            )}
+                            Connect Bluesky
+                          </Button>
+                        ) : (
                         <div className="grid grid-cols-2 gap-2">
                           <Button
                             variant="outline"
@@ -998,9 +1073,12 @@ export default function AccountsPage() {
                             <span className="text-xs">Business / Page</span>
                           </Button>
                         </div>
+                        )}
+                        {platform.id !== 'bluesky' && (
                         <p className="text-[10px] text-muted-foreground text-center">
                           Both use the same {platform.name} sign-in. The account type is detected after login.
                         </p>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -1243,6 +1321,66 @@ export default function AccountsPage() {
           </Card>
         </div>
       )}
+
+      {/* Bluesky credential dialog — handle + app password (no OAuth) */}
+      <Dialog open={bskyDialogOpen} onOpenChange={setBskyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Connect Bluesky</DialogTitle>
+            <DialogDescription>
+              Paste your handle and an app password from bsky.app → Settings → Privacy and
+              security → App passwords. SocialAuto verifies it with a live session before saving.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium" htmlFor="bsky-handle">Handle</label>
+              <Input
+                id="bsky-handle"
+                placeholder="you.bsky.social"
+                value={bskyHandle}
+                onChange={(e) => setBskyHandle(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium" htmlFor="bsky-app-password">App password</label>
+              <Input
+                id="bsky-app-password"
+                type="password"
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                value={bskyAppPassword}
+                onChange={(e) => setBskyAppPassword(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium" htmlFor="bsky-pds">PDS URL (optional)</label>
+              <Input
+                id="bsky-pds"
+                placeholder="https://bsky.social"
+                value={bskyPdsUrl}
+                onChange={(e) => setBskyPdsUrl(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBskyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBlueskyConnect}
+              disabled={connectBlueskyMutation.isPending || !bskyHandle.trim() || !bskyAppPassword.trim()}
+            >
+              {connectBlueskyMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Connect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Profile editor overlay */}
       {selectedProfileAccount && (
