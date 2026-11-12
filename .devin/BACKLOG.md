@@ -1896,22 +1896,29 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - Tooling: `scripts/dmr-env-drift.py` + incident section in
   docker-model-runner SKILL.md — PR #1774.
 
-## DMR host stability — salvaged from deploy-watch stash (2026-11-13)
+## LinkedIn unused dev-app surfaces — implemented (2026-11-12)
 
-Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
-restored after the #1785 unbound-var bug killed deploy-watch mid-run:
-
-- [ ] **DMR runner scheduler wedges on this host** — after Docker Desktop
-  restart, /engines/v1/models returns 200 but chat completions hang;
-  `docker model ps` shows models stuck "Loading..." indefinitely
-  (qwen3:8b, qwen3-vl observed 2026-11-13). dmr-watchdog's restart path
-  can't work on Docker Desktop (`docker-model-runner` is not a container
-  in this engine). Only recovery seen: full `docker desktop restart`.
-  Root cause likely RAM pressure: WSL ~11Gi total, ~5Gi available; the
-  canonical fleet can't all co-reside. Options: lower keep_alive /
-  trim `_BEST_PRACTICE_CONFIGS`, or raise WSL memory.
-- [x] DMR_CHATBOT_MODEL missing — RESOLVED 2026-11-13: canonical
-  `DMR_CHATBOT_MODEL=hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  in .env, model pulled + resident.
-- [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
-  to `docker exec` inside social-api (PR #1781 merged).
+PR #1786 (`feat/linkedin-unused-surfaces`, auto-merge armed):
+- `linkedin_actor`: comments via official CM API first (person token,
+  `author_urn`); API refusal → skip (no sidecar retry), infra failure →
+  sidecar fallback. Likes remain sidecar-only.
+- `linkedin_events.create_org_event` fixed to real schema
+  (`startsAt` + `type.online.format.external`); description omitted —
+  MultiLocaleRichText localized-map shape 422s live. CLI:
+  `scripts/linkedin_event.py list|create`.
+- LIVE: org event `7526770135387529216` created (Thu 2026-11-20
+  17:00–17:45 EET, url → cloudless.gr/contact). CAVEAT: `GET/PATCH
+  /rest/events/{id}` and all list finders 404 on API versions
+  202603/202610 — event accepted (201) but not yet retrievable; likely
+  needs the "post the event" step or propagation. Verify on the Company
+  Page events tab.
+- Announcement draft post `9678a774-dae5-48e9-8b1a-1a178841b5a9`
+  (LinkedIn org target, status=draft) — needs human approve/publish.
+- `route_linkedin_leads` now streams `lead_created` conversion
+  (SHA256 email + lead response id) after EspoCRM upsert; non-blocking.
+  NOTE: `lead_created` conversion rule must exist in Campaign Manager —
+  verify before expecting attribution.
+- Portal gates still open: Member DP (Member) on app 265077368 +
+  Matched Audiences case on 264925843 — probe blocked by LinkedIn 429
+  on the debug-Chrome session (2026-11-12); retry after cooldown.
+- Tests: 10 new cases, 56 passed locally; workers restarted.
