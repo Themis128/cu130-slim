@@ -100,3 +100,15 @@ Facts learned 2026-10-29: `requestPasswordReset` returns 200 for ANY email
 (`did:plc:m5rblmnkvg2rlbftvcqdnsqs` — domain-verified, registered email
 unknown); `createAccount` on bsky.social fails `InvalidPhoneVerification`
 without `verificationPhone` + `verificationCode`.
+
+## Session persistence + circuit breaker (2026-11-12)
+
+`bluesky_api.ensure_session()` prefers a persisted session over fresh logins:
+stored unexpired `access_jwt` → single-use `refresh_jwt` (rotated pair is
+written back to `account.meta_data["bsky_session"]`) → `createSession` only as
+last resort. `publishing._bsky_auth_circuit_open()` opens after ≥3 auth-flavored
+failures in 6h and defers publishes with a retry time instead of burning the
+strict `createSession` quota (bsky.social 429s it hard). `bluesky_tool.py
+status` shows session/circuit state without printing secrets; `rotate` mints a
+new app password via `BSKY_MAIN_PASSWORD` but will 429 until the PDS window
+clears — wait, don't retry-loop.
