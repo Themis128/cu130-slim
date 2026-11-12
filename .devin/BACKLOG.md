@@ -1895,3 +1895,23 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
   OPEN `daily_strategy_brief` cold-load-timeout item above.
 - Tooling: `scripts/dmr-env-drift.py` + incident section in
   docker-model-runner SKILL.md — PR #1774.
+
+## DMR host stability — salvaged from deploy-watch stash (2026-11-13)
+
+Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
+restored after the #1785 unbound-var bug killed deploy-watch mid-run:
+
+- [ ] **DMR runner scheduler wedges on this host** — after Docker Desktop
+  restart, /engines/v1/models returns 200 but chat completions hang;
+  `docker model ps` shows models stuck "Loading..." indefinitely
+  (qwen3:8b, qwen3-vl observed 2026-11-13). dmr-watchdog's restart path
+  can't work on Docker Desktop (`docker-model-runner` is not a container
+  in this engine). Only recovery seen: full `docker desktop restart`.
+  Root cause likely RAM pressure: WSL ~11Gi total, ~5Gi available; the
+  canonical fleet can't all co-reside. Options: lower keep_alive /
+  trim `_BEST_PRACTICE_CONFIGS`, or raise WSL memory.
+- [x] DMR_CHATBOT_MODEL missing — RESOLVED 2026-11-13: canonical
+  `DMR_CHATBOT_MODEL=hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
+  in .env, model pulled + resident.
+- [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
+  to `docker exec` inside social-api (PR #1781 merged).
