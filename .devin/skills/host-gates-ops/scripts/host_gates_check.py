@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""host_gates_check.py — read-only probe of every remaining host-level gate.
+
+    host_gates_check.py            # status table
+    host_gates_check.py --json     # machine-readable
+    host_gates_check.py --alert    # TG #ops digest when degraded (12h dedup)
+
+Checks: MemAvailable, docker info probe, docker-desktop WSL distro state,
+ChromeDebug scheduled task, Docker Desktop process. All probes are
+read-only; remediation stays with the existing healers/watchdogs.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+STATE_DIR = os.path.expanduser("~/.local/state/host-gates-ops")
+STATE = os.path.join(STATE_DIR, "state.json")
+LOG = os.path.expanduser("~/logs/host-gates-check.log")
+TG_ALERT = ("/home/tbaltzakis/cu130-slim/.devin/skills/"
+            "telegram-alert-ops/scripts/tg_alert.py")
+RAM_WARN_MB = 6144          # ~5GB free was the observed flap threshold
+DEDUP_SECS = 12 * 3600
+
+
+def log(msg):
+    line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
+    print(line, flush=True)
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def sh(cmd, timeout=20):
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True,
+                           text=True, timeout=timeout)
+        return (r.stdout + r.stderr).strip()
+    except Exception as e:
+        return f"ERR:{e}"
+
+
+def mem_available_mb():
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return -1
+
+
+def docker_ok():
+    out = sh("docker info --format '{{.ServerVersion}}'", timeout=25)
+    return not out.startswith("ERR:") and bool(out.strip())
+
+
+def win(cmd, timeout=25):
+    """powershell.exe interop — may be dead during vsock flaps."""
+    return sh(f"powershell.exe -NoProfile -Command \"{cmd}\"",
+              timeout=timeout)
+
+
+def check_ram():
+    mb = mem_available_mb()
+    # MemAvailable is WSL-visible RAM; the host figure needs interop.
+    host = win("(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1MB",
+               timeout=15)
+    m = re.search(r"([\d.]+)", host)
+    host_gb = round(float(m.group(1)), 1) if m else None
+    wsl_gb = round(mb / 1024, 1) if mb >= 0 else None
+    degraded = (mb >= 0 and mb < RAM_WARN_MB)
+    return {
+        "ok": not degraded,
+        "wsl_memavail_gb": wsl_gb,
+        "host_free_gb": host_gb,
+        "detail": (f"WSL avail {wsl_gb}GB / host free {host_gb}GB"
+                   + (" — RAM pressure (vsock flap risk)" if degraded else "")),
+    }
+
+
+def check_docker():
+    ok = docker_ok()
+    distro = sh("wsl.exe -l -v 2>/dev/null | tr -d '\\0'", timeout=15)
+    dd_dead = "docker-desktop" in distro and not ok
+    return {
+        "ok": ok and not dd_dead,
+        "docker_info": ok,
+        "distro_state": distro.replace("\n", " | ")[:200] or "interop-dead",
+        "detail": ("docker engine unreachable" if not ok else
+                   "docker-desktop distro dead (GUI flap)" if dd_dead
+                   else "engine ok"),
+    }
+
+
+def check_chromedebug_task():
+    out = win("schtasks /query /tn ChromeDebug /fo list /v | "
+              "Select-String 'Status|Last Run|Next Run'", timeout=20)
+    if out.startswith("ERR:") or "Cannot find" in out or "ERROR" in out:
+        return {"ok": None, "detail": f"task query failed: {out[:120]}",
+                "raw": out[:200]}
+    status_ok = "Ready" in out or "Running" in out
+    return {"ok": status_ok, "detail": out.replace("\n", " | ")[:200],
+            "raw": out[:300]}
+
+
+def check_docker_desktop_proc():
+    out = win("Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue "
+              "| Select-Object -First 1 Id", timeout=15)
+    alive = bool(re.search(r"\d+", out))
+    return {"ok": alive, "detail": "Docker Desktop process "
+            + ("running" if alive else "NOT running")}
+
+
+def tg(text):
+    try:
+        subprocess.run(["python3", TG_ALERT, "ops", text], timeout=30)
+    except Exception as e:
+        log(f"tg failed: {e}")
+
+
+def main():
+    alert = "--alert" in sys.argv
+    checks = {
+        "ram": check_ram(),
+        "docker": check_docker(),
+        "chromedebug_task": check_chromedebug_task(),
+        "docker_desktop_proc": check_docker_desktop_proc(),
+    }
+    # IDE-authority loop is undetectable — always surface as a note.
+    degraded = [k for k, v in checks.items() if v.get("ok") is False]
+    result = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+              "degraded": degraded, "checks": checks}
+    if "--json" in sys.argv:
+        print(json.dumps(result, indent=1))
+        return 0
+
+    print(f"{'gate':22} {'state':8} detail")
+    for k, v in checks.items():
+        state = "ok" if v.get("ok") else ("warn" if v.get("ok") is False
+                                        else "?")
+        print(f"{k:22} {state:8} {v.get('detail','')}")
+    print("\nIDE note: if devin-server install-spam returns, close the IDE's "
+          "'wsl+docker-desktop' remote authority — use 'wsl+Ubuntu-24.04'.")
+
+    if alert and degraded:
+        st = {}
+        try:
+            st = json.load(open(STATE))
+        except Exception:
+            pass
+        sig = ",".join(sorted(degraded))
+        if time.time() - st.get("last_alert", 0) > DEDUP_SECS or \
+                st.get("last_sig") != sig:
+            lines = "\n".join(f"• {k}: {checks[k].get('detail','')}"
+                              for k in degraded)
+            tg(f"🖥️ host-gates degraded ({sig}):\n{lines}\n"
+               "Remediation stays with the existing healers — this is the "
+               "human-visible digest.")
+            st = {"last_alert": time.time(), "last_sig": sig}
+            os.makedirs(STATE_DIR, exist_ok=True)
+            json.dump(st, open(STATE, "w"))
+    log(f"checks done degraded={degraded or 'none'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
