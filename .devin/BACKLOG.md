@@ -1595,3 +1595,24 @@ Leftovers:
   `null` path was config, not version. nc_sync_audit.py + SKILL.md also
   exist untracked in main checkout for the cron — identical content, safe
   to remove after #1724 merges + pull.
+
+## 2026-11-12 — TikTok business verification resubmitted (Devin)
+
+- **#789 business verify**: root cause was NOT the theorized ΓΕΜΗ doc-type —
+  it was **company-name script mismatch**. Form had Latin
+  "Baltzakis Themistoklis"; the AADE cert (`Downloads/cert.png/.pdf` —
+  «ΑΠΟΔΕΙΚΤΙΚΟ ΕΝΗΜΕΡΩΤΗΚΟ ΓΙΑ ΧΡΕΗ», ΑΦΜ 115307716) prints
+  **ΜΠΑΛΤΖΑΚΗΣ ΘΕΜΙΣΤΟΚΛΗΣ**. Fixed → resubmitted via
+  `tiktok-verification/scripts/tt_verify_resubmit.py` (full web flow:
+  policy gate → DataTransfer cert injection → Edit expand → Greek name +
+  AFM → Submit). Live result: **"Under Review" / "Submitted successfully!"**
+- **Watcher**: `tt_verify_status.py` cron `17 */6 * * *` — parses
+  Under Review/Approved/Disapproved+reason, TG #ops on change; state in
+  `~/.local/state/tiktok-verify/status`.
+- **PR #1730** (auto-merge armed): scripts + SKILL.md with the Windows
+  `Windows.Media.Ocr` el+en-US path (`C:\Users\tbaltzakis\ocr.ps1`) for
+  the vector-scanned cert.
+- **Watch**: cert fiscal address (Οδός Ιωάννη 15, 19400) ≠ form business
+  address (Thermopilon 15, Koropi 19441) — if next rejection cites
+  address, reconcile fiscal-vs-operating before resubmitting.
+- Website link still gated on verify approval (or 1k followers).
