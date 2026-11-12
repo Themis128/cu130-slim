@@ -1866,3 +1866,23 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] Optional: audit remaining producers that bypass the patched choke
   points (n8n workflows, email-only alerts, `post_publishing_to_slack`
   variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
+
+## 2026-11-12 (eve) — worker sweep bug fixes (PR #1761)
+
+- [x] PR #1761 — report_videos detached-session fix (12 stuck
+  pending_video_task drafts flushed to FAILED), datalake_insights alert
+  dedupe (~113 identical ntfy msgs/day → 1 per distinct digest),
+  plain_english prompt-leak guard, publish_verify asyncpg casts,
+  media_backfill run_async. Auto-merge armed; required checks green.
+- [ ] **Bluesky app password dead + bsky 429 rate-limit** — stored app
+  password returns 401; rotation sweep runs daily 04:20 but createSession
+  is IP-rate-limited (429) as of 21:10Z. Self-heals on next sweep window;
+  if still failing tomorrow, mint app password at bsky.app manually.
+- [ ] **LinkedIn sidecar session rate_limited** — session_healer reports
+  `rate_limited`, OAuth sessions_invalid=2. Automated lanes exhausted;
+  needs session-ops manual relogin via noVNC if it persists.
+- [ ] **Other agents' dirty files left uncommitted**: fb_session_heal.py,
+  tt_verify_status.py, tiktok_reauth.py — not mine, left in tree.
+- [ ] Host gates warn: RAM pressure (WSL avail 3.7GB / host free 1.4GB),
+  dmr_tunnel retry loops alive, cdp_lane :9229 relaunched — self-healing
+  lanes active, monitor only.
