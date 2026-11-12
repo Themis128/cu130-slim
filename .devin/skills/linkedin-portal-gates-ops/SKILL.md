@@ -35,6 +35,32 @@ The probe navigates the LinkedIn tab to the app page, dumps every
 `--drive` clicks the Member DP (Member) request button and prints the
 modal text — stop there if it demands inputs automation can't supply.
 
+## Portal session self-heal — `li_session_heal.py`
+
+The :9229 LinkedIn session dies periodically (cookie expiry, checkpoint,
+account restriction). The healer keeps it alive:
+
+```bash
+python3 scripts/li_session_heal.py status    # logged-in? jar state?
+python3 scripts/li_session_heal.py seed      # pull sidecar-synced cookies from DB
+python3 scripts/li_session_heal.py capture   # store live cookies after a manual login
+python3 scripts/li_session_heal.py heal      # cookie-inject -> credential-login fallback
+python3 scripts/li_session_heal.py daemon    # poll + heal + deduped TG alerts
+```
+
+Heal order: stored CDP cookie jar (`~/.local/state/li-portal-session/`,
+0600) → auto-seed from `social_accounts.meta_data.browser_storage_state`
+(kept fresh by session_healer when the :9225 sidecar is logged in) →
+`LINKEDIN_USERNAME/PASSWORD` credential login (bails on Cloudflare
+challenge / captcha / checkpoint → human-needed + deduped TG #ops alert).
+
+**2026-11-12 status:** the account is under a LinkedIn restriction —
+sidecar reports circuit open until 2026-11-13 (`linkedin_account_
+restriction_2026-11-12`), stored cookies are rejected, and /login sits
+behind a Cloudflare challenge. Automation is armed; it self-heals the
+moment a valid session exists (one manual login → `--capture` →
+auto-heal thereafter).
+
 ## Rules
 
 - Never submit legal/business-info forms with fabricated data — the

@@ -58,3 +58,21 @@ bridge.
 4. FB 2FA enroll — `meta_2fa_drive.py` automates the chain end-to-end
    (profile switch → password → Gmail code → otpauth secret → `.env`);
    inputs: live ADB + the real FB password (`--pw` or `FB_PASSWORD` env).
+
+## TikTok QR login — `tiktok_qr_phone.py` + `scripts/tiktok_qr_watch.py`
+
+When `tiktok_reauth.py` parks on the QR page in the headed bridge (:9223),
+the QR encodes a login URL — no camera needed:
+
+1. `tiktok_qr_phone.py` waits for the QR page, screenshots via
+   `/session/screenshot`, decodes the payload (zxing-cpp → cv2 fallback),
+   and fires `am start -a android.intent.action.VIEW -d <url>` on the
+   phone (ADB `TK_ADB_SERIAL`, default 192.168.1.77:5555). The phone
+   browser opens the login-confirm page — the human taps "Confirm" (or it
+   completes silently if already authorized).
+2. `tiktok_qr_watch.py` polls :9223 for real `sessionid`/`sid_tt` cookies
+   (URL-change alone is NOT proof) and injects them into the :9224
+   sidecar.
+
+If the payload isn't an https URL the phone path can't open it — manual
+scan remains the fallback (`--decode-only` reports the payload).

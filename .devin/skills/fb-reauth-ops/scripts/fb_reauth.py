@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """fb_reauth.py — mint the Facebook OAuth consent URL for the dead FB token,
-drive it on the bound debug Chrome (:9222), complete the consent → fresh
-token → the dead-token heal flag clears."""
+drive it on the debug Chrome via CDP, complete the consent → fresh
+token → the dead-token heal flag clears.
+
+CDP lanes tried in order: the :9229 userspace relay (chrome-debug-profile,
+what the ChromeDebug logon task actually binds — :9222 is claimed by a
+Lenovo WebView2 on this host), then localhost:9222 for older setups.
+Opens its OWN tab via /json/new — never hijacks an existing page.
+"""
 import json
+import os
+import sys
 import time
 import urllib.parse
 import urllib.request
 
-CDP = "http://localhost:9222"
+CDP_CANDIDATES = ["http://172.22.144.1:9229", "http://localhost:9229",
+                  "http://localhost:9222"]
+CALLBACK_MARK = "social.cloudless.gr/api/v1/auth/oauth/facebook/callback"
+
 
 def _env():
     d = {}
@@ -17,10 +28,16 @@ def _env():
             d[k.strip()] = v.strip().strip('"')
     return d
 
+
 def _signed_state() -> str:
     """Mint a properly-signed OAuth state via the backend's sign_oauth_state —
     fabricated strings fail the app's signature check."""
+    import shutil
     import subprocess
+    docker = ("/mnt/c/Users/tbaltzakis/AppData/Local/Programs/DockerDesktop/"
+              "resources/bin/docker.exe")
+    if not os.path.exists(docker):
+        docker = shutil.which("docker") or "docker"
     inner = (
         "import asyncio\n"
         "from app.core.security import sign_oauth_state\n"
@@ -33,52 +50,146 @@ def _signed_state() -> str:
         "asyncio.run(go())"
     )
     out = subprocess.run(
-        ["docker", "exec", "social-api", "python", "-c", inner],
+        [docker, "exec", "social-api", "python", "-c", inner],
         capture_output=True, text=True, timeout=30, check=False)
     for line in out.stdout.splitlines():
-        if line.strip() and not line.startswith(("TEAM","ERR")):
+        if line.strip() and not line.startswith(("TEAM", "ERR")):
             return line.strip()
     raise RuntimeError(f"signed state failed: {out.stdout} {out.stderr}")
+
 
 def _auth_url():
     e = _env()
     cid = e.get("FACEBOOK_CLIENT_ID", "") or e.get("META_APP_ID", "")
-    red = e.get("FACEBOOK_REDIRECT_URI", "") or e.get("META_REDIRECT_URI", "https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback")
-    scopes = "pages_manage_posts,pages_read_engagement,pages_show_list,instagram_basic,instagram_content_publish,business_management,public_profile"
+    red = e.get("FACEBOOK_REDIRECT_URI", "") or e.get(
+        "META_REDIRECT_URI",
+        "https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback")
+    scopes = ("pages_manage_posts,pages_read_engagement,pages_show_list,"
+              "instagram_basic,instagram_content_publish,"
+              "business_management,public_profile")
     return (f"https://www.facebook.com/v21.0/dialog/oauth?client_id={cid}"
             f"&redirect_uri={urllib.parse.quote(red,safe='')}"
             f"&response_type=code&scope={urllib.parse.quote(scopes)}"
             f"&state={urllib.parse.quote(_signed_state(),safe='')}")
 
-def _ws():
-    try:
-        d = json.loads(urllib.request.urlopen(f"{CDP}/json", timeout=4).read())
-        for t in d:
-            if t.get("type") == "page":
-                return t.get("webSocketDebuggerUrl")
-    except Exception:
-        return None
 
-def _eval(ws_url, js):
+# Click the FB consent buttons (Continue as / Authorize / Save). FB's OAuth
+# dialog is a React SPA — poll until the button exists.
+_CLICK_JS = """
+(() => {
+  const els = [...document.querySelectorAll(
+    'button,[role=button],input[type=submit],a[role=link]')];
+  const b = els.find(e => /continue as|authorize|allow|save|continue/i
+    .test((e.innerText||e.value||e.getAttribute('aria-label')||'').trim())
+    && (e.innerText||e.value||'').trim().length < 50
+    && !/cancel|not now|decline|deny|learn more/i.test(e.innerText||''));
+  if (b) { b.click(); return 'clicked:' + (b.innerText||b.value||'').trim().slice(0,40); }
+  return 'no-button';
+})()
+"""
+
+_STATE_JS = """
+(() => JSON.stringify({
+  url: location.href.slice(0, 160),
+  title: document.title,
+  text: (document.body ? document.body.innerText : '').slice(0, 300)
+}))()
+"""
+
+
+def _cdp_base():
+    for base in CDP_CANDIDATES:
+        try:
+            tabs = json.loads(urllib.request.urlopen(
+                base + "/json", timeout=5).read())
+            if tabs:
+                return base
+        except Exception:
+            continue
+    return None
+
+
+def _open_tab(base, url):
+    req = urllib.request.Request(
+        base + "/json/new?" + urllib.parse.quote(url, safe=""),
+        method="PUT")
+    return json.loads(urllib.request.urlopen(req, timeout=15).read())
+
+
+def _close_tab(base, tab_id):
+    try:
+        urllib.request.urlopen(base + "/json/close/" + tab_id, timeout=5)
+    except Exception:
+        pass
+
+
+def _ws_eval(ws_url, js, mid=1):
     import websocket
-    ws = websocket.create_connection(ws_url, suppress_origin=True, timeout=15)
-    ws.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{"expression":js,"returnByValue":True}}))
-    r = json.loads(ws.recv())
-    ws.close()
-    return str(r.get("result",{}).get("result",{}).get("value",""))
+    ws = websocket.create_connection(ws_url, suppress_origin=True,
+                                     timeout=20)
+    try:
+        ws.send(json.dumps({"id": mid, "method": "Runtime.evaluate",
+                            "params": {"expression": js,
+                                       "returnByValue": True,
+                                       "awaitPromise": True}}))
+        while True:
+            r = json.loads(ws.recv())
+            if r.get("id") == mid:
+                return str(r.get("result", {}).get("result", {})
+                           .get("value", ""))
+    finally:
+        ws.close()
+
 
 def main() -> int:
-    if "--url" in __import__("sys").argv:
+    argv = sys.argv
+    if "--url" in argv:
         print(_auth_url())
         return 0
-    ws = _ws()
-    if not ws:
-        print("CDP not bound — run chrome-debug-launch (or wait for the logon task)")
+    base = _cdp_base()
+    if not base:
+        print("CDP not bound — tried " + ", ".join(CDP_CANDIDATES))
         return 1
-    _eval(ws, f'location.href={json.dumps(_auth_url())}')
-    time.sleep(8)
-    print("page:", _eval(ws, "location.href.slice(0,80)"))
-    return 0
+    url = _auth_url()
+    tab = _open_tab(base, url)
+    ws_url = tab.get("webSocketDebuggerUrl", "")
+    print(f"cdp={base} tab={tab.get('id','')[:8]} — driving consent")
+    deadline = time.time() + 150
+    last = ""
+    while time.time() < deadline:
+        try:
+            state = _ws_eval(ws_url, _STATE_JS)
+        except Exception as e:
+            state = json.dumps({"url": f"eval-error:{e}"})
+        try:
+            st = json.loads(state)
+        except Exception:
+            st = {"url": state[:160]}
+        cur = st.get("url", "")
+        if cur != last:
+            print("page:", cur[:110])
+            last = cur
+        if CALLBACK_MARK in cur or "facebook.com" not in cur:
+            break
+        try:
+            click = _ws_eval(ws_url, _CLICK_JS)
+            if click and click != "no-button" and click != last + "x":
+                print(" ", click)
+        except Exception:
+            pass
+        time.sleep(4)
+    try:
+        final = json.loads(_ws_eval(ws_url, _STATE_JS))
+    except Exception:
+        final = {}
+    fu = final.get("url", "")
+    print("final:", fu[:160])
+    ok = CALLBACK_MARK in fu or ("social.cloudless.gr" in fu
+                                 and "error" not in fu.lower())
+    _close_tab(base, tab.get("id", ""))
+    print("reauth", "callback-landed" if ok else "needs-human")
+    return 0 if ok else 2
+
 
 if __name__ == "__main__":
-    __import__("sys").exit(main())
+    sys.exit(main())
