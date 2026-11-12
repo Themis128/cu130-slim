@@ -27,21 +27,55 @@ CH = {
 }
 
 
-def _token() -> str | None:
-    tok = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if tok:
-        return tok
+def _env(name: str) -> str | None:
+    v = os.environ.get(name)
+    if v:
+        return v
     for env_path in (Path(".env"), REPO_ROOT / ".env"):
         try:
             env = env_path.read_text()
         except OSError:
             continue
         for line in env.splitlines():
-            if line.startswith("TELEGRAM_BOT_TOKEN="):
+            if line.startswith(name + "="):
                 v = line.split("=", 1)[1].strip().strip('"').strip("'")
                 if v:
                     return v
     return None
+
+
+def _token() -> str | None:
+    return _env("TELEGRAM_BOT_TOKEN")
+
+
+# ntfy fan-out — every severity alert also lands on the phone's ntfy app
+# (topic cloudless-alerts; severity maps to ntfy priority 5..2). Best-effort:
+# missing config or publish failure never blocks the Telegram send.
+_NTFY_PRIO = {"critical": "5", "ops": "4", "intel": "3", "digest": "2"}
+
+
+def _ntfy_publish(sev: str, text: str) -> str | None:
+    base = (_env("NTFY_ALERT_BASE_URL") or "").rstrip("/")
+    tok = _env("NTFY_ALERT_TOKEN")
+    topic = _env("NTFY_ALERT_TOPIC") or "cloudless-alerts"
+    if not (base and tok):
+        return None
+    body = text.encode()
+    r = urllib.request.Request(
+        f"{base}/{topic}", data=body, method="POST",
+        headers={
+            "Authorization": f"Bearer {tok}",
+            "Title": f"[{sev}] cloudless",
+            "Priority": _NTFY_PRIO.get(sev, "3"),
+            "Tags": sev,
+            # Cloudflare 403s urllib's default UA — send a browser UA.
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ntfy-alert/1.0",
+        })
+    try:
+        with urllib.request.urlopen(r, timeout=10) as f:
+            return "ntfy:" + str(f.status)
+    except Exception as e:
+        return "ntfy-fail:" + str(e)[:80]
 
 
 def _api(tok: str, method: str, body: dict) -> dict:
@@ -57,17 +91,18 @@ def _api(tok: str, method: str, body: dict) -> dict:
 
 
 def send(sev: str, text: str) -> str:
+    ntfy_res = _ntfy_publish(sev, text)
     tok = _token()
     if not tok:
-        return "no-bot-token"
+        return ntfy_res or "no-bot-token"
     chat = CH.get(sev, CH["ops"])
     r = _api(tok, "sendMessage", {"chat_id": chat, "text": text})
     if r.get("ok"):
         if sev == "critical":
             _api(tok, "sendMessage",
                  {"chat_id": CH["ops"], "text": f"[P1] {text}"})
-        return "sent"
-    return r.get("err", "fail")
+        return "sent" + (f" ({ntfy_res})" if ntfy_res else "")
+    return r.get("err", "fail") + (f" ({ntfy_res})" if ntfy_res else "")
 
 
 def status() -> str:
