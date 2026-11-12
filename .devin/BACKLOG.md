@@ -1848,38 +1848,21 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
   (since 2026-10-22); lift hold in AWS console if domain wanted back.
   Portfolio no longer depends on it (portfolio.cloudless.gr live).
 
-## DMR chatbot model + Docker Desktop stability (2026-11-12 eve)
+## 2026-11-12 — ntfy central alert lane (phone push)
 
-- [ ] **DMR_CHATBOT_MODEL missing** — workers log `DMR chatbot reply failed:
-  model not found` for `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  (the config.py default; NOT in `docker model list`). IG DM replies fell
-  back to a canned message. `docker model pull` of that HF repo succeeded
-  downloading 2.5GB x4 attempts but NEVER registered a manifest — each
-  attempt died at finalization during Docker Desktop flaps; one attempt
-  also hit a post-download hang (19min, killed). models.json alias trick
-  does NOT work: inference path parses the name as a docker reference and
-  rejects uppercase (`invalid reference format ... must be lowercase`).
-  Options: (a) retry `docker model pull` when engine is stable for >30min;
-  (b) repoint DMR_CHATBOT_MODEL=ai/qwen3:8b-q4_K_M (.env + recreate
-  api/workers) — model IS installed but loads timed out under scheduler
-  congestion; needs a quiet-window retest; (c) install DMR runner on
-  Linux/omv instead of Docker Desktop (vllm backend available there).
-- [ ] **DMR runner scheduler wedges on this host** — after DD restart,
-  /engines/v1/models 200 but chat completions hang; `docker model ps`
-  shows models stuck "Loading..." indefinitely (qwen3:8b, llama3.2,
-  qwen3-vl). dmr-watchdog's restart path can't work on Docker Desktop
-  (`docker-model-runner` is not a container in this engine — inspect
-  fails, restart never fires). Only recovery seen: full `docker desktop
-  restart`. Watchdog used its 2/day DD restarts on 2026-11-12 already.
-  Root cause likely RAM pressure: WSL sees ~11Gi total, ~5Gi available;
-  three canonical models can't co-reside. Consider lowering keep_alive /
-  trimming _BEST_PRACTICE_CONFIGS to fewer models, or raising WSL memory.
-- [ ] **WSL localhost -> Windows 12435 forwarding broke** — curl from WSL
-  gets connection refused while Windows-side Invoke-WebRequest returns
-  200 and containers reach it via host.docker.internal fine. App path
-  unaffected; only host-side debugging/probes impacted.
-- [x] IG DM private-API lane live (PR #1750) — instagrapi session fallback
-  verified end-to-end (inbox read, reply send, mark-read all 200).
-- [ ] linkedin_sidecar_recheck.sh armed for 18:05 UTC one-shot probe +
-  TG P3 alert; result in /tmp/linkedin-recheck.log. Scrape pause stays on
-  until a human/agent reviews it.
+- [x] PR #1752 merged — severity alerts fan out to ntfy `cloudless-alerts`
+  (priority 5/4/3/2 for critical/ops/intel/digest) alongside Slack+TG.
+  Covers `send_telegram_alert`, `post_alert_to_slack`, daily digest,
+  `tg_alert.py` skill (devin+cursor mirrors), 12 home-ops watchers via
+  `home-ops/scripts/ntfy_notify.py`. Relay acct `alert-relay` write-only;
+  token in repo `.env` (`NTFY_ALERT_BASE_URL`/`NTFY_ALERT_TOKEN`; topic
+  defaults `cloudless-alerts`). Phone subscribed to all 3 topics on
+  `ntfy.cloudless.gr`, verified live.
+- [ ] **deploy pending**: containers bind-mount the shared checkout, which
+  sits on `feat/dmr-tunnel-gate` (active WIP). ntfy backend code activates
+  on next `checkout master && pull` + restart of social-api + 4 workers +
+  celery-beat. `.env` vars already present — no compose change needed
+  (Settings reads mounted `/app/.env`).
+- [ ] Optional: audit remaining producers that bypass the patched choke
+  points (n8n workflows, email-only alerts, `post_publishing_to_slack`
+  variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
