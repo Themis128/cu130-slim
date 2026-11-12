@@ -317,6 +317,11 @@ class Settings(BaseSettings):
     # website, location, experience, education, skills, and Company Page
     # management (about, logo, cover, specialties, website).
     LINKEDIN_BROWSER_SIDECAR_URL: str = "http://linkedin-browser-sidecar:9225"
+    # Emergency throttle for LinkedIn profile-data lanes (feed ingest,
+    # DM polling, page invites, newsletter-subscriber pull). Set true in
+    # .env while the account is restricted or under review — those beat
+    # entries are dropped at beat startup; API publishing is unaffected.
+    LINKEDIN_SCRAPE_PAUSED: bool = False
 
     # Facebook Browser Automation sidecar (Playwright)
     # RESTful HTTP wrapper around Playwright for Facebook personal-profile
