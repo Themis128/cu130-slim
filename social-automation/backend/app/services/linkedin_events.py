@@ -12,7 +12,11 @@ from app.models.social_account import SocialAccount
 from app.worker._async import task_session
 
 REST = "https://api.linkedin.com/rest"
-HDRS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
+HDRS = {
+    "Linkedin-Version": "202610",
+    "X-Restli-Protocol-Version": "2.0.0",
+    "X-RestLi-Method": "create",
+}
 
 
 async def _org_token() -> tuple[str, str] | None:
@@ -43,21 +47,26 @@ async def create_org_event(
     description: str = "",
     event_url: str | None = None,
 ) -> dict:
-    """Create a LinkedIn org event. Returns the created entity or error."""
+    """Create a LinkedIn org event. Returns the created entity or error.
+
+    Schema per MS Learn Events Management API: ``startsAt`` epoch-ms and
+    ``type.online.format.external`` for a linked online event.
+    ``description`` is a MultiLocaleRichText (not MultiLocaleString) — the
+    localized-map shape 422s, so it is currently omitted.
+    """
     ctx = await _org_token()
     if not ctx:
         return {"skip": "no-linkedin-org-account"}
     token, org = ctx
+    external: dict = {"endsAt": ends_at_ms}
+    if event_url:
+        external["url"] = event_url
     payload: dict = {
         "organizer": org,
         "name": {"localized": {"en_US": name}},
-        "description": {"localized": {"en_US": description}} if description else None,
-        "timeRange": {"start": starts_at_ms, "end": ends_at_ms},
-        "format": "VIRTUAL",
+        "startsAt": starts_at_ms,
+        "type": {"online": {"format": {"external": external}}},
     }
-    if event_url:
-        payload["virtualEventUrl"] = event_url
-    payload = {k: v for k, v in payload.items() if v is not None}
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
         r = await c.post(f"{REST}/events", json=payload)
         if r.status_code in (200, 201):
