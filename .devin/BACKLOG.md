@@ -1847,3 +1847,26 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] **baltzakisthemis.com** — registrar clientHold at Amazon Registrar
   (since 2026-10-22); lift hold in AWS console if domain wanted back.
   Portfolio no longer depends on it (portfolio.cloudless.gr live).
+
+## Report-delivery incident + watcher (2026-11-12 eve)
+
+- Missing-email root causes found + fixed: n8n `socialauto-daily-slack-digest`
+  workflow aborted on `List IntraVox Pages` node error before the email node
+  (live fix via API + repo JSON in PR #1766); strategy_brief/ops_health
+  notebook reports produced artifacts but emails never landed — resent
+  manually, ops_health + daily digest confirmed delivered.
+- n8n public API was fully broken: all stored `user_api_keys` JWTs failed
+  `invalid signature` (encryption-key rotation mismatch). Minted a fresh
+  HS256 key derived from current `N8N_ENCRYPTION_KEY`, inserted into
+  `user_api_keys`, wrote `N8N_API_KEY` to `.env` + Infisical prod
+  (N8N_API_KEY + N8N_API_URL, both 200). `/api/v1/workflows` now 200.
+- New `report-delivery-ops` skill (PR #1766): `report_delivery_watch.py`
+  verifies every scheduled report email arrived (IMAP subject registry
+  mirroring celery_app beat + n8n digest), auto-resends once/day via
+  `celery_app.send_task` in social-worker-default, TG #ops on persistent
+  misses. Cron `45 10,14,20 * * *` (user crontab, EET host).
+- OPEN: `daily_strategy_brief` notebook resend still executing at ~22:10 —
+  DMR `smollm2`/`nomic-embed-text` models not resident → 240s cold-load
+  timeouts per LLM call → CF fallback. Watch for completion; if it keeps
+  timing out, the morning 09:00 run likely dies the same way (explains the
+  missing email). DMR model residency is the underlying fix (dmr-ops).
