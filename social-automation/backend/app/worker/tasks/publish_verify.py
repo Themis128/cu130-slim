@@ -94,15 +94,15 @@ async def _run() -> dict:
                     from posts p
                     join post_targets t on t.post_id = p.id
                     join social_accounts s on s.id = t.social_account_id
-                    where p.platform_specific->>'publish_path' = any(:paths)
+                    where p.platform_specific->>'publish_path' = any(cast(:paths as text[]))
                       and coalesce(p.platform_specific->>'publish_verified','') = ''
-                      and p.published_at > now() - interval :win
+                      and p.published_at > now() - cast(:win as interval)
                       and t.status = 'published'
                     order by p.id, s.platform
                     limit 25
                     """
                 ),
-                {"paths": list(VERIFY_PATHS), "win": f"{WINDOW_HOURS} hours"},
+                {"paths": list(VERIFY_PATHS), "win": timedelta(hours=WINDOW_HOURS)},
             )
         ).all()
 
