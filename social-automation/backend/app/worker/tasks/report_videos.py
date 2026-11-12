@@ -48,6 +48,19 @@ def materialize_report_videos() -> dict:
             )
 
         attached = failed = pending = 0
+
+        async def _mark_failed(post_id, reason: str) -> None:
+            async with task_session() as dbx:
+                fresh = await dbx.get(Post, post_id)
+                if fresh is None:
+                    return
+                fm = dict(fresh.meta_data or {})
+                fm.pop("pending_video_task", None)
+                fresh.meta_data = fm
+                fresh.status = PostStatus.FAILED
+                fresh.failure_reason = reason[:300]
+                await dbx.commit()
+
         for post in rows:
             meta = dict(post.meta_data or {})
             task_id = meta.get("pending_video_task")
@@ -55,10 +68,7 @@ def materialize_report_videos() -> dict:
             if created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
             if datetime.now(UTC) - created > _STALE_AFTER:
-                post.status = PostStatus.FAILED
-                post.failure_reason = "video render timed out (>6h)"
-                meta.pop("pending_video_task", None)
-                post.meta_data = meta
+                await _mark_failed(post.id, "video render timed out (>6h)")
                 failed += 1
                 continue
 
@@ -71,20 +81,16 @@ def materialize_report_videos() -> dict:
             except Exception:  # noqa: BLE001
                 asset_id = None
             if not asset_id:
-                post.status = PostStatus.FAILED
-                post.failure_reason = f"video render failed: {str(res.result)[:140]}"
-                meta.pop("pending_video_task", None)
-                post.meta_data = meta
+                await _mark_failed(
+                    post.id, f"video render failed: {str(res.result)[:140]}"
+                )
                 failed += 1
                 continue
 
             async with task_session() as db2:
                 asset = await db2.get(MediaAsset, asset_id)
                 if asset is None:
-                    post.status = PostStatus.FAILED
-                    post.failure_reason = "video asset missing after render"
-                    meta.pop("pending_video_task", None)
-                    post.meta_data = meta
+                    await _mark_failed(post.id, "video asset missing after render")
                     failed += 1
                     continue
                 fresh = await db2.get(Post, post.id)
