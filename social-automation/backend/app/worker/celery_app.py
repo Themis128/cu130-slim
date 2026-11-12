@@ -588,12 +588,14 @@ celery_app.conf.update(
             "task": "app.worker.tasks.workforce_audit.run_workforce_audit",
             "schedule": crontab(minute="*/30"),
         },
-        # Daily Bluesky app-password rotation check — rotates via
+        # Bluesky app-password rotation check hourly — rotates via
         # createAppPassword when recent targets show 401 auth failures and
-        # BSKY_MAIN_PASSWORD is configured; alerts once otherwise.
+        # BSKY_MAIN_PASSWORD is configured; alerts once otherwise. Cadence
+        # matters: bsky 429 rate-limit windows are transient, so a dead
+        # app password should be rotated the same day, not next morning.
         "bluesky-credential-sweep": {
             "task": "app.worker.tasks.bluesky_credential.run_bluesky_credential_sweep",
-            "schedule": crontab(minute=20, hour=4),
+            "schedule": crontab(minute=20),
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
         # CI/test probes, surface stale New leads past the follow-up SLA.
