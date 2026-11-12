@@ -54,6 +54,14 @@ Heal order: stored CDP cookie jar (`~/.local/state/li-portal-session/`,
 `LINKEDIN_USERNAME/PASSWORD` credential login (bails on Cloudflare
 challenge / captcha / checkpoint → human-needed + deduped TG #ops alert).
 
+**Self-renewal (2026-11-13):** when the jar holds the `li_rm` +
+`bcookie` pair, cookie-heal also mints a FRESH `li_at` — LinkedIn issues
+one automatically when `/feed/` loads with the pair present (verified
+mechanic, no password/checkpoint). Heal polls the jar ~24s for the mint,
+then re-captures rotated cookies. A single manual login + `--capture`
+therefore self-heals indefinitely; the credential-login fallback only
+matters if the pair itself is revoked.
+
 **2026-11-12 status:** the account is under a LinkedIn restriction —
 sidecar reports circuit open until 2026-11-13 (`linkedin_account_
 restriction_2026-11-12`), stored cookies are rejected, and /login sits
