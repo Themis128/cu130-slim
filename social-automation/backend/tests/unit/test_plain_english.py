@@ -224,6 +224,37 @@ async def test_rewrite_plain_english_paths(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_rewrite_plain_english_scaffolding_guard(monkeypatch):
+    import app.services.inference as inference
+
+    original = "we leverage synergy to unlock scalable solutions"
+
+    # Model echoes the whole prompt envelope — must fall back to original,
+    # never store the scaffolding as post copy.
+    leaked_prompt = (
+        'PLAIN ENGLISH RULES (must follow):\n- Use short words.\n\n'
+        'Text to rewrite:\n"""' + original + '"""\n\n'
+        'IMPORTANT: Return ONLY valid JSON with key "text". /no_think'
+    )
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": leaked_prompt}))
+    assert await pe.rewrite_plain_english(original, force=True) == original
+
+    # Truncated/raw JSON envelope — recover the inner "text" value.
+    truncated = '{\n "text": "Simple clear rewrite of the post. Ends here.'
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": truncated}))
+    out = await pe.rewrite_plain_english(original, force=True)
+    assert out == "Simple clear rewrite of the post. Ends here."
+
+    # Valid JSON envelope — inner text recovered.
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": '{"text": "Clean rewrite."}'}))
+    assert await pe.rewrite_plain_english(original, force=True) == "Clean rewrite."
+
+    # Scaffolding whose inner extraction is itself scaffolding -> original.
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": '{"text": "PLAIN ENGLISH RULES again"}'}))
+    assert await pe.rewrite_plain_english(original, force=True) == original
+
+
+@pytest.mark.asyncio
 async def test_fix_carousel_copy(monkeypatch):
     async def _rewrite(text, **kw):
         return "better " + text
