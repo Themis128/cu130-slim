@@ -90,6 +90,15 @@ def status():
     print(f"in-session docker info      : {'OK' if ins else 'FAIL'}")
     print(f"fresh wsl --exec docker info: {'OK' if fresh else 'FAIL'} {fout[:80]}")
     print(f"user-distro proxy           : {'alive' if proxy else 'DEAD'} {pinfo.splitlines()[-1][:80] if pinfo else ''}")
+    # 2026-11-12 classes: native docker.service socket-theft + proxy unit
+    for unit, want in (("docker.service", "disabled"), ("docker.socket", "disabled"),
+                       ("dd-user-distro-proxy.service", "active")):
+        rc, en, _ = run(["systemctl", "is-enabled", unit], timeout=10)
+        rc2, ac, _ = run(["systemctl", "is-active", unit], timeout=10)
+        en, ac = en.strip(), ac.strip()
+        bad = (want == "disabled" and (en != "disabled" or ac == "active")) or \
+              (want == "active" and ac != "active")
+        print(f"{unit:32} : {'OK' if not bad else 'FAIL'} {en}/{ac}")
     print(f"win interop (powershell.exe): {'OK' if inter else 'FAIL'}")
     vs = fvs or ivs
     print(f"vsock errors observed       : {'YES — degraded' if vs else 'no'}")
