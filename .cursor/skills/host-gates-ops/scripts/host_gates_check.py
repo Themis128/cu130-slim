@@ -7,10 +7,10 @@
 
 Checks: MemAvailable, docker info probe, docker-desktop WSL distro state,
 ChromeDebug scheduled task, Docker Desktop process, DMR SSH tunnel
-(omv:12436 <- this PC's Docker Model Runner). All probes are
-read-only except dmr_tunnel, which relaunches the Startup .bat when the
-ssh -R process is definitively gone; remediation otherwise stays with
-the existing healers/watchdogs.
+(omv:12436 <- this PC's Docker Model Runner), CDP lane (:9229 relay ->
+headless chrome :9330). All probes are read-only except dmr_tunnel and
+cdp_lane, which relaunch their Startup .bat when the service is down;
+other remediation stays with the existing healers/watchdogs.
 """
 import json
 import os
@@ -170,6 +170,34 @@ def check_dmr_tunnel():
     return {"ok": False, "detail": detail}
 
 
+CDP_LAUNCH_BAT = ("C:\\Users\\tbaltzakis\\AppData\\Roaming\\Microsoft\\Windows"
+                  "\\Start Menu\\Programs\\Startup\\cdp-launch.bat")
+
+
+def check_cdp_lane():
+    """LinkedIn/FB portal CDP lane: relay 0.0.0.0:9229 -> headless chrome
+    :9330. cdp-launch.bat is Startup-only, so a crashed chrome/relay stays
+    dead until next logon — li/fb session healers then report no-cdp.
+    Probe via the Windows host IP (localhost:9229 in WSL is NOT the
+    Windows listener)."""
+    import urllib.request
+    host_ip = sh("ip route | awk '/default/ {print $3; exit}'",
+                 timeout=5).strip() or "172.22.144.1"
+    try:
+        with urllib.request.urlopen(
+                f"http://{host_ip}:9229/json/version", timeout=6) as r:
+            body = r.read().decode("utf-8", "replace")
+        if '"Browser"' in body:
+            return {"ok": True, "detail": "CDP :9229 responding"}
+        return {"ok": False, "detail": f"unexpected /json/version: {body[:80]}"}
+    except Exception as e:
+        rel = win(f"Start-Process -FilePath '{CDP_LAUNCH_BAT}' "
+                  "-WindowStyle Hidden; 'launched'", timeout=15)
+        return {"ok": False,
+                "detail": f"CDP :9229 down ({str(e)[:60]}); "
+                          f"relaunched cdp-launch={rel.strip()[:40]}"}
+
+
 def tg(text):
     try:
         subprocess.run(["python3", TG_ALERT, "ops", text], timeout=30)
@@ -185,6 +213,7 @@ def main():
         "chromedebug_task": check_chromedebug_task(),
         "docker_desktop_proc": check_docker_desktop_proc(),
         "dmr_tunnel": check_dmr_tunnel(),
+        "cdp_lane": check_cdp_lane(),
     }
     # IDE-authority loop is undetectable — always surface as a note.
     degraded = [k for k, v in checks.items() if v.get("ok") is False]
