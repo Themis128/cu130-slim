@@ -1805,8 +1805,9 @@ Newly discovered gates:
   Settings: Threads app ID `1236823015256887`, password-confirmed
   reveal of the 32-hex Threads app secret (FACEBOOK_PASSWORD from .env).
   Verified live: client_credentials grant → TH| app token. Written to
-  .env (local-only keys survive Infisical merge-pull; still TODO push
-  to Infisical prod so --force pulls can't drop them).
+  .env; **pushed to Infisical prod 2026-11-12 ~19:25** (POST 200/200 via
+  in-container API — WSL↔Windows interop was down, used `docker exec
+  infisical node` + universal-auth from .env creds). Force pulls safe.
 - **cloudless.gr is already a Threads Tester** on the app (User Token
   Generator row) — dev-mode permission grant OK for our own account.
 - **LinkedIn**: sidecar rate-limit flag cleared BUT /feed/ still returns
