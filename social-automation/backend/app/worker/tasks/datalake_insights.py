@@ -24,12 +24,19 @@ def datalake_insights_sweep() -> dict:
         async with task_session() as db:
             teams = (await db.execute(select(Team.id))).scalars().all()
             out = []
+            # E2E/test teams massively outnumber real ones and render
+            # identical all-zero signal lines — dedupe so the alert channel
+            # gets one copy per distinct digest, not one per team.
+            seen: set[str] = set()
             for tid in teams:
                 signals = await di.apply_signals(db, tid)
                 lines = di.render_slack_lines(signals)
                 if len(lines) > 1:  # only ping when there is something to say
-                    await post_alert_to_slack("\n".join(lines))
+                    text = "\n".join(lines)
+                    if text not in seen:
+                        seen.add(text)
+                        await post_alert_to_slack(text)
                 out.append({"team": str(tid), "actions": len(signals["actions"])})
-            return {"teams": len(out), "details": out}
+            return {"teams": len(out), "alerts": len(seen), "details": out}
 
     return run_async(_run())
