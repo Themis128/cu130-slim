@@ -1737,3 +1737,32 @@ Newly discovered gates:
 - **WhatsApp coexist watch**: PIN-fallback (`PHONE_PIN`, opt-in) +
   fresh-SMS autofill (`WA_SMS_AUTOFILL`) + device pinning landed earlier
   this sweep; live run correctly refused stale/unrelated SMS codes.
+
+## 2026-11-12 — LinkedIn restriction + dev-app repairs (Devin)
+
+- **LinkedIn restriction**: account flagged for high profile-data access;
+  lifted ~05:24 UTC but browser still serves HTTP 429 (soft cooldown).
+  `LINKEDIN_SCRAPE_PAUSED=true` stays ON — beat drops li-feed ingest,
+  messenger poll, invites, newsletter-subs-sync (PR #1735, merged).
+  Sidecar circuit cleared manually; re-arm only after 429s stop.
+- **X fixed live**: OAuth2 bearer 401 → `X_OAUTH1_FALLBACK` now reads
+  settings (/app/.env) so it flips via `docker restart` — validated
+  @TBaltzakis via OAuth1 (PR pending). Compose env declares
+  `BSKY_MAIN_PASSWORD` for the daily credential sweep (next recreate).
+- **Bluesky**: app password dead; `bluesky_tool.py rotate` hits bsky
+  createSession 429 (IP/account rate limit) — retry later or next daily
+  sweep once env lands.
+- **Instagram**: Graph token invalidated server-side (OAuthException 190,
+  confirmed via /me probe) — instagram_reauth reached the IG-connect
+  dialog but needs IG login → HUMAN GATE.
+- **Threads**: bridge threads.net session logged out → HUMAN GATE
+  (threads_reauth.py ported psycopg→asyncpg, same fix as instagram lane).
+- **Meta**: canonical FB page active; stale rows = revoked threads +
+  revoked IG (real — token dead) + expired FB personal (sidecar covers
+  personal posting).
+- **Docker Desktop**: engine crashed ~05:35 UTC, auto-recovered; vsock
+  flaps continue. `invalid cross distro token` still blocks recreates —
+  env changes above take effect on next successful recreate.
+- **Video**: invoice-angle branded video drafted to Company Page
+  (post 9accfb46-b6eb-480f-9172-b365fb50f9b0, media 4070e293) — caption
+  verified intact; awaiting human publish decision.
