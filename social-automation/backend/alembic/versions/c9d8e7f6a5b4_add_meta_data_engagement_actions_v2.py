@@ -23,6 +23,11 @@ depends_on = None
 
 
 def upgrade():
+    # The orphaned f7g8h9i0j1k2 migration on the dead branch adds the same
+    # column — fresh DBs built via `alembic upgrade heads` get it twice.
+    bind = op.get_bind()
+    if "meta_data" in {c["name"] for c in sa.inspect(bind).get_columns("engagement_actions")}:
+        return
     op.add_column(
         "engagement_actions",
         sa.Column(
