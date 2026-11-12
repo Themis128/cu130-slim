@@ -1870,3 +1870,28 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
   timeouts per LLM call → CF fallback. Watch for completion; if it keeps
   timing out, the morning 09:00 run likely dies the same way (explains the
   missing email). DMR model residency is the underlying fix (dmr-ops).
+
+## DMR env drift → gpu:dmr_lock churn (2026-11-12 late)
+
+- Root cause of the `[ops-agent/critical] gpu:dmr_lock held ~40min` alert:
+  NOT a wedged holder — `.env` had all `DMR_*_MODEL` flattened to
+  `smollm2` + `nomic-embed-text` (stale emergency VRAM workaround), and
+  `docker-compose.yml` `${DMR_X:-smollm2}` defaults mean EMPTY .env
+  values fall through to smollm2 — overrides must be explicit refs.
+  `DMR_MEDIA_MODEL` compose default `cloudless/qwen3-4b-media` was never
+  pulled. Missing models → cold-load timeouts → retry stampede → lock
+  continuously held.
+- FIXED in `.env` (live file): all DMR_*_MODEL set to canonical fleet
+  (qwen3:8b text, Qwen3-4B mid/chatbot/quality/media, Qwen3-Embedding,
+  smollm3 tiny, qwen3-vl vision). Container env still stale — needs
+  `docker compose up -d` recreate of social-api + 4 workers + beat
+  (env_file vars bake at CREATE; restart does not reload).
+- IN FLIGHT: `docker model pull` for `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
+  (2.5GB) + `ai/smollm3` (1.9GB) running detached; wedged `Loading...`
+  entries (8b/vl/llama3.2/embedding) clear once memory frees — they are
+  queued canonical loads, not corruption.
+- VERIFY after recreate: `dmr-env-drift.py` clean + `check_dmr_health`
+  `missing_models=[]` + no new dmr_lock alerts. This also unblocks the
+  OPEN `daily_strategy_brief` cold-load-timeout item above.
+- Tooling: `scripts/dmr-env-drift.py` + incident section in
+  docker-model-runner SKILL.md — PR #1774.
