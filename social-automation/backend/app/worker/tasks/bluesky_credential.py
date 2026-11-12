@@ -67,11 +67,7 @@ async def _sweep() -> dict:
     )
     from app.services.slack_notifications import send_telegram_alert
 
-    main_password = (
-        os.environ.get("BSKY_MAIN_PASSWORD")
-        or getattr(settings, "BSKY_MAIN_PASSWORD", "")
-        or ""
-    )
+    main_password = os.environ.get("BSKY_MAIN_PASSWORD") or getattr(settings, "BSKY_MAIN_PASSWORD", "") or ""
     async with task_session() as db:
         account = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "bluesky"))).scalars().first()
         if account is None:
