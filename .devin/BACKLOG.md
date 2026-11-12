@@ -1766,3 +1766,22 @@ Newly discovered gates:
 - **Video**: invoice-angle branded video drafted to Company Page
   (post 9accfb46-b6eb-480f-9172-b365fb50f9b0, media 4070e293) — caption
   verified intact; awaiting human publish decision.
+
+## 2026-11-12 (pm2) — debug-Chrome session healers via stack creds
+
+- **fb_session_heal.py** (fb-reauth-ops): keeps the :9229 debug-Chrome
+  facebook.com session alive for the OAuth-consent + Meta-Business lanes.
+  Cookie re-inject (c_user+xs) → FACEBOOK_USERNAME/PASSWORD credential
+  login → checkpoint click-through → 2FA code via phone-2fa-ops fb_code.py
+  → jar re-store (~/.local/state/fb-debug-session, 0600). TG #ops on
+  human-needed, deduped. Cron */30 flock-guarded. Reuses an existing FB
+  tab; wedged tabs (evals never respond — FB renderer boot on the
+  RAM-tight host takes ~60-90s) are closed and replaced.
+- **li_session_heal.py** already cron'd */30 (previous entry).
+- **ig_fb_session_heal.py** (existing cron) covers the sidecar session —
+  fb_session_heal covers the debug Chrome; complementary, not duplicate.
+- Still human-only: PHONE_PIN (not stored anywhere — needed once for the
+  WA biometric fallback), Meta card data (PCI — META_BILLING_AUTOSUBMIT=1
+  is armed but needs META_CARD_* env), Viber commercial bot application
+  (Rakuten partner gate — no API), TikTok verification review (watcher
+  armed, Under Review).
