@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """pending_status.py — one-line status of every remaining human input.
-Updated 2026-10-29: reflects the gate-capture system (15-min watcher).
+Updated 2026-11-12: reflects the gate-capture system + the new gate watchers
+(wa-link, wa-templates, meta-billing, cm-survey, host-gates, linkedin portal).
 """
+import json
+import os
 import subprocess
+
+HOME = os.path.expanduser("~")
 
 
 def sh(cmd: str) -> str:
@@ -10,15 +15,57 @@ def sh(cmd: str) -> str:
     return (r.stdout + r.stderr).strip()
 
 
+def _state(path: str) -> dict:
+    try:
+        return json.load(open(path))
+    except Exception:
+        return {}
+
+
 def main() -> int:
     out = {}
 
     # platform rows (real state from DB)
     out["bluesky"] = "live — cloudless.gr + tbaltzakis.bsky.social wired"
-    out["viber"] = "gate — webadmin.viber.com or `viber <token>` to bot"
-    out["whatsapp"] = "gate — payment in Meta Business + `whatsapp <token>`"
+    out["viber"] = "gate — `viber <token>` to bot / viber_phone_capture.py (ADB)"
+    out["whatsapp"] = "link-watch armed — fingerprint/PIN on phone finishes it"
     out["x"] = "live — consent-healers manages session"
     out["linkedin"] = "live — circuit-open cooldowns self-resolve"
+    out["tiktok"] = "reauth cron armed — QR scan on bridge if lane-down"
+
+    # WhatsApp coexistence link watcher
+    wa_done = os.path.exists(
+        f"{HOME}/.local/state/wa-coexist-watch/verified.json")
+    out["wa_link"] = ("VERIFIED ✅ — env wired" if wa_done
+                      else "watching (60s poll) — needs phone fingerprint/PIN")
+
+    # WABA template approval watcher
+    tpl = _state(f"{HOME}/.local/state/wa-template-watch/state.json")
+    pending = sum(1 for v in tpl.values() if v.get("status") == "PENDING")
+    rejected = sum(1 for v in tpl.values() if v.get("status") == "REJECTED")
+    out["wa_templates"] = (f"{len(tpl)} tracked — {pending} pending, "
+                           f"{rejected} rejected" if tpl
+                           else "armed */30m — seeds on first WABA token")
+
+    # Meta billing watcher
+    bill = _state(f"{HOME}/.local/state/meta-billing-watch/state.json")
+    out["meta_billing"] = ("payment method detected ✅" if bill.get("paid_alerted")
+                           else "no card yet — daily reminder armed")
+
+    # CM survey watcher
+    cm_done = _state(f"{HOME}/.local/state/cm-survey-watch/done.json")
+    out["cm_survey"] = ("submitted ✅" if cm_done
+                        else "armed */15m — drop recording mp4 in Downloads")
+
+    # LinkedIn portal gates (on-demand probe)
+    out["li_portal_gates"] = ("member_dp_probe.py — Member DP modals + "
+                              "Matched Audiences case (on-demand)")
+
+    # host-level gates
+    hg = _state(f"{HOME}/.local/state/host-gates-ops/state.json")
+    out["host_gates"] = ("daily 08:10 — last degraded: "
+                         + (hg.get("last_sig") or "none")
+                         if hg else "daily 08:10 digest armed")
 
     # gate-watcher coverage
     w = sh("python3 /home/tbaltzakis/cu130-slim/.devin/skills/"
