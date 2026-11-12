@@ -434,11 +434,11 @@ _NTFY_PRIO = {"critical": "5", "ops": "4", "intel": "3", "digest": "2"}
 
 async def _post_ntfy_alert(severity: str, text: str) -> None:
     settings = get_settings()
-    base = (settings.NTFY_ALERT_BASE_URL or "").rstrip("/")
-    tok = (settings.NTFY_ALERT_TOKEN or "").strip()
+    base = (getattr(settings, "NTFY_ALERT_BASE_URL", "") or "").rstrip("/")
+    tok = (getattr(settings, "NTFY_ALERT_TOKEN", "") or "").strip()
     if not (base and tok):
         return
-    topic = (settings.NTFY_ALERT_TOPIC or "cloudless-alerts").strip()
+    topic = (getattr(settings, "NTFY_ALERT_TOPIC", "") or "cloudless-alerts").strip()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(
