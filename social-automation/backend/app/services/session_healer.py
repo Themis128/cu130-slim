@@ -308,6 +308,14 @@ async def _li_logged_in() -> bool:
 
 
 async def _heal_linkedin(stats: dict) -> None:
+    # While the scrape throttle is on, do not probe /session (navigates
+    # /feed) or attempt credential logins — each hit deepens the flag.
+    from app.core.config import get_settings
+
+    if get_settings().LINKEDIN_SCRAPE_PAUSED:
+        stats["linkedin"]["status"] = "paused"
+        return
+
     r = await _get_redis()
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
