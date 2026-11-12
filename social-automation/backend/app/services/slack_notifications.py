@@ -148,6 +148,7 @@ async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> No
     if not ok:
         logger.warning("Slack alerts disabled or failed: %s", err)
     await _fanout_talk(text, "alerts", blocks)
+    await _post_ntfy_alert("ops", text)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +231,7 @@ async def post_digest_text_to_slack(text: str) -> tuple[bool, str | None, str | 
         purpose="digest",
     )
     await _fanout_talk(text, "digest")
+    await _post_ntfy_alert("digest", text)
     return result
 
 
@@ -425,6 +427,35 @@ TG_CHANNELS = {
     "digest": os.environ.get("TG_CH_DIGEST", "-1004363123500"),
 }
 
+# ntfy fan-out — every severity alert also lands on the phone's ntfy app
+# (topic cloudless-alerts; severity maps to ntfy priority 5..2). Best-effort.
+_NTFY_PRIO = {"critical": "5", "ops": "4", "intel": "3", "digest": "2"}
+
+
+async def _post_ntfy_alert(severity: str, text: str) -> None:
+    settings = get_settings()
+    base = (getattr(settings, "NTFY_ALERT_BASE_URL", "") or "").rstrip("/")
+    tok = (getattr(settings, "NTFY_ALERT_TOKEN", "") or "").strip()
+    if not (base and tok):
+        return
+    topic = (getattr(settings, "NTFY_ALERT_TOPIC", "") or "cloudless-alerts").strip()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                f"{base}/{topic}",
+                content=text.encode(),
+                headers={
+                    "Authorization": f"Bearer {tok}",
+                    "Title": f"[{severity}] cloudless",
+                    "Priority": _NTFY_PRIO.get(severity, "3"),
+                    "Tags": severity,
+                    # Cloudflare 403s bare python UAs — send a browser UA.
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ntfy-alert/1.0",
+                },
+            )
+    except Exception:
+        logger.debug("ntfy alert fan-out failed (non-fatal)", exc_info=True)
+
 
 async def send_telegram_alert(severity: str, text: str) -> bool:
     """Route an alert to the severity's private admin channel.
@@ -446,6 +477,8 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
         await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
     except Exception:
         pass  # dedup failure must not block the alert
+
+    await _post_ntfy_alert(severity, text)
 
     from sqlalchemy import select
 
