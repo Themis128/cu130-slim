@@ -118,7 +118,43 @@ async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> st
             last_err = e
             if attempt == 0:
                 await _aio.sleep(2)
+    # DMR exhausted — fall back to Cloudflare Workers AI (OpenAI-compatible).
+    # Text-only lane: embeddings must NOT fall back (different vector space
+    # would corrupt similarity scores).
+    cf = await _cf_chat(prompt, max_tokens)
+    if cf is not None:
+        return cf
     raise last_err  # type: ignore[misc]
+
+
+_CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+
+async def _cf_chat(prompt: str, max_tokens: int) -> str | None:
+    """Cloudflare Workers AI chat fallback — returns None when unconfigured
+    or on failure (caller then raises the DMR error)."""
+    s = get_settings()
+    token = (getattr(s, "CLOUDFLARE_AI_API_TOKEN", "") or "").strip()
+    account = (getattr(s, "CLOUDFLARE_ACCOUNT_ID", "") or "").strip()
+    if not token or not account:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+            r = await c.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "model": _CF_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": max_tokens,
+                },
+            )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip() or None
+    except Exception as e:
+        logger.warning("CF Workers AI fallback failed: %s", e)
+        return None
 
 
 async def _embed(text: str) -> list[float]:
