@@ -1,6 +1,6 @@
 """add meta_data to engagement_actions (v2 — live head)
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c9d8e7f6a5b4
 Revises: k2f9a1b4c6d8
 Create Date: 2026-11-12
 
@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "a1b2c3d4e5f6"
+revision = "c9d8e7f6a5b4"
 down_revision = "k2f9a1b4c6d8"
 branch_labels = None
 depends_on = None
