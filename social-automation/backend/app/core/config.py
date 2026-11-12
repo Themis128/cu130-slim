@@ -340,6 +340,11 @@ class Settings(BaseSettings):
     # /app/.env so it can be flipped without a container recreate.
     X_OAUTH1_FALLBACK: bool = False
 
+    # Bluesky account MAIN password — enables unattended app-password
+    # rotation in the daily credential sweep when the stored app password
+    # dies (401). Read from /app/.env so it works without a recreate.
+    BSKY_MAIN_PASSWORD: str = ""
+
     # Free X web fallback (tweety/twscrape over x.com's cookie-authenticated
     # GraphQL API) used when the official API returns 402 credits-depleted /
     # UsageCapExceeded / quota 429. Cookie auth ONLY (never password login).
