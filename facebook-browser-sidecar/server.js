@@ -118,6 +118,16 @@ async function ensureBrowser() {
   await context.addInitScript(
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
   );
+  // OAuth/onboarding flows open popups (e.g. the IG-business-login window
+  // behind facebook.com/dialog/oauth "Get started"). They live in the same
+  // context but are invisible to the single `page` handle — track them via
+  // /debug/pages + /debug/activate so debug flows can drive the popup.
+  context.on("page", (p) => {
+    p.on("close", () => {
+      const i = context.pages().indexOf(p);
+      if (i >= 0 && p === page) page = context.pages()[0] || page;
+    });
+  });
   page = await context.newPage();
   // Record main-frame navigation ATTEMPTS: a redirect to an unreachable
   // URL (e.g. the http://localhost:8083 OAuth callback, which the sidecar
@@ -3304,6 +3314,43 @@ app.post("/debug/eval", async (req, res) => {
     await ensureBrowser();
     const result = await page.evaluate(script);
     res.json({ status: "ok", result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List every page in the context (main + popups) so debug flows can find
+// OAuth/onboarding windows the single `page` handle can't see.
+app.get("/debug/pages", async (req, res) => {
+  try {
+    await ensureBrowser();
+    const pages = await Promise.all(
+      context.pages().map(async (p, i) => ({
+        index: i,
+        url: p.url(),
+        title: await p.title().catch(() => ""),
+        active: p === page,
+      })),
+    );
+    res.json({ status: "ok", pages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Switch the active `page` handle to another context page by index
+// (from /debug/pages). All /debug/* endpoints then drive that page.
+app.post("/debug/activate", async (req, res) => {
+  try {
+    const { index } = req.body || {};
+    await ensureBrowser();
+    const pages = context.pages();
+    const i = Number.isInteger(index) ? index : pages.length - 1;
+    if (i < 0 || i >= pages.length) {
+      return res.status(400).json({ error: `index ${i} out of range (${pages.length} pages)` });
+    }
+    page = pages[i];
+    res.json({ status: "ok", index: i, url: page.url() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
