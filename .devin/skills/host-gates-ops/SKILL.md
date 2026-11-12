@@ -38,3 +38,12 @@ Cron: `10 8 * * * python3 host_gates_check.py --alert` (daily digest lane).
   `wsl-vsock-autoheal.sh`, `wsl-resume-heal.ps1`, and the watchdogs which
   already own restart authority. This script observes and reports so the
   human gates stay visible instead of silently flapping.
+
+## WSL config audit (2026-11-12)
+
+`~/home-ops/scripts/wsl-config-audit.py` (Windows host, python3) verifies every
+`.wslconfig` guard learned from the host-starvation incidents — memory/swap/
+processors ceilings, `sparseVhd`, `autoMemoryReclaim=gradual` (dropCache was
+reverted: it crashed the VM 4x), `vmIdleTimeout=-1` — plus live vmmemWSL vs cap
+and host free RAM. Exit 1 on missing guards or vmmem over cap. Complements
+`host_gates_check.py` (live gate state) with config drift detection.
