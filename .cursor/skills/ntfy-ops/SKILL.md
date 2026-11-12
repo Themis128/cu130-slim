@@ -37,3 +37,28 @@ python ntfy_ops.py audit                 # scan repo for ntfy URLs + check each
   (hangs on stdin otherwise).
 - Non-expiring publish tokens: `ntfy token add <user>` → `tk_…`;
   send as `Authorization: Bearer tk_…`.
+
+## Alert fan-out (2026-11-12)
+
+Every severity-routed alert now ALSO publishes to `cloudless-alerts` on
+`https://ntfy.cloudless.gr` — the phone's ntfy app is the third always-on
+lane alongside Telegram + Slack. Wired at the two choke points:
+
+- `tg_alert.py send()` → `_ntfy_publish()` (all ~28 home-ops watchers)
+- `slack_notifications.send_telegram_alert()` + `post_alert_to_slack()`
+  + `post_digest_text_to_slack()` → `_post_ntfy_alert()` (backend Celery)
+
+Severity → ntfy `Priority` header: critical=5, ops=4, intel=3, digest=2.
+Publisher identity: ntfy user `alert-relay` — **write-only** on
+`cloudless-alerts`, `nextcloud-ops`, `cloudless-ops`; never-expiring
+Bearer token lives in repo `.env` as `NTFY_ALERT_TOKEN`
+(+ `NTFY_ALERT_BASE_URL`, optional `NTFY_ALERT_TOPIC` override).
+
+Corrections to the 2026-10-29 traps (verified live 2026-11-12):
+
+- `ntfy.cloudless.gr` is **NOT Access-gated for API/subscription
+  traffic** — machine publishes (Bearer) and the Android app's
+  websocket both work over the public hostname. The earlier "must use
+  tailnet :30080" guidance is obsolete for this hostname.
+- **Cloudflare 403s bare python User-Agents** (urllib `Python-urllib`,
+  httpx default) — every publisher must send a browser-ish UA header.

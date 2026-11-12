@@ -500,6 +500,11 @@ class Settings(BaseSettings):
     # Override in /app/.env (mounted from host) for your own Slack workspace.
     SLACK_CHANNEL_ID: str = "C0C1F1K3DDF"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
+    # ntfy alert fan-out — severity alerts also publish to the phone's ntfy
+    # app (self-hosted ntfy.cloudless.gr; Bearer token, write-only user).
+    NTFY_ALERT_BASE_URL: str = ""
+    NTFY_ALERT_TOKEN: str = ""
+    NTFY_ALERT_TOPIC: str = "cloudless-alerts"
     # Daily strategy email (insights engine → action playbook).
     STRATEGY_REPORT_HOUR: int = 9  # Europe/Athens via Celery timezone
     STRATEGY_REPORT_MINUTE: int = 0  # Europe/Athens via Celery timezone
