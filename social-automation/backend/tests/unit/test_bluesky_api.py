@@ -339,9 +339,20 @@ async def test_create_app_password(client):
 
 @pytest.mark.asyncio
 async def test_rotate_app_password_full_flow():
-    account = type("A", (), {"username": "h.bsky.social", "meta_data": {}, "access_token_enc": b"old", "id": "x"})()
+    account = type(
+        "A",
+        (),
+        {
+            "username": "h.bsky.social",
+            "meta_data": {"bsky_app_password_name": "sa-rot-old"},
+            "access_token_enc": b"old",
+            "id": "x",
+        },
+    )()
 
     minted = []
+    names = []
+    revoked = []
 
     class _C:
         def __init__(self, handle, pw, pds_url=None):
@@ -355,7 +366,11 @@ async def test_rotate_app_password_full_flow():
 
         async def create_app_password(self, name="x"):
             minted.append(self.pw)
+            names.append(name)
             return {"name": name, "password": "new-pw-1234", "createdAt": "t"}
+
+        async def revoke_app_password(self, name):
+            revoked.append(name)
 
     commits = []
 
@@ -377,3 +392,55 @@ async def test_rotate_app_password_full_flow():
     assert commits == [1]
     # admin client used main pw, verifier used the minted app password
     assert minted == ["main-pw"]
+    assert len(names) == 1 and names[0].startswith("sa-rot-")
+    assert names[0] != "socialauto-rotated"
+    assert revoked == ["sa-rot-old"]
+    assert account.meta_data["bsky_app_password_name"] == names[0]
+
+
+async def test_rotate_app_password_second_call_unique_names():
+    """Two rotations must not reuse a fixed app-password name."""
+    account = type(
+        "A",
+        (),
+        {"username": "h.bsky.social", "meta_data": {}, "access_token_enc": b"old", "id": "x"},
+    )()
+    names = []
+
+    class _C:
+        def __init__(self, handle, pw, pds_url=None):
+            pass
+
+        async def create_session(self):
+            return {}
+
+        def session_state(self):
+            return {"access_jwt": "a", "refresh_jwt": "r", "did": "d"}
+
+        async def create_app_password(self, name="x"):
+            names.append(name)
+            return {"name": name, "password": f"pw-{len(names)}", "createdAt": "t"}
+
+        async def revoke_app_password(self, name):
+            return None
+
+    class _DB:
+        async def commit(self):
+            return None
+
+    with (
+        patch("app.services.bluesky_api.BlueskyClient", _C),
+        patch("app.core.security.encrypt_token", lambda t: b"enc"),
+        patch("sqlalchemy.orm.attributes.flag_modified"),
+    ):
+        from app.services.bluesky_api import rotate_app_password
+        import time as _time
+
+        await rotate_app_password(account, "main-pw", _DB())
+        # force a different second timestamp if the same second is reused
+        account.meta_data = dict(account.meta_data or {})
+        with patch("time.time", return_value=_time.time() + 5):
+            await rotate_app_password(account, "main-pw", _DB())
+    assert len(names) == 2
+    assert names[0] != names[1]
+    assert all(n.startswith("sa-rot-") for n in names)
