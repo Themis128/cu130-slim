@@ -35,6 +35,59 @@ MAX_VIDEO_BYTES = 300_000_000  # app.bsky.embed.video lexicon
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 VIDEO_MIMES = {"video/mp4"}
 
+# bsky.social rate-limits com.atproto.server.createSession at 30 points per
+# 5 min AND 300/day keyed on identifier+IP (atproto packages/pds
+# createSession.ts). Every publish/sync/probe/rotation shares that one
+# bucket — a single 429 means the whole fleet must stop logging in, not
+# just the caller that saw it. The circuit is shared via Redis so all
+# workers + the API honour the same cooldown.
+_BSKY_RL_KEY = "bsky:createSession:circuit_until"
+_BSKY_RL_BACKOFF_S = 900  # 15 min — inside the 5-min window + margin
+
+
+async def _rl_gate() -> None:
+    """Raise BlueskyAPIError(429) without a network call while the shared
+    createSession circuit is open. Fails open when Redis is unreachable —
+    auth must not break on infra."""
+    try:
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            until = await r.get(_BSKY_RL_KEY)
+        finally:
+            await r.aclose()
+        if until and float(until) > time.time():
+            raise BlueskyAPIError(
+                429,
+                f"createSession circuit open until {until} — shared bsky.social rate-limit cooldown",
+                BSKY_PDS_DEFAULT,
+            )
+    except BlueskyAPIError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _rl_trip(status_code: int) -> None:
+    """Open the shared circuit when the PDS answers 429."""
+    if status_code != 429:
+        return
+    try:
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await r.set(_BSKY_RL_KEY, str(time.time() + _BSKY_RL_BACKOFF_S), ex=_BSKY_RL_BACKOFF_S)
+        finally:
+            await r.aclose()
+    except Exception:  # noqa: BLE001
+        pass
+
 
 class BlueskyAPIError(Exception):
     def __init__(self, status_code: int, response_text: str, url: str):
@@ -143,6 +196,7 @@ class BlueskyClient:
     async def create_session(self) -> dict[str, Any]:
         """``POST com.atproto.server.createSession`` — authenticate with
         handle + app password; stores accessJwt/refreshJwt/did."""
+        await _rl_gate()
         url = self._xrpc("com.atproto.server.createSession")
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -150,6 +204,7 @@ class BlueskyClient:
                 json={"identifier": self.identifier, "password": self.app_password},
             )
             if resp.status_code != 200:
+                await _rl_trip(resp.status_code)
                 raise BlueskyAPIError(resp.status_code, resp.text, url)
             data = resp.json()
         self._access_jwt = data["accessJwt"]
