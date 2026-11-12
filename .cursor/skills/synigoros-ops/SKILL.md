@@ -37,7 +37,12 @@ synigoros_status.py --mail X --kpa Y   # different complaint
   browser; `navigate` handles the real URL.
 - `context was destroyed` = page navigating mid-eval — retry.
 - `No active browser session` = session expired — the script re-starts it.
-- email-verification codes from `noreply@synigoros.gr` expire fast and are
-  per-attempt — a fresh code beats an old one.
+- **OTP gate (2026-11-12):** cold sessions get a 6-digit emailed code after
+  Ταυτοποίηση. The script auto-fetches it from Gmail (refresh-token chain,
+  `gmail-token.json` + `gcp-oauth.keys.json` under `~/.config/devin/secrets`,
+  `%APPDATA%/devin/secrets`, or `/mnt/c/Users/*/AppData/Roaming/devin/secrets`;
+  override dir via `SYNIGOROS_GMAIL_SECRETS`) and submits via native
+  `/session/fill` + a real `/session/click` — synthetic Enter does NOT submit
+  the form. Up to 3 attempts, ~20s apart; each retry needs a newer email.
 - Identify works on `browser-novnc-adhoc` (port 9224 / host 9232); the main
   bridge 9223 is usually held by engagement/skool sweeps → 409s.
