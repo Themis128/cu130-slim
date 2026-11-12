@@ -1164,6 +1164,8 @@ if settings.LINKEDIN_SCRAPE_PAUSED:
         "poll-linkedin-messenger",
         "send-linkedin-invites",
         "newsletter-subs-sync",
+        "check-linkedin-sessions",
+        "refresh-linkedin-sessions",
     ):
         celery_app.conf.beat_schedule.pop(_paused_key, None)
 
