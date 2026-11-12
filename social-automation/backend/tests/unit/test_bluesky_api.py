@@ -446,3 +446,55 @@ async def test_rotate_app_password_second_call_unique_names():
     assert len(names) == 2
     assert names[0] != names[1]
     assert all(n.startswith("sa-rot-") for n in names)
+
+
+@pytest.mark.asyncio
+async def test_revoke_app_password_error_paths(client):
+    """revoke_app_password raises BlueskyAPIError on non-200; rotate swallows it."""
+    fake = _FakeAsyncClient(_FakeResponse(500, {"error": "boom"}))
+    with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
+        with pytest.raises(api.BlueskyAPIError):
+            await client.revoke_app_password("sa-rot-old")
+
+    # rotate path: revoke failure is best-effort and must not abort rotation
+    account = type(
+        "A",
+        (),
+        {
+            "username": "h.bsky.social",
+            "meta_data": {"bsky_app_password_name": "sa-rot-old"},
+            "access_token_enc": b"old",
+            "id": "x",
+        },
+    )()
+
+    class _C:
+        def __init__(self, handle, pw, pds_url=None):
+            pass
+
+        async def create_session(self):
+            return {}
+
+        def session_state(self):
+            return {"access_jwt": "a", "refresh_jwt": "r", "did": "d"}
+
+        async def create_app_password(self, name="x"):
+            return {"name": name, "password": "new-pw", "createdAt": "t"}
+
+        async def revoke_app_password(self, name):
+            raise api.BlueskyAPIError(500, "pds down", "http://x")
+
+    class _DB:
+        async def commit(self):
+            return None
+
+    with (
+        patch("app.services.bluesky_api.BlueskyClient", _C),
+        patch("app.core.security.encrypt_token", lambda t: b"enc"),
+        patch("sqlalchemy.orm.attributes.flag_modified"),
+    ):
+        from app.services.bluesky_api import rotate_app_password
+
+        out = await rotate_app_password(account, "main-pw", _DB())
+    assert out["rotated"] is True
+    assert account.access_token_enc == b"enc"
