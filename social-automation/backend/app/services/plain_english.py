@@ -166,6 +166,23 @@ _REWRITTEN_MARKERS = re.compile(
 )
 
 
+# Small DMR models sometimes echo the instruction wrapper verbatim instead
+# of the JSON payload — detect that here and keep the original text rather
+# than shipping the prompt downstream (publish_to_platform fails closed on
+# the same markers).
+_PROMPT_LEAK_MARKERS = (
+    "plain english rules",
+    "text to rewrite:",
+    'return json with key "text"',
+    "do not include the original text",
+)
+
+
+def _looks_like_prompt_leak(text: str) -> bool:
+    low = (text or "").lower()
+    return any(m in low for m in _PROMPT_LEAK_MARKERS)
+
+
 def extract_rewritten_only(text: str) -> str:
     """Keep only the NLP rewrite when the model returns original + rewritten."""
     if not text:
@@ -309,6 +326,9 @@ Text to rewrite:
             allow_fallback=allow_fallback,
         )
         rewritten = extract_rewritten_only((result.get("text") or "").strip())
+        if _looks_like_prompt_leak(rewritten):
+            logger.warning("plain-english rewrite returned prompt leak — keeping original")
+            return text
         return rewritten or text
     except HTTPException:
         return text
