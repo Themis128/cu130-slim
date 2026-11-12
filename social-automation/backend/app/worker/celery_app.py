@@ -1154,6 +1154,19 @@ celery_app.conf.update(
     },
 )
 
+# LinkedIn restriction throttle — while LINKEDIN_SCRAPE_PAUSED is set, drop
+# every beat lane that reads LinkedIn profile/feed/DM data through the
+# browser sidecar or bridge. Official-API lanes (CM stats, ads, lead sync)
+# and the publish queue are untouched.
+if settings.LINKEDIN_SCRAPE_PAUSED:
+    for _paused_key in (
+        "engagement-ingest-li-feed",
+        "poll-linkedin-messenger",
+        "send-linkedin-invites",
+        "newsletter-subs-sync",
+    ):
+        celery_app.conf.beat_schedule.pop(_paused_key, None)
+
 # ── Worker-process async loop ────────────────────────────────────────────────
 # One asyncio loop per prefork child, created AFTER the fork. Tasks submit
 # coroutines via app.worker._async.run_async; the pooled DB engine lives as
