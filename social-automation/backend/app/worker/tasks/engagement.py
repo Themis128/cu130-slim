@@ -244,7 +244,13 @@ async def _run(limit: int):
                 r.acted_at = datetime.now(UTC)
                 done.append(f"{r.platform}:{r.action}@{r.target_author}")
             else:
-                r.status = "pending_actor" if res.get("skip") else "failed"
+                if res.get("skip"):
+                    md = dict(r.meta_data or {})
+                    md["skip_count"] = int(md.get("skip_count") or 0) + 1
+                    r.meta_data = md
+                    r.status = "failed" if md["skip_count"] >= 12 else "pending_actor"
+                else:
+                    r.status = "failed"
                 failed.append(f"{r.target_author}:{res.get('error', '?')[:60]}")
         await db.commit()
         return {"scored": len(fresh), "drafted": len(drafts_needed), "dispatched": done, "failed": failed}
