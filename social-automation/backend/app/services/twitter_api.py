@@ -132,7 +132,15 @@ class TwitterAPIClient:
         self.media_signer = media_signer
         self._ak, self._as, self._at, self._ats = self._build_oauth1()
         # Opt-in flag: only the operator account may retry via env OAuth1 creds.
-        self._oauth1_fallback = media_signer is not None or __import__("os").environ.get("X_OAUTH1_FALLBACK") == "1"
+        # settings.X_OAUTH1_FALLBACK reads /app/.env (bind-mounted) so the
+        # flag can flip via `docker restart` — no recreate needed.
+        from app.core.config import settings as _settings
+
+        self._oauth1_fallback = (
+            media_signer is not None
+            or __import__("os").environ.get("X_OAUTH1_FALLBACK") == "1"
+            or _settings.X_OAUTH1_FALLBACK
+        )
 
     def _build_oauth1(self):
         """Read OAuth1.0a app creds from env — fallback when the OAuth2

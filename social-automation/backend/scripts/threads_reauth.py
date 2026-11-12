@@ -140,23 +140,38 @@ def _db_url():
     return url
 
 
+def _pg_fetchall(sql: str, *args):
+    """Read query via asyncpg — the image has no psycopg/psycopg2."""
+    import asyncio
+
+    import asyncpg
+
+    async def _go():
+        conn = await asyncpg.connect(_db_url())
+        try:
+            return await conn.fetch(sql, *args)
+        finally:
+            await conn.close()
+
+    return asyncio.run(_go())
+
+
 def _targets():
     """Threads accounts needing re-auth."""
     try:
-        import psycopg
+        import asyncpg  # noqa: F401
     except ImportError:
         return None
+    rows = _pg_fetchall(
+        """SELECT id, account_id, username, status FROM social_accounts
+           WHERE platform='threads'
+             AND (status IN ('expired','revoked')
+                  OR (status='active'
+                      AND token_expires_at < now() + interval '1 hour'))"""
+    )
     out = []
-    with psycopg.connect(_db_url()) as c, c.cursor() as cur:
-        cur.execute(
-            """SELECT id, account_id, username, status FROM social_accounts
-               WHERE platform='threads'
-                 AND (status IN ('expired','revoked')
-                      OR (status='active'
-                          AND token_expires_at < now() + interval '1 hour'))"""
-        )
-        for row in cur.fetchall():
-            out.append({"id": str(row[0]), "account_id": row[1] or "", "username": row[2] or "", "status": row[3]})
+    for row in rows:
+        out.append({"id": str(row["id"]), "account_id": row["account_id"] or "", "username": row["username"] or "", "status": row["status"]})
     return out
 
 
@@ -272,29 +287,27 @@ def _bridge_identity() -> dict:
 
 def _targets_refreshed(targets: list) -> tuple[bool, str]:
     try:
-        import psycopg
+        import asyncpg  # noqa: F401
     except ImportError:
-        return True, "no-psycopg"
+        return True, "no-asyncpg"
     ids = [t["account_id"] for t in targets if t.get("account_id")]
     if not ids:
         return True, "no-account-id"
-    with psycopg.connect(_db_url()) as c, c.cursor() as cur:
-        cur.execute(
-            """SELECT account_id, username, status,
-                      COALESCE(token_expires_at > now() + interval '1 hour', false) AS fresh
-               FROM social_accounts
-               WHERE platform='threads' AND account_id = ANY(%s)""",
-            (ids,),
-        )
-        rows = cur.fetchall()
-    by_id = {r[0]: r for r in rows}
-    bad = [by_id[i] for i in ids if i in by_id and (by_id[i][2] != "active" or not by_id[i][3])]
+    rows = _pg_fetchall(
+        """SELECT account_id, username, status,
+                  COALESCE(token_expires_at > now() + interval '1 hour', false) AS fresh
+           FROM social_accounts
+           WHERE platform='threads' AND account_id = ANY($1::text[])""",
+        ids,
+    )
+    by_id = {r["account_id"]: r for r in rows}
+    bad = [by_id[i] for i in ids if i in by_id and (by_id[i]["status"] != "active" or not by_id[i]["fresh"])]
     missing = [i for i in ids if i not in by_id]
     if not bad and not missing:
         return True, "all targets refreshed"
     parts = []
     if bad:
-        parts.append("still-dead:" + ",".join(f"{r[1] or r[0]}({r[2]})" for r in bad))
+        parts.append("still-dead:" + ",".join(f"{r['username'] or r['account_id']}({r['status']})" for r in bad))
     if missing:
         parts.append("missing:" + ",".join(m[:12] for m in missing))
     return False, "; ".join(parts)

@@ -335,6 +335,10 @@ class Settings(BaseSettings):
     TWITTER_API_SECRET: str = ""
     TWITTER_ACCESS_TOKEN: str = ""
     TWITTER_ACCESS_TOKEN_SECRET: str = ""
+    # When the stored OAuth2 bearer 401s, retry requests via the OAuth1.0a
+    # env creds (TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET). Read from
+    # /app/.env so it can be flipped without a container recreate.
+    X_OAUTH1_FALLBACK: bool = False
 
     # Free X web fallback (tweety/twscrape over x.com's cookie-authenticated
     # GraphQL API) used when the official API returns 402 credits-depleted /
