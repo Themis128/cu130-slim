@@ -102,7 +102,13 @@ def _insert(meta: dict) -> bool:
         [DOCKER, "exec", "social-postgres", "psql", "-U", "social_user",
          "-d", "social_automation", "-c", sql],
         capture_output=True, text=True, timeout=40)
-    return r.returncode == 0
+    if r.returncode != 0:
+        return False
+    # INSERT…SELECT with no matching LinkedIn person account yields
+    # "INSERT 0 0" and still exits 0 — do not treat that as success or
+    # the caller will mark the Gmail id seen and skip forever.
+    out = (r.stdout or "") + (r.stderr or "")
+    return "INSERT 0 0" not in out
 
 
 def main():

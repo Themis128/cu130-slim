@@ -220,6 +220,19 @@ class BlueskyClient:
                 raise BlueskyAPIError(resp.status_code, resp.text, url)
             return resp.json()
 
+    async def revoke_app_password(self, name: str) -> None:
+        """``POST com.atproto.server.revokeAppPassword`` — drop an app
+        password by name. Idempotent on the PDS (missing name still 200)."""
+        url = self._xrpc("com.atproto.server.revokeAppPassword")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                url,
+                headers=self._auth_headers(),
+                json={"name": name},
+            )
+            if resp.status_code != 200:
+                raise BlueskyAPIError(resp.status_code, resp.text, url)
+
     async def get_profile(self, actor: str | None = None) -> dict[str, Any]:
         """``GET app.bsky.actor.getProfile`` — public profile + counts."""
         url = self._xrpc("app.bsky.actor.getProfile")
@@ -378,7 +391,14 @@ async def rotate_app_password(account: Any, main_password: str, db: Any) -> dict
 
     admin = BlueskyClient(handle, main_password, pds_url=pds)
     await admin.create_session()
-    minted = await admin.create_app_password(name="socialauto-rotated")
+    # PDS keys app passwords on (did, name); a fixed name collides on the
+    # 2nd unattended rotation (AppPasswordNameExists). Keep <=32 chars and
+    # match /^[a-zA-Z0-9._-]{4,32}$/.
+    import time as _time
+    new_name = f"sa-rot-{int(_time.time())}"
+    meta = dict(account.meta_data or {})
+    previous_name = meta.get("bsky_app_password_name")
+    minted = await admin.create_app_password(name=new_name)
     new_password = minted.get("password")
     if not new_password:
         raise BlueskyAPIError(0, "createAppPassword returned no password", pds)
@@ -387,8 +407,15 @@ async def rotate_app_password(account: Any, main_password: str, db: Any) -> dict
     check = BlueskyClient(handle, new_password, pds_url=pds)
     await check.create_session()
 
+    # Best-effort revoke of the previous app-password name so rotations
+    # do not accumulate orphan credentials on the PDS.
+    if previous_name and previous_name != minted.get("name"):
+        try:
+            await admin.revoke_app_password(previous_name)
+        except BlueskyAPIError:
+            pass
+
     account.access_token_enc = encrypt_token(new_password)
-    meta = dict(account.meta_data or {})
     meta["bsky_session"] = check.session_state()
     meta["bsky_app_password_name"] = minted.get("name")
     account.meta_data = meta
