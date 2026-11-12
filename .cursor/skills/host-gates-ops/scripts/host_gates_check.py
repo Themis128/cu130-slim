@@ -71,13 +71,16 @@ def win(cmd, timeout=25):
 
 def check_ram():
     mb = mem_available_mb()
-    # MemAvailable is WSL-visible RAM; the host figure needs interop.
-    host = win("(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1MB",
-               timeout=15)
-    m = re.search(r"([\d.]+)", host)
-    host_gb = round(float(m.group(1)), 1) if m else None
+    # Win32_OperatingSystem.FreePhysicalMemory excludes standby cache and
+    # reads ~0 under normal pressure; AvailableMBytes is the number Task
+    # Manager calls "available" — the real flap predictor.
+    host = win("(Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory)"
+               ".AvailableMBytes", timeout=15)
+    m = re.search(r"(\d+)", host)
+    host_gb = round(int(m.group(1)) / 1024, 1) if m else None
     wsl_gb = round(mb / 1024, 1) if mb >= 0 else None
-    degraded = (mb >= 0 and mb < RAM_WARN_MB)
+    degraded = ((mb >= 0 and mb < RAM_WARN_MB) or
+                (host_gb is not None and host_gb < 1.0))
     return {
         "ok": not degraded,
         "wsl_memavail_gb": wsl_gb,
@@ -113,11 +116,18 @@ def check_chromedebug_task():
 
 
 def check_docker_desktop_proc():
-    out = win("Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue "
-              "| Select-Object -First 1 Id", timeout=15)
-    alive = bool(re.search(r"\d+", out))
-    return {"ok": alive, "detail": "Docker Desktop process "
-            + ("running" if alive else "NOT running")}
+    # Process name varies across DD versions/locales — com.docker.backend
+    # is the stable backend; 'Docker Desktop' is the GUI. Either counts.
+    out = win("Get-Process -ErrorAction SilentlyContinue | Where-Object { "
+              "$_.Name -match 'docker' } | Select-Object -First 1 Name",
+              timeout=15)
+    if out.startswith("ERR:"):
+        return {"ok": None, "detail": f"probe failed: {out[:100]}"}
+    m = re.search(r"(com\.docker\.\S+|Docker Desktop|docker(?:-\S+)?)",
+                  out, re.I)
+    alive = bool(m)
+    return {"ok": alive, "detail": "Docker process "
+            + (m.group(1) if alive else "NONE found")}
 
 
 DMR_TUNNEL_BAT = ("C:\\Users\\tbaltzakis\\dmr-tunnel.bat")
