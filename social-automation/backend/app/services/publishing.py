@@ -107,7 +107,9 @@ _TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
 _LLM_SCAFFOLD_RE = re.compile(
     r"(?i)(?:^\s*(?:PLAIN ENGLISH RULES|Rewritten string:|Final check:|"
     r"This is a social media caption rewritten|Publish on LinkedIn at \d|"
-    r"/no_think\b)|(?:^\s*\{\s*\"(?:text|caption|post)\"\s*:))"
+    r"/no_think\b|Hello,? I'?m here to help|I'?d be happy to help|"
+    r"as an AI\b|a natural and engaging piece of content|"
+    r"I can help you (?:write|create|craft))|(?:^\s*\{\s*\"(?:text|caption|post)\"\s*:))"
 )
 
 _TT_CANCELLED_MARKERS = ("publish_cancelled",)
