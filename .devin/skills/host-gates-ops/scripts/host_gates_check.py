@@ -6,8 +6,11 @@
     host_gates_check.py --alert    # TG #ops digest when degraded (12h dedup)
 
 Checks: MemAvailable, docker info probe, docker-desktop WSL distro state,
-ChromeDebug scheduled task, Docker Desktop process. All probes are
-read-only; remediation stays with the existing healers/watchdogs.
+ChromeDebug scheduled task, Docker Desktop process, DMR SSH tunnel
+(omv:12436 <- this PC's Docker Model Runner). All probes are
+read-only except dmr_tunnel, which relaunches the Startup .bat when the
+ssh -R process is definitively gone; remediation otherwise stays with
+the existing healers/watchdogs.
 """
 import json
 import os
@@ -117,6 +120,46 @@ def check_docker_desktop_proc():
             + ("running" if alive else "NOT running")}
 
 
+DMR_TUNNEL_BAT = ("C:\\Users\\tbaltzakis\\dmr-tunnel.bat")
+
+
+def check_dmr_tunnel():
+    """omv:12436 reverse tunnel to this PC's DMR (Nextcloud assistant).
+
+    Health signal is omv actually listening on 12436 (the -R bind
+    lives or dies with the ssh process). Port is firewalled to LAN,
+    so the probe goes over ssh (omv_id_rsa), not a TCP connect.
+    """
+    listen = sh("ssh -i ~/.ssh/omv_id_rsa -o ConnectTimeout=8 -o "
+                "BatchMode=yes tbaltzakis@192.168.1.128 "
+                "\"ss -tln | grep -c ':12436 '\"", timeout=20)
+    m = re.findall(r"\d+", listen.strip().splitlines()[-1]
+                   if listen.strip() else "")
+    listen_up = bool(m) and int(m[-1]) > 0
+    if listen_up:
+        return {"ok": True, "detail": "omv listening on 12436"}
+    detail = "omv NOT listening on 12436"
+    # Self-heal: the bat loops internally but nothing restarts a killed
+    # cmd.exe until next logon — relaunch it hidden, but only when no
+    # dmr-tunnel loop exists at all (an existing loop recovers on its
+    # own; spawning another would just pile up during an omv outage).
+    loops = win("Get-CimInstance Win32_Process | Where-Object { "
+                "$_.Name -eq 'cmd.exe' -and "
+                "$_.CommandLine -match 'dmr-tunnel' } | "
+                "Measure-Object | Select-Object -ExpandProperty Count",
+                timeout=60)
+    lm = re.search(r"\d+", loops)
+    if lm and int(lm.group()) == 0:
+        rel = win(f"Start-Process -FilePath '{DMR_TUNNEL_BAT}' "
+                  "-WindowStyle Hidden; 'launched'", timeout=15)
+        detail += f"; no loop found, relaunched={rel.strip()[:40]}"
+    elif lm:
+        detail += f"; {lm.group()} loop(s) alive, waiting"
+    else:
+        detail += "; process probe failed, not relaunching"
+    return {"ok": False, "detail": detail}
+
+
 def tg(text):
     try:
         subprocess.run(["python3", TG_ALERT, "ops", text], timeout=30)
@@ -131,6 +174,7 @@ def main():
         "docker": check_docker(),
         "chromedebug_task": check_chromedebug_task(),
         "docker_desktop_proc": check_docker_desktop_proc(),
+        "dmr_tunnel": check_dmr_tunnel(),
     }
     # IDE-authority loop is undetectable — always surface as a note.
     degraded = [k for k, v in checks.items() if v.get("ok") is False]
