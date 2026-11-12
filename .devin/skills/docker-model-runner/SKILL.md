@@ -470,6 +470,7 @@ Environment variables:
 | `scripts/dmr-vram.py` | GPU VRAM, utilization, power + budget guide |
 | `scripts/dmr-route.py` | Preview platform-aware routing without sending a request |
 | `scripts/dmr-validate.py` | Check all expected models are pulled |
+| `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 
 ## Common operations
@@ -633,3 +634,35 @@ run a bare `docker system prune` manually on this host.
 - `ConnectionError` messages include the exception repr — a bare
   "DMR failed after retry:" with nothing after the colon means an httpx
   timeout (empty str()).
+
+## Env drift → gpu:dmr_lock churn (seen 2026-11-12)
+
+Symptom: ops-agent alerts `gpu:dmr_lock held at N consecutive checks`;
+`docker model ps` shows multiple models stuck `Loading...` for 10min+;
+worker logs show `cold-load timeout` + `insufficient VRAM — freeing GPU`
+in a loop.
+
+Root cause was NOT a wedged lock holder — it was **config drift**:
+
+- `.env` had every `DMR_*_MODEL` flattened to `smollm2` (256MB rollback
+  model) + `DMR_EMBEDDING_MODEL=nomic-embed-text` — an emergency VRAM
+  workaround never reverted after the fleet went CPU-pinned.
+- `docker-compose.yml` `x-worker-env` injects `${DMR_X:-smollm2}`
+  **defaults** — an EMPTY `.env` value falls through to the compose
+  default, so "clear the override" silently re-applies smollm2.
+  `.env` must carry EXPLICIT canonical refs for every DMR_*_MODEL.
+- `DMR_MEDIA_MODEL` compose default `cloudless/qwen3-4b-media:latest`
+  was never pulled on this host → every media-prompt call failed.
+- Result: callers requested missing/wrong models → cold-load timeouts
+  → cancel/retry stampede → `gpu:dmr_lock` (660s TTL, single-flight)
+  stayed continuously held by the churn → looked "wedged" but was
+  actually saturated.
+
+Detection: `scripts/dmr-env-drift.py [--fix]` — compares `.env`,
+container env (`docker exec social-api env`), and `docker model list`
+against the canonical fleet, plus flags stuck `Loading...` entries.
+
+Remediation order: fix `.env` explicit values → `docker model pull`
+missing models → `docker compose up -d` the 6 app services (env_file
+vars are baked at container CREATE — `restart` does NOT reload them)
+→ verify `dmr-env-drift.py` clean + `check_dmr_health` missing_models=[].
