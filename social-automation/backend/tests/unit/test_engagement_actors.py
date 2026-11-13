@@ -274,9 +274,7 @@ async def test_linkedin_api_comment_success_no_sidecar(monkeypatch):
     )
     calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
     db = _DB(_li_person_acc())
-    out = await linkedin_actor.act(
-        _action(action="comment", comment_draft="nice post", target_post_id="urn:li:ugcPost:42"), db
-    )
+    out = await linkedin_actor.act(_action(action="comment", comment_draft="nice post", target_post_id="urn:li:ugcPost:42"), db)
     assert out == {"ok": True, "resp": {"via": "official-api", "comment_id": "c-123"}}
     # API answered — the browser sidecar must NOT also fire (no duplicate)
     assert calls == []
@@ -299,9 +297,7 @@ async def test_linkedin_api_comment_uses_author_urn(monkeypatch):
     )
     _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
     db = _DB(_li_person_acc({"author_urn": "urn:li:person:custom-1"}))
-    await linkedin_actor.act(
-        _action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:1"), db
-    )
+    await linkedin_actor.act(_action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:1"), db)
     assert seen["creator_urn"] == "urn:li:person:custom-1"
 
 
@@ -315,9 +311,7 @@ async def test_linkedin_api_comment_refusal_never_hits_sidecar(monkeypatch):
     )
     calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
     db = _DB(_li_person_acc())
-    out = await linkedin_actor.act(
-        _action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:9"), db
-    )
+    out = await linkedin_actor.act(_action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:9"), db)
     assert out["skip"] is True
     assert "api_refused" in out["error"]
     assert calls == []
@@ -327,9 +321,7 @@ async def test_linkedin_api_comment_refusal_never_hits_sidecar(monkeypatch):
 async def test_linkedin_api_comment_infra_failure_falls_back(monkeypatch):
     # No active person account → infra path → sidecar still gets the action
     calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
-    out = await linkedin_actor.act(
-        _action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:7"), _DB(None)
-    )
+    out = await linkedin_actor.act(_action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:7"), _DB(None))
     assert out == {"ok": True, "resp": {"voyager_status": 201}}
     assert calls
 
@@ -339,9 +331,7 @@ async def test_linkedin_api_comment_exception_falls_back(monkeypatch):
     _patch_li_api(monkeypatch, raises=RuntimeError("boom"))
     calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
     db = _DB(_li_person_acc())
-    out = await linkedin_actor.act(
-        _action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:8"), db
-    )
+    out = await linkedin_actor.act(_action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:8"), db)
     assert out == {"ok": True, "resp": {"voyager_status": 201}}
     assert calls
 
