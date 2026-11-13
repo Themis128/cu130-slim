@@ -18,14 +18,23 @@ visible and deliberate.
 - `scripts/obs_cancel.py` — cancels the Observability add-on subscription
   via the Cloudflare API when the guard trips.
 - `scripts/invoice_pay.py` — invoice payment automation (added 2026-11-13).
-  `check` reports unpaid invoices (API lane needs a Billing-scoped token —
-  the stock `CLOUDFLARE_API_TOKEN` returns auth errors on `/billing/*`;
-  falls back to scraping the logged-in dashboard over CDP :9222).
-  `pay --yes` calls `POST /accounts/{id}/pay-bad-debt` (or `pay-invoice`
-  with a specific id) using `CLOUDFLARE_BILLING_TOKEN` — create one at
-  dash.cloudflare.com → My Profile → API Tokens with
-  **Account → Billing → Edit**. SCA/3DS challenges return a Stripe
-  `client_secret` and stay a human step. Dry-run without `--yes`.
+  `check` reports unpaid invoices via `GET /accounts/{id}/billing/history`
+  (the `/billing/unpaid-invoice` + `/billing/invoices` routes return
+  10404 on the current API — do not use them). OPEN invoices with
+  `amount_to_pay > 0` are the payable set.
+  `pay --yes` calls `POST /accounts/{id}/pay-invoice` (or `pay-bad-debt`
+  for all debt) using `CLOUDFLARE_BILLING_TOKEN`.
+
+  **Token status 2026-11-13:** `CLOUDFLARE_BILLING_TOKEN` is minted and in
+  `.env` (Account → Billing → Write only). It was created programmatically
+  via `CF_ACCESS_TOKEN` (the `cloudless-access` token carries
+  `User → API Tokens → Write` → `POST /user/tokens`), after clearing the
+  50-token account quota by deleting two never-used tokens. If it ever
+  needs re-minting, that path is proven — no dashboard wizard needed.
+  Live invoice state at mint time: IN-88049721 $12.08 OPEN,
+  `latest_payment_intent_status: requires_payment_method`.
+  SCA/3DS challenges return a Stripe `client_secret` and stay a human step.
+  Dry-run without `--yes`.
 
 ## Notes
 

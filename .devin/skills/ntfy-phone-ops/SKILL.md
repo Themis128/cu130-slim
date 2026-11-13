@@ -109,3 +109,13 @@ ssh github-omv "sudo k3s kubectl -n ntfy exec deploy/ntfy -- \
   current password (verify against the API first). Subscriptions bound to a
   slash-suffixed entry still work; prefer the bare `https://ntfy.cloudless.gr`
   form for new ones.
+- **Cleanup tool — `scripts/ntfy_auth_cleanup.py`** (verified 2026-11-13):
+  deletes dead server entries end-to-end. Flow: `am start -n
+  io.heckel.ntfy/.ui.MainActivity` → More options → Settings → Manage users
+  → tap row → Edit user → More options → Delete user. Only touches
+  `DEAD_HOSTS` (tailnet name + NodePort IPs); canonical entries kept.
+  `--apply` to delete, dry-run lists first. Gotcha that cost a debugging
+  round: rows are full-width clickable bands — tap the band center, not
+  the text line (text sits in the band's upper third and taps there can
+  miss); and nodes carry `text=""` BEFORE `content-desc`, so attr regexes
+  must join both attributes.
