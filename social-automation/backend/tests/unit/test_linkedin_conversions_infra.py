@@ -242,3 +242,71 @@ async def test_conversion_audit_http_error_alerts(monkeypatch):
     out = await CA._audit()
     assert out["error"] == 500
     alert.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_conversion_audit_disabled_and_wrong_method(monkeypatch):
+    """Covers the disabled-rule and wrong-conversionMethod problem arms."""
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    monkeypatch.setenv("LINKEDIN_CONVERSION_RULE", "")
+    monkeypatch.setenv("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "")
+    bad_rules = {
+        "elements": [
+            {"name": "audit_booked", "id": 1, "enabled": False, "conversionMethod": "CONVERSIONS_API"},
+            {"name": "lead_created", "id": 2, "enabled": True, "conversionMethod": "LEAD_GEN_FORM"},
+        ]
+    }
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(lambda m, u, **kw: _Resp(200, bad_rules)))
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+    out = await CA._audit()
+    assert out["ok"] is False
+    assert any("audit_booked: disabled" in p for p in out["problems"])
+    assert any("lead_created: method=LEAD_GEN_FORM" in p for p in out["problems"])
+    alert.assert_awaited_once()
+
+
+def test_conversion_audit_task_wrapper(monkeypatch):
+    seen = {}
+
+    def _fake(coro):
+        seen["coro"] = coro
+        coro.close()
+        return {"ok": True}
+
+    monkeypatch.setattr(CA, "run_async", _fake)
+    assert CA.audit_linkedin_conversions() == {"ok": True}
+    assert seen["coro"].cr_code is CA._audit.__code__
+
+
+def test_dmp_sync_redis_paths(monkeypatch):
+    """_redis returns a client on success, None on failure."""
+    import redis as real_redis
+
+    monkeypatch.setattr(real_redis.Redis, "from_url", classmethod(lambda cls, url, **kw: "client"))
+    assert DS._redis() == "client"
+
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _blocked(name, *a, **kw):
+        if name == "redis":
+            raise ImportError("no redis")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", _blocked)
+    assert DS._redis() is None
+
+
+def test_dmp_sync_task_wrapper(monkeypatch):
+    seen = {}
+
+    def _fake(coro):
+        seen["coro"] = coro
+        coro.close()
+        return {"ok": True}
+
+    monkeypatch.setattr(DS, "run_async", _fake)
+    assert DS.sync_linkedin_dmp_audiences() == {"ok": True}
+    assert seen["coro"].cr_code is DS._sync.__code__
