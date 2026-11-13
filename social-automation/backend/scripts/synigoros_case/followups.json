@@ -1,0 +1,76 @@
+{
+  "platformOwned": true,
+  "events": [
+    {
+      "id": "dypa-nudge-1",
+      "sendAt": "2026-11-20",
+      "to": ["kpamark@dypa.gov.gr", "protokollo@dypa.gov.gr"],
+      "file": "dypa-nudge-1.txt",
+      "skipIfRepliedFrom": "dypa.gov.gr",
+      "skipIfRepliedSince": "2026-11-08",
+      "skipIfRepliedRequire": "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828"
+    },
+    {
+      "id": "ombudsman-escalation-2",
+      "sendAt": "2026-11-25",
+      "to": ["press@synigoros.gr"],
+      "file": "ombudsman-escalation-2.txt",
+      "requireStatus": "Προς Αποδοχή",
+      "skipIfRepliedFrom": "synigoros.gr",
+      "skipIfRepliedSince": "2026-10-26"
+    },
+    {
+      "id": "dypa-demand-2",
+      "sendAt": "2026-12-07",
+      "to": ["kpamark@dypa.gov.gr", "protokollo@dypa.gov.gr"],
+      "file": "dypa-demand-2.txt",
+      "skipIfRepliedFrom": "dypa.gov.gr",
+      "skipIfRepliedSince": "2026-11-20",
+      "skipIfRepliedRequire": "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828"
+    },
+    {
+      "id": "ombudsman-escalation-3",
+      "sendAt": "2026-12-09",
+      "to": ["press@synigoros.gr"],
+      "file": "ombudsman-escalation-3.txt",
+      "requireStatus": "Προς Αποδοχή",
+      "skipIfRepliedFrom": "synigoros.gr",
+      "skipIfRepliedSince": "2026-11-25"
+    },
+    {
+      "id": "sepe-status-1",
+      "sendAt": "2026-12-08",
+      "to": ["helpdesk@hli.gov.gr"],
+      "file": "sepe-status-1.txt",
+      "skipIfRepliedFrom": "hli.gov.gr",
+      "skipIfRepliedSince": "2026-11-08"
+    },
+    {
+      "id": "sepe-status-2",
+      "sendAt": "2026-12-22",
+      "to": ["helpdesk@hli.gov.gr"],
+      "file": "sepe-status-2.txt",
+      "skipIfRepliedFrom": "hli.gov.gr",
+      "skipIfRepliedSince": "2026-12-08"
+    },
+    {
+      "id": "call-ombudsman-1",
+      "sendAt": "2026-11-25",
+      "tgOnly": true,
+      "requireStatus": "Προς Αποδοχή",
+      "tgText": "✅ ΑΥΤΟΜΑΤΟ: το 2ο συμπληρωματικό email εστάλη στον Συνήγορο του Πολίτη (αρ. πρωτ. 81750/2026, ΚΠΑ 202610260029). Δεν χρειάζεται τηλέφωνο — η τηλεφωνική όχληση (213 1306 600, 08:30-14:00) μένει προαιρετική κλιμάκωση αν δεν κινηθεί η υπόθεση."
+    },
+    {
+      "id": "call-sepe-1",
+      "sendAt": "2026-12-08",
+      "tgOnly": true,
+      "tgText": "✅ ΑΥΤΟΜΑΤΟ: το αίτημα κατάστασης καταγγελίας εστάλη στη ΣΕΠΕ (helpdesk@hli.gov.gr). Δεν χρειάζεται τηλέφωνο — το 15512 μένει προαιρετική κλιμάκωση αν δεν πάρεις αρ. πρωτοκόλλου."
+    },
+    {
+      "id": "dypa-written-demand",
+      "sendAt": "2026-12-04",
+      "tgOnly": true,
+      "tgText": "⏰ ΥΠΕΝΘΥΜΙΣΗ: αύριο (07/12) στέλνεται αυτόματα 2ο αίτημα στη ΔΥΠΑ — έληξε η προθεσμία 10 εργασίμων που έθεσες με το email της 20/11."
+    }
+  ]
+}

@@ -68,6 +68,7 @@ celery_app = Celery(
         "app.worker.tasks.whatsapp_templates",
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.synigoros_status",
+        "app.worker.tasks.synigoros_case",
         "app.worker.tasks.mastersheet_watch",
         "app.worker.tasks.datalake_executor",
         "app.worker.tasks.telegram_agent",
@@ -317,6 +318,8 @@ celery_app.conf.update(
         "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
+        "app.worker.tasks.synigoros_case.run_synigoros_followups": {"queue": "default"},
+        "app.worker.tasks.synigoros_case.watch_synigoros_replies": {"queue": "default"},
         "app.worker.tasks.mastersheet_watch.watch_mastersheet": {"queue": "default"},
         "app.worker.tasks.datalake_executor.execute_actions": {"queue": "default"},
         "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
@@ -920,6 +923,16 @@ celery_app.conf.update(
         "synigoros-status": {
             "task": "app.worker.tasks.synigoros_status.poll_synigoros",
             "schedule": crontab(hour=7, minute=30),
+        },
+        # Ombudsman/DYPA/SEPE case follow-up emails + reply watch —
+        # platform port of scripts/synigoros-monitor (parallel-run lane).
+        "synigoros-followups": {
+            "task": "app.worker.tasks.synigoros_case.run_synigoros_followups",
+            "schedule": crontab(minute=7),
+        },
+        "synigoros-reply-watch": {
+            "task": "app.worker.tasks.synigoros_case.watch_synigoros_replies",
+            "schedule": 900.0,
         },
         # Founders' Circle mastersheet watcher — Telegram + datalake on change
         "mastersheet-watch": {

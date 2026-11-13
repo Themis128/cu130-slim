@@ -994,6 +994,35 @@ WORKFORCE = [
         guardrails=("quarantine beats delete — nulls text fields, never deletes rows",),
         fallback="single UPDATE per table; failure → next day retries",
     ),
+    Worker(
+        "synigoros-followups",
+        "app.worker.tasks.synigoros_case.run_synigoros_followups",
+        "default",
+        3600,
+        goal="Send scheduled Ombudsman/DYPA/SEPE follow-ups only while gates allow",
+        guardrails=(
+            "never send twice — Redis sent markers",
+            "skip on authority reply (dual-lane) or status change",
+            "fail-open on check errors — a broken gate never cancels a send",
+        ),
+        autonomy="auto",
+        fallback="event stays unsent → retried next sweep; TG alert on send failure",
+        evidence=[("last followup sweep", "SELECT max(occurred_at) FROM analytics_events WHERE event_type='synigoros_case_followups'")],
+    ),
+    Worker(
+        "synigoros-reply-watch",
+        "app.worker.tasks.synigoros_case.watch_synigoros_replies",
+        "default",
+        900,
+        goal="Alert on new human mail from the case authorities (Gmail + cloudless IMAP)",
+        guardrails=(
+            "ignore noreply/automated senders and OTP/noise subjects",
+            "dypa.gov.gr alerts require case keywords (unrelated program mail)",
+        ),
+        autonomy="auto",
+        fallback="next sweep rescans — Redis seen-set dedupes",
+        evidence=[("last reply-watch sweep", "SELECT max(occurred_at) FROM analytics_events WHERE event_type='synigoros_case_reply_watch'")],
+    ),
 ]
 
 
