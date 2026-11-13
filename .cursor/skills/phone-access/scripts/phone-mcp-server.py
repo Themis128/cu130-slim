@@ -2,11 +2,43 @@
 """phone MCP server — ADB + uiautomator2 control for the Galaxy S22+.
 
 Tools: phone_tap, phone_swipe, phone_text, phone_click_text, phone_app_start,
-phone_screenshot, phone_dump, phone_state. Device: 192.168.1.77:5555.
+phone_screenshot, phone_dump, phone_state. Device: auto-resolved (ADB_SERIAL > Tailscale 100.x > LAN ip:port > USB).
 """
-import json, subprocess, sys, re
+import json
+import os
+import subprocess
+import sys
+import re
 
-DEVICE = "192.168.1.77:5555"
+
+def _pick_serial(fallback: str) -> str:
+    """Resolve the live device: ADB_SERIAL env > Tailscale wireless ADB
+    (100.x CGNAT — survives USB unplug and LAN changes) > any network
+    serial > first device > fallback."""
+    env = os.environ.get("ADB_SERIAL")
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            ["adb", "devices"], capture_output=True, text=True, timeout=15
+        ).stdout
+    except Exception:
+        return fallback
+    devs = [
+        l.split()[0]
+        for l in out.splitlines()[1:]
+        if len(l.split()) == 2 and l.split()[1] == "device"
+    ]
+    for s in devs:
+        if s.startswith("100."):
+            return s
+    for s in devs:
+        if ":" in s:
+            return s
+    return devs[0] if devs else fallback
+
+
+DEVICE = _pick_serial("192.168.1.77:5555")
 
 def adb(*args):
     return subprocess.run(["adb", "-s", DEVICE, *args], capture_output=True, text=True, timeout=15)
@@ -44,20 +76,25 @@ def call(name, args):
             import uiautomator2 as u2
             d = u2.connect(DEVICE)
             e = d(text=args["text"])
-            if e.exists: e.click(); return "clicked"
+            if e.exists:
+                e.click()
+            return "clicked"
             return "not found"
         except Exception as ex:
             return f"error: {ex}"
     if name == "phone_app_start":
         try:
             import uiautomator2 as u2
-            u2.connect(DEVICE).app_start(args["package"]); return "started"
+            u2.connect(DEVICE).app_start(args["package"])
+            return "started"
         except Exception as ex:
             return f"error: {ex}"
     if name == "phone_back":
-        adb("shell", "input", "keyevent", "KEYCODE_BACK"); return "ok"
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        return "ok"
     if name == "phone_home":
-        adb("shell", "input", "keyevent", "KEYCODE_HOME"); return "ok"
+        adb("shell", "input", "keyevent", "KEYCODE_HOME")
+        return "ok"
     if name == "phone_dump":
         return texts()
     if name == "phone_state":
@@ -87,6 +124,8 @@ for line in sys.stdin:
         else:
             out = None
         if mid is not None:
-            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":out or {}}) + "\n"); sys.stdout.flush()
+            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":out or {}}) + "\n")
+            sys.stdout.flush()
     except Exception as e:
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":req.get("id"),"error":{"code":-32000,"message":str(e)}}) + "\n"); sys.stdout.flush()
+        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":req.get("id"),"error":{"code":-32000,"message":str(e)}}) + "\n")
+        sys.stdout.flush()
