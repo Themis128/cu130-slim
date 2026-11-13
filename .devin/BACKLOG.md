@@ -2206,19 +2206,46 @@ superseded by rebuild):
   the only viable mobile lane.
 - Next: wire `/login-mobile` into `ig_fb_session_heal.py` as preferred lane
   after the persistent-session probe, keep desktop `/login` as fallback.
+## 2026-11-14 — Ombudsman case automation migrated to SocialAuto (platform-owned)
 
-## 2026-11-13 — Windows popup audit tool + Synigoros task headless fixes
-
-- `popup_task_audit.ps1` (windows-host-ops skill, `.devin`+`.cursor`, host copy
-  `D:\DevOptimizer\scripts\`): audits all scheduled-task actions for console
-  flash risk; `-Fix` re-wraps in `conhost --headless`; `-FixElevated` repairs
-  elevation-protected tasks via the registered `PopupTaskAudit-Fix` helper
-  (RunLevel=Highest, `schtasks /run` = zero UAC). `-Json`, `-Path`,
-  `-IncludeVendor` (\Microsoft\* excluded by default — SYSTEM tasks).
-- Host state: helper task registered; SynigorosFollowupMon/Verify +
-  Vhdx-Compact-DevinExit re-wrapped headless; gmail-schedule-reply.py --arm
-  now emits conhost actions. Audit: 119 user actions, 0 flash-risk.
-- Known non-task flash source: Docker Desktop dashboard window polls
-  `docker stats` ~every 10s — close the window to stop it.
-- PRs: #1868 (tool), #1869 (elevated lane, merged), #1872 (regex/vendor
-  fixes). #1870 closed as superseded.
+- **New Celery module** `app/worker/tasks/synigoros_case.py` — platform
+  port of the WSL `scripts/synigoros-monitor` escalation lane:
+  - `run_synigoros_followups` — hourly beat (`synigoros-followups`, :07).
+    Reads `backend/scripts/synigoros_case/followups.json` (mounted ro at
+    `/app/scripts/synigoros_case`), sends due emails via omv-ha SMTP
+    (smtplib, SMTP_HOST/PORT/USER/PASSWORD/FROM from env/.env), fires
+    tgOnly reminders, applies gates: `requireStatus` vs latest
+    `synigoros_status` AnalyticsEvent, `skipIfRepliedFrom` dual-lane
+    (Gmail OAuth + cloudless IMAP). Sent/skipped markers in Redis hash
+    `synigoros-case:sent` — shared across workers, idempotent.
+  - `watch_synigoros_replies` — every 15 min (`synigoros-reply-watch`).
+    Dual-lane scan (Gmail `baltzakis.themis@gmail.com` + IMAP
+    `tbaltzakis@cloudless.gr`), noise/auto-sender filters + per-domain
+    subject `require` (dypa case keywords), Redis seen-set dedupe,
+    first run primes baseline silently. Alerts via
+    `send_telegram_alert("ops", …)` — severity-routed house standard.
+  - Both write a `synigoros_case_*` AnalyticsEvent per sweep
+    (workforce_audit observable-output contract); registered as
+    `synigoros-followups` + `synigoros-reply-watch` Workers in
+    `workforce_audit.py` with governance fields.
+- **Schedule config moved** to `backend/scripts/synigoros_case/`
+  (followups.json + 6 body .txt + reply-watch.json) — single source;
+  WSL `admin-followups.js`/`reply-watch.py` fall back to it via relative
+  path. `followups.json` now has `"platformOwned": true` →
+  `admin-followups.js` exits early (no sends, no reply-watch spawn) so
+  the WSL lane cannot double-send; `--list` still works for diagnostics.
+- **WSL monitor.js keeps running** — its ~15-min status poll is MORE
+  frequent than the platform's daily 07:30 poll; keep until platform
+  cadence is raised or WSL poll is retired deliberately. Its
+  `followup.js` 3-day lane is already disarmed (`followupSent` set).
+- **Verified live in social-worker-default**: module imports,
+  CASE_DIR=/app/scripts/synigoros_case resolves, both tasks execute
+  (followups processed=0 — nothing due before 20/11; reply-watch primed
+  67 baseline keys silently; second run new=0). `_record` needed explicit
+  `db.commit()` — task_session does NOT auto-commit.
+- **Rollback**: set `"platformOwned": false` (or delete the key) in
+  followups.json → WSL lane resumes sends on next monitor cycle; remove
+  the two beat entries in celery_app.py to stop platform tasks.
+- **Still manual**: Mon 16/11 09:00 Gmail supplementary send
+  (SynigorosFollowupMon task + draft r-8325511026433450353) — one-off,
+  NOT in followups.json; SynigorosFollowupVerify 09:30 confirms.

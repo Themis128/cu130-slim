@@ -24,7 +24,13 @@ from email.header import decode_header
 DIR = os.path.dirname(os.path.abspath(__file__))
 ENV = os.path.normpath(os.path.join(DIR, "..", "..", ".env"))
 STATE = os.path.join(DIR, "reply-watch-state.json")
-CONF = os.path.join(DIR, "reply-watch.json")
+# Canonical watch config lives in backend/scripts/synigoros_case (mounted
+# into the SocialAuto workers); fall back to a legacy local copy.
+_SCHED = os.path.normpath(os.path.join(
+    DIR, "..", "..", "social-automation", "backend", "scripts", "synigoros_case"))
+CONF = os.path.join(_SCHED, "reply-watch.json") \
+    if os.path.exists(os.path.join(_SCHED, "reply-watch.json")) \
+    else os.path.join(DIR, "reply-watch.json")
 SECRETS = os.path.join(os.environ.get("APPDATA", ""), "devin", "secrets")
 GSR = (r"C:\Users\tbaltzakis\AppData\Roaming\devin\skills"
        r"\gmail-send-ops\scripts\gmail-schedule-reply.py")

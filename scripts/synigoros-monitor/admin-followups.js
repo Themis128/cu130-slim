@@ -12,7 +12,12 @@ const { execFileSync, execFile } = require('child_process');
 
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
-const SCHEDULE = JSON.parse(fs.readFileSync(path.join(DIR, 'followups.json'), 'utf8'));
+// Canonical schedule lives in backend/scripts/synigoros_case (mounted into
+// the SocialAuto workers); fall back to a legacy local copy if absent.
+const SCHED_DIR = fs.existsSync(path.join(DIR, '..', '..', 'social-automation', 'backend', 'scripts', 'synigoros_case', 'followups.json'))
+  ? path.join(DIR, '..', '..', 'social-automation', 'backend', 'scripts', 'synigoros_case')
+  : DIR;
+const SCHEDULE = JSON.parse(fs.readFileSync(path.join(SCHED_DIR, 'followups.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'admin-followups-state.json');
 const MONITOR_STATE = path.join(DIR, 'state.json');
 const DRY = process.argv.includes('--dry-run');
@@ -169,6 +174,14 @@ function loadState() {
     return;
   }
 
+  // Platform-owned mode: the SocialAuto Celery tasks
+  // (synigoros_case.run_synigoros_followups / watch_synigoros_replies)
+  // own sends + reply alerts; this lane stays for --list diagnostics only.
+  if (SCHEDULE.platformOwned && !LIST) {
+    console.log('platform-owned: sends + reply-watch handled by SocialAuto — WSL lane idle');
+    return;
+  }
+
   // Inbound reply watcher — same ~15min cadence via monitor.js spawn.
   // Fire-and-forget; reply-watch.py self-throttles via reply-watch-state.json.
   try {
@@ -211,7 +224,7 @@ function loadState() {
       continue;
     }
 
-    const raw = fs.readFileSync(path.join(DIR, ev.file), 'utf8');
+    const raw = fs.readFileSync(path.join(SCHED_DIR, ev.file), 'utf8');
     const subject = raw.match(/^Subject:\s*(.+)$/m)[1].trim();
     const body = raw.replace(/^Subject:.*\r?\n\s*\r?\n/, '');
 
