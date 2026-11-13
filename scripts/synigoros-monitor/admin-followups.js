@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
+const net = require('net');
 const https = require('https');
 
 const DIR = __dirname;
@@ -56,8 +57,10 @@ function smtpSend(host, port, user, pass, from, toList, subject, text) {
       else { sock.end(); resolve(true); }
     };
     const fail = (e) => reject(e instanceof Error ? e : new Error(String(e)));
+    // Node rejects servername set to an IP literal (ERR_INVALID_ARG_VALUE)
+    const sni = net.isIP(host) ? undefined : host;
     if (port === 465) {
-      sock = tls.connect(port, host, { servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
+      sock = tls.connect(port, host, { servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
       sock.on('data', onData);
       sock.on('error', fail);
     } else {
@@ -76,7 +79,7 @@ function smtpSend(host, port, user, pass, from, toList, subject, text) {
         } else if (phase === 2) {
           const raw = sock;
           raw.removeAllListeners('data');
-          sock = tls.connect({ socket: raw, servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
+          sock = tls.connect({ socket: raw, servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
             sock.on('data', onData);
             sock.on('error', fail);
             sock.write('EHLO monitor\r\n');
@@ -100,6 +103,7 @@ function httpSend(url, token, from, to, subject, text) {
       hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
       headers: { 'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token,
+        'User-Agent': 'synigoros-monitor/1.0',
         'Content-Length': Buffer.byteLength(body) },
     }, (res) => {
       let d = '';
@@ -161,8 +165,11 @@ function loadState() {
       continue;
     }
 
-    const host = envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
-    const port = parseInt(envVal('SMTP_RELAY_PORT') || envVal('SMTP_PORT') || '587', 10);
+    // Primary SMTP = omv-ha postfix relay (SMTP_HOST/SMTP_PORT). The
+    // mail-outbound Worker only reaches verified CF destination addresses,
+    // so external recipients always fall through to SMTP anyway.
+    const host = envVal('SMTP_HOST') || envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
+    const port = parseInt(envVal('SMTP_PORT') || envVal('SMTP_RELAY_PORT') || '587', 10);
     const user = envVal('SMTP_USER'), pass = envVal('SMTP_PASSWORD'), from = envVal('SMTP_FROM');
     const outUrl = envVal('MAIL_OUTBOUND_URL'), outTok = envVal('MAIL_OUTBOUND_TOKEN');
     try {

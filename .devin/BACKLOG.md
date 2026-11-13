@@ -2120,3 +2120,32 @@ superseded by rebuild):
 - **Human gate unchanged**: `wsl --shutdown` + Docker Desktop restart
   when a 5-min session loss is OK — the durable vsock/RAM fix. TikTok
   `dcda73fb` (cloudless.gr) still needs manual re-auth (dead refresh).
+
+## 2026-11-13 — Synigoros mail lane repaired + Monday follow-up scheduled
+
+- **Complaint**: ΔΥΠΑ/ΚΠΑ2 Μαρκοπούλου unemployment-benefit rejection +
+  alleged fictitious-employment advice. Ombudsman αρ. πρωτ.
+  408302/81750/2026, ΚΠΑ 202610260029 — status stuck «Προς Αποδοχή» since
+  26/10, lastNews frozen 2026-11-10.
+- **Auto follow-up was silently broken ~11 retries** (SMTP lane):
+  1. mail-outbound Worker calls sent no User-Agent → CF Bot Fight 403;
+  2. Worker `send_email` binding only reaches verified CF destination
+     addresses — external recipients need SMTP;
+  3. SMTP fallback defaulted to smtp.resend.com but creds are omv-ha
+     mailbox → 535;
+  4. `tls.connect({servername: <IP>})` → ERR_INVALID_ARG_VALUE on
+     STARTTLS upgrade to 192.168.1.130 (found by dry test).
+- **Fixes** in `scripts/synigoros-monitor/{followup,admin-followups}.js`:
+  UA header on worker call; prefer SMTP_HOST/SMTP_PORT (omv-ha postfix
+  :587) over Resend default; `servername` omitted for IP literals; new
+  `--test`/`--test-smtp` flags send a `[TEST]` self-mail to
+  tbaltzakis@cloudless.gr through the real chain. Both legs verified
+  live 2026-11-13.
+- **Monday send**: Gmail draft r-8325511026433450353 → press@synigoros.gr,
+  task `SynigorosFollowupMon` fires 2026-11-16 09:00 local (one-time,
+  hidden). state.json `followupSent` marked so monitor won't double-send.
+- **Still queued** (admin-followups.js, now on working SMTP):
+  dypa-nudge-1 11/20, ombudsman-escalation-2 + call reminder 11/25,
+  dypa-written-demand reminder 12/04, sepe-status-1 + call 12/08.
+- **Verify Monday**: schtasks result for SynigorosFollowupMon + Gmail
+  SENT folder; PC must be on at 09:00 (no catch-up).
