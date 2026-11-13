@@ -290,6 +290,17 @@ STACKOPS_MANAGED=""; STACKOPS_STOPPED=""
 STACKOPS_MANAGED=$(so_names managed)
 STACKOPS_STOPPED=$(so_names stopped)
 in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
+# Containers legitimately sit in "created" for seconds during compose
+# up/recreate — declaring them stuck that fast causes restart+alert
+# churn on every deploy (env-manager recur=6, 2026-11-13). Only treat
+# created as stuck past CREATED_GRACE_S.
+CREATED_GRACE_S=180
+created_age_s() { # $1=container → seconds since docker .Created
+  local ct
+  ct=$(docker inspect -f '{{.Created}}' "$1" 2>/dev/null) || return 1
+  [ -n "$ct" ] || return 1
+  date -u -d "$ct" +%s 2>/dev/null || return 1
+}
 # 0. migration-flagged containers: probe for recovery once the fix lands
 migration_recover
 # 1. containers stuck in Created / Restarting, or OOM-killed and stopped
@@ -302,6 +313,13 @@ for c in $CORE $EXTRA; do
       if [ "$status" = "exited" ] && in_list "$c" "$STACKOPS_STOPPED"; then
         log "$c: asleep via stack-ops idle-sleep — not a failure, skipping"
         continue
+      fi
+      if [ "$status" = "created" ]; then
+        cage=$(created_age_s "$c" || echo 0)
+        if [ "$cage" -gt 0 ] && [ $(( $(date -u +%s) - cage )) -lt "$CREATED_GRACE_S" ]; then
+          log "$c: created <$CREATED_GRACE_S s ago — likely mid-deploy, skipping"
+          continue
+        fi
       fi
       if { [ "$status" = "created" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; } \
          && fix_tailnet_ip "$c"; then
