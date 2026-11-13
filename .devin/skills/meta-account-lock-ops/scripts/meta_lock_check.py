@@ -76,9 +76,9 @@ def heal_tail(log: str, n: int = 8) -> str:
 
 def sidecar_health() -> str:
     try:
-        with urllib.request.urlopen(f"{SIDECAR}/json/version", timeout=5) as r:
-            body = r.read()[:80]
-            return f"{SIDECAR}/json/version -> {r.status} {body!r}"
+        with urllib.request.urlopen(f"{SIDECAR}/health", timeout=5) as r:
+            body = r.read()[:120]
+            return f"{SIDECAR}/health -> {r.status} {body!r}"
     except Exception as e:  # noqa: BLE001
         return f"{SIDECAR} unreachable: {e}"
 
