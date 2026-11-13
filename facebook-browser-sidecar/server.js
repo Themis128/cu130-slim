@@ -3414,6 +3414,489 @@ app.get("/debug/all-cookies", async (req, res) => {
   }
 });
 
+// ── Mobile-web login lane (m.facebook.com, real DOM) ──────────────────────
+// Research (mautrix-facebook / fbchat / facebook-chat-api): the mobile-web
+// surface has a far smaller bot signature than the desktop login form, and
+// the "approve from another device" flow completes server-side — the jar
+// gets c_user/xs without any pending page needing to survive a restart.
+// m.facebook.com is now a JS-rendered SPA (no usable <form> in HTML) and
+// plain GETs from non-browser clients get a 400, so this lane drives a REAL
+// page in a second Playwright context with a mobile UA. On success the
+// cookies are transferred into the desktop context and saveSession() runs.
+
+const MB_UA =
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+const MB_SESSION_FILE =
+  process.env.MB_SESSION_FILE || "/data/fb-session-mobile.json";
+let mbCtx = null;
+let mbPage = null;
+let mbLogin = { stage: "idle", checkpointUrl: null };
+
+async function mbSaveState() {
+  try {
+    if (!mbCtx) return;
+    const state = await mbCtx.storageState();
+    fs.writeFileSync(
+      MB_SESSION_FILE,
+      JSON.stringify({
+        storageState: state,
+        checkpointUrl: mbLogin.checkpointUrl || null,
+        stage: mbLogin.stage,
+        savedAt: Date.now(),
+      }),
+    );
+  } catch (_) {}
+}
+
+async function mbLoadState() {
+  try {
+    if (!fs.existsSync(MB_SESSION_FILE)) return null;
+    return JSON.parse(fs.readFileSync(MB_SESSION_FILE, "utf-8"));
+  } catch (_) {
+    return null;
+  }
+}
+
+async function ensureMobile() {
+  if (mbPage && !mbPage.isClosed()) return mbPage;
+  const saved = await mbLoadState();
+  const ctxOptions = {
+    userAgent: MB_UA,
+    viewport: { width: 412, height: 915 },
+    isMobile: true,
+    hasTouch: true,
+    locale: "en-US",
+    timezoneId: "Europe/Athens",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+  };
+  if (saved && saved.storageState) {
+    ctxOptions.storageState = {
+      cookies: (saved.storageState.cookies || []).filter((c) =>
+        /(^|\.)facebook\.com$/.test(c.domain.replace(/^\./, "")),
+      ),
+      origins: [],
+    };
+  }
+  mbCtx = await browser.newContext(ctxOptions);
+  mbPage = await mbCtx.newPage();
+  if (mbLogin.stage === "idle" && saved && saved.stage === "2fa") {
+    mbLogin = { stage: "2fa", checkpointUrl: saved.checkpointUrl || null };
+    if (saved.checkpointUrl) {
+      await mbPage
+        .goto(saved.checkpointUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        })
+        .catch(() => {});
+    }
+  }
+  return mbPage;
+}
+
+async function mbHasSession() {
+  if (!mbCtx) return false;
+  const cs = await mbCtx.cookies(["https://www.facebook.com", "https://m.facebook.com"]);
+  return cs.some((c) => c.name === "c_user" && c.value);
+}
+
+async function mbTransferSession() {
+  // Copy the mobile lane's auth cookies into the desktop context so the
+  // normal /session + publishing paths see a logged-in browser.
+  const cs = await mbCtx.cookies(["https://www.facebook.com"]);
+  const auth = cs.filter((c) =>
+    ["c_user", "xs", "datr", "fr", "sb", "wd"].includes(c.name),
+  );
+  if (auth.length) await context.addCookies(auth);
+}
+
+async function mbFinishLogin() {
+  mbLogin = { stage: "ok" };
+  await mbTransferSession();
+  await page.goto("https://www.facebook.com/", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await settle();
+  const loggedIn = await isLoggedIn();
+  if (loggedIn) await saveSession();
+  return loggedIn;
+}
+
+async function mbClassify(p) {
+  // Returns "ok" | "2fa" | "failed:<reason>"
+  const url = p.url();
+  if (await mbHasSession()) return "ok";
+  if (/checkpoint|two_factor|approvals|login\/approvals|confirm/i.test(url))
+    return "2fa";
+  try {
+    const state = await p.evaluate(() => {
+      const inputs = [...document.querySelectorAll("input")].map(
+        (i) => i.name || i.id || "",
+      );
+      const text = (document.body?.innerText || "").slice(0, 3000);
+      return { inputs, text, title: document.title || "" };
+    });
+    if (state.inputs.some((n) => /approvals_code|code/i.test(n)) ||
+        /approvals code|confirmation code|enter the code|approve this login/i.test(state.text) ||
+        /passkey|try another way|choose a way to confirm|notification on another device/i.test(state.text))
+      return "2fa";
+    if (/incorrect|wrong password|invalid|try again|too many/i.test(state.text))
+      return "failed:credentials-or-throttle";
+    if (/captcha|verify you/i.test(state.text)) return "failed:captcha";
+  } catch (_) {}
+  return `failed:landing ${url.slice(0, 80)}`;
+}
+
+async function mbDismissConsent(p) {
+  // The EU cookie dialog renders as an overlay that intercepts pointer
+  // events — a DOM click bypasses the hit-test entirely.
+  try {
+    await p.waitForSelector('[data-testid="cookie-policy-manage-dialog"]', {
+      timeout: 8000,
+    });
+  } catch (_) {}
+  const clicked = await p.evaluate(() => {
+    const sels = [
+      'button[data-cookiebanner="accept_only_essential_button"]',
+      'button[data-testid="cookie-policy-manage-dialog-decline-button"]',
+      '[role="button"]:has-text("Decline optional")',
+    ];
+    for (const sel of sels) {
+      // :has-text is not valid inside querySelector — match by text instead
+      const btns = [...document.querySelectorAll("button, [role=button]")];
+      const hit = btns.find((b) =>
+        sel.includes("has-text")
+          ? /decline optional|essential only/i.test(b.innerText || "")
+          : b.matches(sel),
+      );
+      if (hit) {
+        hit.click();
+        return true;
+      }
+    }
+    // last resort: nuke the overlay node so it can't intercept
+    const dlg = document.querySelector(
+      '[data-testid="cookie-policy-manage-dialog"]',
+    );
+    if (dlg) dlg.remove();
+    return !!dlg;
+  });
+  if (clicked) await p.waitForTimeout(1000);
+}
+
+async function mbTap(p, text) {
+  // role=radio rows only flip aria-checked on a DOM click(); role=button
+  // controls need real pointer events (DOM click() is ignored by the SPA).
+  const isRadio = /notification on another/i.test(text);
+  if (isRadio) {
+    const found = await p
+      .evaluate((t) => {
+        const el = [...document.querySelectorAll('[role="radio"]')].find(
+          (e) => (e.innerText || "").includes(t),
+        );
+        if (!el) return false;
+        el.click();
+        return true;
+      }, text)
+      .catch(() => false);
+    if (!found) return false;
+    await p.waitForTimeout(1500);
+    return true;
+  }
+  const loc = p
+    .locator(
+      '[role="button"]:has-text("' + text + '"):visible, ' +
+        'button:has-text("' + text + '"):visible, ' +
+        'a:has-text("' + text + '"):visible',
+    )
+    .last();
+  if (!(await loc.count())) return false;
+  await loc.tap({ timeout: 8000 }).catch(() =>
+    loc.click({ timeout: 8000 }).catch(() => {}),
+  );
+  await p.waitForTimeout(3500);
+  return true;
+}
+
+async function mbRealClick(p, text) {
+  // Coordinate-level click: finds the element containing `text`, scrolls
+  // it into view and clicks its center with real mouse events — bypasses
+  // whatever role/tag the SPA used.
+  const box = await p
+    .evaluate((t) => {
+      const els = [
+        ...document.querySelectorAll(
+          '[role="button"], [role="radio"], [role="link"], button, a, div[tabindex]',
+        ),
+      ];
+      const el = els.find((e) => {
+        const tx = (e.innerText || "").trim();
+        return tx === t || tx.startsWith(t);
+      });
+      if (!el) return null;
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }, text)
+    .catch(() => null);
+  if (!box) return false;
+  if (p.touchscreen) await p.touchscreen.tap(box.x, box.y);
+  else await p.mouse.click(box.x, box.y);
+  await p.waitForTimeout(1500);
+  return true;
+}
+
+// Walk the post-password auth gauntlet: passkey prompt -> "Try another
+// way" -> pick "Notification on another device" -> Continue -> the page
+// waits for the phone approval (same push the desktop flow emits).
+async function mbAdvance2fa(p) {
+  for (let i = 0; i < 8; i++) {
+    if (await mbHasSession()) return "ok";
+    const cls = await mbClassify(p);
+    if (cls !== "2fa") return cls;
+    const text = await p
+      .evaluate(() => (document.body?.innerText || "").slice(0, 4000))
+      .catch(() => "");
+    console.log(`mbAdvance2fa[${i}] text=${text.replace(/\s+/g, " ").slice(0, 160)}`);
+    // Waiting-for-approval screen — stop here, the phone push is out.
+    if (/check your notifications on another device|waiting for approval|we sent a notification/i.test(text))
+      return "2fa";
+    if (/notification on another device/i.test(text)) {
+      // Options list: select the notification radio once (idempotent),
+      // then Continue submits the choice.
+      const checked = await p
+        .evaluate(() => {
+          const r = [...document.querySelectorAll('[role="radio"]')].find(
+            (e) => /notification on another/i.test(e.innerText || ""),
+          );
+          return r ? r.getAttribute("aria-checked") === "true" : null;
+        })
+        .catch(() => null);
+      if (checked !== true) {
+        const n = await mbTap(p, "Notification on another device");
+        console.log(`mbAdvance2fa notif tap=${n}`);
+        if (!n) return "failed:2fa-no-notification-option";
+        continue;
+      }
+      const c = await mbTap(p, "Continue");
+      console.log(`mbAdvance2fa continue tap=${c}`);
+      if (c) continue;
+      return "failed:2fa-no-continue";
+    }
+    if (/try another way/i.test(text)) {
+      const t = await mbTap(p, "Try another way");
+      console.log(`mbAdvance2fa try-another-way tap=${t}`);
+      if (!t) return "failed:2fa-no-try-another-way";
+      continue;
+    }
+    if (/choose a way to confirm|available confirmation methods/i.test(text)) {
+      // Options list rendered but notification row not matched yet — try
+      // tapping the radio by partial text once more, else bail.
+      if (!(await mbTap(p, "Notification on another")))
+        return "failed:2fa-options-unmatched";
+      continue;
+    }
+    if (/continue/i.test(text) && /confirm|approve|notification/i.test(text)) {
+      const c = await mbTap(p, "Continue");
+      console.log(`mbAdvance2fa continue tap=${c}`);
+      if (c) continue;
+    }
+    // Waiting-for-approval screen or a code prompt — hand to caller.
+    if (/check your|we sent|approve the login|enter the code|backup code|whatsapp/i.test(text))
+      return "2fa";
+    return "2fa";
+  }
+  return "2fa";
+}
+
+app.post("/login-mobile", authLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: "username and password required" });
+  }
+  try {
+    await ensureBrowser();
+    const p = await ensureMobile();
+    await p.goto("https://m.facebook.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    await p.waitForTimeout(3500);
+    await mbDismissConsent(p);
+    await p.fill('input[name="email"], input#email', username, {
+      timeout: 15000,
+    });
+    await p.fill('input[name="pass"], input#pass', password, {
+      timeout: 15000,
+    });
+    const submit = p.locator(
+      '[role="button"]:has-text("Log in"):visible, [role="button"]:has-text("Σύνδεση"):visible, button[type="submit"]:visible',
+    ).last();
+    await submit.tap({ timeout: 15000 }).catch(() =>
+      submit.click({ timeout: 15000 }),
+    );
+    // Meta's SPA transitions are slow — poll the DOM until it leaves the
+    // login form or a gate appears (max ~20s).
+    let cls = "failed:timeout";
+    for (let i = 0; i < 10; i++) {
+      await p.waitForTimeout(2500);
+      cls = await mbClassify(p);
+      if (cls !== "failed:landing" && !cls.startsWith("failed:landing")) break;
+      const stillLogin = await p
+        .evaluate(() => !!document.querySelector('input[name="pass"]'))
+        .catch(() => false);
+      if (!stillLogin) break;
+    }
+    console.log(`login-mobile interim cls=${cls}`);
+    if (cls === "2fa") cls = await mbAdvance2fa(p);
+    console.log(`login-mobile -> ${cls} @ ${p.url().slice(0, 100)}`);
+    if (cls === "ok") {
+      const loggedIn = await mbFinishLogin();
+      return res.json({ status: "ok", logged_in: loggedIn, lane: "mobile" });
+    }
+    if (cls === "2fa") {
+      mbLogin = { stage: "2fa", checkpointUrl: p.url() };
+      await mbSaveState();
+      return res.json({
+        status: "ok",
+        logged_in: false,
+        two_factor_required: true,
+        lane: "mobile",
+        message: "2FA — POST /login-mobile/code {code} or poll /login-mobile/poll",
+      });
+    }
+    mbLogin = { stage: "failed" };
+    return res.json({
+      status: "ok",
+      logged_in: false,
+      lane: "mobile",
+      message: cls,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/login-mobile/code", authLimiter, async (req, res) => {
+  const { code } = req.body || {};
+  if (!code) return res.status(400).json({ error: "code required" });
+  try {
+    await ensureBrowser();
+    await ensureMobile();
+  } catch (_) {}
+  if (mbLogin.stage !== "2fa" || !mbPage) {
+    return res.status(409).json({ error: "no pending mobile 2FA" });
+  }
+  try {
+    const p = mbPage;
+    const input = p.locator(
+      'input[name="approvals_code"], input#approvals_code, input[inputmode="numeric"], input[type="tel"], input[name*="code" i]',
+    );
+    if (await input.count()) {
+      await input.first().fill(String(code));
+      await p.click(
+        'button[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Submit"), button:has-text("Confirm")',
+        { timeout: 10000 },
+      ).catch(() => {});
+    } else {
+      // Approved-machine pattern (facebook-chat-api #548): an empty
+      // verification_code completes login once another device approved.
+      await p.reload({ waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
+      await p.waitForTimeout(3000);
+    }
+    await p.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
+    await p.waitForTimeout(4000);
+    const cls = await mbClassify(p);
+    mbLogin.checkpointUrl = p.url();
+    await mbSaveState();
+    console.log(`login-mobile/code -> ${cls} @ ${p.url().slice(0, 100)}`);
+    if (cls === "ok") {
+      const loggedIn = await mbFinishLogin();
+      return res.json({ status: "ok", logged_in: loggedIn, lane: "mobile" });
+    }
+    return res.json({
+      status: "ok",
+      logged_in: false,
+      two_factor_required: cls === "2fa",
+      lane: "mobile",
+      message: cls === "2fa" ? "code rejected or still pending" : cls,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/login-mobile/poll", async (req, res) => {
+  try {
+    await ensureBrowser();
+    await ensureMobile();
+  } catch (_) {}
+  if (mbLogin.stage !== "2fa" || !mbPage) {
+    return res.json({ stage: mbLogin.stage || "idle", pending: false });
+  }
+  try {
+    const p = mbPage;
+    // The waiting page updates itself; check the live DOM first and only
+    // reload if it looks stuck on a dead challenge URL.
+    let cls = await mbClassify(p);
+    if (cls !== "ok" && cls !== "2fa") {
+      // Profile-picker / welcome-back screen — click Continue once.
+      let picked = await mbTap(p, "Continue");
+      if (!picked) picked = await mbRealClick(p, "Continue");
+      if (picked) {
+        await p.waitForTimeout(4000);
+        cls = await mbClassify(p);
+      }
+    }
+    if (cls !== "ok" && cls !== "2fa") {
+      // Restored sessions can land on a mid-gauntlet screen (passkey
+      // prompt, profile picker) — run the same advance walk as login.
+      const adv = await mbAdvance2fa(p);
+      if (adv !== cls) cls = adv;
+    }
+    if (cls !== "ok" && cls !== "2fa") {
+      await p.reload({ waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
+      await p.waitForTimeout(3000);
+      cls = await mbClassify(p);
+    }
+    if (cls === "ok") {
+      const loggedIn = await mbFinishLogin();
+      return res.json({ stage: "ok", pending: false, logged_in: loggedIn });
+    }
+    mbLogin.checkpointUrl = p.url();
+    await mbSaveState();
+    const snippet = await p
+      .evaluate(() => (document.body?.innerText || "").replace(/\n+/g, " | ").slice(0, 300))
+      .catch(() => "");
+    let els = null;
+    if (req.query.debug) {
+      els = await p
+        .evaluate(() =>
+          [...document.querySelectorAll("[role=button],[role=link],button,a,[tabindex]")]
+            .filter((e) => (e.innerText || "").trim())
+            .slice(0, 30)
+            .map((e) => ({
+              tag: e.tagName,
+              role: e.getAttribute("role"),
+              text: (e.innerText || "").trim().slice(0, 50),
+            })),
+        )
+        .catch(() => null);
+    }
+    return res.json({
+      stage: cls === "2fa" ? "2fa" : "failed",
+      pending: cls === "2fa",
+      url: p.url().slice(0, 100),
+      detail: cls === "2fa" ? undefined : cls,
+      text: snippet,
+      elements: els || undefined,
+    });
+  } catch (err) {
+    return res.json({ stage: "2fa", pending: true, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Facebook browser sidecar listening on port ${PORT}`);
 });
