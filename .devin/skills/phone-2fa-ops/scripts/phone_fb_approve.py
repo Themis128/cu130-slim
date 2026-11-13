@@ -114,7 +114,18 @@ def node_bounds(xml, pattern):
 
 def device_text(xml):
     m = re.search(r"Login attempt from ([^\n<\"]{3,80})", xml)
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+    # Mobile-web pushes phrase the device differently (or omit the
+    # "Login attempt from" prefix). Grab the text nodes surrounding the
+    # approval phrasing — the allowlist regex then searches the card
+    # copy itself for linux|wsl|windows|chrome|edge|docker.
+    texts = re.findall(r'(?:text|content-desc)="([^"]{2,120})"', xml)
+    for i, t in enumerate(texts):
+        if re.search(r"trying to log|log ?in attempt|was this you|"
+                     r"approve.*log|new login", t, re.I):
+            return " | ".join(texts[max(0, i - 2):i + 4])
+    return ""
 
 
 def approve(aid):
@@ -209,6 +220,13 @@ def approve_via_fb_tab(aid):
     xml = dump_ui()
     tab = _clickable_xy(
         xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
+    if not tab:
+        # App may still be foregrounding or sitting on a stale activity —
+        # one retry before declaring the lane dead.
+        time.sleep(5)
+        xml = dump_ui()
+        tab = _clickable_xy(
+            xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
 
     if not tab:
         return "no-tab", ""

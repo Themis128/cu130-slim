@@ -114,7 +114,18 @@ def node_bounds(xml, pattern):
 
 def device_text(xml):
     m = re.search(r"Login attempt from ([^\n<\"]{3,80})", xml)
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+    # Mobile-web pushes phrase the device differently (or omit the
+    # "Login attempt from" prefix). Grab the text nodes surrounding the
+    # approval phrasing — the allowlist regex then searches the card
+    # copy itself for linux|wsl|windows|chrome|edge|docker.
+    texts = re.findall(r'(?:text|content-desc)="([^"]{2,120})"', xml)
+    for i, t in enumerate(texts):
+        if re.search(r"trying to log|log ?in attempt|was this you|"
+                     r"approve.*log|new login", t, re.I):
+            return " | ".join(texts[max(0, i - 2):i + 4])
+    return ""
 
 
 def approve(aid):
@@ -209,6 +220,13 @@ def approve_via_fb_tab(aid):
     xml = dump_ui()
     tab = _clickable_xy(
         xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
+    if not tab:
+        # App may still be foregrounding or sitting on a stale activity —
+        # one retry before declaring the lane dead.
+        time.sleep(5)
+        xml = dump_ui()
+        tab = _clickable_xy(
+            xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
 
     if not tab:
         return "no-tab", ""
@@ -255,11 +273,68 @@ def approve_via_fb_tab(aid):
     return "approved", dev
 
 
+def visible_dialog_approve():
+    """Fast path: the approval dialog can already be on screen (FB app
+    foreground or system overlay) with NO shade notification record —
+    find_approvals() then returns nothing and the prompt sits until it
+    expires. Verify the device string against the allowlist and tap
+    "Yes, it's me" directly. Returns None when no dialog is visible."""
+    xml = dump_ui()
+    if not xml:
+        return None
+    # Require the actual dialog affordance — the shade notification itself
+    # contains "trying to log in" text but has no Yes/No buttons and no
+    # parseable device string; matching it produced false refusals.
+    if 'Yes, it' not in xml:
+        return None
+    dev = device_text(xml)
+    if DENY_HINT_RE.search(dev):
+        return "deny-hint", dev
+    if not dev or not ALLOW_RE.search(dev):
+        # No parseable device string -> cannot verify it's our infra.
+        # Skip silently rather than refuse-alert: notification-shade
+        # captures and partial renders land here too.
+        return None
+    xy = node_bounds(xml, r"Yes, it")
+    if not xy:
+        m = re.search(
+            r'text="Yes, it[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',
+            xml)
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            xy = ((x1 + x2) // 2, (y1 + y2) // 2)
+    if not xy:
+        return "no-button", dev
+    sh("shell", "input", "tap", str(xy[0]), str(xy[1]), timeout=15)
+    return "approved", dev
+
+
 def main():
     once = "--once" in sys.argv
     st = load_state()
     seen = st.setdefault("seen", {})
     while True:
+        # Fast path first: an already-visible dialog has no notification
+        # record, so find_approvals() alone can miss it entirely.
+        try:
+            vis = visible_dialog_approve()
+        except Exception as e:
+            print(f"visible-dialog check failed: {e}")
+            vis = None
+        if vis:
+            res, dev = vis
+            vkey = f"vis:{(dev or '?').strip()[:40]}:{int(time.time() // 3600)}"
+            if res in TRANSIENT:
+                print(f"visible dialog -> {res} dev='{dev[:50]}' (retry next cycle)")
+            elif vkey not in seen:
+                seen[vkey] = res
+                save_state(st)
+                if res == "approved":
+                    tg(f"APPROVED FB login ({dev.strip()[:60]}) [visible-dialog]")
+                elif res in ("not-allowlisted", "deny-hint"):
+                    tg(f"REFUSED FB login approval — device '{dev.strip()[:60]}' not allowlisted [visible-dialog]")
+                else:
+                    print(f"visible dialog -> {res} dev='{dev[:50]}'")
         try:
             approvals = find_approvals()
         except Exception as e:
