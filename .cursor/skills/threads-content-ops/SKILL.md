@@ -29,6 +29,7 @@ Read `social-content-core` first.
 ### What the Threads audience/algorithm favors
 - Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution.
 - 2026 signals: predicted engagement + view time; posts ending in a genuine question tend to earn the replies that feed distribution.
+- Cadence (Buffer 2026): 3–4 posts/week building toward daily — the feed rewards consistent conversational presence.
 
 <!-- PLATFORM-FIT:END -->
 

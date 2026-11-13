@@ -57,6 +57,7 @@ SKILL_SLUG = {
     "facebook": "facebook-content-ops",
     "threads": "threads-content-ops",
     "tiktok": "tiktok-content-ops",
+    "bluesky": "bluesky-content-ops",
 }
 SKILL_DIRS = (".devin/skills", ".cursor/skills")
 
@@ -67,6 +68,7 @@ DISPLAY = {
     "facebook": "Facebook",
     "threads": "Threads",
     "tiktok": "TikTok",
+    "bluesky": "Bluesky",
 }
 
 MARKER_RE = lambda key: re.compile(  # noqa: E731
@@ -345,7 +347,7 @@ def git_commit(touched: list[Path]) -> bool:
 def verify_guides() -> int:
     code = (
         "from app.services.content_guides import PLATFORM_GUIDES\n"
-        "for k in ('linkedin','twitter','instagram','facebook','threads','tiktok'):\n"
+        "for k in ('linkedin','twitter','instagram','facebook','threads','tiktok','bluesky'):\n"
         "    g = PLATFORM_GUIDES.get(k,'')\n"
         "    i = g.find('Audience fit:')\n"
         "    print(k, '->', g[i:i+110] if i >= 0 else 'MISSING')\n"

@@ -75,6 +75,14 @@ PLATFORM_GUIDES: dict[str, str] = {
         "More than 5 dilutes the topic signal and reduces FYP distribution. "
         "Hook in the first line. Use emojis. Plain everyday English."
     ),
+    "bluesky": (
+        "Conversational, text-first for Bluesky (AT Protocol). ~300 grapheme post limit — "
+        "keep posts self-contained since feed browsers lack context. Lead with a hook or "
+        "opinion in the first line; threads (reply chains) work well for depth. "
+        "Use 1-3 specific topic keywords/hashtags — custom feeds match on them; avoid "
+        "mega-tags. Authentic developer/community voice beats brand polish. "
+        "Plain everyday English."
+    ),
     "telegram": (
         "Broadcast post for a Telegram channel — treated like a micro-landing page. "
         "Hard cap: 1024 characters (sent as a photo caption via sendPhoto). "
