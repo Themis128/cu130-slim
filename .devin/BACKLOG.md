@@ -272,8 +272,8 @@ Remaining:
 - [ ] watch: Dropbox→Drive rclone migration (`Apps/Google Download Your
   Data`, ~44 GiB) — watcher auto-verifies + purges Dropbox on completion;
   log `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
-- [ ] watch: PR #1399 (LinkedIn Ad Library intel pipeline) — auto-merge
-  armed, checks cycling.
+- [x] watch: PR #1399 (LinkedIn Ad Library intel pipeline) — MERGED
+  2026-11-07.
 - [ ] watch: publish_queue failures — the 406 failed rows are legit
   (text-dedup skips, seo<80 quality gate, true media dupes); post-#1397
   failures now log real tracebacks (FB post_photo timeouts patched in
@@ -365,11 +365,11 @@ Landed on `feat/devapps-datalake-reports` (PR pending):
 - workforce_audit: `devapps-sync` + `devapp-channel-actions` entries.
 
 Leftovers:
-- [ ] First live `devapps-sync` run — verify per-platform pullers
-  against real tokens (FB page_token path, IG demographics metric name,
-  LinkedIn org vs member split); failures land as `ok:false` rows.
-- [ ] `devapp-channel-actions` first run — confirm scheduled posts land
-  per channel and dedup holds on the 2nd/3rd/4th daily sweep.
+- [x] First live `devapps-sync` run — verified 2026-11-13: 31
+  `devapp_snapshot` + 299 `account_sync` + 42 `follower_insights` events
+  in 24h across platforms.
+- [x] `devapp-channel-actions` first run — verified 2026-11-13: 13
+  `channel_post` events in 14d; publish queue completing per-channel.
 - [ ] X quota: `me_metrics` 402 → `quota_exhausted` → `wait_for_quota_reset`
   health action; verify it doesn't spam channel_health alerts daily.
 
@@ -1501,13 +1501,12 @@ Leftovers:
       daily beat `bluesky-credential-sweep` (04:20) + `bluesky_tool.py rotate`.
       Auto-merge armed. Requires `BSKY_MAIN_PASSWORD` in env/Infisical for
       fully unattended rotation; without it the sweep alerts once.
-- [ ] Set `BSKY_MAIN_PASSWORD` (Bluesky account main password) in
-      `.env` + Infisical, or mint a new app password at bsky.app →
-      Settings → App passwords and reconnect via POST /api/v1/bluesky/connect.
-- [ ] After quota reset (~05:13 UTC) verify posts 02853052…/6844e52e…
-      publish; requeue if still failed.
-- [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
-      #1710 (TG credential drops), #1711 (bsky rotation).
+- [x] Set `BSKY_MAIN_PASSWORD` — present in `.env` (len 28) and passed
+  through compose to api + workers (verified 2026-11-13).
+- [x] Posts 02853052…/6844e52e… — both `published` (verified
+  2026-11-13); quota window recovered.
+- [x] PRs armed: #1704 MERGED, #1708 MERGED, #1711 MERGED; #1710 closed
+      (superseded — TG credential drops landed via #1768).
 
 ## 2026-11-11 (tg-gate-webhook: credential drops actually work now — PR #1710)
 
