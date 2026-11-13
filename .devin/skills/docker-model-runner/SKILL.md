@@ -317,6 +317,30 @@ Manual reapply: `scripts/dmr-configure.py`. Verify: `scripts/dmr-configure.py sh
 > `--context-size` — their native ctx (262144) → llama.cpp tries to allocate
 > a 36GB KV cache → OOM on load.
 
+## Fleet pressure diagnostic (2026-11-13 failure class)
+
+`scripts/dmr_pressure.py` — one-shot verdict for the RAM/lock failure
+class that stalled the publish queue: models CPU-pinned (`n-gpu-layers
+0`) means weights live in **system RAM**, not VRAM — when Windows free
+RAM drops under ~4GB, `docker model ps` shows models stuck in
+`Loading...` forever, `/api/ps` still lists them (`expires_at=0001`),
+every chat call queues on `gpu:dmr_lock`, callers eat the 480s acquire
+timeout, and Celery tasks die at their ~900s soft limit mid-gate.
+
+```bash
+scripts/dmr_pressure.py          # verdict + findings + hints
+scripts/dmr_pressure.py --json   # machine-readable
+```
+
+Checks: stuck-Loading models, resident set, Windows free RAM
+(powershell interop), `gpu:dmr_lock`/`gpu:media_busy` in Redis, and a
+timed smollm3 chat probe. Remediation it prints: `docker model
+restart-runner` (clears wedged loads), `dmr-unload.py --all`, Redis
+`DEL gpu:dmr_lock` if the holder is wedged (TTL self-heals at 660s),
+and the durable `wsl --shutdown` + Docker Desktop restart for
+vsock/memory-pressure flapping. Verified live 2026-11-13: correctly
+flagged 5 wedged loads while `/api/ps` looked healthy.
+
 ## VRAM management
 
 **All models now run CPU (`n-gpu-layers 0`) — see the banner at the top.
@@ -476,6 +500,7 @@ Environment variables:
 | `scripts/dmr-env-check.py` | Reconcile `.env` `DMR_*_MODEL` refs vs `/engines/v1/models` — classifies OK / PULLABLE / CUSTOM, `--pull` pulls missing refs sequentially (concurrent pulls hit Windows blob file-locks), `--probe` runs a minimal inference call per model |
 | `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
+| `scripts/dmr_pressure.py` | Fleet pressure verdict — wedged loads, low host RAM, dmr_lock contention, chat-probe canary |
 
 ## Common operations
 
