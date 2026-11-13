@@ -24,6 +24,7 @@ Auto-discovery picks posts that have a publish_queue row in
 pending/processing AND no ``quality_gate`` cache on the post — i.e.
 exactly the rows a queue run would stall on.
 """
+
 import asyncio
 import hashlib
 import sys
@@ -41,17 +42,13 @@ from app.worker.tasks.publishing import _enforce_publish_quality
 
 async def _discover_post_ids(db) -> list[uuid.UUID]:
     rows = (
-        await db.execute(
-            select(PublishQueue.post_id)
-            .where(PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]))
-            .distinct()
-        )
-    ).scalars().all()
+        (await db.execute(select(PublishQueue.post_id).where(PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING])).distinct()))
+        .scalars()
+        .all()
+    )
     ids = []
     for pid in rows:
-        post = (
-            await db.execute(select(Post).where(Post.id == pid))
-        ).scalar_one_or_none()
+        post = (await db.execute(select(Post).where(Post.id == pid))).scalar_one_or_none()
         if post is None:
             continue
         text = getattr(post, "content_text", None) or ""
@@ -65,32 +62,22 @@ async def _discover_post_ids(db) -> list[uuid.UUID]:
 
 
 async def _prewarm_one(db, pid: uuid.UUID) -> None:
-    post = (
-        await db.execute(select(Post).where(Post.id == pid))
-    ).scalar_one_or_none()
+    post = (await db.execute(select(Post).where(Post.id == pid))).scalar_one_or_none()
     if post is None:
         print(f"{pid}: POST NOT FOUND", flush=True)
         return
-    tgt = (
-        await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
-    ).scalars().first()
+    tgt = (await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))).scalars().first()
     if tgt is None:
         print(f"{pid}: NO TARGET", flush=True)
         return
-    acct = (
-        await db.execute(
-            select(SocialAccount).where(SocialAccount.id == tgt.social_account_id)
-        )
-    ).scalar_one_or_none()
+    acct = (await db.execute(select(SocialAccount).where(SocialAccount.id == tgt.social_account_id))).scalar_one_or_none()
     if acct is None:
         print(f"{pid}: NO ACCOUNT", flush=True)
         return
     gate = await _enforce_publish_quality(post, acct, db)
     await db.commit()
     print(
-        f"{pid} {acct.platform}: passed={getattr(gate, 'passed', None)} "
-        f"overall={getattr(gate, 'overall', None)} "
-        f"reason={getattr(gate, 'reason', None)}",
+        f"{pid} {acct.platform}: passed={getattr(gate, 'passed', None)} overall={getattr(gate, 'overall', None)} reason={getattr(gate, 'reason', None)}",
         flush=True,
     )
 

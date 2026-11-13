@@ -184,9 +184,7 @@ async def _pages_get(
     return {"ok": True, "data": r.json()}
 
 
-async def pages_organizations(
-    client: httpx.AsyncClient, token: str, *, parent_org_id: str
-) -> dict[str, Any]:
+async def pages_organizations(client: httpx.AsyncClient, token: str, *, parent_org_id: str) -> dict[str, Any]:
     """``dmaOrganizations?q=parentOrganization`` — pages under an org entity."""
     return await _pages_get(
         client,
@@ -257,15 +255,11 @@ async def pages_content_trend(
 
     ``timeIntervals`` uses rest.li positional syntax — build the raw query.
     """
-    time_intervals = (
-        f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
-    )
+    time_intervals = f"(timeRange:(start:{start_ms},end:{end_ms}),timeGranularityType:DAY)"
     raw = (
         "q=trend"
         f"&sourceEntity={urllib.parse.quote(source_entity, safe='')}"
         f"&metricTypes={metric_types}"
         f"&timeIntervals={urllib.parse.quote(time_intervals, safe='()/:,')}"
     )
-    return await _pages_get(
-        client, token, "/dmaOrganizationalPageContentAnalytics", raw_query=raw
-    )
+    return await _pages_get(client, token, "/dmaOrganizationalPageContentAnalytics", raw_query=raw)
