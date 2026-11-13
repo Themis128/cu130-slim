@@ -449,23 +449,23 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                 "&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date"
             )
             headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
-            frm = str(headers.get("from") or "")
-            subj = str(headers.get("subject") or "")
-            low = (frm + " " + subj).lower()
+            frm_g = str(headers.get("from") or "")
+            subj_g = str(headers.get("subject") or "")
+            low = (frm_g + " " + subj_g).lower()
             req = None
             for d, r in domains:
                 if d.lower() in low:
                     req = re.compile(r, re.I) if r else None
                     break
-            if req and not req.search(subj):
+            if req and not req.search(subj_g):
                 continue
             fresh.append({
                 "key": f"gmail:{m['id']}", "lane": "gmail",
-                "from": frm[:120], "subject": subj[:160],
+                "from": frm_g[:120], "subject": subj_g[:160],
                 "snippet": (m.get("snippet") or "")[:160],
                 "date": headers.get("date", "")[:60],
                 "link": f"https://mail.google.com/mail/u/0/#all/{m.get('threadId', m['id'])}",
-                "auto": bool(AUTO_SENDER.search(frm)),
+                "auto": bool(AUTO_SENDER.search(frm_g)),
             })
     except Exception as e:  # noqa: BLE001
         logger.warning("synigoros_case reply-watch: Gmail lane failed: %s", e)
