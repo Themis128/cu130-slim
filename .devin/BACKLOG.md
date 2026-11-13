@@ -2069,3 +2069,23 @@ superseded by rebuild):
 - ntfy: 4 topics live; leftover dead auth entries (tailnet/IP) cosmetic.
 - Viber: commercial-only decision pending (recommend skip — WhatsApp covers).
 - Outlook: still waiting on MS365 recovery watcher; account adds post-OOBE.
+
+## 2026-11-13 (evening) — ntfy cleanup + FB approve automation
+
+- **ntfy dead auth entries DELETED** on the phone: `ntfy.tail4ecae1.ts.net`,
+  `100.74.191.58:30080`, `192.168.1.200:30080` removed via Manage users;
+  only `ntfy.cloudless.gr` + `ntfy.cloudless.gr/` remain (both in use).
+  New tool `.devin/skills/ntfy-phone-ops/scripts/ntfy_auth_cleanup.py`
+  automates the flow (dry-run default, `--apply` deletes; DEAD_HOSTS
+  allowlist-only).
+- **phone_fb_approve.py visible-dialog fast path** added + deployed to
+  `~/scripts/`: Meta shows "is this you trying to log in" dialogs with NO
+  shade notification record — the approval_id lane missed them. Fast path
+  requires the `Yes, it's me` affordance + allowlisted device string;
+  missing device text skips silently. Fixed a false `not-allowlisted`
+  refusal caused by matching the shade notification text itself.
+- Manually approved one live FB checkpoint ("Login attempt from Linux,
+  Kos, Greece" — our sidecar, timestamp-matched to heal 17:01). Sidecar
+  still `two_factor_required`; heal cycles continue, next approval will
+  be auto-handled by the armed lanes.
+- Skills mirrored to `.cursor/skills/`; PR #1835 armed.
