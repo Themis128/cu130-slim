@@ -201,3 +201,11 @@ incident: start_period=30s vs ~120s boot → autoheal killed workers
 right as they became ready → publish tasks died mid-flight. Fix pattern
 = raise start_period past boot time (PR #1830). celery-beat still
 flags RISK (grace=105s) — same fix applies if it flap-loops.
+
+## Publish queue shepherd (automated)
+
+`scripts/publish_queue_shepherd.py` lives at
+`social-automation/backend/scripts/` (bind-mounted `/app/scripts` in
+workers). compose-watchdog runs it every 30min: resets stale
+processing locks, dispatches process_publish_queue, alerts on targets
+pending >60min.
