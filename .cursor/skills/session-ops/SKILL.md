@@ -895,3 +895,13 @@ The browser-novnc container exposes a REST API on port 9223:
 - `session-ops` — Login via Playwright MCP (for platforms without anti-automation)
 - `browser-ops` — Browser bridge operations
 - `session-ops` — Master session verification
+
+## LinkedIn sidecar diagnostic (2026-11-12)
+
+`docker exec social-api python3 /app/scripts/li_session_tool.py status` —
+read-only report of the linkedin-browser-sidecar (9225) `/health` + `/session`:
+rate-limit circuit state + clear time, `logged_in`, `pending_2fa` Redis flag,
+credential presence. `li_session_tool.py heal` runs the hourly
+`heal_sessions` lane once. The healer clears stale (>6h) 429 circuits itself,
+then does credential login; a fresh circuit means wait — do not poke
+`/session/clear-rate-limit` manually.
