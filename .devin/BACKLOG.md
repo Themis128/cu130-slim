@@ -1951,3 +1951,34 @@ restored after the #1785 unbound-var bug killed deploy-watch mid-run:
   meta_data errors post-restart (was 41/12min).
 - Gotcha for future migration authors: check `alembic heads` AND grep
   existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
+
+## Leftovers sweep — resolved (2026-11-13 ~02:00 EET)
+
+- [x] **vhdx compact DONE** — root causes were missing UTF-8 BOM (PS5.1
+  parse fail) + vhdx handle still locked after `docker desktop stop`.
+  Script now BOM'd, force-kills Docker processes, polls for exclusive
+  handle (home-ops `f4aa003`). Ran 00:43→~01:30: vhdx 185.5→158.8GB,
+  C: 8.7→~52GB free, engine healthy. Elevated scheduled task
+  `Vhdx-Compact` registered (detached from WSL) with daily 04:00 safety
+  net that self-aborts when C: >20GB free.
+- [x] **DMR env drift RESOLVED** — `compose up -d` recreate baked the
+  canonical `DMR_*_MODEL` fleet into all containers; 4/4 workers pong.
+- [x] **7 compose services stuck in `Created`** (engagement-browser,
+  promtail, compose-healer, n8n-metrics, social-metrics, metabase,
+  social-jupyter) — leftover from an interrupted `compose up` during the
+  compact window; started manually, all Up. Stray duplicate
+  `terraform-mcp-server` containers (eloquent_buck, nifty_elbakyan,
+  restart=no, no compose project) removed.
+- [x] **PR #1783 CI fix** — notebook-report tests shared the `"nb"` name
+  so the new same-day Redis done-key skipped later tests (`KeyError:
+  emailed/error`). Unique names per test + fake-lock dedupe test
+  (`1ecca596`).
+- [x] **li-portal-gate-watch cron live** — `17 */2 * * *` probes the
+  LinkedIn portal session; on first non-429 it drives the Member DP
+  modal once and TG-alerts #ops. First post-compact fire ~02:17 EET.
+- [x] messenger-sidecar + warp-proxy `Exited` = stack-ops idle sleep,
+  NOT failures — they wake on connect through the proxy.
+- Still external/human (unchanged): Member DP modal + Matched Audiences
+  (watcher will drive when LinkedIn un-429s), `lead_created` Campaign
+  Manager rule verify, X OAuth approve, FB OAuth reconnect, WhatsApp
+  phone verify, Viber/Rakuten, IG Graph config_id, Bluesky quota window.
