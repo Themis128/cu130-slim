@@ -1977,3 +1977,21 @@ superseded by rebuild):
   cycle 2026-11-13). Still polls via `/debug/eval` only.
 - Remaining gap: `fb://` deep link ~30% reliable at foregrounding the
   dialog — upgrade path is the FB app's internal Notifications tab.
+
+## 2026-11-13 — CF invoice deferred to ~Nov 28 (user decision)
+
+- Cloudflare invoice **IN-88049721, $12.08, Unpaid** — payment intent failed
+  (`requires_payment_method`). Two cards on file (exp 2/2029 primary,
+  11/2027 backup). Pay: dash.cloudflare.com → Billing → Invoices → Pay now.
+- Reminder installed: user crontab `0 9 28 11 *` → TG #ops P2 alert.
+- Context: Workers Paid $5/mo + PAYGO usage is active on the account;
+  Nov billable usage showed only ~$0.60 current-period — the $12.08 is
+  mostly the prior period's base+usage. observability_guard exits clean.
+
+## 2026-11-13 — Windows 11 new-Outlook (olk) outage + account adds
+
+- Global MS 365 outage (started 11-12 ~11:17 ET, ongoing 11-13): outlook.office.com 417, arc.msn.com 500 — new Outlook stalls at OOBE/mail load. NOT a local fault (package Ok, no crashes, auth OK).
+- Reset-AppxPackage applied to Microsoft.OutlookForWindows_1.2026.1103.200_x64__8wekyb3d8bbwe — clean 95MB profile; account baltzakis.themis@gmail.com auto re-added via WAM.
+- Watcher: `~/scripts/ms365-outlook-watch.py` (cron */15) probes mail endpoints -> TG #ops on recovery. Account params: `C:\Users\tbaltzakis\AppData\Local\Temp\outlook_account_params.txt`.
+- Pending post-recovery: finish OOBE; add tbaltzakis@cloudless.gr IMAP (192.168.1.130:993/587, pass=MAIL_TBALTZAKIS_PASSWORD, verified) + themis.baltzakis@gmail.com (Google sign-in, likely human 2FA gate).
+- WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333 set (User scope) but olk embedded WebView2 ignores it — no CDP into app UI; UIA sees 0 webview descendants.
