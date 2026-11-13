@@ -118,11 +118,28 @@ def check_imap(domains, since, seen, fresh):
                 continue
             seen.add(key)
             _, msg = mail.uid("FETCH", uid,
-                              "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
-            raw = msg[0][1].decode("utf-8", "replace") if msg and msg[0] else ""
-            frm = re.search(r"^From:\s*(.+)$", raw, re.M)
-            sub = re.search(r"^Subject:\s*(.+)$", raw, re.M)
-            date = re.search(r"^Date:\s*(.+)$", raw, re.M)
+                              "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]"
+                              " BODY.PEEK[TEXT]<0.1200>)")
+            # response is a list of (meta, literal) tuples — one per section
+            header_blob, body_blob = "", ""
+            for part in (msg or []):
+                if not (isinstance(part, tuple) and len(part) > 1):
+                    continue
+                meta = part[0].decode("utf-8", "replace") if isinstance(part[0], bytes) else str(part[0])
+                lit = part[1]
+                if isinstance(lit, bytes):
+                    text = lit.decode("utf-8", "replace")
+                else:
+                    continue
+                if "HEADER" in meta.upper():
+                    header_blob = text
+                else:
+                    body_blob = text
+            frm = re.search(r"^From:\s*(.+)$", header_blob, re.M)
+            sub = re.search(r"^Subject:\s*(.+)$", header_blob, re.M)
+            date = re.search(r"^Date:\s*(.+)$", header_blob, re.M)
+            snippet = re.sub(r"<[^>]+>", " ", body_blob)
+            snippet = re.sub(r"\s+", " ", snippet)[:160].strip()
             subj = dec(sub.group(1).strip()) if sub else ""
             if req and not req.search(subj):
                 continue
@@ -130,6 +147,7 @@ def check_imap(domains, since, seen, fresh):
                 "lane": "cloudless", "key": key,
                 "from": dec(frm.group(1).strip()) if frm else "",
                 "subject": subj,
+                "snippet": snippet,
                 "date": dec(date.group(1).strip()) if date else "",
                 "auto": bool(AUTO_SENDER.search(
                     dec(frm.group(1).strip()) if frm else "")),
@@ -184,7 +202,9 @@ def check_gmail(domains, since, seen, fresh):
             "lane": "gmail", "key": key,
             "from": frm[:120],
             "subject": subj[:160],
+            "snippet": (m.get("snippet") or "")[:160],
             "date": headers.get("date", "")[:60],
+            "link": "https://mail.google.com/mail/u/0/#all/%s" % m.get("threadId", m["id"]),
             "auto": bool(AUTO_SENDER.search(frm)),
         })
 
@@ -234,8 +254,10 @@ def main():
     shown = interesting[:MAX_ALERTS_PER_RUN]
     lines = ["📨 ΝΕΑ ΑΛΛΗΛΟΓΡΑΦΙΑ — %d μήνυμα(τα) από τις αρχές:" % len(interesting)]
     for m in shown:
-        lines.append("• [%s] %s\n  %s — %s" % (
-            m["lane"], m["subject"][:90], m["from"][:60], m["date"][:40]))
+        lines.append("• [%s] %s\n  %s — %s%s%s" % (
+            m["lane"], m["subject"][:90], m["from"][:60], m["date"][:40],
+            ("\n  " + m["snippet"]) if m.get("snippet") else "",
+            ("\n  " + m["link"]) if m.get("link") else ""))
     if len(interesting) > MAX_ALERTS_PER_RUN:
         lines.append("… και %d ακόμη" % (len(interesting) - MAX_ALERTS_PER_RUN))
     tg("\n".join(lines))

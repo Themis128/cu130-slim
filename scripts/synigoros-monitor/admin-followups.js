@@ -257,7 +257,7 @@ function loadState() {
       state.sent[ev.id] = new Date().toISOString();
       changed = true;
       console.log(ev.id + ' sent -> ' + ev.to.join(', '));
-      await tg(`📮 Follow-up ${ev.id} εστάλη (${ev.to.join(', ')})`);
+      await tg(`📮 ${ev.id} ΕΣΤΑΛΗ → ${ev.to.join(', ')}\n«${subject}»\nπρογραμματισμένο: ${ev.sendAt}`);
     } catch (e) {
       console.log(ev.id + ' send failed: ' + e.message);
       await tg(`⚠️ ΑΠΟΤΥΧΙΑ follow-up ${ev.id}: ${e.message}`);

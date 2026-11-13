@@ -333,12 +333,15 @@ async function notify(text) {
       // Arm with a news baseline, otherwise the 3-day follow-up rule
       // (which keys off lastNews) can never fire on a fresh monitor.
       prev = { status, lastNews: new Date().toISOString() };
-      await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΠρωτόκολλο: ${CFG.kpa}`);
+      await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΑρ. Πρωτ.: 408302/81750/2026 | ΚΠΑ: ${CFG.kpa}\nTracking: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas`);
       log(`armed, status: ${status}`);
     } else if (status !== confirmed) {
       if (prev.candidate === status) {
         prev.lastNews = new Date().toISOString();
-        await notify(`🔔 ΑΛΛΑΓΗ αναφοράς Συνηγόρου!\nΠριν: ${confirmed}\nΤώρα: ${status}\n\nΈλεγξε: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas\nΚΠΑ: ${CFG.kpa}`);
+        const filed = new Date('2026-10-26T00:00:00+03:00');
+        const daysPending = Math.max(0, Math.floor((Date.now() - filed) / 864e5));
+        const lastNews = prev.lastNews ? new Date(prev.lastNews).toLocaleDateString('el-GR') : '—';
+        await notify(`🔔 ΑΛΛΑΓΗ ΑΝΑΦΟΡΑΣ ΣΥΝΗΓΟΡΟΥ!\n\nΠριν: ${confirmed}\nΤώρα: ${status}\n\nΑρ. Πρωτ.: 408302/81750/2026\nΚΠΑ: ${CFG.kpa}\nΕκκρεμεί: ${daysPending} ημέρες (από 26/10/2026)\nΤελευταία είδηση: ${lastNews}\n\nΠαρακολούθηση: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas`);
         log(`CHANGE: ${confirmed} -> ${status}`);
         prev.status = status;
         prev.candidate = undefined;
