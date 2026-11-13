@@ -2089,3 +2089,34 @@ superseded by rebuild):
   still `two_factor_required`; heal cycles continue, next approval will
   be auto-handled by the armed lanes.
 - Skills mirrored to `.cursor/skills/`; PR #1835 armed.
+
+## 2026-11-13 (late) — MS365 outage campaign publish state
+
+- **Published: Threads only** — https://www.threads.net/@cloudless.gr/post/18089509097704943
+- **Pending in queue**: bluesky (4c83cbd6), tiktok (8bf880dd) — rows processing.
+- **Skipped→requeued**: facebook (042ad11b), twitter/X (5f2cb7ed),
+  linkedin personal (7b0c35ef) + **Company Page** (dacff0f0 → account
+  9c4451bb, correct per funnel rules), instagram (888ef63b). All 5 died
+  on transient "media incomplete: 0/1 resolved" — R2 fetch failed DURING
+  an engine flap; verified `r2_storage.get_object` works post-restart.
+  Requeued via `publish_post_now` celery calls (queue rows pending).
+- **Root causes found this session**:
+  1. DMR scheduler wedged — /api/ps listed 6 models but chat probe hung
+     60s+. Fixed via `docker.exe desktop restart` (watchdog's
+     `docker restart docker-model-runner` path is DEAD CODE on Docker
+     Desktop — no such container; dmr-watchdog can't heal this class).
+     4B answered in 18s after restart.
+  2. R2 `public_url` serves `application/octet-stream` for the PNG/MP4 —
+     COSMETIC: publishers fetch `/api/v1/media/view?path=` which re-types
+     by extension (verified image/png + video/mp4 live).
+  3. Engine flap cycle ~every 10-20min kills queue runs + prewarm
+     mid-flight; gate caches DO accumulate between flaps (6/10 posts
+     cached at last check) so progress is incremental.
+- **New tool**: `scripts/publish_queue_preflight.py` — PR #1844 (auto-
+  merge). Audits pending/processing queue rows pre-claim; probes the
+  real publish URL not raw R2.
+- **Prewarm running**: `docker exec -d social-worker-publishing python
+  /app/scripts/prewarm_quality_gate.py` (loop wrapper, auto-discovers).
+- **Human gate unchanged**: `wsl --shutdown` + Docker Desktop restart
+  when a 5-min session loss is OK — the durable vsock/RAM fix. TikTok
+  `dcda73fb` (cloudless.gr) still needs manual re-auth (dead refresh).
