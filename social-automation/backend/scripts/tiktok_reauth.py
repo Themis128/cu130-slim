@@ -451,11 +451,7 @@ def main() -> int:
     api_ok = "connected successfully" in low
     api_fail = bool(body.strip()) and not api_ok
     # Keep the legacy URL heuristic for any future redirecting callback.
-    redirect_ok = (
-        CALLBACK_MARK not in final_url
-        and "social.cloudless.gr" in final_url
-        and "error" not in final_url.lower()
-    )
+    redirect_ok = CALLBACK_MARK not in final_url and "social.cloudless.gr" in final_url and "error" not in final_url.lower()
     ok = api_ok or (redirect_ok and not api_fail)
     if api_fail and not api_ok:
         print(f"callback reported failure: {body[:300]}")

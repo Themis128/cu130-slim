@@ -370,7 +370,9 @@ def _fake_instagrapi(monkeypatch, client: _FakeIGClient | None = None):
 def _ig_thread(tid="t1", users=None, messages=None):
     return SimpleNamespace(
         id=tid,
-        users=users if users is not None else [
+        users=users
+        if users is not None
+        else [
             SimpleNamespace(pk=42, username="me"),
             SimpleNamespace(pk=7, username="bob"),
         ],
@@ -496,9 +498,7 @@ async def test_process_account_private_api_fallback(monkeypatch):
     private.probe = AsyncMock()
     monkeypatch.setattr(IG, "InstagramPrivateDMClient", lambda **kw: private)
 
-    account = _account(
-        meta_data={"instagram_auto_reply": {"enabled": True}, "private_api_session_id": "enc-sid"}
-    )
+    account = _account(meta_data={"instagram_auto_reply": {"enabled": True}, "private_api_session_id": "enc-sid"})
     n = await IG._process_account(SimpleNamespace(), account, {"enabled": True}, {}, "", "", "http://dmr")
     assert n == 1
     private.probe.assert_awaited_once()
