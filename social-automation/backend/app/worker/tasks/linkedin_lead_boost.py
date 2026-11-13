@@ -7,10 +7,14 @@
   only (standing rule: never real spend).
 """
 
+import logging
 import os
+from datetime import UTC, datetime
 
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 ENABLED = os.getenv("LINKEDIN_ADVANCED", "0") == "1"
 
@@ -77,6 +81,24 @@ async def _route_linkedin_leads() -> dict:
         )
         if lead_id:
             routed += 1
+            try:
+                import hashlib
+
+                from app.services import linkedin_advanced
+
+                sha = hashlib.sha256(email.strip().lower().encode()).hexdigest()
+                conv = await linkedin_advanced.stream_conversion(
+                    conversion_rule=os.environ.get(
+                        "LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"
+                    ),
+                    happened_at_ms=int(datetime.now(UTC).timestamp() * 1000),
+                    email_sha256=sha,
+                    lead_id=str(resp.get("id") or "") or None,
+                )
+                if not conv.get("ok") and conv.get("status") not in (None, 200, 201):
+                    logger.info("lead_created conversion not accepted: %s", conv)
+            except Exception as exc:  # noqa: BLE001 — conversion reporting never blocks routing
+                logger.warning("lead_created conversion failed: %s", exc)
     if routed:
         await post_alert_to_slack(f":new: LinkedIn lead sync: {routed} lead(s) routed to EspoCRM")
     return {"routed": routed, "found": len(leads)}
