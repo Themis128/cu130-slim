@@ -123,9 +123,33 @@ Run it after ANY script that registers task actions, and whenever popups
 reappear — the 2026-10-21 regression came from `reregister-staggered-tasks.ps1`
 stripping wraps (it now uses `New-HeadlessAction`).
 
-Known non-task flash source: the **Docker Desktop dashboard window** polls
-`docker stats` every ~10 s, each spawn allocating a conhost — close the
-Docker Desktop window (engine keeps running in tray) to stop that storm.
+Known non-task flash sources (audited 2026-11-14):
+
+- **Docker Desktop stats polling** — `com.docker.backend` spawns
+  `cmd.exe /d /s /c "docker stats --all --no-trunc --no-stream --format
+  "{{ json .}}""` every ~5 s whenever containers run, each allocating a
+  conhost → visible flash. This is upstream bug **docker/for-win#13923 /
+  #13967** (still open on DD 4.99.0, the latest): there is NO setting to
+  disable it. Closing the dashboard window reduces the polling but DD
+  keeps polling to tray — treat residual `docker stats` conhost flashes
+  as expected/unfixable until Docker ships a fix. Signature in
+  `_popup-watch.log`: `parent=docker.exe(...) cmd=...stats --all
+  --no-trunc --no-stream...`.
+- **WSL cron `docker.exe` calls** — every WSL-side `docker.exe` (absolute
+  path under `AppData\Local\Programs\DockerDesktop\resources\bin\`) is a
+  Windows interop spawn that flashes a console. Fixed 2026-11-14: home-ops
+  `social-stack-watchdog.sh`, `mcp-toolkit-heal.sh`, `stack-image-sync.py`,
+  `docker-recovery.sh` now prefer bare `docker` when
+  `docker info --format '{{.Name}}'` returns `docker-desktop` (via
+  `dd-user-distro-proxy.service`), falling back to `docker.exe` for
+  proxy-dead / socket-theft windows. Any NEW script that calls docker
+  from cron/WSL should use the same verified-name pattern — see
+  home-ops `AGENTS.md` watchdog section.
+- **McAfee WebAdvisor browser extension** — Chrome ext id
+  `fheoggkfdfchfphceeifdbepaooicaho` produces popups/console spawns;
+  not installed as a program and has no native-messaging host. Removal
+  is a user click at `chrome://extensions` (HKCU Chrome policy writes
+  are ACL-denied on this host). Edge is clean.
 
 ## Known flakiness
 
