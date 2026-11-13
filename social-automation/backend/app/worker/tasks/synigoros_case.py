@@ -369,7 +369,7 @@ def run_synigoros_followups() -> dict:
 
 
 def _parse_domains(raw) -> list[tuple[str, str | None]]:
-    out = []
+    out: list[tuple[str, str | None]] = []
     for d in raw or []:
         if isinstance(d, str):
             out.append((d, None))
@@ -449,7 +449,8 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                 "&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date"
             )
             headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
-            frm, subj = headers.get("from", ""), headers.get("subject", "")
+            frm = str(headers.get("from") or "")
+            subj = str(headers.get("subject") or "")
             low = (frm + " " + subj).lower()
             req = None
             for d, r in domains:
