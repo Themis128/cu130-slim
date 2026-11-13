@@ -154,7 +154,7 @@ function httpSend(url, token, from, to, subject, text) {
       await smtpSend(host, port, user, pass, from, TO, subject, body);
     }
     console.log('followup sent to', TO);
-    await tg((TEST ? '🧪 TEST αποστολή follow-up (' + (TEST_SMTP ? 'SMTP-only' : 'full chain') + ') -> ' + TO : '📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)'));
+    await tg((TEST ? '🧪 TEST αποστολή follow-up (' + (TEST_SMTP ? 'SMTP-only' : 'full chain') + ') -> ' + TO : '📮 Follow-up εστάλη στον Συνήγορο\n«' + subject + '»\n→ ' + TO + ' | αρ. πρωτ. 408302/81750/2026'));
   } catch (e) {
     console.log('followup send failed:', e.message);
     // The monitor retries every ~15min while SMTP is down — without
