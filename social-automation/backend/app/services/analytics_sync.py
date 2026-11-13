@@ -1142,9 +1142,7 @@ async def sync_linkedin_account(
             if not granted_scopes or "r_member_profileAnalytics" in granted_scopes:
                 followers_res = await _fetch_member_followers(client, token)
                 if followers_res.get("data"):
-                    _persist_account_event(
-                        db, account, captured_at, "member_followers", followers_res["data"]
-                    )
+                    _persist_account_event(db, account, captured_at, "member_followers", followers_res["data"])
 
         for urn in all_urns:
             metrics = stats_map.get(urn) or MetricBundle(notes="missing_stats")
