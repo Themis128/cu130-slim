@@ -1847,119 +1847,72 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
   (since 2026-10-22); lift hold in AWS console if domain wanted back.
   Portfolio no longer depends on it (portfolio.cloudless.gr live).
 
-## Report-delivery incident + watcher (2026-11-12 eve)
+## 2026-11-12 — ntfy central alert lane (phone push)
 
-- Missing-email root causes found + fixed: n8n `socialauto-daily-slack-digest`
-  workflow aborted on `List IntraVox Pages` node error before the email node
-  (live fix via API + repo JSON in PR #1766); strategy_brief/ops_health
-  notebook reports produced artifacts but emails never landed — resent
-  manually, ops_health + daily digest confirmed delivered.
-- n8n public API was fully broken: all stored `user_api_keys` JWTs failed
-  `invalid signature` (encryption-key rotation mismatch). Minted a fresh
-  HS256 key derived from current `N8N_ENCRYPTION_KEY`, inserted into
-  `user_api_keys`, wrote `N8N_API_KEY` to `.env` + Infisical prod
-  (N8N_API_KEY + N8N_API_URL, both 200). `/api/v1/workflows` now 200.
-- New `report-delivery-ops` skill (PR #1766): `report_delivery_watch.py`
-  verifies every scheduled report email arrived (IMAP subject registry
-  mirroring celery_app beat + n8n digest), auto-resends once/day via
-  `celery_app.send_task` in social-worker-default, TG #ops on persistent
-  misses. Cron `45 10,14,20 * * *` (user crontab, EET host).
-- OPEN: `daily_strategy_brief` notebook resend still executing at ~22:10 —
-  DMR `smollm2`/`nomic-embed-text` models not resident → 240s cold-load
-  timeouts per LLM call → CF fallback. Watch for completion; if it keeps
-  timing out, the morning 09:00 run likely dies the same way (explains the
-  missing email). DMR model residency is the underlying fix (dmr-ops).
+- [x] PR #1752 merged — severity alerts fan out to ntfy `cloudless-alerts`
+  (priority 5/4/3/2 for critical/ops/intel/digest) alongside Slack+TG.
+  Covers `send_telegram_alert`, `post_alert_to_slack`, daily digest,
+  `tg_alert.py` skill (devin+cursor mirrors), 12 home-ops watchers via
+  `home-ops/scripts/ntfy_notify.py`. Relay acct `alert-relay` write-only;
+  token in repo `.env` (`NTFY_ALERT_BASE_URL`/`NTFY_ALERT_TOKEN`; topic
+  defaults `cloudless-alerts`). Phone subscribed to all 3 topics on
+  `ntfy.cloudless.gr`, verified live.
+- [ ] **deploy pending**: containers bind-mount the shared checkout, which
+  sits on `feat/dmr-tunnel-gate` (active WIP). ntfy backend code activates
+  on next `checkout master && pull` + restart of social-api + 4 workers +
+  celery-beat. `.env` vars already present — no compose change needed
+  (Settings reads mounted `/app/.env`).
+- [ ] Optional: audit remaining producers that bypass the patched choke
+  points (n8n workflows, email-only alerts, `post_publishing_to_slack`
+  variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
 
-## DMR env drift → gpu:dmr_lock churn (2026-11-12 late)
+## 2026-11-12 (eve) — worker sweep bug fixes (PR #1761)
 
-- Root cause of the `[ops-agent/critical] gpu:dmr_lock held ~40min` alert:
-  NOT a wedged holder — `.env` had all `DMR_*_MODEL` flattened to
-  `smollm2` + `nomic-embed-text` (stale emergency VRAM workaround), and
-  `docker-compose.yml` `${DMR_X:-smollm2}` defaults mean EMPTY .env
-  values fall through to smollm2 — overrides must be explicit refs.
-  `DMR_MEDIA_MODEL` compose default `cloudless/qwen3-4b-media` was never
-  pulled. Missing models → cold-load timeouts → retry stampede → lock
-  continuously held.
-- FIXED in `.env` (live file): all DMR_*_MODEL set to canonical fleet
-  (qwen3:8b text, Qwen3-4B mid/chatbot/quality/media, Qwen3-Embedding,
-  smollm3 tiny, qwen3-vl vision). Container env still stale — needs
-  `docker compose up -d` recreate of social-api + 4 workers + beat
-  (env_file vars bake at CREATE; restart does not reload).
-- IN FLIGHT: `docker model pull` for `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  (2.5GB) + `ai/smollm3` (1.9GB) running detached; wedged `Loading...`
-  entries (8b/vl/llama3.2/embedding) clear once memory frees — they are
-  queued canonical loads, not corruption.
-- VERIFY after recreate: `dmr-env-drift.py` clean + `check_dmr_health`
-  `missing_models=[]` + no new dmr_lock alerts. This also unblocks the
-  OPEN `daily_strategy_brief` cold-load-timeout item above.
-- Tooling: `scripts/dmr-env-drift.py` + incident section in
-  docker-model-runner SKILL.md — PR #1774.
+- [x] PR #1761 — report_videos detached-session fix (12 stuck
+  pending_video_task drafts flushed to FAILED), datalake_insights alert
+  dedupe (~113 identical ntfy msgs/day → 1 per distinct digest),
+  plain_english prompt-leak guard, publish_verify asyncpg casts,
+  media_backfill run_async. Auto-merge armed; required checks green.
+- [ ] **Bluesky app password dead + bsky 429 rate-limit** — stored app
+  password returns 401; rotation sweep runs daily 04:20 but createSession
+  is IP-rate-limited (429) as of 21:10Z. Self-heals on next sweep window;
+  if still failing tomorrow, mint app password at bsky.app manually.
+- [ ] **LinkedIn sidecar session rate_limited** — session_healer reports
+  `rate_limited`, OAuth sessions_invalid=2. Automated lanes exhausted;
+  needs session-ops manual relogin via noVNC if it persists.
+- [ ] **Other agents' dirty files left uncommitted**: fb_session_heal.py,
+  tt_verify_status.py, tiktok_reauth.py — not mine, left in tree.
+- [ ] Host gates warn: RAM pressure (WSL avail 3.7GB / host free 1.4GB),
+  dmr_tunnel retry loops alive, cdp_lane :9229 relaunched — self-healing
+  lanes active, monitor only.
 
-## Recovered stash items + engagement fix (2026-11-13)
+## 2026-11-12 (late) — DMR chatbot model fixed via env pin; C: disk at 99%
 
-Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
-restored after the #1785 unbound-var bug killed deploy-watch mid-run:
-
-- [ ] **DMR runner scheduler wedges on this host** — after Docker Desktop
-  restart, /engines/v1/models returns 200 but chat completions hang;
-  `docker model ps` shows models stuck "Loading..." indefinitely
-  (qwen3:8b, qwen3-vl observed 2026-11-13). dmr-watchdog's restart path
-  can't work on Docker Desktop (`docker-model-runner` is not a container
-  in this engine). Only recovery seen: full `docker desktop restart`.
-  Root cause likely RAM pressure: WSL ~11Gi total, ~5Gi available; the
-  canonical fleet can't all co-reside. Options: lower keep_alive /
-  trim `_BEST_PRACTICE_CONFIGS`, or raise WSL memory.
-- [x] DMR_CHATBOT_MODEL missing — RESOLVED 2026-11-13: canonical
-  `DMR_CHATBOT_MODEL=hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  in .env, model pulled + resident.
-- [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
-  to `docker exec` inside social-api (PR #1781 merged).
-
-## Engagement dispatch crash-loop — FIXED (2026-11-13)
-
-- `dispatch_engagements` was crash-looping ~41 failures/12min:
-  `AttributeError: 'EngagementAction' object has no attribute 'meta_data'`.
-  Task writes `gate_notified`/`skip_count` markers; model lacked the column
-  and migration `f7g8h9i0j1k2` sat on a dead alembic branch (never applied —
-  prod `alembic_version` was `k2f9a1b4c6d8`).
-- Fix merged via PR #1780: `meta_data` mapped_column on `EngagementAction`
-  + migration `c9d8e7f6a5b4` on the live head (idempotent — the orphaned
-  migration also applies on fresh `upgrade heads` builds).
-- Verified live: `alembic current = c9d8e7f6a5b4 (head)`, zero
-  meta_data errors post-restart (was 41/12min).
-- Gotcha for future migration authors: check `alembic heads` AND grep
-  existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
-
-## LinkedIn unused dev-app surfaces — implemented (2026-11-12/13)
-
-PR #1789 (`feat/linkedin-unused-surfaces-rebuilt`, auto-merge armed; #1786
-superseded by rebuild):
-- `linkedin_actor`: comments via official CM API first (person token,
-  `author_urn`); API refusal → skip (no sidecar retry), infra failure →
-  sidecar fallback. Likes remain sidecar-only.
-- `linkedin_events.create_org_event` fixed to real schema
-  (`startsAt` + `type.online.format.external`); description omitted —
-  MultiLocaleRichText localized-map shape 422s live. NEW
-  `post_org_event()` + `linkedin_event.py post` — events are drafts until
-  a `/rest/posts` call references `urn:li:event:{id}` (this was the GET
-  404 cause).
-- LIVE: org event `7526770135387529216` created AND posted
-  (`urn:li:ugcPost:7526789120099086336`, GET now 200, vanityName
-  `freelive-theaiauditmostsmbsskip…`, LISTED) — Thu 2026-11-20
-  17:00–17:45 EET, url → cloudless.gr/contact.
-- Announcement post `9678a774-dae5-48e9-8b1a-1a178841b5a9` SCHEDULED
-  2026-11-19 07:00 UTC (day-before reminder).
-- `route_linkedin_leads` streams `lead_created` conversion (SHA256 email
-  + lead response id) after EspoCRM upsert; non-blocking. NOTE:
-  `lead_created` rule must exist in Campaign Manager — verify.
-- vhdx-compact RESOLVED: root causes were missing UTF-8 BOM (PS5.1 parse
-  fail) + vhdx still locked. Script now stops Docker forcefully, waits
-  for exclusive handle, BOM'd. Ran 00:43→~01:30: vhdx 185.5→158.8GB,
-  C: 8.7→~52GB free. Fixes in home-ops `f4aa003`.
-- DMR env drift RESOLVED: `compose up -d` recreate baked canonical
-  DMR_*_MODEL fleet into containers; 4/4 workers pong.
-- Portal gates still open: Member DP (Member) on app 265077368 +
-  Matched Audiences case on 264925843 — `scripts/li-portal-gate-watch.sh`
-  cron (every 2h, 24h dedup) retries the probe and drives the modal once
-  LinkedIn's 429 clears.
-- Tests: 11 new cases; ruff clean; workers restarted.
+- [x] **DMR_CHATBOT_MODEL failure class resolved**: root cause was NOT the
+  missing 4B pull — `.env` pinned every DMR_*_MODEL to `smollm2` except
+  `DMR_CHATBOT_MODEL`, which fell through to the config default
+  `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` (never registered —
+  6 pull attempts all died at finalization). Added
+  `DMR_CHATBOT_MODEL=smollm2` to both `.env` copies; verified live in
+  social-api settings (`CHATBOT: smollm2`). smollm2 serves verified
+  (chat completion 200). IG DM auto-replies no longer hit model-not-found.
+- [x] **docker image prune -a**: reclaimed 27.5GB inside docker-desktop
+  (old <none> rebuild layers + unused MCP/tool images). C: free space did
+  NOT grow — `docker_data.vhdx` is 199GB and does not auto-shrink.
+- [ ] **C: at 99% (8.9GB free)** — likely contributor to DMR pull SIGBUS
+  crashes at finalization. Needs `Optimize-VHD`/diskpart compact of
+  `docker_data.vhdx` (requires Docker Desktop shutdown — schedule it).
+- [ ] **DMR pull still broken**: attempt #6 downloaded 2.5GB then the
+  engine pipe vanished mid-finalize (same as #1-5). Runner scheduler also
+  wedges with 3 models stuck "Loading..." (qwen3:8b, llama3.2, qwen3-vl);
+  `docker model unload --all` cleared queue once. All lanes now pinned to
+  resident smollm2 — acceptable degradation; revisit 4B/8B when Docker
+  Desktop is stable or move DMR to omv (vLLM path exists in config).
+- [ ] **DMR_EMBEDDING_MODEL=nomic-embed-text → 404** (not in DMR catalog;
+  installed model is `docker.io/ai/qwen3-embedding`). Chroma has 0
+  collections so no vector-compat risk, but embed calls currently fail →
+  CF fallback. Decide: repin to qwen3-embedding (1024d) or accept CF.
+- [ ] WSL↔Windows vsock interop degraded late-session (docker.exe +
+  powershell.exe both failing `UtilAcceptVsock`); stack itself stayed up
+  (social.cloudless.gr 200 via tunnel). Durable fix remains `wsl
+  --shutdown` — do NOT run mid-session.
