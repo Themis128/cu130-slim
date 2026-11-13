@@ -21,7 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 ENV_CANDIDATES = [REPO / ".env", Path.home() / "cu130-slim" / ".env"]
 LOG_DIR = Path.home() / "logs"
-SIDECAR = "http://localhost:8005"  # facebook-browser-sidecar health probe
+SIDECAR = "http://localhost:9226"  # facebook-browser-sidecar (CDP port)
 
 
 def _env(key: str) -> str:
@@ -76,8 +76,9 @@ def heal_tail(log: str, n: int = 8) -> str:
 
 def sidecar_health() -> str:
     try:
-        with urllib.request.urlopen(f"{SIDECAR}/health", timeout=5) as r:
-            return f"{SIDECAR}/health -> {r.status} {r.read()[:80]!r}"
+        with urllib.request.urlopen(f"{SIDECAR}/json/version", timeout=5) as r:
+            body = r.read()[:80]
+            return f"{SIDECAR}/json/version -> {r.status} {body!r}"
     except Exception as e:  # noqa: BLE001
         return f"{SIDECAR} unreachable: {e}"
 
