@@ -2147,5 +2147,7 @@ superseded by rebuild):
 - **Still queued** (admin-followups.js, now on working SMTP):
   dypa-nudge-1 11/20, ombudsman-escalation-2 + call reminder 11/25,
   dypa-written-demand reminder 12/04, sepe-status-1 + call 12/08.
-- **Verify Monday**: schtasks result for SynigorosFollowupMon + Gmail
-  SENT folder; PC must be on at 09:00 (no catch-up).
+- **Verify Monday**: `SynigorosFollowupVerify` task fires 09:30 —
+  `D:\DevOptimizer\synigoros-followup\verify-send.py` checks state.json
+  + Gmail `in:sent` and TG-alerts ✅/⚠️. Both tasks have
+  StartWhenAvailable catch-up (fire on next boot if PC was off).
