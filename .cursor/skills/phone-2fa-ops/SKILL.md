@@ -14,7 +14,7 @@ python3 fb_code.py --latest   # poll up to 120s for a fresh code
 python3 fb_code.py --fill     # fill + submit the browser two_factor field via CDP
 ```
 
-Env: `ADB`, `ADB_SERIAL` (default `192.168.1.77:5555`), `CDP_URL`
+Env: `ADB`, `ADB_SERIAL` (auto-resolved: env > Tailscale `100.x` wireless ADB > LAN `ip:port` > USB; fallback `192.168.1.77:5555`), `CDP_URL`
 (default `http://100.83.120.93:9223`).
 
 ## How it works
