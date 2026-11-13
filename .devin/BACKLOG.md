@@ -2183,3 +2183,26 @@ superseded by rebuild):
   no-reply + status still «Προς Αποδοχή».
 - **Verify Monday**: schtasks SynigorosFollowupMon/Verify results +
   Gmail SENT + TG verify alert.
+## 2026-11-13 (late) — FB mobile-web login lane (PR #1853)
+
+- **New sidecar lane** `facebook-browser-sidecar/server.js`:
+  `POST /login-mobile`, `GET /login-mobile/poll`, `POST /login-mobile/code`.
+  m.facebook.com is a JS-rendered SPA that 400s non-browser clients, so the
+  lane drives a real page in a second Playwright context (mobile UA). It
+  auto-walks passkey → "Try another way" → "Notification on another
+  device" → waiting-for-approval — the same push `phone_fb_approve.py`
+  already handles. On approval, cookies transfer to the desktop context and
+  `saveSession()` persists to the volume.
+- **Restart-safe**: mobile storageState + checkpoint URL persist to
+  `/data/fb-session-mobile.json`; poll/code restore it after restarts.
+- Verified live through "We sent a notification to your Samsung Galaxy
+  S22+ 5G… Waiting for approval". Full E2E (approve → c_user → saved
+  session) still pending — host docker/WSL vsock flapped repeatedly during
+  the test window and killed in-flight attempts.
+- Known gap: phone approver returned `not-allowlisted`/`no-tab` on the
+  mobile-web pushes (device text empty) — fail-closed working as designed;
+  needs the device-string extraction checked for this lane's pushes.
+- Python `requests` prototype abandoned — Meta 400s it; browser-context is
+  the only viable mobile lane.
+- Next: wire `/login-mobile` into `ig_fb_session_heal.py` as preferred lane
+  after the persistent-session probe, keep desktop `/login` as fallback.
