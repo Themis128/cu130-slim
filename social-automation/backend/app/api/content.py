@@ -517,7 +517,9 @@ async def duplicate_post(post_id: uuid.UUID, team_id: TeamId, current_user: User
         status=PostStatus.DRAFT,
         content_text=post.content_text,
         media_ids=post.media_ids,
-        platform_specific=post.platform_specific,
+        # jsonb 'null' deserializes to None and 500s the non-optional dict
+        # fields below — coalesce defensively.
+        platform_specific=post.platform_specific or {},
         hashtags=post.hashtags,
         mention_accounts=post.mention_accounts,
         link_url=post.link_url,
@@ -648,7 +650,9 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         status=post.status,
         content_text=post.content_text,
         media_ids=post.media_ids,
-        platform_specific=post.platform_specific,
+        # jsonb 'null' deserializes to None and 500s the non-optional dict
+        # fields below — coalesce defensively.
+        platform_specific=post.platform_specific or {},
         hashtags=post.hashtags,
         mention_accounts=post.mention_accounts,
         link_url=post.link_url,
@@ -659,7 +663,7 @@ async def _post_to_response(post: Post, db: AsyncSession) -> PostResponse:
         failure_reason=post.failure_reason,
         workflow_id=post.workflow_id,
         workflow_run_id=post.workflow_run_id,
-        metadata=post.meta_data,
+        metadata=post.meta_data or {},
         music_asset_id=post.music_asset_id,
         pillar_id=post.pillar_id,
         content_brief_id=post.content_brief_id,
