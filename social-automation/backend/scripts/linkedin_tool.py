@@ -42,7 +42,9 @@ import httpx  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 API_BASE = "https://api.linkedin.com"
-API_VERSION = "202610"
+REST_BASE = f"{API_BASE}/rest"
+V2_BASE = f"{API_BASE}/v2"
+API_VERSION = "202608"  # pinned — /rest virtual resources 404 on newer versions
 
 
 async def _get_account(account_id: str):
@@ -126,40 +128,66 @@ def cmd_access_matrix(account_id: str) -> None:
     """
     account = asyncio.run(_get_account(account_id))
     token = _token(account)
+    meta = account.meta_data or {}
+    is_org = meta.get("account_type") == "organization"
     org_urn = _org_urn(account)
     org_id = org_urn.rsplit(":", 1)[-1]
+    org_q = urllib.parse.quote(org_urn, safe="")
 
+    # URL shapes mirror the production callers (analytics_sync,
+    # linkedin_api, linkedin_engagement_score) — hand-built query strings
+    # where Rest.li needs raw object syntax or pre-encoded URNs.
     probes = {
-        "userinfo": ("GET", f"{API_BASE}/v2/userinfo", {}),
-        "networkSizes_firstDegree": (
+        "userinfo": ("GET", f"{V2_BASE}/userinfo", {}),
+        "networkSizes_followers": (
             "GET",
-            f"{API_BASE}/v2/networkSizes/{urllib.parse.quote(org_urn, safe='')}",
-            {"edgeType": "CompanyFollowedByMember"},
+            f"{REST_BASE}/networkSizes/{org_q}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
+            {},
         ),
         "followerStatistics": (
             "GET",
-            f"{API_BASE}/rest/organizationalEntityFollowerStatistics",
-            {
-                "q": "organizationalEntity",
-                "organizationalEntity": org_urn,
-            },
+            f"{REST_BASE}/organizationalEntityFollowerStatistics"
+            f"?q=organizationalEntity&organizationalEntity={org_q}",
+            {},
         ),
         "organizationAcl_check": (
             "GET",
-            f"{API_BASE}/rest/organizationAcls",
-            {"q": "roleAssignee"},
+            f"{REST_BASE}/organizationAcls"
+            "?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+            {},
         ),
         "organization": (
             "GET",
-            f"{API_BASE}/rest/organizations/{org_id}",
+            f"{REST_BASE}/organizations?ids=List({org_id})",
             {},
         ),
-        "socialMetadata_likes": (
+        "org_posts": (
             "GET",
-            f"{API_BASE}/rest/socialMetadata/likes",
+            f"{REST_BASE}/posts?q=author&author={org_q}&count=1",
+            {},
+        ),
+        # Entity-scoped: org URN is not a valid socialMetadata entity, so a
+        # 400 here means the endpoint+auth path is reachable while a 403
+        # would mean the scope/product is denied.
+        "socialMetadata_reachability": (
+            "GET",
+            f"{REST_BASE}/socialMetadata?entity={org_q}",
             {},
         ),
     }
+    if not is_org:
+        # Org-URN probes are meaningless for member accounts — the fallback
+        # org_urn is a person UUID, not an organization. Report SKIP instead
+        # of firing requests that can only 400/403.
+        org_only = {
+            "networkSizes_followers",
+            "followerStatistics",
+            "organization",
+            "org_posts",
+            "socialMetadata_reachability",
+        }
+        probes = {k: v for k, v in probes.items() if k not in org_only}
+        probes["_org_probes"] = ("SKIP", "member account — org endpoints n/a", {})
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -168,8 +196,13 @@ def cmd_access_matrix(account_id: str) -> None:
     }
     with httpx.Client(timeout=20) as client:
         for name, (method, url, params) in probes.items():
+            if method == "SKIP":
+                print(f"{name}\tSKIP\t{url}")
+                continue
             try:
-                resp = client.request(method, url, params=params, headers=headers)
+                # params=None preserves hand-built ?query in the URL —
+                # httpx drops the URL query string when params={} is passed.
+                resp = client.request(method, url, params=params or None, headers=headers)
                 body_hint = ""
                 if resp.status_code == 200:
                     try:
@@ -182,6 +215,8 @@ def cmd_access_matrix(account_id: str) -> None:
                         pass
                 else:
                     body_hint = resp.text[:120].replace("\n", " ")
+                    if resp.status_code in (401, 403):
+                        body_hint = f"AUTH/SCOPE? {body_hint}"
                 print(f"{name}\t{resp.status_code}\t{body_hint}")
             except Exception as exc:  # noqa: BLE001
                 print(f"{name}\tERR\t{exc}")
