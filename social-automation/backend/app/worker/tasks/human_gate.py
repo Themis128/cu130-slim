@@ -47,8 +47,18 @@ async def _watch() -> dict:
             except Exception as exc:  # noqa: BLE001 — asleep/unreachable is normal
                 out[name] = f"unreachable ({exc.__class__.__name__})"
                 continue
-            state = str(data.get("status") or data.get("checkpoint") or data.get("logged_in"))
-            blocked = "pending" in state.lower() or "restrict" in state.lower() or state == "False"
+            # "status" alone is not enough: the FB sidecar returns
+            # {"status": "ok", "logged_in": false, "profile_picker": true}
+            # on a login wall, which used to read as healthy. Treat an
+            # explicit logged_in=false or profile_picker=true as blocked.
+            state = str(data.get("status") or data.get("checkpoint") or "")
+            blocked = (
+                "pending" in state.lower()
+                or "restrict" in state.lower()
+                or state == "False"
+                or data.get("logged_in") is False
+                or data.get("profile_picker") is True
+            )
             key = f"humangate:nudge:{name}"
             if blocked:
                 last = float(await r.get(key) or 0)

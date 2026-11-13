@@ -79,6 +79,25 @@ async def test_watch_logged_out_false_is_blocked(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_watch_status_ok_but_logged_out_is_blocked(monkeypatch):
+    # FB sidecar login wall returns {"status": "ok", "logged_in": false,
+    # "profile_picker": true} — "status" must not mask the logged-out state.
+    def handler(req):
+        if "facebook" in req.url.host:
+            return httpx.Response(
+                200,
+                json={"status": "ok", "logged_in": False, "profile_picker": True},
+            )
+        return httpx.Response(200, json={"status": "ok"})
+
+    r, alert = _setup(monkeypatch, handler)
+    out = await HG._watch()
+    assert out["meta-status"] == "nudged"
+    assert out["linkedin-2fa"] == "ok"
+    assert "meta" in alert.await_args.args[0].lower()
+
+
+@pytest.mark.asyncio
 async def test_watch_cleared_and_ok_and_unreachable(monkeypatch):
     def handler(req):
         if "linkedin" in req.url.host:

@@ -11,19 +11,27 @@ verified. Built 2026-10-29 for the real failure chain on the S22+:
   server-side calls"),
 - ntfy server runs `auth_default_access: deny-all` → topics need a user.
 
-## Working endpoint
+## Working endpoints
 
-`http://100.74.191.58:30080` — the ntfy k3s NodePort on `github-omv`, reached
-over the tailnet by **IP** (immune to MagicDNS). Requires the phone's
-Tailscale VPN connected; the script toggles it via the
-`com.tailscale.ipn.CONNECT_VPN` broadcast itself.
+**`https://ntfy.cloudless.gr` is the canonical endpoint (verified 2026-11-13).**
+The app subscribes directly with the `phone` user credentials — no Tailscale
+or LAN dependency. All four topics (`cloudless-alerts`, `cloudless-ops`,
+`nextcloud-ops`, `devoptimizer-alerts`) are subscribed and receiving.
+
+Fallbacks if the public endpoint ever breaks again:
+
+- `http://100.74.191.58:30080` — the ntfy k3s NodePort on `github-omv`, reached
+  over the tailnet by **IP** (immune to MagicDNS). Requires the phone's
+  Tailscale VPN connected; the script toggles it via the
+  `com.tailscale.ipn.CONNECT_VPN` broadcast itself.
+- `http://192.168.1.200:30080` — same NodePort on home Wi-Fi, no VPN needed.
 
 ## Usage
 
 ```bash
 adb connect 192.168.1.77:5555            # or USB
 NTFY_PHONE_PW=<pw> python .devin/skills/ntfy-phone-ops/scripts/ntfy_set_server.py \
-    http://100.74.191.58:30080 --topic cloudless-alerts \
+    https://ntfy.cloudless.gr --topic cloudless-alerts \
     --user phone --test
 ```
 
@@ -90,6 +98,14 @@ ssh github-omv "sudo k3s kubectl -n ntfy exec deploy/ntfy -- \
   — match both attributes.
 - First SUBSCRIBE tap may only dismiss the IME → tap again if the dialog
   persists.
-- Public `ntfy.cloudless.gr` is Access-blocked for the app (interactive SSO).
-  Don't repoint the phone there — and any server-side publisher using the
-  public URL silently fails the same way (publish to `github-omv:30080`).
+- ~~Public `ntfy.cloudless.gr` is Access-blocked for the app~~ — **STALE as of
+  2026-11-13**: the app now subscribes via `https://ntfy.cloudless.gr` with
+  `phone` auth and notifications flow. If it ever regresses to a 302/SSO
+  challenge, fall back to the tailnet/LAN NodePort endpoints above.
+- **Duplicate server entries:** the app accumulates one auth entry per
+  server-string variant (`ntfy.cloudless.gr` vs `ntfy.cloudless.gr/` vs IP).
+  A stale entry with an old password produces "User phone not authorized" on
+  new subscriptions — fix via Settings → Manage users → Edit user with the
+  current password (verify against the API first). Subscriptions bound to a
+  slash-suffixed entry still work; prefer the bare `https://ntfy.cloudless.gr`
+  form for new ones.
