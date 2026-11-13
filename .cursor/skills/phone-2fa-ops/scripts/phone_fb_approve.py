@@ -33,7 +33,36 @@ ADB = os.environ.get(
     "ADB",
     "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
 )
-SER = os.environ.get("ADB_SERIAL", "RFCTA0AEKZP")
+
+
+def _pick_serial(fallback: str) -> str:
+    """Resolve the live device: ADB_SERIAL env > Tailscale wireless ADB
+    (100.x CGNAT — survives USB unplug and LAN changes) > any network
+    serial > first device > fallback."""
+    env = os.environ.get("ADB_SERIAL")
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            [ADB, "devices"], capture_output=True, text=True, timeout=15
+        ).stdout
+    except Exception:
+        return fallback
+    devs = [
+        l.split()[0]
+        for l in out.splitlines()[1:]
+        if len(l.split()) == 2 and l.split()[1] == "device"
+    ]
+    for s in devs:
+        if s.startswith("100."):
+            return s
+    for s in devs:
+        if ":" in s:
+            return s
+    return devs[0] if devs else fallback
+
+
+SER = _pick_serial("RFCTA0AEKZP")
 STATE = os.path.expanduser("~/.local/state/phone-fb-approve.json")
 MAX_AGE_S = 900          # ignore approvals older than 15 min
 ALLOW_RE = re.compile(r"linux|wsl|windows|chrome|edge|docker", re.I)

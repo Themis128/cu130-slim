@@ -23,7 +23,36 @@ import time
 import urllib.request
 
 ADB = os.environ.get("ADB", "adb")
-SER = os.environ.get("ADB_SERIAL", "192.168.1.77:5555")
+
+
+def _pick_serial(fallback: str) -> str:
+    """Resolve the live device: ADB_SERIAL env > Tailscale wireless ADB
+    (100.x CGNAT — survives USB unplug and LAN changes) > any network
+    serial > first device > fallback."""
+    env = os.environ.get("ADB_SERIAL")
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            [ADB, "devices"], capture_output=True, text=True, timeout=15
+        ).stdout
+    except Exception:
+        return fallback
+    devs = [
+        l.split()[0]
+        for l in out.splitlines()[1:]
+        if len(l.split()) == 2 and l.split()[1] == "device"
+    ]
+    for s in devs:
+        if s.startswith("100."):
+            return s
+    for s in devs:
+        if ":" in s:
+            return s
+    return devs[0] if devs else fallback
+
+
+SER = _pick_serial("192.168.1.77:5555")
 CDP = os.environ.get("CDP_URL", "http://100.83.120.93:9223")
 CODE_RE = re.compile(r"Use\s+(\d{4,8})\s+for two-factor")
 
