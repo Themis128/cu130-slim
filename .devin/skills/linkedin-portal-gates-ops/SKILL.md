@@ -97,6 +97,61 @@ no CDP relay needed. Runs inside `social-api` (compose DNS resolves
   Member DP request flow the CDP lane does; Matched Audiences case
   status can be read via `--url` on the app's Support page.
 
+## Grant watcher — `li_grant_watch.py` (2026-11-14)
+
+Detects product-grant transitions by probing the gated APIs with the stored
+tokens (inside social-api) — ground truth, not portal labels:
+
+```bash
+python3 scripts/li_grant_watch.py            # probe + diff + TG alert + auto-dispatch
+python3 scripts/li_grant_watch.py --json     # machine-readable, no side effects
+python3 scripts/li_grant_watch.py --status   # last recorded state
+```
+
+- Probes: `GET /rest/dmpSegments?q=account&account=<ad urn>` (Matched
+  Audiences, org token), `GET /rest/memberSnapshotData?q=criteria` +
+  `memberChangeLogs` (Member DP, person token, **Linkedin-Version 202312**,
+  `q=criteria` required — bare GET 404s on version/params, not authz),
+  plus `token-inspect` scope sets per account.
+- On transition to granted → TG `#ops` alert + auto-dispatches
+  `sync_linkedin_dmp_audiences` / `sync_linkedin_portability` so the lane
+  starts immediately instead of waiting for the daily beat.
+- Verified live 2026-11-14: dmpSegments → 403 ACCESS_DENIED (correct),
+  memberSnapshotData → 403 ACCESS_DENIED (correct), member analytics scopes
+  already live.
+- Cron: `7 */2 * * *` user crontab → `~/logs/li-grant-watch.log`.
+- **Re-consent caveat**: even after LinkedIn approves a product, the member
+  token must be re-authorized to carry the new scope (e.g.
+  `rw_dmp_segments`). The watcher alerts on "scope in token but API still
+  denies" — run the `linkedin-reauth-ops` lane then.
+
+## Matched Audiences appeal — `li_vetting_appeal.py` (2026-11-14)
+
+Files a case through the official form `linkedin.com/help/linkedin/ask/dsapi`
+(the Developer Support Request Form — primary channel since 2026-05-15,
+Zendesk sunset). Fields: Application Client ID, Form Type (Vetting Appeal),
+API Program, Description. Client IDs for all three apps are baked in.
+
+```bash
+python3 scripts/li_vetting_appeal.py --dump     # inspect the live form
+python3 scripts/li_vetting_appeal.py --fill     # fill, don't submit
+python3 scripts/li_vetting_appeal.py --fill --submit
+```
+
+Cheaper first step: check `li_product_state.py 264925843` for a **Reapply**
+button — declined/expired requests resubmit from the portal directly.
+Appeal copy rules baked into the script: precise verifiable facts only,
+never overstate the legal entity (reviewers cross-check), real ΑΦΜ/ΓΕΜΗ
+only if the user supplies them.
+
+## Member DP request — full flow already exists
+
+`linkedin-devapp-ops/scripts/li_devapp_ops.py request 265077368 "<heading>"`
+runs the complete modal session: Request access → business-email verify →
+6-digit code via `mail-code-fetch/fetch-code.py` → confirm → ToS → Request
+access. Headings on 265077368: Member DP (Member) / Member DP (3rd Party).
+Needs the :9229 portal session — armed, fires post-cooldown.
+
 ## Rules
 
 - Never submit legal/business-info forms with fabricated data — the
