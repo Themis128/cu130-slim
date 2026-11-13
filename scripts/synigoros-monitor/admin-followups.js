@@ -6,14 +6,48 @@
 const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
+const net = require('net');
 const https = require('https');
+const { execFileSync, execFile } = require('child_process');
 
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const SCHEDULE = JSON.parse(fs.readFileSync(path.join(DIR, 'followups.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'admin-followups-state.json');
+const MONITOR_STATE = path.join(DIR, 'state.json');
 const DRY = process.argv.includes('--dry-run');
 const LIST = process.argv.includes('--list');
+
+// Conditional-skip helpers: an event may declare
+//   "requireStatus": "Προς Αποδοχή"   — skip if monitor state.json status differs
+//   "skipIfRepliedFrom": "domain" + "skipIfRepliedSince": "YYYY-MM-DD"
+//                       — skip if the cloudless.gr mailbox got mail from that
+//                         domain since the date (IMAP check via check-replies.py)
+function pythonBin() {
+  for (const c of [process.env.PYTHON, 'python', 'py',
+                   'C:\\Program Files\\Python312\\python.exe']) {
+    if (!c) continue;
+    try { execFileSync(c, ['--version'], { stdio: 'ignore', timeout: 5000 }); return c; }
+    catch {}
+  }
+  return 'python';
+}
+
+function checkReplied(sender, since, requireRe) {
+  const args = [path.join(DIR, 'check-replies.py'), '--from', sender, '--since', since];
+  if (requireRe) args.push('--require', requireRe);
+  try {
+    const out = execFileSync(pythonBin(), args, { timeout: 90000 }).toString();
+    return JSON.parse(out);
+  } catch (e) {
+    return { replied: false, error: 'check-replies failed: ' + e.message };
+  }
+}
+
+function monitorStatus() {
+  try { return JSON.parse(fs.readFileSync(MONITOR_STATE, 'utf8')).status || null; }
+  catch { return null; }
+}
 
 function envVal(key) {
   try {
@@ -56,8 +90,10 @@ function smtpSend(host, port, user, pass, from, toList, subject, text) {
       else { sock.end(); resolve(true); }
     };
     const fail = (e) => reject(e instanceof Error ? e : new Error(String(e)));
+    // Node rejects servername set to an IP literal (ERR_INVALID_ARG_VALUE)
+    const sni = net.isIP(host) ? undefined : host;
     if (port === 465) {
-      sock = tls.connect(port, host, { servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
+      sock = tls.connect(port, host, { servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
       sock.on('data', onData);
       sock.on('error', fail);
     } else {
@@ -76,7 +112,7 @@ function smtpSend(host, port, user, pass, from, toList, subject, text) {
         } else if (phase === 2) {
           const raw = sock;
           raw.removeAllListeners('data');
-          sock = tls.connect({ socket: raw, servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
+          sock = tls.connect({ socket: raw, servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
             sock.on('data', onData);
             sock.on('error', fail);
             sock.write('EHLO monitor\r\n');
@@ -100,6 +136,7 @@ function httpSend(url, token, from, to, subject, text) {
       hostname: u.hostname, port: 443, path: u.pathname, method: 'POST',
       headers: { 'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token,
+        'User-Agent': 'synigoros-monitor/1.0',
         'Content-Length': Buffer.byteLength(body) },
     }, (res) => {
       let d = '';
@@ -132,11 +169,33 @@ function loadState() {
     return;
   }
 
+  // Inbound reply watcher — same ~15min cadence via monitor.js spawn.
+  // Fire-and-forget; reply-watch.py self-throttles via reply-watch-state.json.
+  try {
+    execFile(pythonBin(), [path.join(DIR, 'reply-watch.py')],
+      { stdio: 'ignore', detached: true }).unref();
+  } catch (e) { console.log('reply-watch spawn failed: ' + e.message); }
+
   let changed = false;
   for (const ev of SCHEDULE.events) {
     if (state.sent[ev.id]) continue;
     const dueAt = new Date(ev.sendAt + 'T08:00:00+03:00').getTime();
     if (now < dueAt) continue;
+
+    // Gate: skip when the monitored status no longer matches (applies
+    // to tgOnly reminders too — e.g. no call reminder once accepted).
+    if (ev.requireStatus) {
+      const cur = monitorStatus();
+      if (cur !== ev.requireStatus) {
+        const why = 'skipped: status=' + cur + ' (required ' + ev.requireStatus + ')';
+        if (DRY) { console.log('DRY-SKIP ' + ev.id + ': ' + why); continue; }
+        state.sent[ev.id] = why;
+        changed = true;
+        console.log(ev.id + ' ' + why);
+        await tg(`⏭️ ${ev.id} παραλείφθηκε — ${why}`);
+        continue;
+      }
+    }
 
     // tg-only reminder events (e.g. scheduled phone calls) — no email sent.
     if (ev.tgOnly) {
@@ -161,8 +220,27 @@ function loadState() {
       continue;
     }
 
-    const host = envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
-    const port = parseInt(envVal('SMTP_RELAY_PORT') || envVal('SMTP_PORT') || '587', 10);
+    // Gate: skip the email if the authority already replied by mail.
+    if (ev.skipIfRepliedFrom) {
+      const r = checkReplied(ev.skipIfRepliedFrom, ev.skipIfRepliedSince || ev.sendAt,
+        ev.skipIfRepliedRequire);
+      if (r.replied) {
+        const why = 'skipped: reply from ' + ev.skipIfRepliedFrom +
+          ' since ' + (ev.skipIfRepliedSince || ev.sendAt);
+        state.sent[ev.id] = why;
+        changed = true;
+        console.log(ev.id + ' ' + why);
+        await tg(`⏭️ ${ev.id} παραλείφθηκε — ${why} (${(r.matches[0] || {}).subject || ''})`);
+        continue;
+      }
+      if (r.error) console.log(ev.id + ': reply-check failed (sending anyway): ' + r.error);
+    }
+
+    // Primary SMTP = omv-ha postfix relay (SMTP_HOST/SMTP_PORT). The
+    // mail-outbound Worker only reaches verified CF destination addresses,
+    // so external recipients always fall through to SMTP anyway.
+    const host = envVal('SMTP_HOST') || envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
+    const port = parseInt(envVal('SMTP_PORT') || envVal('SMTP_RELAY_PORT') || '587', 10);
     const user = envVal('SMTP_USER'), pass = envVal('SMTP_PASSWORD'), from = envVal('SMTP_FROM');
     const outUrl = envVal('MAIL_OUTBOUND_URL'), outTok = envVal('MAIL_OUTBOUND_TOKEN');
     try {

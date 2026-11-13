@@ -2089,3 +2089,89 @@ superseded by rebuild):
   still `two_factor_required`; heal cycles continue, next approval will
   be auto-handled by the armed lanes.
 - Skills mirrored to `.cursor/skills/`; PR #1835 armed.
+
+## 2026-11-13 (late) — MS365 outage campaign publish state
+
+- **Published: Threads only** — https://www.threads.net/@cloudless.gr/post/18089509097704943
+- **Pending in queue**: bluesky (4c83cbd6), tiktok (8bf880dd) — rows processing.
+- **Skipped→requeued**: facebook (042ad11b), twitter/X (5f2cb7ed),
+  linkedin personal (7b0c35ef) + **Company Page** (dacff0f0 → account
+  9c4451bb, correct per funnel rules), instagram (888ef63b). All 5 died
+  on transient "media incomplete: 0/1 resolved" — R2 fetch failed DURING
+  an engine flap; verified `r2_storage.get_object` works post-restart.
+  Requeued via `publish_post_now` celery calls (queue rows pending).
+- **Root causes found this session**:
+  1. DMR scheduler wedged — /api/ps listed 6 models but chat probe hung
+     60s+. Fixed via `docker.exe desktop restart` (watchdog's
+     `docker restart docker-model-runner` path is DEAD CODE on Docker
+     Desktop — no such container; dmr-watchdog can't heal this class).
+     4B answered in 18s after restart.
+  2. R2 `public_url` serves `application/octet-stream` for the PNG/MP4 —
+     COSMETIC: publishers fetch `/api/v1/media/view?path=` which re-types
+     by extension (verified image/png + video/mp4 live).
+  3. Engine flap cycle ~every 10-20min kills queue runs + prewarm
+     mid-flight; gate caches DO accumulate between flaps (6/10 posts
+     cached at last check) so progress is incremental.
+- **New tool**: `scripts/publish_queue_preflight.py` — PR #1844 (auto-
+  merge). Audits pending/processing queue rows pre-claim; probes the
+  real publish URL not raw R2.
+- **Prewarm running**: `docker exec -d social-worker-publishing python
+  /app/scripts/prewarm_quality_gate.py` (loop wrapper, auto-discovers).
+- **Human gate unchanged**: `wsl --shutdown` + Docker Desktop restart
+  when a 5-min session loss is OK — the durable vsock/RAM fix. TikTok
+  `dcda73fb` (cloudless.gr) still needs manual re-auth (dead refresh).
+
+## 2026-11-13 — Synigoros mail lane repaired + Monday follow-up scheduled
+
+- **Complaint**: ΔΥΠΑ/ΚΠΑ2 Μαρκοπούλου unemployment-benefit rejection +
+  alleged fictitious-employment advice. Ombudsman αρ. πρωτ.
+  408302/81750/2026, ΚΠΑ 202610260029 — status stuck «Προς Αποδοχή» since
+  26/10, lastNews frozen 2026-11-10.
+- **Auto follow-up was silently broken ~11 retries** (SMTP lane):
+  1. mail-outbound Worker calls sent no User-Agent → CF Bot Fight 403;
+  2. Worker `send_email` binding only reaches verified CF destination
+     addresses — external recipients need SMTP;
+  3. SMTP fallback defaulted to smtp.resend.com but creds are omv-ha
+     mailbox → 535;
+  4. `tls.connect({servername: <IP>})` → ERR_INVALID_ARG_VALUE on
+     STARTTLS upgrade to 192.168.1.130 (found by dry test).
+- **Fixes** in `scripts/synigoros-monitor/{followup,admin-followups}.js`:
+  UA header on worker call; prefer SMTP_HOST/SMTP_PORT (omv-ha postfix
+  :587) over Resend default; `servername` omitted for IP literals; new
+  `--test`/`--test-smtp` flags send a `[TEST]` self-mail to
+  tbaltzakis@cloudless.gr through the real chain. Both legs verified
+  live 2026-11-13.
+- **Monday send**: Gmail draft r-8325511026433450353 → press@synigoros.gr,
+  task `SynigorosFollowupMon` fires 2026-11-16 09:00 local (one-time,
+  hidden). state.json `followupSent` marked so monitor won't double-send.
+- **Still queued** (admin-followups.js, now on working SMTP):
+  dypa-nudge-1 11/20, ombudsman-escalation-2 + call reminder 11/25,
+  dypa-written-demand reminder 12/04, sepe-status-1 + call 12/08.
+- **Verify Monday**: `SynigorosFollowupVerify` task fires 09:30 —
+  `D:\DevOptimizer\synigoros-followup\verify-send.py` checks state.json
+  + Gmail `in:sent` and TG-alerts ✅/⚠️. Both tasks have
+  StartWhenAvailable catch-up (fire on next boot if PC was off).
+
+## 2026-11-13 (night) — Synigoros chain fully automated + reply tracking
+
+- **PRs merged**: #1847 (SMTP lane fix + --test flags), #1848 (backlog),
+  #1849 (auto-escalation emails), #1850 (conditional skip gates),
+  #1851 (reply-watch + dual-lane reply checks).
+- **reply-watch.py** (new, spawned by admin-followups.js every ~15min):
+  TG-alerts on new HUMAN mail from synigoros.gr / dypa.gov.gr /
+  hli.gov.gr across BOTH lanes — cloudless.gr IMAP (noreply@ SMTP
+  replies) and Gmail API (baltzakis.themis@gmail.com, the address
+  registered on the complaint). noreply@ senders + automated subjects
+  filtered; per-domain subject require-regex in reply-watch.json
+  (dypa.gov.gr also sends unrelated da2@ program mail).
+- **check-replies.py** now checks both lanes + --require subject regex;
+  dypa skip-gates use case keywords so unrelated program mail can't
+  suppress a needed escalation. Fail-open on check errors.
+- **Full schedule**: Mon 16/11 09:00 Gmail supplementary (draft
+  r-8325511026433450353, task SynigorosFollowupMon + SynigorosFollowupVerify
+  09:30, both StartWhenAvailable) → 20/11 ΔΥΠΑ nudge → 25/11 Ombudsman
+  esc-2 → 04/12 FYI → 07/12 ΔΥΠΑ demand-2 → 08/12 ΣΕΠΕ status-1 →
+  09/12 Ombudsman esc-3 → 22/12 ΣΕΠΕ status-2. All conditional on
+  no-reply + status still «Προς Αποδοχή».
+- **Verify Monday**: schtasks SynigorosFollowupMon/Verify results +
+  Gmail SENT + TG verify alert.

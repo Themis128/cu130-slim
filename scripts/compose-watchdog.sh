@@ -366,6 +366,32 @@ if [ -n "${P:-}" ]; then
     *) [ $(( $(now) - LS )) -gt 1200 ] && ALERT "ops-agent-deadman" ":warning: ops-agent sweep stale >20min (last $(date -u -d "@$LS" +%H:%M)Z) — triage is dead, check celery-beat/worker-default";;
   esac
 fi
+# 3c. publish-queue shepherd — every 30 min: reclaim publish_queue rows
+#     stuck 'processing' past the stale window (covers the case where all
+#     queue workers are dead and the built-in reclaim never runs),
+#     dispatch a process_publish_queue run when pending rows exist, and
+#     surface per-platform targets pending >60min (dead-token candidates).
+#     Idempotent; /app/scripts is bind-mounted into the worker.
+SQ="$WD_STATE_DIR/shepherd-last"; now_s=$(now)
+if [ ! -f "$SQ" ] || [ $(( now_s - $(cat "$SQ" 2>/dev/null || echo 0) )) -gt 1800 ]; then
+  echo "$now_s" > "$SQ"
+  SH=$(docker compose exec -T social-worker-publishing python /app/scripts/publish_queue_shepherd.py 2>/dev/null | tail -12)
+  case "$SH" in
+    *"pending >"*) ALERT "publish-shepherd" ":information_source: publish shepherd: $(echo "$SH" | tr '\n' ' ' | cut -c1-400)";;
+  esac
+  # Prewarm publish quality gates outside Celery's ~900s soft limit — the
+  # platform_specific cache lets queue runs skip minutes of DMR calls per
+  # post, which is what kept runs dying mid-gate during engine flaps.
+  # Idempotent (hash-keyed cache); skip launch when one is already alive.
+  docker compose exec -T social-worker-publishing sh -c '
+    n=0
+    for p in /proc/[0-9]*/cmdline; do
+      c=$(tr "\0" " " <"$p" 2>/dev/null)
+      case "$c" in python\ /app/scripts/prewarm_quality_gate.py*) n=$((n+1));; esac
+    done
+    [ "$n" -eq 0 ] && nohup python /app/scripts/prewarm_quality_gate.py >/tmp/prewarm.log 2>&1 &
+  ' 2>/dev/null
+fi
 # 4. LinkedIn sidecar session — warn if it dropped
 LI=$(docker compose exec -T social-api python -c "
 import asyncio

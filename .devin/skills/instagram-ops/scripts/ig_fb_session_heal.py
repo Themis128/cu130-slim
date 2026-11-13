@@ -544,6 +544,22 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
             # approver completes it server-side; wait the full window.
             if approval_wait(state, force=True):
                 return "ok"
+            # Phone-side approval may have completed server-side while the
+            # pending page was lost (sidecar restart, navigation). Meta
+            # treats an EMPTY verification_code + approved machine as a
+            # successful login (facebook-chat-api #548 / mautrix-facebook
+            # check_approved_machine -> login_approved). One bounded retry.
+            log("approval wait ended unlogged — retrying /login with "
+                "empty verification_code (approved-machine path)")
+            r = sidecar(
+                "/login",
+                {"username": username, "password": password,
+                 "verification_code": ""},
+                timeout=180,
+            )
+            log(f"login retry post-approval -> {json.dumps(r)[:300]}")
+            if r.get("logged_in"):
+                return "ok"
 
     clicks = checkpoint_clicks()
     log(f"checkpoint clicks: {clicks}")
