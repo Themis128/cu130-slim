@@ -95,13 +95,26 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
 `scripts/popup_task_audit.ps1` — one-shot audit of every scheduled task action:
 
 ```powershell
-# audit only (default): lists FLASH-RISK actions
+# audit only (default): lists FLASH-RISK actions (user tasks; \Microsoft\* vendor
+# tasks excluded - they run as SYSTEM and manage their own consoles)
 powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1
-# repair: re-wrap offenders in conhost --headless (elevated tasks report DENIED)
+# repair in an already-elevated shell
 powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Fix
-# machine-readable
-powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Json
+# repair WITHOUT elevation: runs through the PopupTaskAudit-Fix helper task
+# (RunLevel=Highest, registered once via -RegisterElevatedHelper; output in
+# %LOCALAPPDATA%\PopupTaskAudit\fix.log). schtasks /run needs no UAC.
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -FixElevated
+# one-time helper registration - MUST be run from an elevated shell once
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -RegisterElevatedHelper
+# machine-readable / vendor-inclusive
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Json -IncludeVendor
 ```
+
+Elevation notes (researched 2026-11-13): native `sudo.exe` exists on this host
+(Win11 24H2) but is DISABLED and still UAC-prompts per call - not unattended.
+gsudo needs an interactive first UAC + ~5min cache - same problem. The
+privileged-helper-task pattern (`schtasks /run` on a RunLevel=Highest task) is
+the standard zero-UAC lane; `PopupTaskAudit-Fix` is the registered instance.
 
 Rules baked in: `-WindowStyle Hidden` counts as FLASH-RISK (console still
 allocated); `conhost` without `--headless` is repaired by prepending the flag,

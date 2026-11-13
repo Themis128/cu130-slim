@@ -52,7 +52,8 @@ param(
     [switch]$RegisterElevatedHelper,
     [switch]$Json,
     [string]$Path = '\',
-    [string]$Log = ''
+    [string]$Log = '',
+    [switch]$IncludeVendor
 )
 
 if ($Log) {
@@ -114,10 +115,8 @@ if ($FixElevated) {
     exit 0
 }
 
-# Exes that never allocate a console (GUI subsystem or already headless).
-$guiSafe = '(?i)^(notepad|chrome|msedge|firefox|opera|brave|docker desktop|com\.docker.*|wscript|mshta|rundll32|regsvr32|wmic|mmc|control|msinfo32|taskmgr|devenv|code|windsurf|devin)'
 # Exes that DO allocate a console when run directly.
-$consoleRisk = '(?i)\b(powershell|pwsh|cmd|wsl|bash|sh|python|node|npm|npx|docker|docker-compose|kubectl|ssh|scp|ftp|telnet|curl|bitsadmin|certutil|mshta|cscript|wscript|conhost|bash\.exe)'
+$consoleRisk = '(?i)\b(powershell|pwsh|cmd|wsl|bash|sh|python|node|npm|npx|docker|docker-compose|kubectl|ssh|scp|ftp|telnet|curl|bitsadmin|certutil|mshta|cscript|wscript|conhost|bash\.exe)\b'
 
 function Test-ConsoleRisk([string]$exe, [string]$argLine) {
     # basename without IO.Path (Execute can contain quotes/env vars that are
@@ -152,6 +151,12 @@ if ($Path -eq '\') {
     $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue
 } else {
     $tasks = Get-ScheduledTask -TaskPath $Path -ErrorAction SilentlyContinue
+}
+# Vendor tasks (\Microsoft\Office, \Microsoft\Windows\*) run as SYSTEM/session-0
+# and manage their own console behavior - wrapping them is out of scope and
+# risky. -IncludeVendor audits them anyway.
+if (-not $IncludeVendor) {
+    $tasks = @($tasks | Where-Object { $_.TaskPath -notlike '\Microsoft\*' })
 }
 $results = New-Object System.Collections.Generic.List[object]
 
