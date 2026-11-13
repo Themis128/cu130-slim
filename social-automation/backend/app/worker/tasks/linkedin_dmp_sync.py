@@ -47,9 +47,7 @@ async def _segment_urn(r) -> str | None:
         return urn
     from app.services import linkedin_advanced
 
-    created = await linkedin_advanced.create_dmp_segment(
-        SEGMENT_NAME, "EspoCRM leads + clients — Matched Audiences retargeting"
-    )
+    created = await linkedin_advanced.create_dmp_segment(SEGMENT_NAME, "EspoCRM leads + clients — Matched Audiences retargeting")
     if created.get("urn"):
         if r:
             r.set(SEGMENT_REDIS_KEY, created["urn"])
@@ -72,11 +70,7 @@ async def _sync() -> dict:
         return {"skip": "matched-audiences-not-granted"}
 
     leads = await espocrm_client.list_leads_for_campaign()
-    ids = [
-        {"idType": "SHA256_EMAIL", "idValue": h}
-        for h in (_sha256(str(lead.get("emailAddress") or "")) for lead in leads)
-        if h
-    ]
+    ids = [{"idType": "SHA256_EMAIL", "idValue": h} for h in (_sha256(str(lead.get("emailAddress") or "")) for lead in leads) if h]
     if not ids:
         return {"skip": "no-lead-emails", "segment": urn}
 

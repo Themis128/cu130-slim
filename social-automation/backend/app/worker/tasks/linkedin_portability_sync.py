@@ -169,11 +169,7 @@ async def _pages_dp(db, account: SocialAccount, client: httpx.AsyncClient) -> di
     else:
         data = feed.get("data") or {}
         elements = data.get("elements") or []
-        urns = [
-            el.get("id") or el.get("postUrn") or el.get("urn")
-            for el in elements
-            if isinstance(el, dict)
-        ]
+        urns = [el.get("id") or el.get("postUrn") or el.get("urn") for el in elements if isinstance(el, dict)]
         urns = [u for u in urns if isinstance(u, str) and u.startswith("urn:")]
         meta = data.get("metadata") or {}
         payload["feed"] = {

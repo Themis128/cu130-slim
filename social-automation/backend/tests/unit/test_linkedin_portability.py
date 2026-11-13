@@ -108,8 +108,12 @@ async def test_pages_batch_get_builds_restli_list():
 async def test_pages_content_trend_raw_query():
     client = SimpleNamespace(get=AsyncMock(return_value=_resp(200, {"elements": []})))
     out = await lp.pages_content_trend(
-        client, "tok", source_entity="urn:li:organizationalPage:1",
-        metric_types="List(IMPRESSIONS)", start_ms=1, end_ms=2,
+        client,
+        "tok",
+        source_entity="urn:li:organizationalPage:1",
+        metric_types="List(IMPRESSIONS)",
+        start_ms=1,
+        end_ms=2,
     )
     assert out["ok"]
     url = client.get.await_args.args[0]

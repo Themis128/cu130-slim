@@ -81,9 +81,7 @@ def materialize_report_videos() -> dict:
             except Exception:  # noqa: BLE001
                 asset_id = None
             if not asset_id:
-                await _mark_failed(
-                    post.id, f"video render failed: {str(res.result)[:140]}"
-                )
+                await _mark_failed(post.id, f"video render failed: {str(res.result)[:140]}")
                 failed += 1
                 continue
 
