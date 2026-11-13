@@ -366,6 +366,20 @@ if [ -n "${P:-}" ]; then
     *) [ $(( $(now) - LS )) -gt 1200 ] && ALERT "ops-agent-deadman" ":warning: ops-agent sweep stale >20min (last $(date -u -d "@$LS" +%H:%M)Z) — triage is dead, check celery-beat/worker-default";;
   esac
 fi
+# 3c. publish-queue shepherd — every 30 min: reclaim publish_queue rows
+#     stuck 'processing' past the stale window (covers the case where all
+#     queue workers are dead and the built-in reclaim never runs),
+#     dispatch a process_publish_queue run when pending rows exist, and
+#     surface per-platform targets pending >60min (dead-token candidates).
+#     Idempotent; /app/scripts is bind-mounted into the worker.
+SQ="$WD_STATE_DIR/shepherd-last"; now_s=$(now)
+if [ ! -f "$SQ" ] || [ $(( now_s - $(cat "$SQ" 2>/dev/null || echo 0) )) -gt 1800 ]; then
+  echo "$now_s" > "$SQ"
+  SH=$(docker compose exec -T social-worker-publishing python /app/scripts/publish_queue_shepherd.py 2>/dev/null | tail -12)
+  case "$SH" in
+    *"pending >"*) ALERT "publish-shepherd" ":information_source: publish shepherd: $(echo "$SH" | tr '\n' ' ' | cut -c1-400)";;
+  esac
+fi
 # 4. LinkedIn sidecar session — warn if it dropped
 LI=$(docker compose exec -T social-api python -c "
 import asyncio
