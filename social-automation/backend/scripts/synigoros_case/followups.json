@@ -1,4 +1,5 @@
 {
+  "platformOwned": true,
   "events": [
     {
       "id": "dypa-nudge-1",
