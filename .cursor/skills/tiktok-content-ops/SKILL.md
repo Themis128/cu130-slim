@@ -30,6 +30,7 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 ### What the TikTok audience/algorithm (FYP) favors
 - Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video.
 - 2026 signals: the FYP is interest-graph driven — follower count is not a direct ranking factor, so a small account's great post can out-reach a big account's weak one.
+- Cadence (Buffer 2026): 2–5 videos/week — the biggest view lift comes from going 1 → 2–5/wk; keyword in caption + on-screen text + spoken in the first seconds covers FYP and TikTok Search.
 
 <!-- PLATFORM-FIT:END -->
 

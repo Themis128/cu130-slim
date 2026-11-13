@@ -30,6 +30,7 @@ Read `social-content-core` first.
 ### What the X audience/algorithm favors
 - Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish.
 - 2026: X open-sourced its Grok-based ranking model (Aug 2026) — it weighs time-spent, read-through, replies and quotes heavily; posts that hold attention past the fold travel further than like-bait.
+- Cadence (Buffer 2026): 3–4 posts/day — the timeline moves fast and more volume compounds reach when quality holds.
 
 <!-- PLATFORM-FIT:END -->
 
