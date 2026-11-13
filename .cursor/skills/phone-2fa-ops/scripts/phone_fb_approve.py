@@ -139,15 +139,16 @@ def approve(aid):
         m = re.search(
             r'text="[^"]*trying to log in[^"]*"[^>]*'
             r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
-        if not m:
-            return "no-dialog", ""
-        x1, y1, x2, y2 = map(int, m.groups())
-        sh("shell", "input", "tap", str((x1 + x2) // 2),
-           str((y1 + y2) // 2), timeout=15)
-        time.sleep(6)
-        xml = dump_ui()
-        if "trying to log in" not in xml.lower():
-            return "no-dialog", ""
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            sh("shell", "input", "tap", str((x1 + x2) // 2),
+               str((y1 + y2) // 2), timeout=15)
+            time.sleep(6)
+            xml = dump_ui()
+    if "trying to log in" not in xml.lower():
+        # Third lane: FB app -> Notifications tab -> the approval card
+        # has native buttons and doesn't depend on the flaky deep link.
+        return approve_via_fb_tab(aid)
     dev = device_text(xml)
     if DENY_HINT_RE.search(dev):
         return "deny-hint", dev
@@ -160,6 +161,78 @@ def approve(aid):
         if m:
             x1, y1, x2, y2 = map(int, m.groups())
             xy = ((x1 + x2) // 2, (y1 + y2) // 2)
+    if not xy:
+        return "no-button", dev
+    sh("shell", "input", "tap", str(xy[0]), str(xy[1]), timeout=15)
+    return "approved", dev
+
+
+APPROVE_PAT = re.compile(
+    r"\b(approve|yes, it|this was me|it was me|that's me)\b", re.I)
+
+
+def _clickable_xy(xml, pred):
+    """Center coords of the first clickable node whose tag or nearby
+    window satisfies pred(window_text)."""
+    for m in re.finditer(r'<node[^>]*clickable="true"[^>]*>', xml):
+        node = m.group(0)
+        window = xml[m.start():m.start() + 1200]
+        if not pred(window):
+            continue
+        b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+        if b:
+            x1, y1, x2, y2 = map(int, b.groups())
+            return (x1 + x2) // 2, (y1 + y2) // 2
+    return None
+
+
+def approve_via_fb_tab(aid):
+    """Lane 3: launch the FB app, open its Notifications tab, and tap the
+    approve control on the 'trying to log in' card. Requires an
+    allowlisted device string in the dump — no device text means refuse
+    (the deep-link dialog lane stays the verified path)."""
+    sh("shell", "monkey", "-p", "com.facebook.katana",
+       "-c", "android.intent.category.LAUNCHER", "1", timeout=20)
+    time.sleep(5)
+    xml = dump_ui()
+    tab = _clickable_xy(
+        xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
+    if not tab:
+        return "no-tab", ""
+    sh("shell", "input", "tap", str(tab[0]), str(tab[1]), timeout=15)
+    time.sleep(6)
+    xml = dump_ui()
+    if "trying to log in" not in xml.lower():
+        return "no-card", ""
+    dev = device_text(xml)
+    if not dev:
+        # looser capture: 'Login attempt from X' may render as plain text
+        m = re.search(r"(?:from|on)\s+([A-Z][A-Za-z0-9 ,.()_-]{3,60})",
+                      xml)
+        dev = m.group(1) if m else ""
+    if DENY_HINT_RE.search(dev):
+        return "deny-hint", dev
+    # No device string -> cannot verify it's our infra -> refuse. The
+    # deep-link dialog lane remains the primary verified path.
+    if not dev or not ALLOW_RE.search(dev):
+        return "not-allowlisted", dev
+    # Find the positive control; never tap deny-ish labels.
+    xy = None
+    for m in re.finditer(r'<node[^>]*clickable="true"[^>]*>', xml):
+        node = m.group(0)
+        window = xml[m.start():m.start() + 1200]
+        label = " ".join(re.findall(r'(?:text|content-desc)="([^"]*)"',
+                                    window))
+        if DENY_HINT_RE.search(label) or re.search(
+                r"\b(deny|decline|not now|maybe later|wasn'?t me|no thanks)\b",
+                label, re.I):
+            continue
+        if APPROVE_PAT.search(label):
+            b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+            if b:
+                x1, y1, x2, y2 = map(int, b.groups())
+                xy = ((x1 + x2) // 2, (y1 + y2) // 2)
+                break
     if not xy:
         return "no-button", dev
     sh("shell", "input", "tap", str(xy[0]), str(xy[1]), timeout=15)
