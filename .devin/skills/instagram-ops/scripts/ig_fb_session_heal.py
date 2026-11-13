@@ -494,6 +494,51 @@ def validate() -> dict:
     return sidecar("/session/validate", timeout=120)
 
 
+def mobile_login(env: dict[str, str], state: dict,
+                 wait_s: int = 600) -> str | None:
+    """Mobile-web login lane (m.facebook.com via the sidecar's second
+    Playwright context). Preferred over the desktop /login form: smaller
+    bot signature, and the sidecar auto-walks passkey -> "Try another
+    way" -> "Notification on another device" -> waiting screen, which
+    emits the same approve-from-another-device push phone_fb_approve.py
+    handles. Polls /login-mobile/poll until the phone approval lands.
+
+    Returns "ok" | "failed:<reason>" | None (lane unavailable — caller
+    should fall back to desktop /login)."""
+    username = env.get("FACEBOOK_USERNAME", "")
+    password = env.get("FACEBOOK_PASSWORD", "")
+    if not username or not password:
+        return None
+    try:
+        r = sidecar("/login-mobile",
+                    {"username": username, "password": password},
+                    timeout=300)
+    except Exception as exc:  # noqa: BLE001
+        log(f"mobile login error: {exc}")
+        return None
+    log(f"mobile login -> {json.dumps(r)[:300]}")
+    if r.get("logged_in"):
+        return "ok" if validate().get("logged_in") else "failed:not-validated"
+    if not r.get("two_factor_required"):
+        return f"failed:{r.get('message', 'unknown')[:80]}"
+    # 2FA: the sidecar's own advance walk picks the notification method;
+    # poll until the phone approval completes the login server-side.
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        time.sleep(20)
+        try:
+            p = sidecar("/login-mobile/poll", timeout=120)
+        except Exception:  # noqa: BLE001
+            continue
+        stage = p.get("stage")
+        log(f"mobile poll -> stage={stage} pending={p.get('pending')}")
+        if stage == "ok":
+            return "ok" if validate().get("logged_in") else "failed:not-validated"
+        if stage == "failed":
+            return f"failed:{p.get('detail', 'mobile-2fa')[:80]}"
+    return "failed:mobile-approval-timeout"
+
+
 def attempt_login(env: dict[str, str], state: dict) -> str:
     """One full login attempt. Returns ok|2fa-failed|login-failed|throttled."""
     username = env.get("FACEBOOK_USERNAME", "")
@@ -520,6 +565,19 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
 
     state["last_login_attempt"] = time.time()
     save_state(state)
+
+    # Preferred lane: mobile-web login (m.facebook.com real-DOM flow in
+    # the sidecar's second context). Smaller bot signature than the
+    # desktop form and its 2FA path emits the same phone push the
+    # approver already handles. Desktop /login remains the fallback.
+    mres = mobile_login(env, state)
+    if mres == "ok":
+        return "ok"
+    log(f"mobile lane -> {mres}")
+    if mres and "credentials-or-throttle" in mres:
+        # Meta is pushing back on credential logins — don't burn a
+        # second attempt on the more-detected desktop surface.
+        return "login-failed"
 
     r = sidecar("/login", {"username": username, "password": password}, timeout=180)
     log(f"login attempt -> {json.dumps(r)[:300]}")
