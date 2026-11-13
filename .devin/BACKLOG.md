@@ -2206,3 +2206,19 @@ superseded by rebuild):
   the only viable mobile lane.
 - Next: wire `/login-mobile` into `ig_fb_session_heal.py` as preferred lane
   after the persistent-session probe, keep desktop `/login` as fallback.
+
+## 2026-11-13 — Windows popup audit tool + Synigoros task headless fixes
+
+- `popup_task_audit.ps1` (windows-host-ops skill, `.devin`+`.cursor`, host copy
+  `D:\DevOptimizer\scripts\`): audits all scheduled-task actions for console
+  flash risk; `-Fix` re-wraps in `conhost --headless`; `-FixElevated` repairs
+  elevation-protected tasks via the registered `PopupTaskAudit-Fix` helper
+  (RunLevel=Highest, `schtasks /run` = zero UAC). `-Json`, `-Path`,
+  `-IncludeVendor` (\Microsoft\* excluded by default — SYSTEM tasks).
+- Host state: helper task registered; SynigorosFollowupMon/Verify +
+  Vhdx-Compact-DevinExit re-wrapped headless; gmail-schedule-reply.py --arm
+  now emits conhost actions. Audit: 119 user actions, 0 flash-risk.
+- Known non-task flash source: Docker Desktop dashboard window polls
+  `docker stats` ~every 10s — close the window to stop it.
+- PRs: #1868 (tool), #1869 (elevated lane, merged), #1872 (regex/vendor
+  fixes). #1870 closed as superseded.
