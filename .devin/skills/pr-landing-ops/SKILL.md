@@ -70,6 +70,24 @@ Rule: **always verify a real commit exists before pushing** —
 conflicted, resolve or re-apply the patch directly (`python3 - <<EOF` on the
 worktree file), never push unconditionally.
 
+## mypy "first assignment wins" trap (burned 2x on PR #1859, 2026-11-13)
+
+mypy binds a variable's type to its **first assignment in the function
+scope**. Reassigning a name that earlier held `re.Match | None` to a
+`str(...)` coercion does NOT clear the inferred type — downstream uses
+still error as `Match[str] | None`. Fix by **renaming the variable** in
+the second lane/block, not by re-coercing. Verify locally before pushing:
+
+```bash
+cd social-automation/backend
+uvx --from mypy==1.13.0 mypy app/worker/tasks/<file>.py \
+    --ignore-missing-imports --follow-imports=skip
+```
+
+(`--follow-imports=skip` keeps it fast; import-stub noise is expected —
+grep for errors in YOUR file only.) The backend `.venv` mypy is too old
+for the numpy stubs — use uvx mypy 1.13.x like CI.
+
 ## cloudless.gr repo specifics
 
 - Protected branch is `main` (not master); required checks = Build,
