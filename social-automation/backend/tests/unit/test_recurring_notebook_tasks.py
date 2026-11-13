@@ -183,7 +183,7 @@ def test_notebook_report_success_send_off(monkeypatch, tmp_path):
     mp = tmp_path / "manifest.json"
     mp.write_text(json.dumps(man))
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1.5, "notebook": "nb.ipynb"})
-    out = NR.run_notebook_report("nb", send=False)
+    out = NR.run_notebook_report("nb-off", send=False)
     assert out["executed"] and out["emailed"] == 0 and out["duration_s"] == 1.5
 
 
@@ -197,7 +197,7 @@ def test_notebook_report_success_send_on(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"})
     sent = AsyncMock(return_value=True)
     monkeypatch.setattr(ed, "send_email", sent)
-    out = NR.run_notebook_report("nb", send=True)
+    out = NR.run_notebook_report("nb-on", send=True)
     assert out["executed"] and out["emailed"] == 1
     sent.assert_awaited_once()
 
@@ -217,7 +217,7 @@ def test_notebook_report_multi_manifest(monkeypatch, tmp_path):
         lambda nb, p: {"manifest": {"reports": [m1, m2]}, "manifest_path": str(tmp_path / "a" / "x"), "duration_s": 1, "notebook": "n"},
     )
     monkeypatch.setattr(ed, "send_email", AsyncMock(return_value=True))
-    out = NR.run_notebook_report("nb", send=True)
+    out = NR.run_notebook_report("nb-multi", send=True)
     assert out["emailed"] == 1 and "missing html_file" in out["email_error"]
 
 
@@ -226,7 +226,7 @@ def test_notebook_report_failure_fallback(monkeypatch):
 
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
     monkeypatch.setattr(NR, "run_async", lambda c: (c.close(), {"sent": 1})[1])
-    out = NR.run_notebook_report("nb", fallback_to_code=True)
+    out = NR.run_notebook_report("nb-fail", fallback_to_code=True)
     assert out["executed"] is False and "kernel died" in out["error"]
     assert out["fallback"] == {"sent": 1}
 
@@ -236,7 +236,51 @@ def test_notebook_report_failure_no_fallback(monkeypatch):
 
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("x")))
     with pytest.raises(RuntimeError):
-        NR.run_notebook_report("nb", fallback_to_code=False)
+        NR.run_notebook_report("nb-nofail", fallback_to_code=False)
+
+
+def test_notebook_report_same_day_dedupe(monkeypatch, tmp_path):
+    """A delivered report must not re-run the same Athens day (worker
+    redelivery / watcher resend produced duplicate emails 2026-11-13)."""
+    import app.services.email_digest as ed
+    import app.services.notebook_runner as runner
+
+    class _FakeRedis:
+        def __init__(self):
+            self.kv: dict = {}
+
+        def get(self, k):
+            return self.kv.get(k)
+
+        def set(self, k, v, nx=False, ex=None):
+            if nx and k in self.kv:
+                return None
+            self.kv[k] = v
+            return True
+
+        def delete(self, k):
+            self.kv.pop(k, None)
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(NR, "_report_lock", lambda: fake)
+
+    man, _ = _manifest(tmp_path)
+    mp = tmp_path / "manifest.json"
+    mp.write_text("{}")
+    calls = []
+
+    def _run(nb, p):
+        calls.append(nb)
+        return {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"}
+
+    monkeypatch.setattr(runner, "run_report_notebook", _run)
+    monkeypatch.setattr(ed, "send_email", AsyncMock(return_value=True))
+
+    first = NR.run_notebook_report("nb-dedupe", send=True)
+    second = NR.run_notebook_report("nb-dedupe", send=True)
+    assert first["emailed"] == 1
+    assert second["executed"] is False and second["skipped"] == "already-delivered-today"
+    assert calls == ["nb-dedupe"]  # notebook ran once
 
 
 @pytest.mark.asyncio
@@ -287,3 +331,118 @@ def test_notebook_report_monetization_fallback(monkeypatch):
     out = NR.run_notebook_report("monetization_daily", fallback_to_code=True)
     assert out["executed"] is False
     assert seen["coro"].cr_code == NR._fallback_monetization.__code__
+
+
+def test_notebook_report_run_in_progress_skip(monkeypatch):
+    """A second concurrent run must skip while the running lock is held."""
+
+    class _BusyRedis:
+        def get(self, k):
+            return None
+
+        def set(self, k, v, nx=False, ex=None):
+            return None  # key already held
+
+    monkeypatch.setattr(NR, "_report_lock", lambda: _BusyRedis())
+    out = NR.run_notebook_report("nb-busy", send=False)
+    assert out["executed"] is False and out["skipped"] == "run-in-progress"
+
+
+def test_notebook_report_lock_check_failure_proceeds(monkeypatch, tmp_path):
+    """Redis errors during the lock check fail open — the report still runs."""
+    import app.services.notebook_runner as runner
+
+    class _ExplodingRedis:
+        def get(self, k):
+            raise ConnectionError("redis down")
+
+        def set(self, *a, **kw):
+            raise ConnectionError("redis down")
+
+        def delete(self, k):
+            pass
+
+    monkeypatch.setattr(NR, "_report_lock", lambda: _ExplodingRedis())
+    man, _ = _manifest(tmp_path)
+    mp = tmp_path / "manifest.json"
+    mp.write_text("{}")
+    monkeypatch.setattr(
+        runner,
+        "run_report_notebook",
+        lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"},
+    )
+    out = NR.run_notebook_report("nb-lockfail", send=False)
+    assert out["executed"] is True
+
+
+def test_report_lock_returns_none_on_import_failure(monkeypatch):
+    """_report_lock fails open when redis/settings are unavailable."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _blocked(name, *a, **kw):
+        if name == "redis":
+            raise ImportError("no redis")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", _blocked)
+    assert NR._report_lock() is None
+
+
+@pytest.mark.asyncio
+async def test_fallback_strategy_body(monkeypatch):
+    import app.worker.tasks.digest as digest
+
+    seen = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(digest, "_send_strategy_async", seen)
+    out = await NR._fallback_strategy({"insight_days": 7}, send=True)
+    assert out == {"ok": True}
+    seen.assert_awaited_once_with(insight_days=7, send=True)
+
+
+@pytest.mark.asyncio
+async def test_fallback_monetization_body(monkeypatch):
+    import app.db.session as dbs
+    import app.services.monetization_report as mr
+
+    class _Sess:
+        async def __aenter__(self):
+            return "db"
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(dbs, "async_session_maker", lambda: _Sess())
+    run = AsyncMock(return_value={"reports": 2})
+    monkeypatch.setattr(mr, "run_monetization_report_for_all_teams", run)
+    out = await NR._fallback_monetization({"insight_days": 14}, send=False)
+    assert out == {"reports": 2}
+    run.assert_awaited_once_with("db", insight_days=14, send=False, execute=True)
+
+
+def test_notebook_report_finally_swallows_redis_errors(monkeypatch, tmp_path):
+    """A Redis failure while releasing the lock must not fail the report."""
+    import app.services.notebook_runner as runner
+
+    class _FlakyRedis:
+        def get(self, k):
+            return None
+
+        def set(self, k, v, nx=False, ex=None):
+            return True
+
+        def delete(self, k):
+            raise ConnectionError("redis gone")
+
+    monkeypatch.setattr(NR, "_report_lock", lambda: _FlakyRedis())
+    man, _ = _manifest(tmp_path)
+    mp = tmp_path / "manifest.json"
+    mp.write_text("{}")
+    monkeypatch.setattr(
+        runner,
+        "run_report_notebook",
+        lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"},
+    )
+    out = NR.run_notebook_report("nb-flaky", send=False)
+    assert out["executed"] is True
