@@ -7,7 +7,8 @@
       "Thought leadership & industry insights; educational/how-to content — PDF document uploads render as swipeable carousels and perform strongly.",
       "Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.",
       "2026 feed: LLM-embedding retrieval ('Profile Relevance') surfaces relevant posts beyond your network; a Generative Recommender scores predicted click/read/like/comment/share. It actively downranks engagement bait and recycled thought-leadership — original, specific, expert content wins.",
-      "Optimize for dwell time + meaningful comments in the first hour. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo."
+      "Optimize for dwell time + meaningful comments in the first hour. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo.",
+      "Cadence (Buffer 2026, 2M+ posts): 2–5 posts/week is the measured sweet spot; LinkedIn posts have a long shelf life so consistency beats bursts."
     ]
   },
   "twitter": {
@@ -15,7 +16,8 @@
     "skill_title": "What the X audience/algorithm favors",
     "bullets": [
       "Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish.",
-      "2026: X open-sourced its Grok-based ranking model (Aug 2026) — it weighs time-spent, read-through, replies and quotes heavily; posts that hold attention past the fold travel further than like-bait."
+      "2026: X open-sourced its Grok-based ranking model (Aug 2026) — it weighs time-spent, read-through, replies and quotes heavily; posts that hold attention past the fold travel further than like-bait.",
+      "Cadence (Buffer 2026): 3–4 posts/day — the timeline moves fast and more volume compounds reach when quality holds."
     ]
   },
   "instagram": {
@@ -24,7 +26,8 @@
     "bullets": [
       "Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.",
       "2026 signals: watch time, **sends** and shares are the top ranking inputs (per Instagram's head) — content engineered to be sent to a friend outperforms content engineered to be liked.",
-      "Prioritize visual quality — the caption supports the media."
+      "Prioritize visual quality — the caption supports the media.",
+      "Cadence (Buffer 2026): 3–5 feed posts/week is the sweet spot (+12% reach vs 1–2/wk); Reels can run higher if quality holds."
     ]
   },
   "facebook": {
@@ -33,7 +36,8 @@
     "bullets": [
       "Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.",
       "2026 signals: predicted engagement and time spent on content outrank clicks — earn attention, not just link taps.",
-      "Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane."
+      "Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane.",
+      "Cadence (Buffer 2026): 1–2 posts/day on the Page; predicted engagement and time-spent outrank raw link taps."
     ]
   },
   "threads": {
@@ -41,7 +45,8 @@
     "skill_title": "What the Threads audience/algorithm favors",
     "bullets": [
       "Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution.",
-      "2026 signals: predicted engagement + view time; posts ending in a genuine question tend to earn the replies that feed distribution."
+      "2026 signals: predicted engagement + view time; posts ending in a genuine question tend to earn the replies that feed distribution.",
+      "Cadence (Buffer 2026): 3–4 posts/week building toward daily — the feed rewards consistent conversational presence."
     ]
   },
   "tiktok": {
@@ -49,7 +54,17 @@
     "skill_title": "What the TikTok audience/algorithm (FYP) favors",
     "bullets": [
       "Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video.",
-      "2026 signals: the FYP is interest-graph driven — follower count is not a direct ranking factor, so a small account's great post can out-reach a big account's weak one."
+      "2026 signals: the FYP is interest-graph driven — follower count is not a direct ranking factor, so a small account's great post can out-reach a big account's weak one.",
+      "Cadence (Buffer 2026): 2–5 videos/week — the biggest view lift comes from going 1 → 2–5/wk; keyword in caption + on-screen text + spoken in the first seconds covers FYP and TikTok Search."
+    ]
+  },
+  "bluesky": {
+    "guide_line": "chronological Following feed makes posting time matter more than on algorithmic platforms — the Discover feed plus 50,000+ community-built custom feeds surface posts by topic keywords and hashtags, so niche-specific tags and self-contained posts earn feed inclusion; threads format for depth, and early replies/reposts decide traction",
+    "skill_title": "What the Bluesky audience/algorithm favors",
+    "bullets": [
+      "No single hidden algorithm: the Following feed is reverse-chronological, Discover is Bluesky's own recommender, and 50k+ custom feeds rank by their own topic rules — earning a spot in the feeds your audience pins matters more than follower count.",
+      "Write posts that stand alone (feed browsers lack context), use specific topic keywords/hashtags for feed matching, and post consistently — feed refresh cycles surface recent posts, not archives.",
+      "Cadence (Buffer 2026, 3M+ posts): consistent posting through the day beats bursts; weekends are the peak (Saturday ~5pm top slot, 4–7pm best window, weekday evenings 6–9pm next best)."
     ]
   }
 }

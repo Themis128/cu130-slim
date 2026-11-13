@@ -31,6 +31,7 @@ Read `social-content-core` first.
 - Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.
 - 2026 signals: watch time, **sends** and shares are the top ranking inputs (per Instagram's head) — content engineered to be sent to a friend outperforms content engineered to be liked.
 - Prioritize visual quality — the caption supports the media.
+- Cadence (Buffer 2026): 3–5 feed posts/week is the sweet spot (+12% reach vs 1–2/wk); Reels can run higher if quality holds.
 
 <!-- PLATFORM-FIT:END -->
 

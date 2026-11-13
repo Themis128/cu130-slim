@@ -44,6 +44,7 @@ failure signatures, and the verified bridge fallback path in the
 - Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.
 - 2026 feed: LLM-embedding retrieval ('Profile Relevance') surfaces relevant posts beyond your network; a Generative Recommender scores predicted click/read/like/comment/share. It actively downranks engagement bait and recycled thought-leadership — original, specific, expert content wins.
 - Optimize for dwell time + meaningful comments in the first hour. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo.
+- Cadence (Buffer 2026, 2M+ posts): 2–5 posts/week is the measured sweet spot; LinkedIn posts have a long shelf life so consistency beats bursts.
 
 <!-- PLATFORM-FIT:END -->
 
