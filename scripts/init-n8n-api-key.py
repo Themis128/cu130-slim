@@ -14,6 +14,7 @@ printed.
 """
 
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -35,7 +36,10 @@ for line in env_file.read_text().splitlines():
         k, v = line.split("=", 1)
         env[k.strip()] = v.strip()
 
-USER = env.get("N8N_USER", "")
+# N8N_USER is the container basic-auth user ("admin"); n8n 2.x /rest/login
+# wants the owner EMAIL — pass N8N_LOGIN_EMAIL or set it in .env.
+USER = os.environ.get("N8N_LOGIN_EMAIL") or env.get("N8N_LOGIN_EMAIL") \
+    or env.get("N8N_USER", "")
 PASSWORD = env.get("N8N_PASSWORD", "")
 if not USER or not PASSWORD:
     print("Error: N8N_USER / N8N_PASSWORD not set in .env", file=sys.stderr)
