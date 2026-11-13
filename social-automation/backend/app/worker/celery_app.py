@@ -90,6 +90,8 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
         "app.worker.tasks.linkedin_intel",
+        "app.worker.tasks.linkedin_conversion_audit",
+        "app.worker.tasks.linkedin_dmp_sync",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
@@ -348,6 +350,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
+        "app.worker.tasks.linkedin_conversion_audit.audit_linkedin_conversions": {"queue": "default"},
+        "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -450,6 +454,18 @@ celery_app.conf.update(
         "newsletter-subs-sync": {
             "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
             "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
+        # Daily LinkedIn conversions lane audit — rules exist/enabled and
+        # env URNs match live ids; alerts #ops on drift.
+        "linkedin-conversion-audit": {
+            "task": "app.worker.tasks.linkedin_conversion_audit.audit_linkedin_conversions",
+            "schedule": crontab(hour=7, minute=45),
+        },
+        # Daily Matched Audiences sync — EspoCRM lead emails (SHA256) →
+        # espo-crm-leads DMP segment; self-gates until rw_dmp_segments lands.
+        "linkedin-dmp-sync": {
+            "task": "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences",
+            "schedule": crontab(hour=8, minute=30),
         },
         # Weekly LinkedIn Ad Library watch → linkedin_ad_intel + #intel digest.
         # ~7 watches × up to 10 pages × 5s pacing — runs well inside 30 min.
