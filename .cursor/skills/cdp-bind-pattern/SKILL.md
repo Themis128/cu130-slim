@@ -86,3 +86,31 @@ removes the admin dependency; the interactive launch is the irreducible step.
   WARNING: `chrome-debug-launch.bat` / the `CloudlessDebugChrome` task run
   `taskkill /F /IM chrome.exe` — kills ALL Chrome including the user's
   session. Prefer the Start-Process form.
+
+## 2026-11-13 evening — relay retarget to the live :9222 chrome
+
+Actual state found: the visible `chrome-debug-profile` Chrome runs on
+**:9222** (loopback), NOT :9229. The canonical relay
+`C:\Users\tbaltzakis\devin-scripts\cdp_relay.py` (pythonw, bound
+`0.0.0.0:9229`) still targeted the dead headless lane `127.0.0.1:9330`
+→ every WSL connection got RST. Fix applied: `TARGET` edited to
+`("127.0.0.1", 9222)`, relay restarted → **`http://172.22.144.1:9229`
+now serves the live debug Chrome to WSL** (firewall rule
+`CDP-Relay-9229` already allows TCP 9229 inbound).
+
+- If the relay dies, restart: `Start-Process pythonw
+  C:\Users\tbaltzakis\devin-scripts\cdp_relay.py` — do NOT run
+  `cdp-launch.bat` while the visible chrome holds the profile (headless
+  :9330 can't share `chrome-debug-profile`).
+- Websocket clients MUST pass `suppress_origin=True` (websocket-client)
+  or Chrome 137+ rejects the handshake 403 — no
+  `--remote-allow-origins` flag on this instance.
+- SO_REUSEADDR on Windows lets a second relay bind :9229 alongside the
+  canonical one — connections split unpredictably. Always check
+  `Get-NetTCPConnection -LocalPort 9229` for the owning PID before
+  starting another relay.
+- **LinkedIn itself is the current blocker, not CDP**: the debug chrome
+  gets HTTP 429 on linkedin.com (account restriction cooldown) — cookie
+  heal reports `cookies-rejected`, credential login hits the Cloudflare
+  challenge. Automation is armed (`li_session_heal` cron */30min +
+  `li_portal_sidecar` */30min); it self-recovers when the 429 lifts.
