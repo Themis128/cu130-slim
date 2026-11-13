@@ -1,85 +1,57 @@
-# Human-Gate Ops — work the 5 owner-blocked items as far as tools allow
+# human-gate-ops — drive the remaining consent gates programmatically
 
-Standing leftovers that need a human action. Each has a script or playbook
-below so the blocker is surfaced, nudged, and consumed the moment the human
-acts — instead of waiting for the owner to remember.
+One dispatcher for every gate that's left after the money-loop automation:
+each gate has a lane-check (is its session/credential live?), a driver
+(automated action), and a store (where the result lands). Runs from
+`.devin/skills/human-gate-ops/scripts/gate_drive.py`.
 
-## 1. LinkedIn 2FA push (#794 gate)
+## Usage
 
-The `pending_2fa` checkpoint lives in the linkedin-sidecar session; the push
-is already on the owner's phone.
+    python3 scripts/gate_drive.py all           # status of every gate
+    python3 scripts/gate_drive.py fb-reset      # fire one gate
 
-- `scripts/linkedin-2fa-watch.sh` — polls the sidecar session state; posts
-  to the Slack ops channel when the checkpoint clears (or re-alerts after
-  6h still pending). Run in a tmux/background session:
-  `nohup .devin/skills/human-gate-ops/scripts/linkedin-2fa-watch.sh &`
-- If the push expired (LinkedIn prompts time out), trigger a re-heal:
-  `POST /api/v1/ops/session-heal` (admin API) — the sidecar re-sends it.
+## Gates
 
-## 2. WhatsApp SMS code (#786)
+| Gate | Lane | Driver |
+|---|---|---|
+| `fb-sidecar` | `FACEBOOK_USERNAME` + `FACEBOOK_PASSWORD` in env/k8s | POST /login on the sidecar |
+| `fb-reset` | **unattended** — request reset on sidecar, self-read code off dovecot IMAP, set new password, `k8s_secret_sync push` | full forgot-password chain |
+| `linkedin-sidecar` | `LINKEDIN_USERNAME` + `LINKEDIN_PASSWORD` | POST /login on the sidecar |
+| `x-oauth` / `tiktok-oauth` | bridge session + admin token | mint authorize URL → bridge navigate → callback |
+| `wa-verify` | whatsapp bridge session | wa_verify_daemon retries hourly |
+| `totp` | manual | `totp-ops/scripts/totp_setup.py` |
+| `meta-submit` | manual | `meta_app_review_draft.py` prints paste text |
+| `infisical` | manual | dashboard → Machine Identities → `k8s_secret_sync push` |
 
-Beat auto-retries `request_code` inside the ~1h cooldown window — nothing
-to re-trigger manually. The owner only supplies the code.
+## Companion
 
-- `scripts/whatsapp-verify.sh CODE [PIN]` — one-shot finish:
-  `POST /{phone-number-id}/verify_code {code}` then `POST
-  /{phone-number-id}/register {messaging_product:"whatsapp", pin}` — the PIN
-  is the 2FA PIN configured on the WABA (Meta docs).
-  Uses the running social-api admin session — no container secrets printed.
+- `oauth_reauth_watch` Celery beat (5min) — durable version of the
+  OAuth gates; fires the same bridge-drive when a session appears.
+- `credential-reset-ops` — the forgot-password primitives `fb-reset` uses.
+- `k8s_secret_sync` — every minted credential pushes to cloudless-secrets.
 
-## 3. Meta in-app confirmation + restriction (#785)
+## FB login-approval automation (2026-11-13)
 
-No API writes account-status — must be done in Accounts Center on the
-phone/desktop session. The agent part is *watching*, not clicking:
+Meta's "Was this you?" checkpoint (pushed to the phone FB app AND shown on
+facebook.com/notifications in the user's Windows Chrome) now has three
+automated lanes:
 
-- `scripts/meta-account-status.sh` — drives the FB sidecar session (via
-  `browser_profile`/Playwright MCP `browser_navigate` on
-  `accountscenter.facebook.com/personal_information` +
-  `.../account_status`) to read whether the restriction lifted; posts the
-  result to Slack ops. Once clear → connect `cloudless.gr` portfolio →
-  `leads_retrieval` App Review (issue #785 has the checklist).
-- Run on a headed profile (the persistent `browser-novnc` session), never
-  headless-parallel — Meta flags the second session.
+1. **Detection** — `app/worker/tasks/human_gate.py` (`run_human_gate_watch`,
+   30min beat) polls `facebook-sidecar:9226/session/validate`. Since
+   2026-11-13 it treats `logged_in:false` / `profile_picker:true` as blocked
+   even when `status:"ok"` — the login-wall payload used to score healthy.
+   Nudges ops Slack at most once per 6h per gate, "cleared" notice on
+   recovery.
+2. **Auto-approve** — `~/scripts/fb-approval-watch.sh` (WSL cron `*/5`)
+   watches `~/logs/ig-fb-session-heal.log` for approval-wait windows, then
+   drives the user's real Windows Chrome via `win_agent`
+   (`http://172.22.144.1:8765/exec`) + `C:\tmp\fb_win_ocr.ps1` (UIA+OCR)
+   to click "This was me". Deny-pattern words on screen abort the click;
+   max 3 attempts per approval window (state `~/.local/state/fb-approval-watch`).
+   Log: `~/logs/fb-approval-watch.log`.
+3. **Phone fallback** — the checkpoint also lands as a Facebook
+   notification on the Galaxy S22+; approving there is the manual path
+   (deliberately NOT automated — it's an account-security decision).
 
-## 4. LinkedIn page specialties (manual UI edit)
-
-16 headless paths exhausted (ArtDeco pill input stays `display:none`) —
-but `localizedSpecialties` is **admin-writable via the Organization API**
-(Microsoft Learn, Organization schema: `Admin Only: True`).
-
-- `scripts/linkedin-specialties.sh [ORG_ID]` — `PATCH
-  /rest/organizations/{id}` (v2 fallback) with
-  `localizedSpecialties: [Web Development, Managed Hosting, AI Automation,
-  Custom Software, Digital Marketing]`. Needs `rw_organization_admin` on
-  the app token. **Verified 2026-10-25:** org `108614163` exists; token
-  returns 401 — needs `rw_organization_admin` + `r_organization_admin` on
-  re-auth (LinkedIn dev console → Community Management API product →
-  re-connect the account). Once re-authed, this script sets specialties in
-  one call; the 60-second manual edit becomes unnecessary.
-
-## 5. #793 partner approvals + #795 pricing decision
-
-- `scripts/partner-digest.sh` — pulls the `Partners & influencers`
-  TargetList from EspoCRM (`ESPOCRM_BASE_URL`/`ESPOCRM_API_KEY` env) and
-  posts a Slack digest: name · platform · proposed touch · link to the
-  EspoCRM record for one-click approve/drop. Owner replies on the list or
-  in-thread — no new approval plumbing needed.
-- #795: draft positioning already posted as issue comment (€1,600 +
-  €400/mo retainer). Owner replies "approve" → build service page +
-  catalog entry via the agency pipeline.
-
-## Cross-cutting
-
-- Every script posts to the ops channel via `_post_slack_text`
-  (`SLACK_CHANNEL_ID` + bot token) — `SLACK_ALERTS_CHANNEL_ID` is unset.
-- Never print secrets; read them from `.env` or env vars only.
-- Anything that mutates an external platform stays `review` tier per
-  ABPM — these scripts read state or send the owner's own confirmation,
-  they don't impersonate the owner.
-
-## Scripts — one per gate
-
-- `x-reconnect.sh` — mints the X OAuth2 authorize URL (login → team → /connect/twitter). Click output to reconnect.
-- `x-status.sh` — counts refresh-400s in worker logs; 0 = reconnected.
-- `cmapi-check.sh` — probes `organizationAcls`; 200 = Community Management approved.
-- `check-inbox.sh` — mailbox triage (MAILBOX_PASSWORD env); filters system senders, shows real unread.
+Boundary: the OCR clicker only fires inside heal-script approval windows;
+it does not approve arbitrary login challenges outside them.

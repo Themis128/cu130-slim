@@ -27,6 +27,45 @@ Eleven tasks — `\DevOptimizer\` (elevated) + task-root (user-owned). All run
 | `WSL-PreWarm` | logon | `wsl.exe -d Ubuntu-24.04 --exec true` |
 | `Safe-Cleanup-Daily`, `WSL-Ubuntu-Cleanup`, `SocialAuto-Maintenance`, `Devin-Daily-Maintenance` | daily 02:15–04:30 | powershell scripts |
 | `Admin-Cleanup-Weekly`, `Extended-Cleanup` | weekly | powershell scripts |
+| `DD-Settings-Watchdog` (`\DevOptimizer\`) | every 5 min | `dd-settings-watchdog.ps1` — see below |
+
+## DD-Settings-Watchdog (Docker Desktop settings drift)
+
+Guards `%APPDATA%\Docker\settings-store.json` (Docker Desktop ≥4.35 renamed
+`settings.json` → `settings-store.json`; the legacy file may still exist but
+is ignored by modern DD). Desired state: `IntegratedWslDistros` contains
+`Ubuntu-24.04` + `EnableIntegrationWithDefaultWslDistro=true` — losing the
+Ubuntu-24.04 integration entry kills `docker.sock` for the whole stack.
+
+**2026-11-13 incident:** the old script read the deleted `settings.json`,
+false-positived drift on every 5-min run, and `Restore-Settings` restarted
+Docker Desktop **every pass** — the restart loop drove the vsock flap /
+engine outage. It also enforced `daemon.userns-remap` by writing to
+`Ubuntu-24.04:/etc/docker/daemon.json`, a distro DD never reads (and
+userns-remap is unsupported on the DD WSL2 backend — docker/for-win#6897).
+
+Rewritten contract (devoptimizer PR #15):
+- drift detection only on the store schema; legacy file = detect-only,
+  never auto-restored
+- auto-restore rewrites `settings-store.json`, then restarts DD **only if
+  the file changed**, max once per **6h** (`lastRestart` in state file)
+- alerts once per drift episode + 24h reminder; resolved-notice on recovery
+- state: `D:\DevOptimizer\logs\dd-settings-watchdog-state.json`
+- log: `D:\DevOptimizer\logs\dd-settings-watchdog.log`
+
+Check it from WSL (no powershell needed — /mnt/c + /mnt/d are direct):
+
+```bash
+python3 .devin/skills/windows-host-ops/scripts/dd_settings_check.py   # status
+python3 .devin/skills/windows-host-ops/scripts/dd_settings_check.py --json
+```
+
+Exits non-zero on drift, stale watchdog (>15min since lastCheck), or missing
+files. Deployed copy lives at `D:\DevOptimizer\scripts\` — the scheduled
+task runs THAT path, not the WSL clone; after editing
+`/home/tbaltzakis/devoptimizer/scripts/dd-settings-watchdog.ps1` copy it to
+`/mnt/d/DevOptimizer/scripts/` (and commit via PR — repo is
+`Themis128/devoptimizer`).
 
 Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
 
