@@ -86,9 +86,15 @@ def find_approvals():
     return sorted(found.items(), key=lambda kv: -kv[1])
 
 
+TRANSIENT = {"no-dialog", "no-card", "no-tab", "no-button"}
+
+
 def dump_ui():
-    sh("shell", "uiautomator dump", timeout=30)
-    return sh("shell", "cat /sdcard/window_dump.xml", timeout=30)
+    try:
+        sh("shell", "uiautomator dump", timeout=45)
+        return sh("shell", "cat /sdcard/window_dump.xml", timeout=30)
+    except Exception:
+        return ""
 
 
 def node_bounds(xml, pattern):
@@ -171,13 +177,19 @@ APPROVE_PAT = re.compile(
     r"\b(approve|yes, it|this was me|it was me|that's me)\b", re.I)
 
 
+def _node_attr(node, name):
+    m = re.search(name + r'="([^"]*)"', node)
+    return m.group(1) if m else ""
+
+
 def _clickable_xy(xml, pred):
-    """Center coords of the first clickable node whose tag or nearby
-    window satisfies pred(window_text)."""
+    """Center coords of the first clickable node whose OWN text or
+    content-desc satisfies pred(attr_text). Window matching is wrong —
+    adjacent bottom-nav tabs bleed into each other's 1200-char windows."""
     for m in re.finditer(r'<node[^>]*clickable="true"[^>]*>', xml):
         node = m.group(0)
-        window = xml[m.start():m.start() + 1200]
-        if not pred(window):
+        label = _node_attr(node, "text") + " " + _node_attr(node, "content-desc")
+        if not pred(label):
             continue
         b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
         if b:
@@ -197,12 +209,16 @@ def approve_via_fb_tab(aid):
     xml = dump_ui()
     tab = _clickable_xy(
         xml, lambda w: re.search(r"notifications?,\s*tab", w, re.I))
+
     if not tab:
         return "no-tab", ""
     sh("shell", "input", "tap", str(tab[0]), str(tab[1]), timeout=15)
     time.sleep(6)
     xml = dump_ui()
-    if "trying to log in" not in xml.lower():
+    # In-app card wording varies ("trying to log in", "login attempt",
+    # "was this you?") — accept any login-approval phrasing.
+    if not re.search(r"trying to log|log ?in attempt|was this you|"
+                     r"approve.*log", xml, re.I):
         return "no-card", ""
     dev = device_text(xml)
     if not dev:
@@ -254,8 +270,13 @@ def main():
             if aid in seen or time.time() - ts > MAX_AGE_S:
                 continue
             res, dev = approve(aid)
-            seen[aid] = res
             acted = True
+            if res in TRANSIENT:
+                # transient UI misses — retry next cron cycle while the
+                # approval is still fresh (MAX_AGE_S); don't dedupe
+                print(f"aid={aid} -> {res} dev='{dev[:50]}' (retry next cycle)")
+                continue
+            seen[aid] = res
             if res == "approved":
                 tg(f"APPROVED FB login ({dev.strip()[:60]}) aid={aid}")
             elif res in ("not-allowlisted", "deny-hint"):
