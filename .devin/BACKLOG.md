@@ -7,27 +7,6 @@ heading at the bottom; sweeps prune resolved entries (full history in git).
 Tags: `human:` = owner action required · `decide:` = content/process decision
 · `watch:` = no action until the trigger fires.
 
-## 2026-11-13 — ntfy alert triage + watchdog false-positive fix
-
-- compose-watchdog declared containers "stuck" when its 10-min tick landed
-  mid-`compose up` (created-state grace missing) → recur=6 criticals on
-  env-manager-frontend/n8n/instagram-private-api/social-cloudflared.
-  Fixed: `CREATED_GRACE_S=180` skip — PR #1794 merged, live via
-  run-watchdog.bat → `scripts/compose-watchdog.sh`.
-- `dispatch_engagements` meta_data AttributeError ntfy alert confirmed
-  stale: PR #1780 migration `c9d8e7f6a5b4` at head, fresh workers show
-  `hasattr(EngagementAction,'meta_data')=True`, zero errors post-restart.
-- Docker Desktop backend died ~23:44Z (dd-user-distro-proxy crash-loop on
-  backend.sock refused) → self-healed via Windows watchdogs; 4
-  hash-prefixed worker containers renamed back via wsl_docker_doctor.
-- X token (@TBaltzakis) expiry alert 01:47Z — non-issue, `x_tool.py
-  validate` live API call succeeded 01:59Z.
-- Worktree sweep: removed 7 merged-PR worktrees + branches
-  (app-audit-fix, backlog-engagement, bsky-sweep, li-scrape-throttle,
-  session-persist, watchdog-created-grace, x-oauth1-fallback).
-- #1744 "empty-merge" flag verified false positive — li_recap_watch.py
-  is on master (cbfc4c3e + fix #1748).
-
 ## 2026-11-07 — sweep cleanup (this file was consolidated)
 
 Resolved history pruned 2026-11-07 (PRs #1404/#1405 era). All previously
@@ -1917,7 +1896,7 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - Tooling: `scripts/dmr-env-drift.py` + incident section in
   docker-model-runner SKILL.md — PR #1774.
 
-## DMR host stability — salvaged from deploy-watch stash (2026-11-13)
+## Recovered stash items + engagement fix (2026-11-13)
 
 Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
 restored after the #1785 unbound-var bug killed deploy-watch mid-run:
@@ -1952,33 +1931,36 @@ restored after the #1785 unbound-var bug killed deploy-watch mid-run:
 - Gotcha for future migration authors: check `alembic heads` AND grep
   existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
 
-## Leftovers sweep — resolved (2026-11-13 ~02:00 EET)
+## LinkedIn unused dev-app surfaces — implemented (2026-11-12/13)
 
-- [x] **vhdx compact DONE** — root causes were missing UTF-8 BOM (PS5.1
-  parse fail) + vhdx handle still locked after `docker desktop stop`.
-  Script now BOM'd, force-kills Docker processes, polls for exclusive
-  handle (home-ops `f4aa003`). Ran 00:43→~01:30: vhdx 185.5→158.8GB,
-  C: 8.7→~52GB free, engine healthy. Elevated scheduled task
-  `Vhdx-Compact` registered (detached from WSL) with daily 04:00 safety
-  net that self-aborts when C: >20GB free.
-- [x] **DMR env drift RESOLVED** — `compose up -d` recreate baked the
-  canonical `DMR_*_MODEL` fleet into all containers; 4/4 workers pong.
-- [x] **7 compose services stuck in `Created`** (engagement-browser,
-  promtail, compose-healer, n8n-metrics, social-metrics, metabase,
-  social-jupyter) — leftover from an interrupted `compose up` during the
-  compact window; started manually, all Up. Stray duplicate
-  `terraform-mcp-server` containers (eloquent_buck, nifty_elbakyan,
-  restart=no, no compose project) removed.
-- [x] **PR #1783 CI fix** — notebook-report tests shared the `"nb"` name
-  so the new same-day Redis done-key skipped later tests (`KeyError:
-  emailed/error`). Unique names per test + fake-lock dedupe test
-  (`1ecca596`).
-- [x] **li-portal-gate-watch cron live** — `17 */2 * * *` probes the
-  LinkedIn portal session; on first non-429 it drives the Member DP
-  modal once and TG-alerts #ops. First post-compact fire ~02:17 EET.
-- [x] messenger-sidecar + warp-proxy `Exited` = stack-ops idle sleep,
-  NOT failures — they wake on connect through the proxy.
-- Still external/human (unchanged): Member DP modal + Matched Audiences
-  (watcher will drive when LinkedIn un-429s), `lead_created` Campaign
-  Manager rule verify, X OAuth approve, FB OAuth reconnect, WhatsApp
-  phone verify, Viber/Rakuten, IG Graph config_id, Bluesky quota window.
+PR #1789 (`feat/linkedin-unused-surfaces-rebuilt`, auto-merge armed; #1786
+superseded by rebuild):
+- `linkedin_actor`: comments via official CM API first (person token,
+  `author_urn`); API refusal → skip (no sidecar retry), infra failure →
+  sidecar fallback. Likes remain sidecar-only.
+- `linkedin_events.create_org_event` fixed to real schema
+  (`startsAt` + `type.online.format.external`); description omitted —
+  MultiLocaleRichText localized-map shape 422s live. NEW
+  `post_org_event()` + `linkedin_event.py post` — events are drafts until
+  a `/rest/posts` call references `urn:li:event:{id}` (this was the GET
+  404 cause).
+- LIVE: org event `7526770135387529216` created AND posted
+  (`urn:li:ugcPost:7526789120099086336`, GET now 200, vanityName
+  `freelive-theaiauditmostsmbsskip…`, LISTED) — Thu 2026-11-20
+  17:00–17:45 EET, url → cloudless.gr/contact.
+- Announcement post `9678a774-dae5-48e9-8b1a-1a178841b5a9` SCHEDULED
+  2026-11-19 07:00 UTC (day-before reminder).
+- `route_linkedin_leads` streams `lead_created` conversion (SHA256 email
+  + lead response id) after EspoCRM upsert; non-blocking. NOTE:
+  `lead_created` rule must exist in Campaign Manager — verify.
+- vhdx-compact RESOLVED: root causes were missing UTF-8 BOM (PS5.1 parse
+  fail) + vhdx still locked. Script now stops Docker forcefully, waits
+  for exclusive handle, BOM'd. Ran 00:43→~01:30: vhdx 185.5→158.8GB,
+  C: 8.7→~52GB free. Fixes in home-ops `f4aa003`.
+- DMR env drift RESOLVED: `compose up -d` recreate baked canonical
+  DMR_*_MODEL fleet into containers; 4/4 workers pong.
+- Portal gates still open: Member DP (Member) on app 265077368 +
+  Matched Audiences case on 264925843 — `scripts/li-portal-gate-watch.sh`
+  cron (every 2h, 24h dedup) retries the probe and drives the modal once
+  LinkedIn's 429 clears.
+- Tests: 11 new cases; ruff clean; workers restarted.
