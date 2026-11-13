@@ -7,27 +7,6 @@ heading at the bottom; sweeps prune resolved entries (full history in git).
 Tags: `human:` = owner action required · `decide:` = content/process decision
 · `watch:` = no action until the trigger fires.
 
-## 2026-11-13 — ntfy alert triage + watchdog false-positive fix
-
-- compose-watchdog declared containers "stuck" when its 10-min tick landed
-  mid-`compose up` (created-state grace missing) → recur=6 criticals on
-  env-manager-frontend/n8n/instagram-private-api/social-cloudflared.
-  Fixed: `CREATED_GRACE_S=180` skip — PR #1794 merged, live via
-  run-watchdog.bat → `scripts/compose-watchdog.sh`.
-- `dispatch_engagements` meta_data AttributeError ntfy alert confirmed
-  stale: PR #1780 migration `c9d8e7f6a5b4` at head, fresh workers show
-  `hasattr(EngagementAction,'meta_data')=True`, zero errors post-restart.
-- Docker Desktop backend died ~23:44Z (dd-user-distro-proxy crash-loop on
-  backend.sock refused) → self-healed via Windows watchdogs; 4
-  hash-prefixed worker containers renamed back via wsl_docker_doctor.
-- X token (@TBaltzakis) expiry alert 01:47Z — non-issue, `x_tool.py
-  validate` live API call succeeded 01:59Z.
-- Worktree sweep: removed 7 merged-PR worktrees + branches
-  (app-audit-fix, backlog-engagement, bsky-sweep, li-scrape-throttle,
-  session-persist, watchdog-created-grace, x-oauth1-fallback).
-- #1744 "empty-merge" flag verified false positive — li_recap_watch.py
-  is on master (cbfc4c3e + fix #1748).
-
 ## 2026-11-07 — sweep cleanup (this file was consolidated)
 
 Resolved history pruned 2026-11-07 (PRs #1404/#1405 era). All previously
@@ -272,8 +251,8 @@ Remaining:
 - [ ] watch: Dropbox→Drive rclone migration (`Apps/Google Download Your
   Data`, ~44 GiB) — watcher auto-verifies + purges Dropbox on completion;
   log `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
-- [x] watch: PR #1399 (LinkedIn Ad Library intel pipeline) — MERGED
-  2026-11-07.
+- [ ] watch: PR #1399 (LinkedIn Ad Library intel pipeline) — auto-merge
+  armed, checks cycling.
 - [ ] watch: publish_queue failures — the 406 failed rows are legit
   (text-dedup skips, seo<80 quality gate, true media dupes); post-#1397
   failures now log real tracebacks (FB post_photo timeouts patched in
@@ -365,11 +344,11 @@ Landed on `feat/devapps-datalake-reports` (PR pending):
 - workforce_audit: `devapps-sync` + `devapp-channel-actions` entries.
 
 Leftovers:
-- [x] First live `devapps-sync` run — verified 2026-11-13: 31
-  `devapp_snapshot` + 299 `account_sync` + 42 `follower_insights` events
-  in 24h across platforms.
-- [x] `devapp-channel-actions` first run — verified 2026-11-13: 13
-  `channel_post` events in 14d; publish queue completing per-channel.
+- [ ] First live `devapps-sync` run — verify per-platform pullers
+  against real tokens (FB page_token path, IG demographics metric name,
+  LinkedIn org vs member split); failures land as `ok:false` rows.
+- [ ] `devapp-channel-actions` first run — confirm scheduled posts land
+  per channel and dedup holds on the 2nd/3rd/4th daily sweep.
 - [ ] X quota: `me_metrics` 402 → `quota_exhausted` → `wait_for_quota_reset`
   health action; verify it doesn't spam channel_health alerts daily.
 
@@ -1501,12 +1480,13 @@ Leftovers:
       daily beat `bluesky-credential-sweep` (04:20) + `bluesky_tool.py rotate`.
       Auto-merge armed. Requires `BSKY_MAIN_PASSWORD` in env/Infisical for
       fully unattended rotation; without it the sweep alerts once.
-- [x] Set `BSKY_MAIN_PASSWORD` — present in `.env` (len 28) and passed
-  through compose to api + workers (verified 2026-11-13).
-- [x] Posts 02853052…/6844e52e… — both `published` (verified
-  2026-11-13); quota window recovered.
-- [x] PRs armed: #1704 MERGED, #1708 MERGED, #1711 MERGED; #1710 closed
-      (superseded — TG credential drops landed via #1768).
+- [ ] Set `BSKY_MAIN_PASSWORD` (Bluesky account main password) in
+      `.env` + Infisical, or mint a new app password at bsky.app →
+      Settings → App passwords and reconnect via POST /api/v1/bluesky/connect.
+- [ ] After quota reset (~05:13 UTC) verify posts 02853052…/6844e52e…
+      publish; requeue if still failed.
+- [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
+      #1710 (TG credential drops), #1711 (bsky rotation).
 
 ## 2026-11-11 (tg-gate-webhook: credential drops actually work now — PR #1710)
 
@@ -1825,8 +1805,9 @@ Newly discovered gates:
   Settings: Threads app ID `1236823015256887`, password-confirmed
   reveal of the 32-hex Threads app secret (FACEBOOK_PASSWORD from .env).
   Verified live: client_credentials grant → TH| app token. Written to
-  .env (local-only keys survive Infisical merge-pull; still TODO push
-  to Infisical prod so --force pulls can't drop them).
+  .env; **pushed to Infisical prod 2026-11-12 ~19:25** (POST 200/200 via
+  in-container API — WSL↔Windows interop was down, used `docker exec
+  infisical node` + universal-auth from .env creds). Force pulls safe.
 - **cloudless.gr is already a Threads Tester** on the app (User Token
   Generator row) — dev-mode permission grant OK for our own account.
 - **LinkedIn**: sidecar rate-limit flag cleared BUT /feed/ still returns
@@ -1868,116 +1849,41 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
   (since 2026-10-22); lift hold in AWS console if domain wanted back.
   Portfolio no longer depends on it (portfolio.cloudless.gr live).
 
-## Report-delivery incident + watcher (2026-11-12 eve)
+## 2026-11-12 — ntfy central alert lane (phone push)
 
-- Missing-email root causes found + fixed: n8n `socialauto-daily-slack-digest`
-  workflow aborted on `List IntraVox Pages` node error before the email node
-  (live fix via API + repo JSON in PR #1766); strategy_brief/ops_health
-  notebook reports produced artifacts but emails never landed — resent
-  manually, ops_health + daily digest confirmed delivered.
-- n8n public API was fully broken: all stored `user_api_keys` JWTs failed
-  `invalid signature` (encryption-key rotation mismatch). Minted a fresh
-  HS256 key derived from current `N8N_ENCRYPTION_KEY`, inserted into
-  `user_api_keys`, wrote `N8N_API_KEY` to `.env` + Infisical prod
-  (N8N_API_KEY + N8N_API_URL, both 200). `/api/v1/workflows` now 200.
-- New `report-delivery-ops` skill (PR #1766): `report_delivery_watch.py`
-  verifies every scheduled report email arrived (IMAP subject registry
-  mirroring celery_app beat + n8n digest), auto-resends once/day via
-  `celery_app.send_task` in social-worker-default, TG #ops on persistent
-  misses. Cron `45 10,14,20 * * *` (user crontab, EET host).
-- OPEN: `daily_strategy_brief` notebook resend still executing at ~22:10 —
-  DMR `smollm2`/`nomic-embed-text` models not resident → 240s cold-load
-  timeouts per LLM call → CF fallback. Watch for completion; if it keeps
-  timing out, the morning 09:00 run likely dies the same way (explains the
-  missing email). DMR model residency is the underlying fix (dmr-ops).
+- [x] PR #1752 merged — severity alerts fan out to ntfy `cloudless-alerts`
+  (priority 5/4/3/2 for critical/ops/intel/digest) alongside Slack+TG.
+  Covers `send_telegram_alert`, `post_alert_to_slack`, daily digest,
+  `tg_alert.py` skill (devin+cursor mirrors), 12 home-ops watchers via
+  `home-ops/scripts/ntfy_notify.py`. Relay acct `alert-relay` write-only;
+  token in repo `.env` (`NTFY_ALERT_BASE_URL`/`NTFY_ALERT_TOKEN`; topic
+  defaults `cloudless-alerts`). Phone subscribed to all 3 topics on
+  `ntfy.cloudless.gr`, verified live.
+- [ ] **deploy pending**: containers bind-mount the shared checkout, which
+  sits on `feat/dmr-tunnel-gate` (active WIP). ntfy backend code activates
+  on next `checkout master && pull` + restart of social-api + 4 workers +
+  celery-beat. `.env` vars already present — no compose change needed
+  (Settings reads mounted `/app/.env`).
+- [ ] Optional: audit remaining producers that bypass the patched choke
+  points (n8n workflows, email-only alerts, `post_publishing_to_slack`
+  variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
 
-## DMR env drift → gpu:dmr_lock churn (2026-11-12 late)
+## 2026-11-12 (eve) — worker sweep bug fixes (PR #1761)
 
-- Root cause of the `[ops-agent/critical] gpu:dmr_lock held ~40min` alert:
-  NOT a wedged holder — `.env` had all `DMR_*_MODEL` flattened to
-  `smollm2` + `nomic-embed-text` (stale emergency VRAM workaround), and
-  `docker-compose.yml` `${DMR_X:-smollm2}` defaults mean EMPTY .env
-  values fall through to smollm2 — overrides must be explicit refs.
-  `DMR_MEDIA_MODEL` compose default `cloudless/qwen3-4b-media` was never
-  pulled. Missing models → cold-load timeouts → retry stampede → lock
-  continuously held.
-- FIXED in `.env` (live file): all DMR_*_MODEL set to canonical fleet
-  (qwen3:8b text, Qwen3-4B mid/chatbot/quality/media, Qwen3-Embedding,
-  smollm3 tiny, qwen3-vl vision). Container env still stale — needs
-  `docker compose up -d` recreate of social-api + 4 workers + beat
-  (env_file vars bake at CREATE; restart does not reload).
-- IN FLIGHT: `docker model pull` for `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  (2.5GB) + `ai/smollm3` (1.9GB) running detached; wedged `Loading...`
-  entries (8b/vl/llama3.2/embedding) clear once memory frees — they are
-  queued canonical loads, not corruption.
-- VERIFY after recreate: `dmr-env-drift.py` clean + `check_dmr_health`
-  `missing_models=[]` + no new dmr_lock alerts. This also unblocks the
-  OPEN `daily_strategy_brief` cold-load-timeout item above.
-- Tooling: `scripts/dmr-env-drift.py` + incident section in
-  docker-model-runner SKILL.md — PR #1774.
-
-## DMR host stability — salvaged from deploy-watch stash (2026-11-13)
-
-Recovered open items parked in `stash@{1}` (deploy-watch auto-hold) that never
-restored after the #1785 unbound-var bug killed deploy-watch mid-run:
-
-- [ ] **DMR runner scheduler wedges on this host** — after Docker Desktop
-  restart, /engines/v1/models returns 200 but chat completions hang;
-  `docker model ps` shows models stuck "Loading..." indefinitely
-  (qwen3:8b, qwen3-vl observed 2026-11-13). dmr-watchdog's restart path
-  can't work on Docker Desktop (`docker-model-runner` is not a container
-  in this engine). Only recovery seen: full `docker desktop restart`.
-  Root cause likely RAM pressure: WSL ~11Gi total, ~5Gi available; the
-  canonical fleet can't all co-reside. Options: lower keep_alive /
-  trim `_BEST_PRACTICE_CONFIGS`, or raise WSL memory.
-- [x] DMR_CHATBOT_MODEL missing — RESOLVED 2026-11-13: canonical
-  `DMR_CHATBOT_MODEL=hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`
-  in .env, model pulled + resident.
-- [x] WSL localhost→12435 forwarding — RESOLVED: `_common.py` falls back
-  to `docker exec` inside social-api (PR #1781 merged).
-
-## Engagement dispatch crash-loop — FIXED (2026-11-13)
-
-- `dispatch_engagements` was crash-looping ~41 failures/12min:
-  `AttributeError: 'EngagementAction' object has no attribute 'meta_data'`.
-  Task writes `gate_notified`/`skip_count` markers; model lacked the column
-  and migration `f7g8h9i0j1k2` sat on a dead alembic branch (never applied —
-  prod `alembic_version` was `k2f9a1b4c6d8`).
-- Fix merged via PR #1780: `meta_data` mapped_column on `EngagementAction`
-  + migration `c9d8e7f6a5b4` on the live head (idempotent — the orphaned
-  migration also applies on fresh `upgrade heads` builds).
-- Verified live: `alembic current = c9d8e7f6a5b4 (head)`, zero
-  meta_data errors post-restart (was 41/12min).
-- Gotcha for future migration authors: check `alembic heads` AND grep
-  existing revision IDs for collisions — `a1b2c3d4e5f6` was already taken.
-
-## Leftovers sweep — resolved (2026-11-13 ~02:00 EET)
-
-- [x] **vhdx compact DONE** — root causes were missing UTF-8 BOM (PS5.1
-  parse fail) + vhdx handle still locked after `docker desktop stop`.
-  Script now BOM'd, force-kills Docker processes, polls for exclusive
-  handle (home-ops `f4aa003`). Ran 00:43→~01:30: vhdx 185.5→158.8GB,
-  C: 8.7→~52GB free, engine healthy. Elevated scheduled task
-  `Vhdx-Compact` registered (detached from WSL) with daily 04:00 safety
-  net that self-aborts when C: >20GB free.
-- [x] **DMR env drift RESOLVED** — `compose up -d` recreate baked the
-  canonical `DMR_*_MODEL` fleet into all containers; 4/4 workers pong.
-- [x] **7 compose services stuck in `Created`** (engagement-browser,
-  promtail, compose-healer, n8n-metrics, social-metrics, metabase,
-  social-jupyter) — leftover from an interrupted `compose up` during the
-  compact window; started manually, all Up. Stray duplicate
-  `terraform-mcp-server` containers (eloquent_buck, nifty_elbakyan,
-  restart=no, no compose project) removed.
-- [x] **PR #1783 CI fix** — notebook-report tests shared the `"nb"` name
-  so the new same-day Redis done-key skipped later tests (`KeyError:
-  emailed/error`). Unique names per test + fake-lock dedupe test
-  (`1ecca596`).
-- [x] **li-portal-gate-watch cron live** — `17 */2 * * *` probes the
-  LinkedIn portal session; on first non-429 it drives the Member DP
-  modal once and TG-alerts #ops. First post-compact fire ~02:17 EET.
-- [x] messenger-sidecar + warp-proxy `Exited` = stack-ops idle sleep,
-  NOT failures — they wake on connect through the proxy.
-- Still external/human (unchanged): Member DP modal + Matched Audiences
-  (watcher will drive when LinkedIn un-429s), `lead_created` Campaign
-  Manager rule verify, X OAuth approve, FB OAuth reconnect, WhatsApp
-  phone verify, Viber/Rakuten, IG Graph config_id, Bluesky quota window.
+- [x] PR #1761 — report_videos detached-session fix (12 stuck
+  pending_video_task drafts flushed to FAILED), datalake_insights alert
+  dedupe (~113 identical ntfy msgs/day → 1 per distinct digest),
+  plain_english prompt-leak guard, publish_verify asyncpg casts,
+  media_backfill run_async. Auto-merge armed; required checks green.
+- [ ] **Bluesky app password dead + bsky 429 rate-limit** — stored app
+  password returns 401; rotation sweep runs daily 04:20 but createSession
+  is IP-rate-limited (429) as of 21:10Z. Self-heals on next sweep window;
+  if still failing tomorrow, mint app password at bsky.app manually.
+- [ ] **LinkedIn sidecar session rate_limited** — session_healer reports
+  `rate_limited`, OAuth sessions_invalid=2. Automated lanes exhausted;
+  needs session-ops manual relogin via noVNC if it persists.
+- [ ] **Other agents' dirty files left uncommitted**: fb_session_heal.py,
+  tt_verify_status.py, tiktok_reauth.py — not mine, left in tree.
+- [ ] Host gates warn: RAM pressure (WSL avail 3.7GB / host free 1.4GB),
+  dmr_tunnel retry loops alive, cdp_lane :9229 relaunched — self-healing
+  lanes active, monitor only.
