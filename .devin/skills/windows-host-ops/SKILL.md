@@ -86,7 +86,33 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   console because the WSL session has no Windows console attached — expected, keep
   such calls minimal; orphaned ones leave a stuck empty window (safe to close).
 - Helper scripts on disk: `_hide-task-popups*.ps1`, `_popup-watch.ps1` (logs every
-  powershell/cmd/conhost spawn with parent PID for N minutes).
+  powershell/cmd/conhost spawn with parent PID for N minutes), and
+  `popup_task_audit.ps1` (repo: `scripts/popup_task_audit.ps1`, also copied to
+  `D:\DevOptimizer\scripts\`).
+
+### Popup audit & repair tool (2026-11-13)
+
+`scripts/popup_task_audit.ps1` — one-shot audit of every scheduled task action:
+
+```powershell
+# audit only (default): lists FLASH-RISK actions
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1
+# repair: re-wrap offenders in conhost --headless (elevated tasks report DENIED)
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Fix
+# machine-readable
+powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Json
+```
+
+Rules baked in: `-WindowStyle Hidden` counts as FLASH-RISK (console still
+allocated); `conhost` without `--headless` is repaired by prepending the flag,
+never double-wrapped; GUI-subsystem exes and `pythonw`/`wscript` are OK.
+Run it after ANY script that registers task actions, and whenever popups
+reappear — the 2026-10-21 regression came from `reregister-staggered-tasks.ps1`
+stripping wraps (it now uses `New-HeadlessAction`).
+
+Known non-task flash source: the **Docker Desktop dashboard window** polls
+`docker stats` every ~10 s, each spawn allocating a conhost — close the
+Docker Desktop window (engine keeps running in tray) to stop that storm.
 
 ## Known flakiness
 
