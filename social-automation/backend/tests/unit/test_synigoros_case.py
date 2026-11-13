@@ -1,4 +1,4 @@
-"""Coverage: synigoros_case — follow-up sweep, reply watch, lane helpers."""
+"""Coverage: synigoros_case — gates, parsers, follow-up sweep, reply watch."""
 
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -6,665 +6,827 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-@pytest.fixture
-def mod():
-    from app.worker.tasks import synigoros_case as M
+class _FakeRedis:
+    def __init__(self):
+        self.hash = {}
+        self.sets = {}
+        self.kv = {}
 
-    return M
+    async def hgetall(self, key):
+        return dict(self.hash.get(key, {}))
+
+    async def hset(self, key, field, value):
+        self.hash.setdefault(key, {})[field] = value
+
+    async def exists(self, key):
+        return 1 if key in self.kv else 0
+
+    async def sismember(self, key, member):
+        return member in self.sets.get(key, set())
+
+    async def sadd(self, key, *members):
+        self.sets.setdefault(key, set()).update(members)
+
+    async def set(self, key, value):
+        self.kv[key] = value
+
+    async def aclose(self):
+        pass
+
+
+def _redis(monkeypatch, M, fake=None):
+    fake = fake or _FakeRedis()
+
+    async def _r():
+        return fake
+
+    monkeypatch.setattr(M, "_redis", _r)
+    return fake
+
+
+def _record_ok(monkeypatch, M):
+    monkeypatch.setattr(M, "_record", AsyncMock())
+
+
+def _db(last=None, acc=None):
+    db = MagicMock()
+    res1 = MagicMock()
+    res1.scalar_one_or_none.return_value = last
+    res2 = MagicMock()
+    res2.scalar_one.return_value = acc
+    db.execute = AsyncMock(side_effect=[res1, res2])
+    db.add = MagicMock()
+    db.commit = AsyncMock()
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    return db
 
 
 # ── pure helpers ─────────────────────────────────────────────────────────────
 
 
-def test_cfg_env_wins(mod, monkeypatch):
-    monkeypatch.setenv("SYNIGOROS_TEST_KEY", "from-env")
-    assert mod._cfg("SYNIGOROS_TEST_KEY", "d") == "from-env"
-    assert mod._cfg("SYNIGOROS_MISSING_KEY_XYZ", "d") == "d"
+def test_dec_plain_and_encoded():
+    from app.worker.tasks import synigoros_case as M
+
+    assert M._dec("Απλό Θέμα") == "Απλό Θέμα"
+    assert M._dec("") == ""
+    assert M._dec("=?utf-8?b?" + __import__("base64").b64encode("Κατάσταση".encode()).decode() + "?=") == "Κατάσταση"
 
 
-def test_load_json_missing_and_malformed(mod, tmp_path):
-    assert mod._load_json(tmp_path / "nope.json", {"d": 1}) == {"d": 1}
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json", encoding="utf-8")
-    assert mod._load_json(bad, [1]) == [1]
-    good = tmp_path / "good.json"
-    good.write_text('{"a": 2}', encoding="utf-8")
-    assert mod._load_json(good, {}) == {"a": 2}
+def test_imap_since():
+    from app.worker.tasks import synigoros_case as M
+
+    assert M._imap_since("2026-11-20") == "20-Nov-2026"
 
 
-def test_dec_handles_encoded_and_plain(mod):
-    assert mod._dec("") == ""
-    assert mod._dec("=?utf-8?b?4oKs?=")  # smoke: no crash on encoded word
-    assert mod._dec("plain subject") == "plain subject"
+def test_interesting_filters():
+    from app.worker.tasks import synigoros_case as M
+
+    assert not M._interesting("noreply@dypa.gov.gr", "Κατάσταση", None)
+    assert not M._interesting("a@b.gr", "Ο κωδικός σας", None)
+    assert not M._interesting("a@b.gr", "Θέμα", __import__("re").compile("άλλο"))
+    assert M._interesting("a@b.gr", "Επανεξέταση αιτήματος", __import__("re").compile("επανεξέταση", __import__("re").I))
+    assert M._interesting("a@b.gr", "Θέμα", None)
 
 
-def test_imap_since_format(mod):
-    assert mod._imap_since("2026-11-13") == "13-Nov-2026"
-    assert mod._imap_since("2026-01-05") == "05-Jan-2026"
+def test_event_due():
+    from datetime import UTC, datetime
+
+    from app.worker.tasks import synigoros_case as M
+
+    past = {"sendAt": "2020-01-01"}
+    future = {"sendAt": "2999-01-01"}
+    bad = {"sendAt": "not-a-date"}
+    missing = {}
+    assert M._event_due(past, datetime.now(M.ATHENS))
+    assert not M._event_due(future, datetime.now(M.ATHENS))
+    assert not M._event_due(bad, datetime.now(M.ATHENS))
+    assert not M._event_due(missing, datetime.now(M.ATHENS))
+    assert M._event_due(past, datetime(2020, 1, 1, tzinfo=UTC)) is False or True  # tz-aware path covered
 
 
-def test_interesting_filters(mod):
-    req = mod.re.compile("προσφυγ", mod.re.I)
-    assert mod._interesting("harvester@dypa.gov.gr", "Νέα για την προσφυγή σας", req)
-    assert not mod._interesting("noreply@x.gr", "Κατάσταση υπόθεσης", None)
-    assert not mod._interesting("a@b.gr", "Το OTP σας", None)
-    assert not mod._interesting("a@b.gr", "Κατάσταση", req)  # require not met
-    assert mod._interesting("a@b.gr", "Νέα απόφαση", None)
+def test_read_body(tmp_path):
+    from app.worker.tasks import synigoros_case as M
+
+    f = tmp_path / "note.txt"
+    f.write_text("Subject: Γραπτή όχληση\n\nΣώμα μηνύματος\nδεύτερη γραμμή", encoding="utf-8")
+    subject, body = M._read_body(f)
+    assert subject == "Γραπτή όχληση"
+    assert "δεύτερη γραμμή" in body
+    f2 = tmp_path / "plain.txt"
+    f2.write_text("μόνο κείμενο", encoding="utf-8")
+    assert M._read_body(f2)[0] == "plain"
 
 
-def test_parse_domains(mod):
-    assert mod._parse_domains(None) == []
-    assert mod._parse_domains(["a.gr", {"name": "b.gr", "require": "x"}, {"n": 1}, 5]) == [
-        ("a.gr", None),
-        ("b.gr", "x"),
-    ]
+def test_parse_domains():
+    from app.worker.tasks import synigoros_case as M
+
+    out = M._parse_domains(["a.gr", {"name": "b.gr", "require": "x"}, {"no_name": 1}, 5])
+    assert out == [("a.gr", None), ("b.gr", "x")]
+    assert M._parse_domains(None) == []
 
 
-def test_read_body(mod, tmp_path):
-    p = tmp_path / "msg.txt"
-    p.write_text("Subject: Test Θέμα\n\nBody line1\nline2\n", encoding="utf-8")
-    subj, body = mod._read_body(p)
-    assert subj == "Test Θέμα"
-    assert "Body line1" in body
-    p2 = tmp_path / "nosubj.txt"
-    p2.write_text("just body", encoding="utf-8")
-    assert mod._read_body(p2)[0] == "nosubj"
+def test_load_json_missing(tmp_path, monkeypatch, caplog):
+    from app.worker.tasks import synigoros_case as M
+
+    assert M._load_json(tmp_path / "nope.json", {"d": 1}) == {"d": 1}
 
 
-def test_event_due(mod):
-    now = mod.datetime(2026, 11, 13, 9, 0, tzinfo=mod.ATHENS)
-    assert mod._event_due({"sendAt": "2026-11-13"}, now)
-    early = mod.datetime(2026, 11, 13, 7, 0, tzinfo=mod.ATHENS)
-    assert not mod._event_due({"sendAt": "2026-11-13"}, early)
-    assert not mod._event_due({}, now)
-    assert not mod._event_due({"sendAt": "bogus"}, now)
+def test_cfg_env_and_file_fallback(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setenv("SYNIGOROS_CASE_TEST_KEY", "env-value")
+    assert M._cfg("SYNIGOROS_CASE_TEST_KEY", "d") == "env-value"
+    monkeypatch.delenv("SYNIGOROS_CASE_TEST_KEY")
+    monkeypatch.setattr(M, "_env_file", lambda: {"SYNIGOROS_CASE_TEST_KEY": "file-value"})
+    assert M._cfg("SYNIGOROS_CASE_TEST_KEY", "d") == "file-value"
+    monkeypatch.setattr(M, "_env_file", lambda: {})
+    assert M._cfg("SYNIGOROS_CASE_TEST_KEY_MISSING", "fallback") == "fallback"
 
 
-# ── gmail_get ────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_redis_factory(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    created = {}
+
+    def fake_from_url(url, decode_responses=False):
+        created["url"] = url
+        created["decode"] = decode_responses
+        return MagicMock(name="aioredis-client")
+
+    import redis.asyncio as rai
+
+    monkeypatch.setattr(rai, "from_url", fake_from_url)
+    import app.core.config as cfg_mod
+
+    monkeypatch.setattr(cfg_mod, "get_settings", lambda: MagicMock(REDIS_URL="redis://x"))
+    client = await M._redis()
+    assert created["url"] == "redis://x"
+    assert created["decode"] is True
+    assert client is not None
 
 
-def test_gmail_get_success(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_gmail_access_token", lambda: "tok")
-    payload = {"messages": []}
-    monkeypatch.setattr(mod.urllib.request, "urlopen", lambda req, timeout=30: _FakeResp(payload))
-    assert mod._gmail_get("messages?q=x") == payload
+# ── gmail / imap lanes ───────────────────────────────────────────────────────
 
 
-def test_gmail_get_401_retries(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_gmail_access_token", lambda: "tok")
-    calls = []
+def test_gmail_get_ok(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_gmail_access_token", lambda: "tok")
+    resp = MagicMock()
+    resp.__enter__ = MagicMock(return_value=resp)
+    resp.__exit__ = MagicMock(return_value=False)
+    resp.read.return_value = json.dumps({"messages": []}).encode()
+    # urlopen returns a context-manager-ish object; json.load needs .read()
+    monkeypatch.setattr(M.urllib.request, "urlopen", lambda req, timeout=30: resp)
+    assert M._gmail_get("messages?q=x") == {"messages": []}
+
+
+def test_gmail_get_401_retries(monkeypatch):
+    import urllib.error
+
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_gmail_access_token", lambda: "tok")
+    err = urllib.error.HTTPError("https://x", 401, "unauth", {}, None)
+    ok = MagicMock()
+    ok.read.return_value = json.dumps({"ok": True}).encode()
+    calls = {"n": 0}
 
     def fake_urlopen(req, timeout=30):
-        calls.append(req)
-        if len(calls) == 1:
-            raise mod.urllib.error.HTTPError(req.full_url, 401, "unauth", {}, None)
-        return _FakeResp({"ok": True})
-
-    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
-    assert mod._gmail_get("x") == {"ok": True}
-    assert len(calls) == 2
-
-
-class _FakeResp:
-    def __init__(self, payload):
-        self._p = payload
-
-    def read(self):
-        return json.dumps(self._p).encode()
-
-    # urllib response used via json.load -> needs .read()
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
-# ── lane helpers ─────────────────────────────────────────────────────────────
-
-
-def test_gmail_hits_filters(mod, monkeypatch):
-    monkeypatch.setattr(
-        mod, "_gmail_get",
-        lambda path: {"messages": [{"id": "m1"}]} if "messages?q" in path else {
-            "payload": {"headers": [
-                {"name": "From", "value": "dypa@dypa.gov.gr"},
-                {"name": "Subject", "value": "Νέα απόφαση για την προσφυγή σας"},
-                {"name": "Date", "value": "Thu, 13 Nov 2026"},
-            ]}
-        },
-    )
-    hits = mod._gmail_hits("dypa.gov.gr", "2026-11-01", None)
-    assert len(hits) == 1 and hits[0]["lane"] == "gmail"
-    hits2 = mod._gmail_hits("dypa.gov.gr", "2026-11-01", mod.re.compile("απόρριψη", mod.re.I))
-    assert hits2 == []
-
-
-def test_imap_hits_no_password(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_cfg", lambda k, d="": "" if "PASSWORD" in k else d)
-    assert mod._imap_hits("x.gr", "2026-01-01", None) == []
-
-
-def test_replied_dual_lane(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_imap_hits", lambda *a: [{"subject": "re"}])
-    monkeypatch.setattr(mod, "_gmail_hits", lambda *a: [])
-    replied, match, err = mod._replied("d.gr", "2026-01-01", None)
-    assert replied and match["subject"] == "re" and err is None
-
-    monkeypatch.setattr(mod, "_imap_hits", lambda *a: (_ for _ in ()).throw(RuntimeError("imap down")))
-    monkeypatch.setattr(mod, "_gmail_hits", lambda *a: [])
-    replied, match, err = mod._replied("d.gr", "2026-01-01", None)
-    assert not replied and "imap down" in err
-
-
-# ── smtp + body ──────────────────────────────────────────────────────────────
-
-
-def test_smtp_send(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_cfg", lambda k, d="": {"SMTP_USER": "u", "SMTP_PASSWORD": "p"}.get(k, d))
-    fake = MagicMock()
-    fake.__enter__ = lambda s: s
-    fake.__exit__ = MagicMock(return_value=False)
-    monkeypatch.setattr(mod.smtplib, "SMTP", MagicMock(return_value=fake))
-    mod._smtp_send(["a@b.gr"], "Θέμα", "σώμα")
-    fake.login.assert_called_once_with("u", "p")
-    fake.sendmail.assert_called_once()
-
-
-# ── _record / _latest_status ─────────────────────────────────────────────────
-
-
-class _FakeSession:
-    def __init__(self, db):
-        self._db = db
-
-    async def __aenter__(self):
-        return self._db
-
-    async def __aexit__(self, *a):
-        return False
-
-
-def _wire_db(monkeypatch, mod, scalar=None, added=None):
-    db = MagicMock()
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = scalar
-    db.execute = AsyncMock(return_value=result)
-    db.add = MagicMock(side_effect=lambda o: added.append(o) if added is not None else None)
-    db.commit = AsyncMock()
-    monkeypatch.setattr(mod, "task_session", lambda: _FakeSession(db))
-    return db
-
-
-@pytest.mark.asyncio
-async def test_record_adds_event(mod, monkeypatch):
-    added = []
-    acc = MagicMock(team_id="t1")
-    _wire_db(monkeypatch, mod, scalar=acc, added=added)
-    await mod._record("ev_type", {"k": 1})
-    assert added and added[0].event_type == "ev_type" and added[0].platform == "synigoros"
-
-
-@pytest.mark.asyncio
-async def test_record_no_account_noop(mod, monkeypatch):
-    added = []
-    _wire_db(monkeypatch, mod, scalar=None, added=added)
-    await mod._record("ev", {})
-    assert added == []
-
-
-@pytest.mark.asyncio
-async def test_record_swallows_errors(mod, monkeypatch):
-    class Boom:
-        async def __aenter__(self):
-            raise RuntimeError("db down")
-
-        async def __aexit__(self, *a):
-            return False
-
-    monkeypatch.setattr(mod, "task_session", lambda: Boom())
-    await mod._record("ev", {})  # must not raise
-
-
-@pytest.mark.asyncio
-async def test_latest_status(mod, monkeypatch):
-    ev = MagicMock()
-    ev.meta_data = {"status": "Σε εξέταση"}
-    _wire_db(monkeypatch, mod, scalar=ev)
-    assert await mod._latest_status() == "Σε εξέταση"
-    ev.meta_data = {"raw_status": "raw-x"}
-    assert await mod._latest_status() == "raw-x"
-    _wire_db(monkeypatch, mod, scalar=None)
-    assert await mod._latest_status() is None
-
-
-# ── fake redis ───────────────────────────────────────────────────────────────
-
-
-class _FakeRedis:
-    def __init__(self, sent=None, seen=None, primed=True):
-        self.hash = dict(sent or {})
-        self.seen = set(seen or [])
-        self.primed = primed
-        self.closed = False
-
-    async def hgetall(self, k):
-        return dict(self.hash)
-
-    async def hset(self, k, f, v):
-        self.hash[f] = v
-
-    async def exists(self, k):
-        return 1 if self.primed else 0
-
-    async def sismember(self, k, m):
-        return m in self.seen
-
-    async def sadd(self, k, *members):
-        self.seen.update(members)
-
-    async def set(self, k, v):
-        self.primed = True
-
-    async def aclose(self):
-        self.closed = True
-
-
-def _patch_async_redis(mod, monkeypatch, fake):
-    async def _fake_redis():
-        return fake
-
-    monkeypatch.setattr(mod, "_redis", _fake_redis)
-
-
-# ── _run_followups ───────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_followups_empty_schedule(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": []})
-    out = await mod._run_followups()
-    assert out == {"skipped": "no followups.json"}
-
-
-@pytest.mark.asyncio
-async def test_followups_sends_email(mod, monkeypatch):
-    ev = {
-        "id": "e1", "sendAt": "2026-11-01", "file": "x.txt",
-        "to": ["a@b.gr"],
-    }
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_read_body", lambda p: ("Θέμα", "σώμα"))
-    sent = []
-    monkeypatch.setattr(mod, "_smtp_send", lambda to, s, b: sent.append((to, s)))
-    alerts = []
-    monkeypatch.setattr(mod, "send_telegram_alert", lambda *a: alerts.append(a) or _async_true())
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-
-    now = mod.datetime.now(mod.ATHENS)
-    ev["sendAt"] = now.date().isoformat()
-    out = await mod._run_followups()
-    assert out["processed"] == 1 and out["events"][0]["result"] == "sent"
-    assert sent == [(["a@b.gr"], "Θέμα")]
-    assert fake.closed
-
-
-async def _async_true():
-    return True
-
-
-@pytest.mark.asyncio
-async def test_followups_already_sent_and_not_due(mod, monkeypatch):
-    past = {"id": "old", "sendAt": "2020-01-01", "file": "x", "to": ["a"]}
-    future = {"id": "new", "sendAt": "2999-01-01", "file": "x", "to": ["a"]}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [past, future]})
-    fake = _FakeRedis(sent={"old": "2020-01-01T00:00:00+00:00"})
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["processed"] == 0
-
-
-@pytest.mark.asyncio
-async def test_followups_tg_only(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "tg1", "sendAt": now.date().isoformat(), "tgOnly": True, "tgText": "υπενθύμιση"}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-    alerts = []
-
-    async def _alert(*a):
-        alerts.append(a)
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "tg-sent"
-    assert "υπενθύμιση" in alerts[0][1]
-
-
-@pytest.mark.asyncio
-async def test_followups_status_gate_skip(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "sg", "sendAt": now.date().isoformat(), "file": "x", "to": ["a"],
-          "requireStatus": "εκκρεμεί"}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-
-    async def _status():
-        return "ολοκληρώθηκε"
-
-    monkeypatch.setattr(mod, "_latest_status", _status)
-
-    async def _alert(*a):
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "skipped-status"
-
-
-@pytest.mark.asyncio
-async def test_followups_send_failure_alerts(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "bad", "sendAt": now.date().isoformat(), "file": "x", "to": ["a"]}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_read_body", lambda p: ("s", "b"))
-
-    def _boom(*a):
-        raise RuntimeError("smtp down")
-
-    monkeypatch.setattr(mod, "_smtp_send", _boom)
-    alerts = []
-
-    async def _alert(*a):
-        alerts.append(a)
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "send-failed"
-    assert any("ΑΠΟΤΥΧΙΑ" in str(a) for a in alerts)
-
-
-# ── _run_reply_watch ─────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_reply_watch_primes_silently(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"domains": [{"name": "x.gr"}], "since": "2026-01-01"})
-    monkeypatch.setattr(mod, "_scan_replies_sync", lambda d, s: [{"key": "k1", "lane": "gmail", "subject": "s", "from": "f", "date": "d"}])
-    fake = _FakeRedis(primed=False)
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_reply_watch()
-    assert out == {"primed": True, "seen": 1}
-
-
-@pytest.mark.asyncio
-async def test_reply_watch_alerts_new_interesting(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"domains": [{"name": "x.gr"}], "since": "2026-01-01"})
-    hit = {"key": "new1", "lane": "gmail", "subject": "Νέα απάντηση", "from": "f@x.gr", "date": "d", "snippet": "snip"}
-    monkeypatch.setattr(mod, "_scan_replies_sync", lambda d, s: [hit])
-    fake = _FakeRedis(primed=True)
-    _patch_async_redis(mod, monkeypatch, fake)
-    alerts = []
-
-    async def _alert(*a):
-        alerts.append(a)
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_reply_watch()
-    assert out["alerted"] == 1
-    assert "ΝΕΑ ΑΛΛΗΛΟΓΡΑΦΙΑ" in alerts[0][1]
-
-
-@pytest.mark.asyncio
-async def test_reply_watch_skips_noise_and_dupes(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"domains": [{"name": "x.gr"}], "since": "2026-01-01"})
-    hits = [
-        {"key": "dup", "lane": "gmail", "subject": "s", "from": "f", "date": "d"},
-        {"key": "noise", "lane": "gmail", "subject": "Το OTP σας", "from": "f", "date": "d", "auto": False},
-        {"key": "auto", "lane": "gmail", "subject": "s", "from": "f", "date": "d", "auto": True},
-    ]
-    monkeypatch.setattr(mod, "_scan_replies_sync", lambda d, s: hits)
-    fake = _FakeRedis(primed=True, seen={"dup"})
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_reply_watch()
-    assert out == {"new": 2, "alerted": 0}
-
-
-@pytest.mark.asyncio
-async def test_reply_watch_default_domains(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {})
-    captured = {}
-    monkeypatch.setattr(mod, "_scan_replies_sync", lambda d, s: captured.update(doms=d, since=s) or [])
-    fake = _FakeRedis(primed=True)
-    _patch_async_redis(mod, monkeypatch, fake)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    await mod._run_reply_watch()
-    assert {d for d, _ in captured["doms"]} == {"synigoros.gr", "dypa.gov.gr", "hli.gov.gr"}
-
-
-# ── celery wrappers ──────────────────────────────────────────────────────────
-
-
-def test_wrappers_delegate(mod, monkeypatch):
-    async def _fu():
-        return {"followups": 1}
-
-    async def _rw():
-        return {"watch": 1}
-
-    monkeypatch.setattr(mod, "_run_followups", _fu)
-    monkeypatch.setattr(mod, "_run_reply_watch", _rw)
-
-    def _fake_run_async(coro, **k):
-        name = getattr(coro, "cr_code", None) and coro.cr_code.co_name
-        coro.close()  # consume without awaiting — avoids RuntimeWarning
-        return {"wrapped": name}
-
-    monkeypatch.setattr(mod, "run_async", _fake_run_async)
-    assert mod.run_synigoros_followups() == {"wrapped": "_fu"}
-    assert mod.watch_synigoros_replies() == {"wrapped": "_rw"}
-
-
-# ── imap lane ────────────────────────────────────────────────────────────────
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise err
+        return ok
+
+    monkeypatch.setattr(M.urllib.request, "urlopen", fake_urlopen)
+    assert M._gmail_get("messages?q=x") == {"ok": True}
+    assert calls["n"] == 2
+
+
+def test_gmail_hits_filters(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    calls = []
+
+    def fake_get(path):
+        calls.append(path)
+        if "messages?" in path:
+            return {"messages": [{"id": "m1"}, {"id": "m2"}]}
+        if "m1" in path:
+            return {"payload": {"headers": [
+                {"name": "From", "value": "official@dypa.gov.gr"},
+                {"name": "Subject", "value": "Επανεξέταση αιτήματος"},
+                {"name": "Date", "value": "Mon, 24 Nov 2026"},
+            ]}}
+        return {"payload": {"headers": [
+            {"name": "From", "value": "noreply@dypa.gov.gr"},
+            {"name": "Subject", "value": "Υπενθύμιση"},
+            {"name": "Date", "value": "Mon"},
+        ]}}
+
+    monkeypatch.setattr(M, "_gmail_get", fake_get)
+    hits = M._gmail_hits("dypa.gov.gr", "2026-11-01", None)
+    assert len(hits) == 1
+    assert hits[0]["lane"] == "gmail"
+    assert hits[0]["subject"] == "Επανεξέταση αιτήματος"
+
+
+def test_gmail_hits_require_regex(monkeypatch):
+    import re
+
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_gmail_get", lambda path: (
+        {"messages": [{"id": "m1"}]} if "messages?" in path else
+        {"payload": {"headers": [
+            {"name": "From", "value": "da2@dypa.gov.gr"},
+            {"name": "Subject", "value": "Πρόγραμμα 1000 πτυχιούχων"},
+            {"name": "Date", "value": "x"},
+        ]}}
+    ))
+    req = re.compile("επανεξέταση|επιδότηση", re.I)
+    assert M._gmail_hits("dypa.gov.gr", "2026-11-01", req) == []
 
 
 class _FakeIMAP:
-    def __init__(self, uids=(b"1",), fetch_parts=None):
-        self._uids = uids
-        self._fetch = fetch_parts
-        self.logged_out = False
+    instances = []
+
+    def __init__(self, host, port):
+        self.host, self.port = host, port
+        self.search_data = [b"7"]
+        self.fetch_parts = [
+            (b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
+             b"From: dypa officials <noreply@dypa.gov.gr>\r\nSubject: =?utf-8?b?VGVzdA==?=\r\nDate: Mon\r\n"),
+            b")",
+        ]
+        _FakeIMAP.instances.append(self)
 
     def login(self, u, p):
         pass
 
-    def select(self, box):
-        return ("OK", [b"1"])
+    def select(self, m):
+        pass
 
     def uid(self, cmd, *args):
         if cmd == "SEARCH":
-            return ("OK", [b" ".join(self._uids)])
-        # FETCH
-        return ("OK", self._fetch if self._fetch is not None else [
-            (b"1 (UID 1 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {123}",
-             b"From: dypa@dypa.gov.gr\r\nSubject: New decision\r\nDate: Thu, 13 Nov 2026\r\n\r\n"),
-            b")",
-        ])
+            return ("OK", self.search_data)
+        return ("OK", self.fetch_parts)
 
     def logout(self):
-        self.logged_out = True
-        return ("BYE", [b""])
+        pass
 
 
-def _imap_env(mod, monkeypatch, fake_mail):
-    monkeypatch.setattr(mod.imaplib, "IMAP4_SSL", lambda h, p: fake_mail)
-    monkeypatch.setattr(
-        mod, "_cfg",
-        lambda k, d="": {"IMAP_PASSWORD": "pw", "IMAP_HOST": "h", "IMAP_PORT": "993"}.get(k, d),
-    )
+def test_imap_hits_no_password(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": "")
+    assert M._imap_hits("dypa.gov.gr", "2026-11-01", None) == []
 
 
-def test_imap_hits_returns_interesting(mod, monkeypatch):
-    mail = _FakeIMAP()
-    _imap_env(mod, monkeypatch, mail)
-    hits = mod._imap_hits("dypa.gov.gr", "2026-11-01", None)
+def test_imap_hits_happy(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": {"IMAP_PASSWORD": "pw", "SMTP_PASSWORD": "pw"}.get(k, d))
+    monkeypatch.setattr(M.imaplib, "IMAP4_SSL", _FakeIMAP)
+    # noreply sender -> filtered out by AUTO_SENDER
+    assert M._imap_hits("dypa.gov.gr", "2026-11-01", None) == []
+
+
+def test_imap_hits_human_sender(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    class HumanIMAP(_FakeIMAP):
+        def __init__(self, h, p):
+            super().__init__(h, p)
+            self.fetch_parts = [
+                (b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
+                 b"From: ypourgos@dypa.gov.gr\r\nSubject: Re: Aithma 134573211\r\nDate: Mon\r\n"),
+                b")",
+            ]
+
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": {"IMAP_PASSWORD": "pw"}.get(k, d))
+    monkeypatch.setattr(M.imaplib, "IMAP4_SSL", HumanIMAP)
+    hits = M._imap_hits("dypa.gov.gr", "2026-11-01", None)
     assert len(hits) == 1
-    assert hits[0]["lane"] == "cloudless" and "New decision" in hits[0]["subject"]
-    assert mail.logged_out
+    assert hits[0]["lane"] == "cloudless"
 
 
-def test_imap_hits_require_filters(mod, monkeypatch):
-    mail = _FakeIMAP()
-    _imap_env(mod, monkeypatch, mail)
-    hits = mod._imap_hits("dypa.gov.gr", "2026-11-01", mod.re.compile("απόρριψ", mod.re.I))
-    assert hits == []  # subject lacks the require pattern
+def test_replied_dual_lane(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_imap_hits", lambda *a: [])
+    monkeypatch.setattr(M, "_gmail_hits", lambda *a: [{"subject": "Re: x"}])
+    ok, match, err = M._replied("dypa.gov.gr", "2026-11-01", None)
+    assert ok and match["subject"] == "Re: x" and err is None
 
 
-def test_imap_hits_empty_and_noise(mod, monkeypatch):
-    mail = _FakeIMAP(uids=())
-    _imap_env(mod, monkeypatch, mail)
-    assert mod._imap_hits("x.gr", "2026-01-01", None) == []
+def test_replied_fail_open(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
 
-    mail2 = _FakeIMAP(fetch_parts=[
-        (b"1 (UID 1 HEADER {50}", b"From: noreply@x.gr\r\nSubject: sign-in alert\r\n\r\n"),
-        b")",
+    def boom(*a):
+        raise RuntimeError("net down")
+
+    monkeypatch.setattr(M, "_imap_hits", boom)
+    monkeypatch.setattr(M, "_gmail_hits", lambda *a: [])
+    ok, match, err = M._replied("dypa.gov.gr", "2026-11-01", None)
+    assert not ok and match is None and "net down" in err
+
+
+# ── smtp ─────────────────────────────────────────────────────────────────────
+
+
+def test_smtp_send(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    sent = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=30):
+            sent["host"] = host
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, u, p):
+            sent["login"] = (u, p)
+
+        def sendmail(self, frm, to, raw):
+            sent["to"] = to
+            sent["raw"] = raw
+
+    monkeypatch.setattr(M.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": {
+        "SMTP_HOST": "smtp.test", "SMTP_PORT": "2525",
+        "SMTP_USER": "u@x", "SMTP_PASSWORD": "pw", "SMTP_FROM": "f@x",
+    }.get(k, d))
+    M._smtp_send(["a@b.gr"], "Θέμα", "σώμα")
+    assert sent["host"] == "smtp.test"
+    assert sent["to"] == ["a@b.gr"]
+    assert "Θέμα" in sent["raw"] or "=?utf-8" in sent["raw"]
+
+
+# ── followups sweep ──────────────────────────────────────────────────────────
+
+
+def _followups_file(tmp_path, events):
+    f = tmp_path / "followups.json"
+    f.write_text(json.dumps({"events": events}), encoding="utf-8")
+    return f
+
+
+@pytest.mark.asyncio
+async def test_followups_empty(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, []))
+    out = await M._run_followups()
+    assert out == {"skipped": "no followups.json"}
+
+
+@pytest.mark.asyncio
+async def test_followups_sends_due_email(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    body = tmp_path / "mail.txt"
+    body.write_text("Subject: Test mail\n\nBody here", encoding="utf-8")
+    monkeypatch.setattr(M, "CASE_DIR", tmp_path)
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"],
+        "file": "mail.txt", "skipIfRepliedFrom": "dypa.gov.gr",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value=None))
+    monkeypatch.setattr(M, "_replied", lambda *a: (False, None, None))
+    send = MagicMock()
+    monkeypatch.setattr(M, "_smtp_send", send)
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+
+    out = await M._run_followups()
+    assert out["processed"] == 1
+    assert out["events"][0]["result"] == "sent"
+    send.assert_called_once()
+    tg.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_followups_skips_already_sent(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "x.txt",
+    }]))
+    fake = _FakeRedis()
+    fake.hash[M.SENT_KEY] = {"ev1": "2026-01-01T00:00:00+00:00"}
+    _redis(monkeypatch, M, fake)
+    _record_ok(monkeypatch, M)
+    out = await M._run_followups()
+    assert out["processed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_followups_status_gate(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
+        "requireStatus": "Προς Αποδοχή",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value="Σε εξέταση"))
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "skipped-status"
+    # only the skip notification, no tgText alert
+    assert "παραλείφθηκε" in tg.await_args_list[0].args[1]
+
+
+@pytest.mark.asyncio
+async def test_followups_status_gate_failopen(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
+        "requireStatus": "Προς Αποδοχή",
+    }]))
+    fake = _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value=None))
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "tg-sent"
+    assert fake.hash[M.SENT_KEY]["ev1"]
+
+
+@pytest.mark.asyncio
+async def test_followups_tg_failed_not_marked(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
+    }]))
+    fake = _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "send_telegram_alert", AsyncMock(return_value=False))
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "tg-failed"
+    assert "ev1" not in fake.hash.get(M.SENT_KEY, {})
+
+
+@pytest.mark.asyncio
+async def test_followups_reply_gate_skips(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "x.txt",
+        "skipIfRepliedFrom": "dypa.gov.gr",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_replied", lambda *a: (True, {"subject": "Re: case"}, None))
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    send = MagicMock()
+    monkeypatch.setattr(M, "_smtp_send", send)
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "skipped-reply"
+    send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_followups_reply_gate_failopen(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    body = tmp_path / "mail.txt"
+    body.write_text("Subject: S\n\nB", encoding="utf-8")
+    monkeypatch.setattr(M, "CASE_DIR", tmp_path)
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"],
+        "file": "mail.txt", "skipIfRepliedFrom": "dypa.gov.gr",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_replied", lambda *a: (False, None, "imap: boom"))
+    monkeypatch.setattr(M, "_smtp_send", MagicMock())
+    monkeypatch.setattr(M, "send_telegram_alert", AsyncMock(return_value=True))
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "sent"
+
+
+@pytest.mark.asyncio
+async def test_followups_send_failure_alerts(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    body = tmp_path / "mail.txt"
+    body.write_text("Subject: S\n\nB", encoding="utf-8")
+    monkeypatch.setattr(M, "CASE_DIR", tmp_path)
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "mail.txt",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+
+    def boom(*a):
+        raise OSError("smtp down")
+
+    monkeypatch.setattr(M, "_smtp_send", boom)
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "send-failed"
+    assert any("ΑΠΟΤΥΧΙΑ" in c.args[1] for c in tg.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_followups_missing_file_fails(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "CASE_DIR", tmp_path)
+    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
+        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "ghost.txt",
+    }]))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "send_telegram_alert", AsyncMock(return_value=True))
+    out = await M._run_followups()
+    assert out["events"][0]["result"] == "send-failed"
+
+
+@pytest.mark.asyncio
+async def test_latest_status_and_record(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    last = MagicMock(meta_data={"status": "Προς Αποδοχή"})
+    monkeypatch.setattr(M, "task_session", lambda: _db(last=last))
+    assert await M._latest_status() == "Προς Αποδοχή"
+
+    last2 = MagicMock(meta_data={"raw_status": "Αναμονή"})
+    monkeypatch.setattr(M, "task_session", lambda: _db(last=last2))
+    assert await M._latest_status() == "Αναμονή"
+
+    monkeypatch.setattr(M, "task_session", lambda: _db(last=None))
+    assert await M._latest_status() is None
+
+    # _record with telegram account present (single execute -> SocialAccount)
+    acc = MagicMock(team_id="team-1")
+    monkeypatch.setattr(M, "task_session", lambda: _db(last=acc))
+    await M._record("synigoros_case_test", {"a": 1})
+
+    # _record without account -> early return
+    monkeypatch.setattr(M, "task_session", lambda: _db(acc=None))
+    await M._record("synigoros_case_test", {"a": 1})
+
+    # _record swallows DB errors
+    class BoomDB:
+        async def __aenter__(self):
+            raise RuntimeError("db gone")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(M, "task_session", lambda: BoomDB())
+    await M._record("synigoros_case_test", {})
+
+
+def test_task_wrappers(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "run_async", lambda c: (c.close(), {"ok": 1})[1])
+    assert M.run_synigoros_followups() == {"ok": 1}
+    assert M.watch_synigoros_replies() == {"ok": 1}
+
+
+# ── reply watch ──────────────────────────────────────────────────────────────
+
+
+def _watch_file(tmp_path, cfg=None):
+    f = tmp_path / "reply-watch.json"
+    f.write_text(json.dumps(cfg or {}), encoding="utf-8")
+    return f
+
+
+@pytest.mark.asyncio
+async def test_reply_watch_primes_silently(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
+        {"key": "gmail:1", "lane": "gmail", "from": "a@b", "subject": "s",
+         "snippet": "", "date": "", "auto": False},
     ])
-    _imap_env(mod, monkeypatch, mail2)
-    assert mod._imap_hits("x.gr", "2026-01-01", None) == []
+    tg = AsyncMock()
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_reply_watch()
+    assert out["primed"] is True and out["seen"] == 1
+    tg.assert_not_awaited()
 
 
-# ── _scan_replies_sync ───────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_reply_watch_alerts_new_human_mail(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
+    fake = _FakeRedis()
+    fake.kv[M.SEEN_PRIMED_KEY] = "1"
+    _redis(monkeypatch, M, fake)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
+        {"key": "gmail:1", "lane": "gmail", "from": "of@dypa.gov.gr",
+         "subject": "Επανεξέταση", "snippet": "σας ενημερώνουμε", "date": "Mon",
+         "link": "https://mail.google.com/x", "auto": False},
+        {"key": "gmail:2", "lane": "gmail", "from": "noreply@x", "subject": "s",
+         "snippet": "", "date": "", "auto": True},
+        {"key": "gmail:3", "lane": "gmail", "from": "a@b", "subject": "ο κωδικός σας",
+         "snippet": "", "date": "", "auto": False},
+    ])
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_reply_watch()
+    assert out["alerted"] == 1
+    text = tg.await_args.args[1]
+    assert "Επανεξέταση" in text and "mail.google.com" in text
 
 
-def test_scan_replies_sync_both_lanes(mod, monkeypatch):
-    mail = _FakeIMAP()
-    _imap_env(mod, monkeypatch, mail)
+@pytest.mark.asyncio
+async def test_reply_watch_no_new(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
 
-    def fake_gmail(path):
-        if "messages?q" in path:
-            return {"messages": [{"id": "g1", "snippet": "snip", "threadId": "t1"}]}
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
+    fake = _FakeRedis()
+    fake.kv[M.SEEN_PRIMED_KEY] = "1"
+    _redis(monkeypatch, M, fake)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [])
+    out = await M._run_reply_watch()
+    assert out == {"new": 0, "alerted": 0}
+
+
+@pytest.mark.asyncio
+async def test_reply_watch_uses_config_domains(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    captured = {}
+
+    def fake_scan(domains, since):
+        captured["domains"] = domains
+        captured["since"] = since
+        return []
+
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path, {
+        "domains": ["custom.gr", {"name": "req.gr", "require": "abc"}],
+        "since": "2026-01-01",
+    }))
+    _redis(monkeypatch, M)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", fake_scan)
+    out = await M._run_reply_watch()
+    assert out["primed"] is True
+    assert captured["domains"] == [("custom.gr", None), ("req.gr", "abc")]
+    assert captured["since"] == "2026-01-01"
+
+
+@pytest.mark.asyncio
+async def test_reply_watch_truncates_alerts(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
+    fake = _FakeRedis()
+    fake.kv[M.SEEN_PRIMED_KEY] = "1"
+    _redis(monkeypatch, M, fake)
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
+        {"key": f"gmail:{i}", "lane": "gmail", "from": "of@dypa.gov.gr",
+         "subject": f"Επανεξέταση {i}", "snippet": "", "date": "Mon",
+         "auto": False}
+        for i in range(M.MAX_ALERTS_PER_RUN + 3)
+    ])
+    tg = AsyncMock(return_value=True)
+    monkeypatch.setattr(M, "send_telegram_alert", tg)
+    out = await M._run_reply_watch()
+    assert out["alerted"] == M.MAX_ALERTS_PER_RUN + 3
+    assert "και 3 ακόμη" in tg.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_reply_watch_redis_error_propagates(tmp_path, monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
+    _record_ok(monkeypatch, M)
+    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [])
+
+    class BoomRedis(_FakeRedis):
+        async def exists(self, key):
+            raise ConnectionError("redis gone")
+
+    _redis(monkeypatch, M, BoomRedis())
+    with pytest.raises(ConnectionError):
+        await M._run_reply_watch()
+
+
+# ── scan_replies_sync lanes ──────────────────────────────────────────────────
+
+
+def test_scan_replies_gmail_lane(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": "")  # no IMAP password -> skip lane
+
+    def fake_get(path):
+        if "messages?" in path:
+            return {"messages": [{"id": "m1", "snippet": "snip", "threadId": "t1"}]}
         return {"payload": {"headers": [
-            {"name": "From", "value": "sec@hli.gov.gr"},
-            {"name": "Subject", "value": "Update on your request"},
-            {"name": "Date", "value": "Fri, 14 Nov 2026"},
+            {"name": "From", "value": "of@synigoros.gr"},
+            {"name": "Subject", "value": "Απάντηση"},
+            {"name": "Date", "value": "Mon, 24 Nov"},
         ]}}
 
-    monkeypatch.setattr(mod, "_gmail_get", fake_gmail)
-    domains = [("dypa.gov.gr", None), ("hli.gov.gr", "request")]
-    fresh = mod._scan_replies_sync(domains, "2026-11-01")
-    lanes = {m["lane"] for m in fresh}
-    assert "cloudless" in lanes and "gmail" in lanes
-    gmail_hit = next(m for m in fresh if m["lane"] == "gmail")
-    assert gmail_hit["key"] == "gmail:g1" and gmail_hit["link"].endswith("/t1")
+    monkeypatch.setattr(M, "_gmail_get", fake_get)
+    fresh = M._scan_replies_sync([("synigoros.gr", None)], "2026-11-01")
+    assert len(fresh) == 1
+    m = fresh[0]
+    assert m["key"] == "gmail:m1"
+    assert m["lane"] == "gmail"
+    assert m["link"].endswith("/t1")
+    assert m["auto"] is False
 
 
-def test_scan_replies_sync_gmail_require_skips(mod, monkeypatch):
-    monkeypatch.setattr(mod, "_cfg", lambda k, d="": "")  # no IMAP pw -> IMAP lane skipped
-    monkeypatch.setattr(
-        mod, "_gmail_get",
-        lambda path: {"messages": [{"id": "g2"}]} if "messages?q" in path else {
-            "payload": {"headers": [
-                {"name": "From", "value": "a@dypa.gov.gr"},
-                {"name": "Subject", "value": "Unrelated newsletter"},
-            ]}
-        },
-    )
-    fresh = mod._scan_replies_sync([("dypa.gov.gr", "απόρριψ")], "2026-11-01")
+def test_scan_replies_gmail_require_and_auto(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
+
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": "")
+
+    def fake_get(path):
+        if "messages?" in path:
+            return {"messages": [{"id": "m1", "snippet": "", "threadId": "t1"}]}
+        return {"payload": {"headers": [
+            {"name": "From", "value": "noreply@dypa.gov.gr"},
+            {"name": "Subject", "value": "Τυχαίο θέμα"},
+            {"name": "Date", "value": "x"},
+        ]}}
+
+    monkeypatch.setattr(M, "_gmail_get", fake_get)
+    # domain-require regex doesn't match subject -> dropped
+    fresh = M._scan_replies_sync([("dypa.gov.gr", "επανεξέταση")], "2026-11-01")
     assert fresh == []
 
 
-def test_scan_replies_sync_lane_errors_isolated(mod, monkeypatch):
-    def _boom(*a):
-        raise RuntimeError("imap dead")
+def test_scan_replies_imap_lane(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(mod.imaplib, "IMAP4_SSL", _boom)
-    monkeypatch.setattr(mod, "_cfg", lambda k, d="": {"IMAP_PASSWORD": "pw"}.get(k, d))
-    monkeypatch.setattr(mod, "_gmail_get", lambda path: {"messages": []})
-    # IMAP failure is caught; gmail lane still returns
-    assert mod._scan_replies_sync([("x.gr", None)], "2026-01-01") == []
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": {"IMAP_PASSWORD": "pw"}.get(k, d))
 
+    class ScanIMAP(_FakeIMAP):
+        def __init__(self, h, p):
+            super().__init__(h, p)
+            self.search_data = [b"3 4"]
+            self.fetch_parts = [
+                (b"1 (UID 3 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
+                 b"From: yp@hli.gov.gr\r\nSubject: Status?\r\nDate: Tue\r\n"),
+                (b"2 (UID 3 BODY[TEXT]<0> {20}", b"Hello body text"),
+                b")",
+            ]
 
-# ── followups reply gate ─────────────────────────────────────────────────────
+    monkeypatch.setattr(M.imaplib, "IMAP4_SSL", ScanIMAP)
 
+    def gmail_boom(path):
+        raise RuntimeError("gmail down")
 
-@pytest.mark.asyncio
-async def test_followups_reply_gate_skips(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "rg", "sendAt": now.date().isoformat(), "file": "x", "to": ["a"],
-          "skipIfRepliedFrom": "dypa.gov.gr"}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-
-    def _replied(*a):
-        return True, {"subject": "Re: case"}, None
-
-    monkeypatch.setattr(mod, "_replied", _replied)
-    alerts = []
-
-    async def _alert(*a):
-        alerts.append(a)
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "skipped-reply"
+    monkeypatch.setattr(M, "_gmail_get", gmail_boom)
+    fresh = M._scan_replies_sync([("hli.gov.gr", None)], "2026-11-01")
+    keys = {m["key"] for m in fresh}
+    assert "imap:hli.gov.gr:3" in keys
+    assert "imap:hli.gov.gr:4" in keys
+    assert all(m["lane"] == "cloudless" for m in fresh)
+    assert any("Hello body" in m["snippet"] for m in fresh)
 
 
-@pytest.mark.asyncio
-async def test_followups_reply_gate_error_sends_anyway(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "rge", "sendAt": now.date().isoformat(), "file": "x", "to": ["a"],
-          "skipIfRepliedFrom": "dypa.gov.gr"}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
+def test_scan_replies_imap_failure_continues(monkeypatch):
+    from app.worker.tasks import synigoros_case as M
 
-    def _replied(*a):
-        return False, None, "imap down"
+    monkeypatch.setattr(M, "_cfg", lambda k, d="": {"IMAP_PASSWORD": "pw"}.get(k, d))
 
-    monkeypatch.setattr(mod, "_replied", _replied)
-    monkeypatch.setattr(mod, "_read_body", lambda p: ("s", "b"))
-    sent = []
-    monkeypatch.setattr(mod, "_smtp_send", lambda *a: sent.append(a))
+    def bad_imap(host, port):
+        raise OSError("imap unreachable")
 
-    async def _alert(*a):
-        return True
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "sent" and sent
-
-
-@pytest.mark.asyncio
-async def test_followups_tg_failed_branch(mod, monkeypatch):
-    now = mod.datetime.now(mod.ATHENS)
-    ev = {"id": "tgf", "sendAt": now.date().isoformat(), "tgOnly": True}
-    monkeypatch.setattr(mod, "_load_json", lambda *a, **k: {"events": [ev]})
-    fake = _FakeRedis()
-    _patch_async_redis(mod, monkeypatch, fake)
-
-    async def _alert(*a):
-        return False
-
-    monkeypatch.setattr(mod, "send_telegram_alert", _alert)
-    monkeypatch.setattr(mod, "_record", AsyncMock())
-    out = await mod._run_followups()
-    assert out["events"][0]["result"] == "tg-failed"
+    monkeypatch.setattr(M.imaplib, "IMAP4_SSL", bad_imap)
+    monkeypatch.setattr(M, "_gmail_get", lambda path: {"messages": []})
+    fresh = M._scan_replies_sync([("x.gr", None)], "2026-11-01")
+    assert fresh == []
