@@ -88,9 +88,7 @@ async def _route_linkedin_leads() -> dict:
 
                 sha = hashlib.sha256(email.strip().lower().encode()).hexdigest()
                 conv = await linkedin_advanced.stream_conversion(
-                    conversion_rule=os.environ.get(
-                        "LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"
-                    ),
+                    conversion_rule=os.environ.get("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"),
                     happened_at_ms=int(datetime.now(UTC).timestamp() * 1000),
                     email_sha256=sha,
                     lead_id=str(resp.get("id") or "") or None,
