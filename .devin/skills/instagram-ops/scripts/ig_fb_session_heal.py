@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -393,16 +394,29 @@ _TRUST_DEVICE_JS = """
 """
 
 
-def approval_wait(state: dict, poll_s: int = 600) -> bool:
+_AUTH_PAGE_RE = re.compile(
+    r"two_step_verification|two_factor|checkpoint|/login|/approvals"
+    r"|index\.php\?next=", re.I)
+
+
+def approval_wait(state: dict, poll_s: int = 600, force: bool = False) -> bool:
     """Alert once, then watch for the user to approve on their device.
 
     Never calls validate() inside the loop — it navigates away and
     aborts Meta's pending login. Polls location.href via /debug/eval;
-    the flow is over once the URL leaves two_step_verification.
+    the flow is over once the URL leaves the auth pages.
+
+    force=True skips the "waiting for approval" text gate — this account
+    presents a code-entry 2FA page even though Meta ALSO sends an
+    approve_from_another_device push; the phone-side approver
+    (phone_fb_approve.py) completes the login server-side and the page
+    redirects on its own. Without force the wait bails instantly on the
+    code-entry variant (observed 2026-11-13, 3 failed heal cycles).
     """
-    r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
-    if "approval-waiting" not in str(r.get("result") or ""):
-        return False
+    if not force:
+        r = sidecar("/debug/eval", {"script": _APPROVAL_WAIT_JS}, timeout=60)
+        if "approval-waiting" not in str(r.get("result") or ""):
+            return False
     last_alert = float(state.get("last_approval_alert") or 0)
     if time.time() - last_alert > 7200:
         tg_alert(
@@ -412,7 +426,7 @@ def approval_wait(state: dict, poll_s: int = 600) -> bool:
         )
         state["last_approval_alert"] = time.time()
         save_state(state)
-    log("2FA is notification-approval — waiting for user tap (max 10m)")
+    log("2FA approval wait — polling for phone-side approve (max 10m)")
     tr = sidecar("/debug/eval", {"script": _TRUST_DEVICE_JS}, timeout=60)
     log(f"trust-device -> {str(tr.get('result') or tr)[:80]}")
     deadline = time.time() + poll_s
@@ -428,6 +442,13 @@ def approval_wait(state: dict, poll_s: int = 600) -> bool:
             # keep waiting rather than abandoning a live approval flow
             continue
         url = str(poll.get("url") or "")
+        if force:
+            if not _AUTH_PAGE_RE.search(url):
+                log(f"approval flow ended -> {url[:80]}")
+                # GET /session persists storageState on success — validate() doesn't
+                s = sidecar("/session", timeout=120)
+                return bool(s.get("logged_in"))
+            continue
         if "two_step_verification" not in url and "two_factor" not in url:
             log(f"approval flow ended -> {url[:80]}")
             # GET /session persists storageState on success — validate() doesn't
@@ -498,7 +519,10 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
             log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
         else:
             log("2FA required but no SMS code retrieved from phone")
-            if approval_wait(state):
+            # force=True: this account's 2FA page is code-entry shaped but
+            # Meta still pushes approve_from_another_device — the phone
+            # approver completes it server-side; wait the full window.
+            if approval_wait(state, force=True):
                 return "ok"
 
     clicks = checkpoint_clicks()

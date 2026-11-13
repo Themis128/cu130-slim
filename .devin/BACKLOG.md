@@ -1963,3 +1963,17 @@ superseded by rebuild):
   cron (every 2h, 24h dedup) retries the probe and drives the modal once
   LinkedIn's 429 clears.
 - Tests: 11 new cases; ruff clean; workers restarted.
+
+## 2026-11-13 — FB approve-from-another-device infra
+
+- `phone_fb_approve.py` (home-ops `scripts/`, deployed via `~/scripts`
+  symlink, cron */2min) — ADB/UIAutomator FB login-approval lane: deep
+  link + shade-tap fallback + device allowlist + approval_id dedupe.
+  Committed to home-ops `59fcf02`; mirrored into
+  `.devin|.cursor/skills/phone-2fa-ops/` on `feat/fb-approval-infra`.
+- `ig_fb_session_heal.py`: `approval_wait(force=True)` — code-entry
+  2FA pages now wait the full 10-min window for phone-side approval
+  instead of bailing to `2fa-failed` after ~2min (was failing every
+  cycle 2026-11-13). Still polls via `/debug/eval` only.
+- Remaining gap: `fb://` deep link ~30% reliable at foregrounding the
+  dialog — upgrade path is the FB app's internal Notifications tab.
