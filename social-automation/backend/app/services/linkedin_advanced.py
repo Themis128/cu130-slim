@@ -118,12 +118,23 @@ async def stream_conversion(
 # ── Matched Audiences ────────────────────────────────────────────────────
 
 
+AD_ACCOUNT_URN = "urn:li:sponsoredAccount:512642510"
+
+
 async def create_dmp_segment(name: str, description: str = "") -> dict:
+    """Create a USER DMP segment. Schema per MS Learn matched-audiences:
+    ``account`` + ``type`` + ``sourcePlatform`` are required."""
     ctx = await _ctx()
     if not ctx:
         return {"skip": "disabled-or-no-account"}
     token, _ = ctx
-    payload = {"name": name, "description": description, "type": "USER"}
+    payload = {
+        "name": name,
+        "description": description,
+        "account": AD_ACCOUNT_URN,
+        "type": "USER",
+        "sourcePlatform": "DIRECT_API",
+    }
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
         r = await c.post(f"{REST}/dmpSegments", json=payload)
         if r.status_code in (200, 201):
@@ -132,12 +143,19 @@ async def create_dmp_segment(name: str, description: str = "") -> dict:
 
 
 async def upload_dmp_users(segment_urn: str, users: list[dict]) -> dict:
-    """Attach hashed users ({sha256_email} or {firstName,lastName,...}) to a segment."""
+    """Attach users to a segment. ``users`` is a list of TypedId dicts
+    (``{"idType": "SHA256_EMAIL", "idValue": ...}``) or profile-field dicts;
+    each becomes one ``{"action": "ADD", "userIds": [typedId, ...]}``
+    element — LinkedIn accepts up to 5000 ids per call."""
     ctx = await _ctx()
     if not ctx:
         return {"skip": "disabled-or-no-account"}
     token, _ = ctx
-    payload = {"elements": [{"action": "ADD", "userIds": u} for u in users]}
+    elements = []
+    for u in users:
+        ids = u if isinstance(u, list) else [u]
+        elements.append({"action": "ADD", "userIds": ids})
+    payload = {"elements": elements}
     async with httpx.AsyncClient(timeout=60, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
-        r = await c.post(f"{V2}/dmpSegments/{segment_urn.split(':')[-1]}/users", json=payload)
+        r = await c.post(f"{REST}/dmpSegments/{segment_urn.split(':')[-1]}/users", json=payload)
         return {"status": r.status_code, "ok": r.status_code in (200, 201, 204)}
