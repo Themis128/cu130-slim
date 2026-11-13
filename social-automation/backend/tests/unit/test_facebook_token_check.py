@@ -71,7 +71,7 @@ def _acct(**kw):
     a.id = kw.get("id", 1)
     a.platform = kw.get("platform", "facebook")
     a.username = kw.get("username", "page")
-    a.access_token = kw.get("access_token", "tok")
+    a.access_token_enc = kw.get("access_token_enc", b"enc_tok")
     a.meta_data = kw.get("meta_data", {"app_access_token": "app_tok"})
     return a
 
@@ -95,7 +95,7 @@ async def test_no_accounts(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_missing_token_skipped(monkeypatch):
-    rows = [_acct(access_token=""), _acct(meta_data={})]
+    rows = [_acct(access_token_enc=b""), _acct(meta_data={})]
     _wire(monkeypatch, rows, _Client())
     stats = await task._check()
     assert stats["scanned"] == 2 and stats["healthy"] == 0

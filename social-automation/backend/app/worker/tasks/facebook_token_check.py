@@ -16,6 +16,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
 from app.services.slack_notifications import send_telegram_alert
@@ -45,15 +46,17 @@ async def _check() -> dict:
         for acct in rows:
             stats["scanned"] += 1
             meta = acct.meta_data or {}
-            app_tok = meta.get("app_access_token") or ""
-            raw = acct.access_token or ""
-            if not raw or not app_tok:
+            raw = acct.access_token_enc
+            if not raw:
                 continue
+            token = decrypt_token(bytes(raw))
+            settings = get_settings()
+            app_token = f"{settings.FACEBOOK_CLIENT_ID}|{settings.FACEBOOK_CLIENT_SECRET}"
             try:
                 async with httpx.AsyncClient(timeout=15) as c:
                     r = await c.get(
                         f"{GRAPH}/debug_token",
-                        params={"input_token": decrypt_token(raw), "access_token": decrypt_token(app_tok)},
+                        params={"input_token": token, "access_token": app_token},
                     )
                 d = r.json().get("data") or {}
             except Exception as exc:  # noqa: BLE001
