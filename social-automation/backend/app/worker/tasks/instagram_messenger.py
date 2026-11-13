@@ -120,15 +120,9 @@ class InstagramPrivateDMClient:
     logged-in web session.
     """
 
-    def __init__(
-        self,
-        session_id: str,
-        proxy: str | None = None,
-        settings_blob: str | None = None,
-    ) -> None:
+    def __init__(self, session_id: str, proxy: str | None = None) -> None:
         self._session_id = session_id
         self._proxy = proxy
-        self._settings_blob = settings_blob
         self._cl: object | None = None
 
     def _client(self):
@@ -143,32 +137,7 @@ class InstagramPrivateDMClient:
                     logger.warning("instagrapi DM: could not set proxy %s", self._proxy)
             cl.set_locale("el_GR")
             cl.set_timezone_offset(10800)
-            if self._settings_blob:
-                # Full dump_settings() blob carries the device fingerprint +
-                # cookies + headers — resumes the same "phone" instead of a
-                # cold sessionid login, which is what triggers IG checkpoints.
-                import tempfile
-
-                with tempfile.NamedTemporaryFile(
-                    "w", suffix=".json", delete=False
-                ) as fh:
-                    fh.write(self._settings_blob)
-                    blob_path = fh.name
-                try:
-                    cl.load_settings(blob_path)
-                    # sessionid still does the auth; the blob only restores
-                    # the device fingerprint/headers so IG sees the same
-                    # "phone" resuming, not a fresh device.
-                    cl.login_by_sessionid(self._session_id)
-                finally:
-                    try:
-                        import os as _os
-
-                        _os.unlink(blob_path)
-                    except OSError:
-                        pass
-            else:
-                cl.login_by_sessionid(self._session_id)
+            cl.login_by_sessionid(self._session_id)
             self._cl = cl
         return self._cl
 
@@ -441,10 +410,7 @@ async def _process_account(
         if private_sid:
             try:
                 proxy = getattr(get_settings(), "INSTAGRAM_PROXY", "") or None
-                settings_blob = decrypt_field(meta.get("private_api_session_settings"))
-                candidate = InstagramPrivateDMClient(
-                    session_id=private_sid, proxy=proxy, settings_blob=settings_blob
-                )
+                candidate = InstagramPrivateDMClient(session_id=private_sid, proxy=proxy)
                 await candidate.probe()
                 client = candidate
                 logger.info("Instagram DM: using private API session for %s", account.id)
