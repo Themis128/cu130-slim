@@ -123,9 +123,40 @@ Run it after ANY script that registers task actions, and whenever popups
 reappear — the 2026-10-21 regression came from `reregister-staggered-tasks.ps1`
 stripping wraps (it now uses `New-HeadlessAction`).
 
-Known non-task flash source: the **Docker Desktop dashboard window** polls
-`docker stats` every ~10 s, each spawn allocating a conhost — close the
-Docker Desktop window (engine keeps running in tray) to stop that storm.
+Known non-task flash sources (audited + remediated 2026-11-14):
+
+- **Docker Desktop stats polling** — `com.docker.backend` spawns
+  `cmd.exe /d /s /c "docker stats --all --no-trunc --no-stream --format
+  "{{ json .}}""` every ~5 s whenever containers run, each allocating a
+  conhost → visible flash. Upstream bug **docker/for-win#13923 / #13967**
+  (open on DD 4.99.0, the latest): NO setting disables it. Mitigation:
+  scheduled task **`DockerDashboardGuard`** (*/5min, `conhost --headless`)
+  runs `D:\DevOptimizer\scripts\docker-dashboard-guard.ps1` which
+  `CloseMainWindow()`s any visible Docker Desktop window — engine keeps
+  running in tray. If `docker stats` flashes persist at high rate, check
+  `_docker-dashboard-guard.log` for whether DD keeps reopening it.
+  Watch signature: `parent=docker.exe(...) cmd=...stats --all
+  --no-trunc --no-stream...`.
+- **WSL cron/`adb.exe`/`docker.exe` interop spawns** — every Windows
+  interop call from WSL cron flashes a console. Fixed 2026-11-14: home-ops
+  watchdog/mcp-heal/image-sync/recovery prefer bare `docker` when
+  `docker info --format '{{.Name}}'` returns `docker-desktop`
+  (`dd-user-distro-proxy.service` path); `phone_fb_approve.py`,
+  `groqbot-device-check.sh`, `phone-adb-watch.sh` prefer
+  `~/.local/platform-tools/adb` (WSL-native adb server coexists with the
+  Windows one — adbd accepts a transport per host; watch mirrors
+  ip:port endpoints). User crontab PATH now includes
+  `/home/tbaltzakis/.local/bin`. New scripts: use the same
+  verified-name pattern — see home-ops `AGENTS.md`.
+- **McAfee WebAdvisor extension** — REMOVED 2026-11-14 (Chrome ext id
+  `fheoggkfdfchfphceeifdbepaooicaho`; Edge was clean; not installed as a
+  program, no native-messaging host). chrome:// pages are unreachable
+  via CDP on the default profile and HKCU Chrome policy writes are
+  ACL-denied, so removal was automated via UI Automation:
+  `D:\DevOptimizer\scripts\chrome-ext-remove.ps1 -ExtensionId <id>`
+  (focuses a visible Chrome window, omnibox →
+  `chrome://extensions/?id=<id>`, invokes Remove + confirm). Verify in
+  `Secure Preferences` → `extensions.settings` (~5s flush lag).
 
 ## Known flakiness
 
