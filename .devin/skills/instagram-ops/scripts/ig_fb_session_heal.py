@@ -50,6 +50,12 @@ STATE_DIR = HOME / ".local/state/ig-fb-heal"
 STATE_FILE = STATE_DIR / "state.json"
 LOG_FILE = HOME / "logs/ig-fb-session-heal.log"
 DEFAULT_MIN_INTERVAL = 1800  # 30 min between login attempts
+# A sidecar restart mid-approval-wait destroys the pending Meta login
+# (fresh browser -> about:blank -> /session not logged in). Observed
+# 2026-11-13: deploy-watch compose-ups recreated all browser sidecars on
+# every master merge, killing 3 consecutive approval cycles. Defer
+# login attempts until the sidecar has been up this long.
+CHURN_GUARD_S = 600
 
 # Post-login checkpoint buttons (fbchat flow: save_device -> "This was me"
 # -> save device again). Deny/cancel is never clicked.
@@ -460,6 +466,20 @@ def approval_wait(state: dict, poll_s: int = 600, force: bool = False) -> bool:
     return False
 
 
+def sidecar_uptime_s() -> float:
+    """Seconds since the sidecar container (re)started; inf on error."""
+    try:
+        from datetime import datetime, timezone
+        out = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.StartedAt}}",
+             SIDECAR_CONTAINER],
+            capture_output=True, text=True, timeout=15).stdout.strip()
+        started = datetime.fromisoformat(out.replace("Z", "+00:00"))
+        return time.time() - started.timestamp()
+    except Exception:  # noqa: BLE001
+        return float("inf")
+
+
 def tg_alert(text: str) -> None:
     try:
         subprocess.run(
@@ -583,6 +603,15 @@ def main() -> int:
         if time.time() - last < interval:
             log(f"session down; next login attempt in "
                 f"{int(interval - (time.time() - last))}s")
+            if args.once:
+                return 3
+            time.sleep(300)
+            continue
+
+        up = sidecar_uptime_s()
+        if up < CHURN_GUARD_S:
+            log(f"sidecar up {int(up)}s (<{CHURN_GUARD_S}s churn guard) — "
+                "deferring login attempt")
             if args.once:
                 return 3
             time.sleep(300)
