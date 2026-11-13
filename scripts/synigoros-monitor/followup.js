@@ -5,12 +5,15 @@
 const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
+const net = require('net');
 const https = require('https');
 
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const DRY = process.argv.includes('--dry-run');
-const TO = 'press@synigoros.gr';
+const TEST = process.argv.includes('--test');      // send self-test to own mailbox via full chain
+const TEST_SMTP = process.argv.includes('--test-smtp'); // force SMTP leg only
+const TO = TEST ? 'tbaltzakis@cloudless.gr' : 'press@synigoros.gr';
 const ALERT_STATE = path.join(DIR, 'followup-alert.json');
 const FAIL_ALERT_EVERY_MS = 60 * 60 * 1000; // one failure alert per hour max
 
@@ -54,8 +57,10 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
       else { sock.end(); resolve(true); }
     };
     const fail = (e) => reject(e instanceof Error ? e : new Error(String(e)));
+    // Node rejects servername set to an IP literal (ERR_INVALID_ARG_VALUE)
+    const sni = net.isIP(host) ? undefined : host;
     if (port === 465) {
-      sock = tls.connect(port, host, { servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
+      sock = tls.connect(port, host, { servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
       sock.on('data', onData);
       sock.on('error', fail);
     } else {
@@ -76,7 +81,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
           // 220 → upgrade socket to TLS and resume the normal flow
           const raw = sock;
           raw.removeAllListeners('data');
-          sock = tls.connect({ socket: raw, servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
+          sock = tls.connect({ socket: raw, servername: sni, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
             sock.on('data', onData);
             sock.on('error', fail);
             sock.write('EHLO monitor\r\n');
@@ -106,6 +111,7 @@ function httpSend(url, token, from, to, subject, text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token,
+        'User-Agent': 'synigoros-monitor/1.0',
         'Content-Length': Buffer.byteLength(body) },
     }, (res) => {
       let d = '';
@@ -123,18 +129,21 @@ function httpSend(url, token, from, to, subject, text) {
 
 (async () => {
   const raw = fs.readFileSync(path.join(DIR, 'followup.txt'), 'utf8');
-  const subject = raw.match(/^Subject:\s*(.+)$/m)[1].trim();
-  const body = raw.replace(/^Subject:.*\r?\n\s*\r?\n/, '');
-  // SMTP_USER/SMTP_PASSWORD are Resend relay credentials (user "resend" +
-  // API key) — they authenticate against smtp.resend.com, not the omv-ha
-  // postfix (which expects the mailbox account and 535s on "resend").
-  const host = envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
-  const port = parseInt(envVal('SMTP_RELAY_PORT') || envVal('SMTP_PORT') || '587', 10);
+  let subject = raw.match(/^Subject:\s*(.+)$/m)[1].trim();
+  let body = raw.replace(/^Subject:.*\r?\n\s*\r?\n/, '');
+  if (TEST) { subject = '[TEST] synigoros followup path check'; body = 'Self-test via ' + (TEST_SMTP ? 'SMTP-only' : 'full chain') + ' — ' + new Date().toISOString(); }
+  // Primary SMTP = omv-ha postfix relay (SMTP_HOST/SMTP_PORT, mailbox
+  // account auth — verified 2026-11-13). smtp.resend.com fallback only
+  // applies when SMTP_HOST is unset AND the creds are Resend-style
+  // (user "resend" + API key); the mail-outbound Worker can only reach
+  // verified CF destination addresses, never external recipients.
+  const host = envVal('SMTP_HOST') || envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
+  const port = parseInt(envVal('SMTP_PORT') || envVal('SMTP_RELAY_PORT') || '587', 10);
   const user = envVal('SMTP_USER'), pass = envVal('SMTP_PASSWORD'), from = envVal('SMTP_FROM');
   const outUrl = envVal('MAIL_OUTBOUND_URL'), outTok = envVal('MAIL_OUTBOUND_TOKEN');
   if (DRY) { console.log('DRY-RUN to', TO, 'via', host + ':' + port, 'from', from, '\nSUBJ:', subject, '\nBODY:', body.slice(0, 200)); return; }
   try {
-    if (outUrl && outTok) {
+    if (outUrl && outTok && !TEST_SMTP) {
       try {
         await httpSend(outUrl, outTok, from || 'no-reply@cloudless.gr', TO, subject, body);
       } catch (e) {
@@ -145,7 +154,7 @@ function httpSend(url, token, from, to, subject, text) {
       await smtpSend(host, port, user, pass, from, TO, subject, body);
     }
     console.log('followup sent to', TO);
-    await tg('📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)');
+    await tg((TEST ? '🧪 TEST αποστολή follow-up (' + (TEST_SMTP ? 'SMTP-only' : 'full chain') + ') -> ' + TO : '📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)'));
   } catch (e) {
     console.log('followup send failed:', e.message);
     // The monitor retries every ~15min while SMTP is down — without
