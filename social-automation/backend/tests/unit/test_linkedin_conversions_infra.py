@@ -162,3 +162,83 @@ async def test_dmp_sync_uploads_hashed_emails(monkeypatch):
     sent = upload.await_args.args[1][0]
     assert sent == [{"idType": "SHA256_EMAIL", "idValue": hashlib.sha256(b"a@b.com").hexdigest()}]
     assert "A@B.com" not in json.dumps(upload.await_args.args)
+
+
+@pytest.mark.asyncio
+async def test_dmp_sync_disabled_flag_skips(monkeypatch):
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=None))
+    out = await DS._sync()
+    assert out["skip"] == "linkedin-advanced-disabled"
+
+
+@pytest.mark.asyncio
+async def test_dmp_sync_segment_create_caches_urn(monkeypatch):
+    """No cached URN → create_dmp_segment success → Redis set + upload proceeds."""
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    sets = []
+    fake_r = SimpleNamespace(
+        get=lambda k: None,
+        set=lambda k, v: sets.append((k, v)),
+        delete=lambda k: None,
+    )
+    monkeypatch.setattr(DS, "_redis", lambda: fake_r)
+    create = AsyncMock(return_value={"urn": "urn:li:adSegment:9"})
+    monkeypatch.setattr(ADV, "create_dmp_segment", create)
+    monkeypatch.setattr(ESPO, "list_leads_for_campaign", AsyncMock(return_value=[]))
+    out = await DS._sync()
+    assert sets == [(DS.SEGMENT_REDIS_KEY, "urn:li:adSegment:9")]
+    assert out["skip"] == "no-lead-emails" and out["segment"] == "urn:li:adSegment:9"
+
+
+@pytest.mark.asyncio
+async def test_dmp_sync_upload_failure_breaks_without_alert(monkeypatch):
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    fake_r = SimpleNamespace(get=lambda k: "urn:li:adSegment:7", set=lambda *a: True, delete=lambda k: None)
+    monkeypatch.setattr(DS, "_redis", lambda: fake_r)
+    monkeypatch.setattr(
+        ESPO,
+        "list_leads_for_campaign",
+        AsyncMock(return_value=[{"emailAddress": "a@b.com"}, {"emailAddress": "c@d.com"}]),
+    )
+    monkeypatch.setattr(ADV, "upload_dmp_users", AsyncMock(return_value={"status": 500, "ok": False, "error": "x"}))
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+    out = await DS._sync()
+    assert out["uploaded"] == 0 and out["status"] == 500
+    alert.assert_not_awaited()  # partial/failed upload never alerts success
+
+
+@pytest.mark.asyncio
+async def test_dmp_sync_404_evicts_segment_cache(monkeypatch):
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    deleted = []
+    fake_r = SimpleNamespace(
+        get=lambda k: "urn:li:adSegment:gone",
+        set=lambda *a: True,
+        delete=lambda k: deleted.append(k),
+    )
+    monkeypatch.setattr(DS, "_redis", lambda: fake_r)
+    monkeypatch.setattr(ESPO, "list_leads_for_campaign", AsyncMock(return_value=[{"emailAddress": "a@b.com"}]))
+    monkeypatch.setattr(ADV, "upload_dmp_users", AsyncMock(return_value={"status": 404, "ok": False}))
+    monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
+    out = await DS._sync()
+    assert deleted == [DS.SEGMENT_REDIS_KEY]
+    assert out["status"] == 404
+
+
+@pytest.mark.asyncio
+async def test_conversion_audit_disabled_flag_skips(monkeypatch):
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=None))
+    out = await CA._audit()
+    assert out["skip"] == "linkedin-advanced-disabled"
+
+
+@pytest.mark.asyncio
+async def test_conversion_audit_http_error_alerts(monkeypatch):
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(lambda m, u, **kw: _Resp(500, {})))
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+    out = await CA._audit()
+    assert out["error"] == 500
+    alert.assert_awaited_once()
