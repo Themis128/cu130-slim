@@ -36,6 +36,7 @@ Read `social-content-core` first.
 - Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.
 - 2026 signals: predicted engagement and time spent on content outrank clicks — earn attention, not just link taps.
 - Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane.
+- Cadence (Buffer 2026): 1–2 posts/day on the Page; predicted engagement and time-spent outrank raw link taps.
 
 <!-- PLATFORM-FIT:END -->
 
