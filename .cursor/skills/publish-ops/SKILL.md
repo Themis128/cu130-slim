@@ -86,6 +86,33 @@ that row is the tracked one. The tool marks deleted rows
 | `401` on tweets | OAuth2 token stale — auto-refresh attempted once at publish time |
 | stuck `processing` | worker was restarted mid-task — `unstick` or wait 15 min |
 
+### Quality-gate prewarm (DMR-contention failure class, 2026-11-13)
+
+`_enforce_publish_quality` runs spellcheck → NLP fix → SEO score +
+auto-improve per post — several DMR calls that each queue on
+`gpu:dmr_lock` (480s acquire cap). Under DMR pressure a queue run dies
+at the ~900s Celery soft limit BEFORE the gate result is committed to
+`post.platform_specific["quality_gate"]`, so every stale-lock retry
+re-pays the whole pipeline and posts never publish.
+
+`scripts/prewarm_quality_gate.py` (backend script, bind-mounted at
+`/app/scripts` in workers) runs the SAME gate with no task time limit
+and commits the cache per post — the queue then publishes fast because
+the gate short-circuits on the content hash:
+
+```bash
+docker exec -d social-worker-publishing \
+    python /app/scripts/prewarm_quality_gate.py              # auto-discover
+docker exec -d social-worker-publishing \
+    python /app/scripts/prewarm_quality_gate.py <post_uuid>… # explicit
+```
+
+Auto-discovery picks posts with a pending/processing queue row and no
+matching-hash gate cache. Idempotent — safe to re-run after container
+restarts; progress persists in Postgres. Pair with
+`docker-model-runner/scripts/dmr_pressure.py` to confirm the DMR side
+is actually serving before launching it.
+
 ## Publish alert triage
 
 ### When to use
