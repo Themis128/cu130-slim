@@ -2043,3 +2043,29 @@ superseded by rebuild):
   stable window. Next lever: free host RAM or reduce WSL/container
   footprint; `wsl --shutdown` + Docker Desktop restart is the documented
   durable vsock fix but is disruptive.
+
+## 2026-11-13 (PM) — externals push, one-by-one
+
+- **CF billing lane now fully armed**: minted `billing-pay-auto` token
+  (Account→Billing→Write, id 9d5d4b2c…) via `CF_ACCESS_TOKEN`
+  (cloudless-access, API Tokens Write) → stored as
+  `CLOUDFLARE_BILLING_TOKEN` in `.env`. Deleted 2 never-used CF tokens
+  (50-token quota). `invoice_pay.py` fixed to read `/billing/history`
+  (`unpaid-invoice`/`invoices` are 10404) — PR #1827. Live state:
+  IN-88049721 $12.08 OPEN, `requires_payment_method`, ready_to_pay=false.
+  **Remaining: user OK to charge → `invoice_pay.py pay --yes`** (may SCA).
+- **Debug Chrome :9229 relaunched** (chrome-debug-profile) after the
+  CloudlessDebugChrome task's taskkill wiped all Chrome ~15:11. GitHub
+  session live (Themis128); CF dashboard session live (auto-SSO'd).
+- **LinkedIn :9229 portal session DEAD** — li_session_heal heal →
+  cookies-rejected + credential login hit cloudflare-challenge.
+  **Human step: log into linkedin.com once in the debug Chrome window**
+  (visible on desktop), then `li_session_heal.py capture` + member_dp_probe.
+  NOTE: WSL can't reach Windows :9229 (loopback bind + firewall) — run
+  portal scripts via Windows python or fix the relay (needs admin fw rule).
+- **FB sidecar** at profile-picker loop ("Continue as" clicks not
+  clearing) — approval automation armed; checkpoint may need phone Allow.
+- **PR #1819 merged** (human-gate FB login-wall fix on master).
+- ntfy: 4 topics live; leftover dead auth entries (tailnet/IP) cosmetic.
+- Viber: commercial-only decision pending (recommend skip — WhatsApp covers).
+- Outlook: still waiting on MS365 recovery watcher; account adds post-OOBE.
