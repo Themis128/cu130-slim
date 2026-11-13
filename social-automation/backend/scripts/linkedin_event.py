@@ -46,9 +46,7 @@ async def _main() -> int:
 
     start = int(datetime.fromisoformat(args.start).timestamp() * 1000)
     end = int(datetime.fromisoformat(args.end).timestamp() * 1000)
-    out = await linkedin_events.create_org_event(
-        args.name, start, end, description=args.desc, event_url=args.url
-    )
+    out = await linkedin_events.create_org_event(args.name, start, end, description=args.desc, event_url=args.url)
     print(json.dumps(out, indent=2, default=str))
     return 0 if out.get("urn") else 1
 
