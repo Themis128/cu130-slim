@@ -86,3 +86,8 @@ while Meta *also* pushes an approval — `force=True` skips the old
 tab card carries native approve controls and is the most reliable
 surface; it is gated on an allowlisted device string appearing in the
 dump (no device text -> refuse + alert, never guess).
+
+Transient UI misses (`no-dialog`/`no-card`/`no-tab`/`no-button`) are
+NOT deduped — the next cron cycle retries while the approval is still
+fresh (<15min). Only terminal results (`approved`/`not-allowlisted`/
+`deny-hint`) are recorded against the approval_id.
