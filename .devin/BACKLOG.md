@@ -2151,3 +2151,27 @@ superseded by rebuild):
   `D:\DevOptimizer\synigoros-followup\verify-send.py` checks state.json
   + Gmail `in:sent` and TG-alerts ✅/⚠️. Both tasks have
   StartWhenAvailable catch-up (fire on next boot if PC was off).
+
+## 2026-11-13 (night) — Synigoros chain fully automated + reply tracking
+
+- **PRs merged**: #1847 (SMTP lane fix + --test flags), #1848 (backlog),
+  #1849 (auto-escalation emails), #1850 (conditional skip gates),
+  #1851 (reply-watch + dual-lane reply checks).
+- **reply-watch.py** (new, spawned by admin-followups.js every ~15min):
+  TG-alerts on new HUMAN mail from synigoros.gr / dypa.gov.gr /
+  hli.gov.gr across BOTH lanes — cloudless.gr IMAP (noreply@ SMTP
+  replies) and Gmail API (baltzakis.themis@gmail.com, the address
+  registered on the complaint). noreply@ senders + automated subjects
+  filtered; per-domain subject require-regex in reply-watch.json
+  (dypa.gov.gr also sends unrelated da2@ program mail).
+- **check-replies.py** now checks both lanes + --require subject regex;
+  dypa skip-gates use case keywords so unrelated program mail can't
+  suppress a needed escalation. Fail-open on check errors.
+- **Full schedule**: Mon 16/11 09:00 Gmail supplementary (draft
+  r-8325511026433450353, task SynigorosFollowupMon + SynigorosFollowupVerify
+  09:30, both StartWhenAvailable) → 20/11 ΔΥΠΑ nudge → 25/11 Ombudsman
+  esc-2 → 04/12 FYI → 07/12 ΔΥΠΑ demand-2 → 08/12 ΣΕΠΕ status-1 →
+  09/12 Ombudsman esc-3 → 22/12 ΣΕΠΕ status-2. All conditional on
+  no-reply + status still «Προς Αποδοχή».
+- **Verify Monday**: schtasks SynigorosFollowupMon/Verify results +
+  Gmail SENT + TG verify alert.
