@@ -143,6 +143,24 @@ def main() -> None:
     user, pw = _env_credentials()
 
     # 1-2. password login + dump settings (container + persistent volume)
+    # aiograpi-rest 6.0.0 pins aiograpi==1.0.9, whose password_publickeys()
+    # flow is dead upstream (missing ig-set-password-encryption-key-id
+    # header). aiograpi >=2.1.3 uses launcher/sync and works — upgrade in
+    # the running container before login (ephemeral until recreate; the
+    # REST server keeps its already-imported 1.0.9 modules).
+    print("[*] ensuring aiograpi>=2.1.3 ...")
+    subprocess.run(
+        ["docker", "exec", IG_CONTAINER, "pip", "install", "-q", "-U",
+         "aiograpi>=2.1.3"],
+        capture_output=True, text=True, timeout=300,
+    )
+    ver = subprocess.run(
+        ["docker", "exec", IG_CONTAINER, "pip", "show", "aiograpi"],
+        capture_output=True, text=True, timeout=30,
+    ).stdout
+    m = re.search(r"^Version:\s*(\S+)", ver, re.M)
+    print(f"    aiograpi {m.group(1) if m else '?'}")
+
     print("[*] aiograpi password login ...")
     out = _docker_exec(IG_CONTAINER, _LOGIN_SNIPPET,
                        env={"IGU": user, "IGP": pw}, timeout=240)
