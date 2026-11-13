@@ -191,3 +191,13 @@ social-api + celery-beat (`DMR_MEDIA_MODEL`, `ESPOCRM_API_KEY/BASE_URL`,
 `INTRANET_FEED_TEAM_ID/TOKEN`, `NEWSLETTER_SERVICE_TOKEN`) — same class as
 the NEXTCLOUD incident; declare them in compose or a shared anchor before
 the next `compose up`.
+
+## Publish queue shepherd
+
+`python3 scripts/publish_queue_shepherd.py` (run inside
+social-worker-publishing — needs DATABASE_URL + celery env) — resets
+publish_queue rows stuck 'processing' past the 25-min stale window,
+dispatches process_publish_queue when pending rows exist, and lists
+targets pending >60min (dead-token/platform-gate candidates). Idempotent;
+the writes mirror the built-in stale-lock reclaim. Battle-tested
+2026-11-13 inside the worker container.
