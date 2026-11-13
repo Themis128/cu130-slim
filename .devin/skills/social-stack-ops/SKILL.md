@@ -191,3 +191,13 @@ social-api + celery-beat (`DMR_MEDIA_MODEL`, `ESPOCRM_API_KEY/BASE_URL`,
 `INTRANET_FEED_TEAM_ID/TOKEN`, `NEWSLETTER_SERVICE_TOKEN`) — same class as
 the NEXTCLOUD incident; declare them in compose or a shared anchor before
 the next `compose up`.
+
+## Healthcheck restart-loop audit
+
+`python3 scripts/healthcheck_loop_audit.py` — flags autoheal-managed
+services whose healthcheck grace (start_period + interval×retries) is
+shorter than realistic cold-boot time. The 2026-11-13 celery-worker
+incident: start_period=30s vs ~120s boot → autoheal killed workers
+right as they became ready → publish tasks died mid-flight. Fix pattern
+= raise start_period past boot time (PR #1830). celery-beat still
+flags RISK (grace=105s) — same fix applies if it flap-loops.
