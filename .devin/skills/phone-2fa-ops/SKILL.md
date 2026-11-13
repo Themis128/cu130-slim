@@ -61,6 +61,9 @@ Deployed copy: `~/scripts/phone_fb_approve.py` (home-ops repo;
    between them (the link is ~30% reliable at foregrounding the dialog).
 3. Fallback: pulls the notification shade and taps the notification's
    bounds directly.
+4. Last lane: launches the FB app, opens its Notifications tab
+   (bottom-nav), and taps the approve control on the 'trying to log in'
+   card — requires an allowlisted device string or it refuses.
 4. Verifies the dialog text, extracts the device string, and checks it
    against the allowlist (`linux`, `wsl`, `windows`, `chrome`, `edge`)
    — unknown devices are refused and fire a Telegram alert.
@@ -76,8 +79,10 @@ while Meta *also* pushes an approval — `force=True` skips the old
 `validate()`, which navigates and kills the pending flow) for up to
 10 min until the URL leaves auth/checkpoint pages (`_AUTH_PAGE_RE`).
 
-### Known gap
+### Lane reliability (observed 2026-11-13)
 
-The `fb://` deep link does not always foreground the dialog. Next
-upgrade: drive the FB app's internal Notifications tab (bottom-nav
-tab 5) where the approval card has native Approve/Deny buttons.
+`fb://` deep link foregrounds the dialog ~30% of the time — hence the
+3-attempt + shade + in-app-tab fallback chain. The in-app Notifications
+tab card carries native approve controls and is the most reliable
+surface; it is gated on an allowlisted device string appearing in the
+dump (no device text -> refuse + alert, never guess).
