@@ -61,3 +61,28 @@ answer to the loopback-bind problem.
 The launch needs a **visible Windows action** — double-click
 `cdp-bind-user.bat`, or sign-in (the Run-key fires the watcher). The relay
 removes the admin dependency; the interactive launch is the irreducible step.
+
+## 2026-11-13 addendum — :9229 debug profile + WSL reachability
+
+- The **consent-root debug Chrome** runs on **:9229** (`chrome-debug-profile`,
+  user's real logged-in sessions: GitHub Themis128, dash.cloudflare.com via
+  GitHub SSO). Port 9222 is claimed by Lenovo Vantage WebView2 — do not use.
+- **WSL cannot reach it**: chrome binds Windows `127.0.0.1:9229`; WSL
+  `localhost`/host-IP both fail, and a userspace relay on a new port
+  (e.g. `0.0.0.0:9230 -> 127.0.0.1:9229`) is blocked by Windows Firewall
+  for WSL→host traffic (adding a rule needs admin).
+- **Working pattern**: run CDP scripts with **Windows python**
+  (`python C:\...`) — `websocket-client` is installed there; copy scripts
+  to `C:\Users\tbaltzakis\` (or mirror the repo path layout — scripts that
+  resolve `.env` via `parents[N]` need the same depth, e.g.
+  `C:\Users\tbaltzakis\lirepo\.devin\skills\<skill>\scripts\`).
+  `curl.exe http://localhost:9229/json/list` also works from WSL for
+  read-only tab listing.
+- `member_dp_probe.py` / `li_session_heal.py` accept any CDP base in
+  `CDP_CANDIDATES` — point them at `http://localhost:9229` when run on
+  Windows; on WSL they need the relay chain above (currently down).
+- Relaunch command (no taskkill — preserves the user's main Chrome):
+  `Start-Process chrome.exe -ArgumentList '--remote-debugging-port=9229','--user-data-dir=C:\Users\tbaltzakis\chrome-debug-profile','about:blank'`
+  WARNING: `chrome-debug-launch.bat` / the `CloudlessDebugChrome` task run
+  `taskkill /F /IM chrome.exe` — kills ALL Chrome including the user's
+  session. Prefer the Start-Process form.
