@@ -17,7 +17,20 @@
 .PARAMETER Fix
   Re-register offending actions wrapped in conhost --headless. Tasks whose
   RunLevel=Highest or that live under \DevOptimizer\ may need an elevated
-  shell; access-denied tasks are reported, not failed.
+  shell; access-denied tasks are reported, not failed. If the current shell
+  is not elevated, use -FixElevated instead.
+
+.PARAMETER FixElevated
+  Run the fix through a pre-registered HIGHEST-runlevel helper task
+  (PopupTaskAudit-Fix). schtasks /run needs no UAC — this is the standard
+  Windows pattern for unattended elevation. Register the helper ONCE from an
+  elevated shell:  popup_task_audit.ps1 -RegisterElevatedHelper
+  Helper output lands in %LOCALAPPDATA%\PopupTaskAudit\fix.log.
+
+.PARAMETER RegisterElevatedHelper
+  (Re)create the PopupTaskAudit-Fix scheduled task with RunLevel=Highest.
+  MUST be run from an elevated PowerShell once — registering a Highest task
+  from a medium-IL process is denied by Task Scheduler.
 
 .PARAMETER Json
   Emit the audit as JSON instead of a table.
@@ -25,18 +38,81 @@
 .PARAMETER Path
   Restrict the audit to a task path (default: all tasks).
 
+.PARAMETER Log
+  Transcript path - all output is captured here (used by the elevated helper).
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -Fix
+  powershell -NoProfile -ExecutionPolicy Bypass -File popup_task_audit.ps1 -FixElevated
 #>
 [CmdletBinding()]
 param(
     [switch]$Fix,
+    [switch]$FixElevated,
+    [switch]$RegisterElevatedHelper,
     [switch]$Json,
-    [string]$Path = '\'
+    [string]$Path = '\',
+    [string]$Log = ''
 )
 
+if ($Log) {
+    $logDir = Split-Path $Log -Parent
+    if ($logDir -and -not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    Start-Transcript -Path $Log -Force | Out-Null
+}
+
 $ErrorActionPreference = 'Continue'
+
+$HelperTaskName = 'PopupTaskAudit-Fix'
+$AuditLogDir   = Join-Path $env:LOCALAPPDATA 'PopupTaskAudit'
+$FixLogPath    = Join-Path $AuditLogDir 'fix.log'
+# Prefer the stable Windows-side copy for the scheduled action; fall back to
+# this script's own path (works from the repo checkout too).
+$HostScript    = 'D:\DevOptimizer\scripts\popup_task_audit.ps1'
+if (-not (Test-Path $HostScript)) { $HostScript = $PSCommandPath }
+
+if ($RegisterElevatedHelper) {
+    # conhost --headless -> powershell -File <script> -Fix -Log <fix.log>
+    $argLine = ('--headless "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" ' +
+                '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Fix -Log "{1}"' -f $HostScript, $FixLogPath)
+    $action = New-ScheduledTaskAction -Execute 'C:\Windows\System32\conhost.exe' -Argument $argLine
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
+    try {
+        Register-ScheduledTask -TaskName $HelperTaskName -Action $action -Principal $principal -Force -ErrorAction Stop | Out-Null
+        Write-Host "Registered $HelperTaskName (RunLevel=Highest)." -ForegroundColor Green
+        Write-Host "Now any medium-IL shell can run:  popup_task_audit.ps1 -FixElevated"
+    } catch {
+        Write-Host "FAILED to register helper (needs an ELEVATED shell): $($_.Exception.Message)" -ForegroundColor Red
+        exit 2
+    }
+    exit 0
+}
+
+if ($FixElevated) {
+    $helper = Get-ScheduledTask -TaskName $HelperTaskName -ErrorAction SilentlyContinue
+    if (-not $helper) {
+        Write-Host "Helper task '$HelperTaskName' not found. Register it once from an elevated shell:" -ForegroundColor Yellow
+        Write-Host "  powershell -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -RegisterElevatedHelper"
+        exit 2
+    }
+    if (-not (Test-Path $AuditLogDir)) { New-Item -ItemType Directory -Path $AuditLogDir -Force | Out-Null }
+    Remove-Item $FixLogPath -ErrorAction SilentlyContinue
+    schtasks /run /tn $HelperTaskName | Out-Null
+    # wait for the helper to leave Running state (cap 180s)
+    $deadline = (Get-Date).AddSeconds(180)
+    do {
+        Start-Sleep -Seconds 3
+        $st = (Get-ScheduledTask -TaskName $HelperTaskName -ErrorAction SilentlyContinue).State
+    } while ($st -eq 'Running' -and (Get-Date) -lt $deadline)
+    Write-Host "Helper state: $st"
+    if (Test-Path $FixLogPath) {
+        Write-Host "`n--- fix.log ---"
+        Get-Content $FixLogPath -Tail 40
+    } else {
+        Write-Host "No fix.log produced - helper may have failed before logging." -ForegroundColor Yellow
+    }
+    exit 0
+}
 
 # Exes that never allocate a console (GUI subsystem or already headless).
 $guiSafe = '(?i)^(notepad|chrome|msedge|firefox|opera|brave|docker desktop|com\.docker.*|wscript|mshta|rundll32|regsvr32|wmic|mmc|control|msinfo32|taskmgr|devenv|code|windsurf|devin)'
@@ -70,7 +146,13 @@ function Wrap-Action($action) {
     return ,@('C:\Windows\System32\conhost.exe', ('--headless ' + $inner))
 }
 
-$tasks = Get-ScheduledTask -TaskPath $Path -ErrorAction SilentlyContinue
+# -TaskPath '\' is NOT recursive: it returns root-level tasks only and misses
+# \DevOptimizer\ etc. Bare Get-ScheduledTask returns every folder.
+if ($Path -eq '\') {
+    $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue
+} else {
+    $tasks = Get-ScheduledTask -TaskPath $Path -ErrorAction SilentlyContinue
+}
 $results = New-Object System.Collections.Generic.List[object]
 
 foreach ($t in $tasks) {
