@@ -104,3 +104,13 @@ Scripted: `scripts/safe-recreate.sh <services>` does probe → up →
 start-fallback. `scripts/compose-converge.sh` is the bounded healer
 (CORE allowlist, restart-only — replaced whole-project `up -d` which
 OOM-churned the stack mid-recreate, killing api+workers twice).
+
+## fs-bridge class → wsl-fsbridge-ops
+
+2026-11-13 added a sibling skill for the *mount-poisoning* half of proxy
+death: `dd-user-distro-proxy` exits on a vsock flap → NEW
+`\wsl.localhost` bind-mount sources materialize as EMPTY DIRS in
+containers (hashed mounts under `/mnt/wsl/docker-desktop-bind-mounts/`).
+Different heal surface (only full WSL stop), different interim tricks
+(named-volume transplant, 9p staging). See `wsl-fsbridge-ops` SKILL.md +
+`scripts/fsbridge_doctor.py`.
