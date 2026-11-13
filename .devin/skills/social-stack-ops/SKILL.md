@@ -192,12 +192,20 @@ social-api + celery-beat (`DMR_MEDIA_MODEL`, `ESPOCRM_API_KEY/BASE_URL`,
 the NEXTCLOUD incident; declare them in compose or a shared anchor before
 the next `compose up`.
 
-## Publish queue shepherd
+## Healthcheck restart-loop audit
 
-`python3 scripts/publish_queue_shepherd.py` (run inside
-social-worker-publishing — needs DATABASE_URL + celery env) — resets
-publish_queue rows stuck 'processing' past the 25-min stale window,
-dispatches process_publish_queue when pending rows exist, and lists
-targets pending >60min (dead-token/platform-gate candidates). Idempotent;
-the writes mirror the built-in stale-lock reclaim. Battle-tested
-2026-11-13 inside the worker container.
+`python3 scripts/healthcheck_loop_audit.py` — flags autoheal-managed
+services whose healthcheck grace (start_period + interval×retries) is
+shorter than realistic cold-boot time. The 2026-11-13 celery-worker
+incident: start_period=30s vs ~120s boot → autoheal killed workers
+right as they became ready → publish tasks died mid-flight. Fix pattern
+= raise start_period past boot time (PR #1830). celery-beat still
+flags RISK (grace=105s) — same fix applies if it flap-loops.
+
+## Publish queue shepherd (automated)
+
+`scripts/publish_queue_shepherd.py` lives at
+`social-automation/backend/scripts/` (bind-mounted `/app/scripts` in
+workers). compose-watchdog runs it every 30min: resets stale
+processing locks, dispatches process_publish_queue, alerts on targets
+pending >60min.
