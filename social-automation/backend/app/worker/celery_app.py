@@ -593,7 +593,7 @@ celery_app.conf.update(
         # BSKY_MAIN_PASSWORD is configured; alerts once otherwise.
         "bluesky-credential-sweep": {
             "task": "app.worker.tasks.bluesky_credential.run_bluesky_credential_sweep",
-            "schedule": crontab(minute=20, hour=4),
+            "schedule": crontab(minute=20),  # hourly — one createSession probe/run, well under quota
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
         # CI/test probes, surface stale New leads past the follow-up SLA.
