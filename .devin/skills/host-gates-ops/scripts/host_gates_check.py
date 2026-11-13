@@ -118,8 +118,13 @@ def check_chromedebug_task():
 def check_docker_desktop_proc():
     # Process name varies across DD versions/locales — com.docker.backend
     # is the stable backend; 'Docker Desktop' is the GUI. Either counts.
-    out = win("Get-Process -ErrorAction SilentlyContinue | Where-Object { "
-              "$_.Name -match 'docker' } | Select-Object -First 1 Name",
+    # NB: win() runs through bash double-quotes — any `$_` in the payload is
+    # expanded by bash before powershell sees it (bit us 2026-11-13: this
+    # probe returned "NONE found" while Docker Desktop was running). Use
+    # simplified Where-Object syntax (no scriptblock, no $_) instead.
+    out = win("Get-Process -ErrorAction SilentlyContinue | "
+              "Where-Object Name -match 'docker' | "
+              "Select-Object -First 1 -ExpandProperty Name",
               timeout=15)
     if out.startswith("ERR:"):
         return {"ok": None, "detail": f"probe failed: {out[:100]}"}
@@ -153,9 +158,9 @@ def check_dmr_tunnel():
     # cmd.exe until next logon — relaunch it hidden, but only when no
     # dmr-tunnel loop exists at all (an existing loop recovers on its
     # own; spawning another would just pile up during an omv outage).
-    loops = win("Get-CimInstance Win32_Process | Where-Object { "
-                "$_.Name -eq 'cmd.exe' -and "
-                "$_.CommandLine -match 'dmr-tunnel' } | "
+    loops = win("Get-CimInstance Win32_Process | "
+                "Where-Object Name -eq 'cmd.exe' | "
+                "Where-Object CommandLine -match 'dmr-tunnel' | "
                 "Measure-Object | Select-Object -ExpandProperty Count",
                 timeout=60)
     lm = re.search(r"\d+", loops)
