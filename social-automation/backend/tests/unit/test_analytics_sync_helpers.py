@@ -844,6 +844,7 @@ def _li_patches(monkeypatch):
         "_fetch_linkedin_page_stats",
         AsyncMock(return_value={"period": {"days": 7}, "lifetime": {}}),
     )
+    monkeypatch.setattr(A, "_fetch_member_followers", AsyncMock(return_value={"data": {}}))
 
 
 def _li_org(**kw):

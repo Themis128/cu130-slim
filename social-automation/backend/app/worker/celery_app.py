@@ -76,6 +76,7 @@ celery_app = Celery(
         "app.worker.tasks.consent_healers",
         "app.worker.tasks.linkedin_engagement_score",
         "app.worker.tasks.linkedin_lead_boost",
+        "app.worker.tasks.linkedin_portability_sync",
         "app.worker.tasks.token_expiry",
         "app.worker.tasks.tiktok_reauth",
         "app.worker.tasks.threads_reauth",
@@ -350,6 +351,7 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
+        "app.worker.tasks.linkedin_portability_sync.sync_linkedin_portability": {"queue": "default"},
         "app.worker.tasks.linkedin_conversion_audit.audit_linkedin_conversions": {"queue": "default"},
         "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
@@ -998,6 +1000,13 @@ celery_app.conf.update(
         "linkedin-boost-winner": {
             "task": "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners",
             "schedule": 3600.0,  # hourly — >2σ posts → promo-credit boost queue
+        },
+        # Daily DMA portability export — Member DP snapshot + Pages DP feed/
+        # analytics. Self-gates on scope pre-check + live 403 until the
+        # portal product grants land; writes linkedin_portability_* events.
+        "linkedin-portability-sync": {
+            "task": "app.worker.tasks.linkedin_portability_sync.sync_linkedin_portability",
+            "schedule": crontab(hour=9, minute=30),
         },
         "media-backfill": {
             "task": "app.worker.tasks.consent_healers.media_backfill",

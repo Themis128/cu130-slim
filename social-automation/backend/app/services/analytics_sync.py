@@ -655,6 +655,40 @@ async def _fetch_member_post_analytics(
     return {"data": metrics}
 
 
+async def _fetch_member_followers(
+    client: httpx.AsyncClient,
+    token: str,
+) -> dict[str, Any]:
+    """Member follower statistics — ``r_member_profileAnalytics`` scope.
+
+    ``memberFollowersCount`` has two finders: ``q=me`` (lifetime count) and
+    ``q=dateRange`` (daily series). 401/403 means the scope/product isn't
+    granted — callers treat it as "not granted", not an outage.
+    """
+    headers = _linkedin_headers(token)
+    base = "https://api.linkedin.com/rest/memberFollowersCount"
+    resp = await client.get(f"{base}?q=me", headers=headers)
+    if resp.status_code in (401, 403):
+        return {"error": f"HTTP {resp.status_code}", "status": resp.status_code}
+    if resp.status_code >= 400:
+        return {"error": f"HTTP {resp.status_code}", "status": resp.status_code}
+    out: dict[str, Any] = {"lifetime": resp.json()}
+    end = datetime.now(UTC)
+    start = end - timedelta(days=30)
+
+    def _d(dt: datetime) -> str:
+        return f"(year:{dt.year},month:{dt.month},day:{dt.day})"
+
+    resp = await client.get(
+        f"{base}?q=dateRange",
+        params={"dateRange": f"(start:{_d(start)},end:{_d(end)})"},
+        headers=headers,
+    )
+    if resp.status_code < 400:
+        out["daily_30d"] = (resp.json() or {}).get("elements") or []
+    return {"data": out}
+
+
 async def _fetch_org_lifetime_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -1102,6 +1136,15 @@ async def sync_linkedin_account(
                     bundle = stats_map.setdefault(urn, MetricBundle())
                     bundle.raw = {**(bundle.raw or {}), "creator_analytics": res["data"]}
                     bundle.notes = None
+            # Member follower statistics (r_member_profileAnalytics) —
+            # lifetime count + 30d daily series → account-level event.
+            granted_scopes = set(account.scopes or [])
+            if not granted_scopes or "r_member_profileAnalytics" in granted_scopes:
+                followers_res = await _fetch_member_followers(client, token)
+                if followers_res.get("data"):
+                    _persist_account_event(
+                        db, account, captured_at, "member_followers", followers_res["data"]
+                    )
 
         for urn in all_urns:
             metrics = stats_map.get(urn) or MetricBundle(notes="missing_stats")

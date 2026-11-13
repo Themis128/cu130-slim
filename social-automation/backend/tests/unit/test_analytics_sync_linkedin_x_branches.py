@@ -119,6 +119,7 @@ def _li(monkeypatch):
     monkeypatch.setattr(A, "_fetch_org_lifetime_stats", AsyncMock(return_value=A.MetricBundle(impressions=1)))
     monkeypatch.setattr(A, "_fetch_linkedin_follower_stats", AsyncMock(return_value={"total_followers": 0}))
     monkeypatch.setattr(A, "_fetch_linkedin_page_stats", AsyncMock(return_value={}))
+    monkeypatch.setattr(A, "_fetch_member_followers", AsyncMock(return_value={"data": {}}))
 
 
 @pytest.mark.asyncio
