@@ -230,6 +230,134 @@ async def test_linkedin_comment_empty_repost_and_failure(monkeypatch):
     assert await linkedin_actor.act(_action(target_post_id="a:b:1"), None) == {"error": "voyager 403"}
 
 
+# ── LinkedIn official-API comment path ────────────────────────────────
+
+
+def _li_person_acc(meta=None):
+    return SimpleNamespace(
+        access_token_enc=b"enc",
+        account_id="a6JQwITmH3",
+        meta_data=meta or {},
+    )
+
+
+def _patch_li_api(monkeypatch, result=None, raises=None, seen=None):
+    """Patch decrypt_token + LinkedInAPIClient; returns the fake client."""
+    import app.core.security as sec
+    import app.services.linkedin_api as la
+
+    monkeypatch.setattr(sec, "decrypt_token", lambda v: "person-tok")
+
+    class _Client:
+        def __init__(self, access_token):
+            self.access_token = access_token
+
+        async def create_comment(self, post_urn, text, *, creator_urn):
+            if seen is not None:
+                seen.update(post_urn=post_urn, text=text, creator_urn=creator_urn)
+            if raises:
+                raise raises
+            return result
+
+    monkeypatch.setattr(la, "LinkedInAPIClient", _Client)
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_comment_success_no_sidecar(monkeypatch):
+    from app.services.linkedin_api import LinkedInPostResult
+
+    seen: dict = {}
+    _patch_li_api(
+        monkeypatch,
+        result=LinkedInPostResult(success=True, platform_post_id="c-123"),
+        seen=seen,
+    )
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
+    db = _DB(_li_person_acc())
+    out = await linkedin_actor.act(
+        _action(action="comment", comment_draft="nice post", target_post_id="urn:li:ugcPost:42"), db
+    )
+    assert out == {"ok": True, "resp": {"via": "official-api", "comment_id": "c-123"}}
+    # API answered — the browser sidecar must NOT also fire (no duplicate)
+    assert calls == []
+    assert seen == {
+        "post_urn": "urn:li:ugcPost:42",
+        "text": "nice post",
+        "creator_urn": "urn:li:person:a6JQwITmH3",
+    }
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_comment_uses_author_urn(monkeypatch):
+    from app.services.linkedin_api import LinkedInPostResult
+
+    seen: dict = {}
+    _patch_li_api(
+        monkeypatch,
+        result=LinkedInPostResult(success=True, platform_post_id="c-1"),
+        seen=seen,
+    )
+    _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
+    db = _DB(_li_person_acc({"author_urn": "urn:li:person:custom-1"}))
+    await linkedin_actor.act(
+        _action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:1"), db
+    )
+    assert seen["creator_urn"] == "urn:li:person:custom-1"
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_comment_refusal_never_hits_sidecar(monkeypatch):
+    from app.services.linkedin_api import LinkedInPostResult
+
+    _patch_li_api(
+        monkeypatch,
+        result=LinkedInPostResult(success=False, error="HTTP 403: forbidden"),
+    )
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}))
+    db = _DB(_li_person_acc())
+    out = await linkedin_actor.act(
+        _action(action="comment", comment_draft="x", target_post_id="urn:li:ugcPost:9"), db
+    )
+    assert out["skip"] is True
+    assert "api_refused" in out["error"]
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_comment_infra_failure_falls_back(monkeypatch):
+    # No active person account → infra path → sidecar still gets the action
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
+    out = await linkedin_actor.act(
+        _action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:7"), _DB(None)
+    )
+    assert out == {"ok": True, "resp": {"voyager_status": 201}}
+    assert calls
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_comment_exception_falls_back(monkeypatch):
+    _patch_li_api(monkeypatch, raises=RuntimeError("boom"))
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
+    db = _DB(_li_person_acc())
+    out = await linkedin_actor.act(
+        _action(action="comment", comment_draft="hi", target_post_id="urn:li:ugcPost:8"), db
+    )
+    assert out == {"ok": True, "resp": {"voyager_status": 201}}
+    assert calls
+
+
+@pytest.mark.asyncio
+async def test_linkedin_like_skips_api_path(monkeypatch):
+    # Likes have no member API — must go straight to the sidecar even with an account
+    seen: dict = {}
+    _patch_li_api(monkeypatch, result=None, seen=seen)
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
+    out = await linkedin_actor.act(_action(), _DB(_li_person_acc()))
+    assert out == {"ok": True, "resp": {"voyager_status": 201}}
+    assert seen == {}
+    assert calls  # like went to the sidecar
+
+
 # ── browser-bridge actors (IG / FB / TikTok) ──────────────────────────
 
 
