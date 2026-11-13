@@ -2249,3 +2249,19 @@ superseded by rebuild):
 - **Still manual**: Mon 16/11 09:00 Gmail supplementary send
   (SynigorosFollowupMon task + draft r-8325511026433450353) — one-off,
   NOT in followups.json; SynigorosFollowupVerify 09:30 confirms.
+
+## 2026-11-14 — synigoros_case CI coverage gate fix (PR #1874)
+
+- `test` job failed at 99% with **0 test failures** — the coverage gate:
+  `line coverage 99.00% (gate 99.0%)` + per-file `check_new_file_coverage.py
+  --min-lines 80` on PR-added app/ files.
+- Root cause: `synigoros_case.py` (537 lines) shipped with draft tests that
+  were (a) below the per-file floor risk and (b) **time-of-day flaky** —
+  `sendAt: today` events aren't due before 08:00 Athens.
+- Fix commit `132c173c` on `feat/synigoros-case-worker-rebuilt`: rewrote
+  `tests/unit/test_synigoros_case.py` — 41 tests, all deterministic
+  (`sendAt` in the past), 98% module line coverage, ruff clean.
+  Verified in-container (`/tmp/wt` copy inside social-api).
+- Post-merge reminder stands: `docker compose restart celery-beat
+  social-worker-default` to activate `synigoros-followups` +
+  `synigoros-reply-watch` beat entries.
