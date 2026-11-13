@@ -1488,7 +1488,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      # beat has no broker ping in its probe; under RAM pressure celery
+      # import alone can exceed the old 15s+90s grace (audit flag).
+      start_period: 60s
     mem_limit: 256m
     memswap_limit: 512m
     cpus: '1'
