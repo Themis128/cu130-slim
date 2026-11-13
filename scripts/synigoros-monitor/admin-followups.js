@@ -8,13 +8,46 @@ const path = require('path');
 const tls = require('tls');
 const net = require('net');
 const https = require('https');
+const { execFileSync } = require('child_process');
 
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const SCHEDULE = JSON.parse(fs.readFileSync(path.join(DIR, 'followups.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'admin-followups-state.json');
+const MONITOR_STATE = path.join(DIR, 'state.json');
 const DRY = process.argv.includes('--dry-run');
 const LIST = process.argv.includes('--list');
+
+// Conditional-skip helpers: an event may declare
+//   "requireStatus": "Προς Αποδοχή"   — skip if monitor state.json status differs
+//   "skipIfRepliedFrom": "domain" + "skipIfRepliedSince": "YYYY-MM-DD"
+//                       — skip if the cloudless.gr mailbox got mail from that
+//                         domain since the date (IMAP check via check-replies.py)
+function pythonBin() {
+  for (const c of [process.env.PYTHON, 'python', 'py',
+                   'C:\\Program Files\\Python312\\python.exe']) {
+    if (!c) continue;
+    try { execFileSync(c, ['--version'], { stdio: 'ignore', timeout: 5000 }); return c; }
+    catch {}
+  }
+  return 'python';
+}
+
+function checkReplied(sender, since) {
+  try {
+    const out = execFileSync(pythonBin(),
+      [path.join(DIR, 'check-replies.py'), '--from', sender, '--since', since],
+      { timeout: 45000 }).toString();
+    return JSON.parse(out);
+  } catch (e) {
+    return { replied: false, error: 'check-replies failed: ' + e.message };
+  }
+}
+
+function monitorStatus() {
+  try { return JSON.parse(fs.readFileSync(MONITOR_STATE, 'utf8')).status || null; }
+  catch { return null; }
+}
 
 function envVal(key) {
   try {
@@ -142,6 +175,21 @@ function loadState() {
     const dueAt = new Date(ev.sendAt + 'T08:00:00+03:00').getTime();
     if (now < dueAt) continue;
 
+    // Gate: skip when the monitored status no longer matches (applies
+    // to tgOnly reminders too — e.g. no call reminder once accepted).
+    if (ev.requireStatus) {
+      const cur = monitorStatus();
+      if (cur !== ev.requireStatus) {
+        const why = 'skipped: status=' + cur + ' (required ' + ev.requireStatus + ')';
+        if (DRY) { console.log('DRY-SKIP ' + ev.id + ': ' + why); continue; }
+        state.sent[ev.id] = why;
+        changed = true;
+        console.log(ev.id + ' ' + why);
+        await tg(`⏭️ ${ev.id} παραλείφθηκε — ${why}`);
+        continue;
+      }
+    }
+
     // tg-only reminder events (e.g. scheduled phone calls) — no email sent.
     if (ev.tgOnly) {
       if (DRY) { console.log(`DRY-TG ${ev.id}: ${ev.tgText}`); continue; }
@@ -163,6 +211,21 @@ function loadState() {
     if (DRY) {
       console.log(`DRY ${ev.id} -> ${ev.to.join(', ')} | ${subject}`);
       continue;
+    }
+
+    // Gate: skip the email if the authority already replied by mail.
+    if (ev.skipIfRepliedFrom) {
+      const r = checkReplied(ev.skipIfRepliedFrom, ev.skipIfRepliedSince || ev.sendAt);
+      if (r.replied) {
+        const why = 'skipped: reply from ' + ev.skipIfRepliedFrom +
+          ' since ' + (ev.skipIfRepliedSince || ev.sendAt);
+        state.sent[ev.id] = why;
+        changed = true;
+        console.log(ev.id + ' ' + why);
+        await tg(`⏭️ ${ev.id} παραλείφθηκε — ${why} (${(r.matches[0] || {}).subject || ''})`);
+        continue;
+      }
+      if (r.error) console.log(ev.id + ': reply-check failed (sending anyway): ' + r.error);
     }
 
     // Primary SMTP = omv-ha postfix relay (SMTP_HOST/SMTP_PORT). The
