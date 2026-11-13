@@ -63,8 +63,11 @@ async def test_create_org_event_payload_and_urn(monkeypatch):
 
     monkeypatch.setattr(EV.httpx, "AsyncClient", _Client)
     out = await EV.create_org_event(
-        "Audit live session", 1732100000000, 1732102700000,
-        description="ignored for now", event_url="https://cloudless.gr/contact",
+        "Audit live session",
+        1732100000000,
+        1732102700000,
+        description="ignored for now",
+        event_url="https://cloudless.gr/contact",
     )
     assert out == {"urn": "evt-1", "status": 201}
     p = sent["json"]
