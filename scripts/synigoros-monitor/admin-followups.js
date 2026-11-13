@@ -8,7 +8,7 @@ const path = require('path');
 const tls = require('tls');
 const net = require('net');
 const https = require('https');
-const { execFileSync } = require('child_process');
+const { execFileSync, execFile } = require('child_process');
 
 const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
@@ -33,11 +33,11 @@ function pythonBin() {
   return 'python';
 }
 
-function checkReplied(sender, since) {
+function checkReplied(sender, since, requireRe) {
+  const args = [path.join(DIR, 'check-replies.py'), '--from', sender, '--since', since];
+  if (requireRe) args.push('--require', requireRe);
   try {
-    const out = execFileSync(pythonBin(),
-      [path.join(DIR, 'check-replies.py'), '--from', sender, '--since', since],
-      { timeout: 45000 }).toString();
+    const out = execFileSync(pythonBin(), args, { timeout: 90000 }).toString();
     return JSON.parse(out);
   } catch (e) {
     return { replied: false, error: 'check-replies failed: ' + e.message };
@@ -169,6 +169,13 @@ function loadState() {
     return;
   }
 
+  // Inbound reply watcher — same ~15min cadence via monitor.js spawn.
+  // Fire-and-forget; reply-watch.py self-throttles via reply-watch-state.json.
+  try {
+    execFile(pythonBin(), [path.join(DIR, 'reply-watch.py')],
+      { stdio: 'ignore', detached: true }).unref();
+  } catch (e) { console.log('reply-watch spawn failed: ' + e.message); }
+
   let changed = false;
   for (const ev of SCHEDULE.events) {
     if (state.sent[ev.id]) continue;
@@ -215,7 +222,8 @@ function loadState() {
 
     // Gate: skip the email if the authority already replied by mail.
     if (ev.skipIfRepliedFrom) {
-      const r = checkReplied(ev.skipIfRepliedFrom, ev.skipIfRepliedSince || ev.sendAt);
+      const r = checkReplied(ev.skipIfRepliedFrom, ev.skipIfRepliedSince || ev.sendAt,
+        ev.skipIfRepliedRequire);
       if (r.replied) {
         const why = 'skipped: reply from ' + ev.skipIfRepliedFrom +
           ' since ' + (ev.skipIfRepliedSince || ev.sendAt);

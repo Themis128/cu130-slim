@@ -6,7 +6,8 @@
       "to": ["kpamark@dypa.gov.gr", "protokollo@dypa.gov.gr"],
       "file": "dypa-nudge-1.txt",
       "skipIfRepliedFrom": "dypa.gov.gr",
-      "skipIfRepliedSince": "2026-11-08"
+      "skipIfRepliedSince": "2026-11-08",
+      "skipIfRepliedRequire": "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828"
     },
     {
       "id": "ombudsman-escalation-2",
@@ -23,7 +24,8 @@
       "to": ["kpamark@dypa.gov.gr", "protokollo@dypa.gov.gr"],
       "file": "dypa-demand-2.txt",
       "skipIfRepliedFrom": "dypa.gov.gr",
-      "skipIfRepliedSince": "2026-11-20"
+      "skipIfRepliedSince": "2026-11-20",
+      "skipIfRepliedRequire": "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828"
     },
     {
       "id": "ombudsman-escalation-3",
