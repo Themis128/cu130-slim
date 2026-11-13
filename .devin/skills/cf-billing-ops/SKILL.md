@@ -17,6 +17,15 @@ visible and deliberate.
   Run it on a cron/watchdog; non-zero exit = breach.
 - `scripts/obs_cancel.py` — cancels the Observability add-on subscription
   via the Cloudflare API when the guard trips.
+- `scripts/invoice_pay.py` — invoice payment automation (added 2026-11-13).
+  `check` reports unpaid invoices (API lane needs a Billing-scoped token —
+  the stock `CLOUDFLARE_API_TOKEN` returns auth errors on `/billing/*`;
+  falls back to scraping the logged-in dashboard over CDP :9222).
+  `pay --yes` calls `POST /accounts/{id}/pay-bad-debt` (or `pay-invoice`
+  with a specific id) using `CLOUDFLARE_BILLING_TOKEN` — create one at
+  dash.cloudflare.com → My Profile → API Tokens with
+  **Account → Billing → Edit**. SCA/3DS challenges return a Stripe
+  `client_secret` and stay a human step. Dry-run without `--yes`.
 
 ## Notes
 
