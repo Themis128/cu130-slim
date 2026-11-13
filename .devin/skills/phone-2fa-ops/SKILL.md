@@ -91,3 +91,15 @@ Transient UI misses (`no-dialog`/`no-card`/`no-tab`/`no-button`) are
 NOT deduped — the next cron cycle retries while the approval is still
 fresh (<15min). Only terminal results (`approved`/`not-allowlisted`/
 `deny-hint`) are recorded against the approval_id.
+
+### Visible-dialog fast path (added 2026-11-13 PM)
+
+Meta sometimes shows the approval dialog with **no shade notification
+record** — `find_approvals()` then returns nothing and the prompt
+expires unseen (observed live: dialog on screen, `no-dialog` logged).
+`visible_dialog_approve()` runs first each cycle: requires the literal
+`Yes, it's me` affordance (the shade notification itself contains
+"trying to log in" text but no buttons — matching it caused a false
+`not-allowlisted` refusal), extracts the device string, applies the
+same allowlist/deny gates, and taps Yes. Missing device text skips
+silently (fail-safe, no alert spam); dedupe key is per-device-per-hour.
