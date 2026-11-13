@@ -236,8 +236,9 @@ Remaining:
 - [ ] decide: Synigoros follow-up recipient `press@synigoros.gr` —
   confirm the press office is the intended supplementary-report channel
   before the next auto-send.
-- [ ] decide: schedule `wsl-safe-bounce.ps1` nightly ~04:30 — the script
-  is marked operator-only; declined unattended so far.
+- [x] WSL bounce scheduled — `WSL-Weekly-Bounce` schtask trigger changed
+  to DAILY 04:30 (2026-11-13); script already has deploy-lock guard +
+  TG/Slack outcome reporting. Note: task name still says Weekly.
 - [ ] owner: Kakkava Founders week-2 items — recording
   youtu.be/vHlKLsSF4rM, slides canva.link/dzabh086dzjph5v, mastersheet on
   Notion; prime bootcamp outcomes into offer_survey copy + the 4-YES
@@ -398,10 +399,17 @@ Leftovers:
   fixed in PR #1556: `devapp_health` alerts now dedup per
   platform+reason for 24h via the analytics_events ledger (was: alert
   on EVERY datalake-insights sweep while quota stayed exhausted).
-- [ ] Rotate POSTGRES_PASSWORD + Infisical UA client secret — both were
-  printed in transcripts. Needs a maintenance window: ALTER USER inside
-  social-postgres, update .env + Infisical prod, recreate all
-  DB-connected services. Not done — high blast radius.
+- [x] Rotated SOCIAL_POSTGRES_PASSWORD (social_user superuser on
+  social-postgres) 2026-11-13 — ALTER ROLE + Infisical prod
+  (SOCIAL_POSTGRES_PASSWORD + DATABASE_URL) + both .env copies +
+  full compose recreate; verified /health, 4/4 workers, beat dispatch.
+- [ ] STILL OPEN: rotate INFISICAL_UA_CLIENT_SECRET — deferred: it is the
+  credential to Infisical itself (source of truth for all secrets);
+  rotation needs a new client-secret on identity social-api
+  (1a9b4bec-72c9-4bdc-a467-7a3509532fca) + simultaneous update of
+  ~/.config/secrets/infisical, /root/.config/secrets/infisical,
+  Infisical prod, and infisical-sync cron. Lockout risk if sequenced
+  wrong — do in a dedicated window.
 - [ ] compose-watchdog critical list — verified already covered:
   `social-stack-watchdog.sh` (5-min cron) owns infisical + postgres
   restarts and /api/status health; compose-watchdog CORE already
