@@ -395,6 +395,7 @@ async def rotate_app_password(account: Any, main_password: str, db: Any) -> dict
     # 2nd unattended rotation (AppPasswordNameExists). Keep <=32 chars and
     # match /^[a-zA-Z0-9._-]{4,32}$/.
     import time as _time
+
     new_name = f"sa-rot-{int(_time.time())}"
     meta = dict(account.meta_data or {})
     previous_name = meta.get("bsky_app_password_name")

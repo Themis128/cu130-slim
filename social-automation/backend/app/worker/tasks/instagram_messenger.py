@@ -149,9 +149,7 @@ class InstagramPrivateDMClient:
                 # cold sessionid login, which is what triggers IG checkpoints.
                 import tempfile
 
-                with tempfile.NamedTemporaryFile(
-                    "w", suffix=".json", delete=False
-                ) as fh:
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
                     fh.write(self._settings_blob)
                     blob_path = fh.name
                 try:
@@ -185,18 +183,10 @@ class InstagramPrivateDMClient:
             my_pk = cl.user_id
             data = []
             for t in cl.direct_threads(amount=limit):
-                users = [
-                    {"id": str(u.pk), "username": getattr(u, "username", "") or ""}
-                    for u in (t.users or [])
-                    if u.pk != my_pk
-                ]
+                users = [{"id": str(u.pk), "username": getattr(u, "username", "") or ""} for u in (t.users or []) if u.pk != my_pk]
                 msgs = t.messages or []
                 latest = msgs[-1] if msgs else None
-                embedded = (
-                    [{"from": {"id": str(latest.user_id)}, "message": latest.text or ""}]
-                    if latest is not None
-                    else []
-                )
+                embedded = [{"from": {"id": str(latest.user_id)}, "message": latest.text or ""}] if latest is not None else []
                 data.append(
                     {
                         "id": str(t.id),
@@ -212,12 +202,7 @@ class InstagramPrivateDMClient:
         def _do() -> dict:
             cl = self._client()
             msgs = cl.direct_messages(int(convo_id), amount=limit)
-            return {
-                "data": [
-                    {"from": {"id": str(m.user_id)}, "message": m.text or ""}
-                    for m in msgs
-                ]
-            }
+            return {"data": [{"from": {"id": str(m.user_id)}, "message": m.text or ""} for m in msgs]}
 
         return await asyncio.to_thread(_do)
 
@@ -442,9 +427,7 @@ async def _process_account(
             try:
                 proxy = getattr(get_settings(), "INSTAGRAM_PROXY", "") or None
                 settings_blob = decrypt_field(meta.get("private_api_session_settings"))
-                candidate = InstagramPrivateDMClient(
-                    session_id=private_sid, proxy=proxy, settings_blob=settings_blob
-                )
+                candidate = InstagramPrivateDMClient(session_id=private_sid, proxy=proxy, settings_blob=settings_blob)
                 await candidate.probe()
                 client = candidate
                 logger.info("Instagram DM: using private API session for %s", account.id)

@@ -46,9 +46,7 @@ async def _connect():
 
 
 async def _get_meta(conn, account_id: str) -> dict:
-    row = await conn.fetchrow(
-        "SELECT meta_data FROM social_accounts WHERE id = $1::uuid", account_id
-    )
+    row = await conn.fetchrow("SELECT meta_data FROM social_accounts WHERE id = $1::uuid", account_id)
     if not row:
         raise SystemExit(f"account {account_id} not found")
     meta = row["meta_data"]

@@ -211,9 +211,7 @@ _SCAFFOLD_JSON_RE = re.compile(r'^\s*\{\s*"(?:text|caption|post)"\s*:')
 
 def _looks_like_scaffolding(text: str) -> bool:
     low = (text or "").lower()
-    return any(m in low for m in _SCAFFOLD_MARKERS) or bool(
-        _SCAFFOLD_JSON_RE.match(text or "")
-    )
+    return any(m in low for m in _SCAFFOLD_MARKERS) or bool(_SCAFFOLD_JSON_RE.match(text or ""))
 
 
 def _unwrap_json_text(text: str) -> str:
@@ -226,14 +224,7 @@ def _unwrap_json_text(text: str) -> str:
         pass
     m = re.search(r'"(?:text|caption|post)"\s*:\s*"(.*)', text, re.S)
     if m:
-        inner = (
-            m.group(1)
-            .strip()
-            .rstrip('"')
-            .replace("\\n", "\n")
-            .replace("\\'", "'")
-            .replace('\\"', '"')
-        )
+        inner = m.group(1).strip().rstrip('"').replace("\\n", "\n").replace("\\'", "'").replace('\\"', '"')
         return inner.strip()
     return ""
 
