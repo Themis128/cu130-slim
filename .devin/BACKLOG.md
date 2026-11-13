@@ -2302,3 +2302,18 @@ superseded by rebuild):
 - Live MCP share verified end-to-end: `profile ls` (github, all_catalog),
   `tools ls` (8 gateway tools), `version` v0.44.3 â€” all through the
   `/mnt/c` symlink; WSL-only limits unchanged (oauth/secret sockets).
+
+## 2026-11-14 — PR sweep: all repos clean
+
+- Sweep via pr-sweep-ops: #1874 (synigoros worker port) merged mid-sweep,
+  #1883 (popup sources audit) went CONFLICTING on that merge -> rebuilt
+  conflict-free -> #1884 -> superseded by parallel rebuild #1885 (merged).
+- #1872 "empty merge" verified benign: popup_task_audit regex/vendor work
+  was already on master via #1871's rebuild — the PR had nothing left to add,
+  not a rebuild wipe.
+- Gate false-positive noted: `test` "New-file coverage gate" flagged
+  `app/worker/tasks/synigoros_case.py` at 0% on #1883 because its base
+  predated #1874's merge — branches based on a stale master trip the gate
+  with files they don't actually touch. Rebase/rebuild clears it.
+- DevOptimizer: PR #28 (sshd host-key ownership root-cause fix) merged;
+  all repos 0 open PRs.
