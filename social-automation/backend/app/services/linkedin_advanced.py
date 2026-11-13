@@ -142,11 +142,11 @@ async def create_dmp_segment(name: str, description: str = "") -> dict:
         return {"error": r.status_code, "body": r.text[:300]}
 
 
-async def upload_dmp_users(segment_urn: str, users: list[dict]) -> dict:
+async def upload_dmp_users(segment_urn: str, users: list[dict | list[dict]]) -> dict:
     """Attach users to a segment. ``users`` is a list of TypedId dicts
     (``{"idType": "SHA256_EMAIL", "idValue": ...}``) or profile-field dicts;
-    each becomes one ``{"action": "ADD", "userIds": [typedId, ...]}``
-    element — LinkedIn accepts up to 5000 ids per call."""
+    a nested list becomes one element whose ``userIds`` carries the whole
+    chunk — LinkedIn accepts up to 5000 ids per call."""
     ctx = await _ctx()
     if not ctx:
         return {"skip": "disabled-or-no-account"}
