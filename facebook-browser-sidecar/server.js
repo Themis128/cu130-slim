@@ -3539,7 +3539,8 @@ async function mbClassify(p) {
     });
     if (state.inputs.some((n) => /approvals_code|code/i.test(n)) ||
         /approvals code|confirmation code|enter the code|approve this login/i.test(state.text) ||
-        /passkey|try another way|choose a way to confirm|notification on another device/i.test(state.text))
+        /passkey|try another way|choose a way to confirm|notification on another device/i.test(state.text) ||
+        (/use another profile/i.test(state.text) && /create new account/i.test(state.text)))
       return "2fa";
     if (/incorrect|wrong password|invalid|try again|too many/i.test(state.text))
       return "failed:credentials-or-throttle";
@@ -3659,6 +3660,14 @@ async function mbAdvance2fa(p) {
       .evaluate(() => (document.body?.innerText || "").slice(0, 4000))
       .catch(() => "");
     console.log(`mbAdvance2fa[${i}] text=${text.replace(/\s+/g, " ").slice(0, 160)}`);
+    // Profile picker ("Continue as <name>" / "Use another profile") —
+    // tap Continue to complete the restored session.
+    if (/use another profile/i.test(text) && /create new account/i.test(text)) {
+      const c = await mbTap(p, "Continue");
+      console.log(`mbAdvance2fa picker continue tap=${c}`);
+      if (c) continue;
+      return "failed:2fa-picker-no-continue";
+    }
     // Waiting-for-approval screen — stop here, the phone push is out.
     if (/check your notifications on another device|waiting for approval|we sent a notification/i.test(text))
       return "2fa";
@@ -3840,7 +3849,12 @@ app.get("/login-mobile/poll", async (req, res) => {
     // The waiting page updates itself; check the live DOM first and only
     // reload if it looks stuck on a dead challenge URL.
     let cls = await mbClassify(p);
-    if (cls !== "ok" && cls !== "2fa") {
+    if (cls === "2fa") {
+      // The gate may be mid-gauntlet (picker, passkey, options) rather
+      // than the waiting screen — advance handles all of them and
+      // returns "2fa" once the phone push is actually out.
+      cls = await mbAdvance2fa(p);
+    } else if (cls !== "ok") {
       // Profile-picker / welcome-back screen — click Continue once.
       let picked = await mbTap(p, "Continue");
       if (!picked) picked = await mbRealClick(p, "Continue");
@@ -3848,12 +3862,6 @@ app.get("/login-mobile/poll", async (req, res) => {
         await p.waitForTimeout(4000);
         cls = await mbClassify(p);
       }
-    }
-    if (cls !== "ok" && cls !== "2fa") {
-      // Restored sessions can land on a mid-gauntlet screen (passkey
-      // prompt, profile picker) — run the same advance walk as login.
-      const adv = await mbAdvance2fa(p);
-      if (adv !== cls) cls = adv;
     }
     if (cls !== "ok" && cls !== "2fa") {
       await p.reload({ waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
