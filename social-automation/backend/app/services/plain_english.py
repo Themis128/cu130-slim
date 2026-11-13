@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import asdict, dataclass
@@ -167,6 +166,23 @@ _REWRITTEN_MARKERS = re.compile(
 )
 
 
+# Small DMR models sometimes echo the instruction wrapper verbatim instead
+# of the JSON payload — detect that here and keep the original text rather
+# than shipping the prompt downstream (publish_to_platform fails closed on
+# the same markers).
+_PROMPT_LEAK_MARKERS = (
+    "plain english rules",
+    "text to rewrite:",
+    'return json with key "text"',
+    "do not include the original text",
+)
+
+
+def _looks_like_prompt_leak(text: str) -> bool:
+    low = (text or "").lower()
+    return any(m in low for m in _PROMPT_LEAK_MARKERS)
+
+
 def extract_rewritten_only(text: str) -> str:
     """Keep only the NLP rewrite when the model returns original + rewritten."""
     if not text:
@@ -192,41 +208,6 @@ def extract_rewritten_only(text: str) -> str:
         seen.add(key)
         deduped.append(sentence)
     return " ".join(deduped).strip() or cleaned
-
-
-# Scaffolding signatures: small DMR models sometimes echo the rewrite
-# prompt itself or return a truncated/raw JSON envelope. If any of this
-# reaches content_text the publish guards refuse the post (2026-11-12
-# incident: a LinkedIn post stored "PLAIN ENGLISH RULES … Text to
-# rewrite: \"\"\"<post>\"\"\"" verbatim).
-_SCAFFOLD_MARKERS = (
-    "plain english rules",
-    "text to rewrite:",
-    "return json with key",
-    "do not include the original text",
-    "/no_think",
-)
-_SCAFFOLD_JSON_RE = re.compile(r'^\s*\{\s*"(?:text|caption|post)"\s*:')
-
-
-def _looks_like_scaffolding(text: str) -> bool:
-    low = (text or "").lower()
-    return any(m in low for m in _SCAFFOLD_MARKERS) or bool(_SCAFFOLD_JSON_RE.match(text or ""))
-
-
-def _unwrap_json_text(text: str) -> str:
-    """Best-effort inner "text" value from a raw or truncated JSON envelope."""
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict) and isinstance(data.get("text"), str):
-            return data["text"].strip()
-    except Exception:
-        pass
-    m = re.search(r'"(?:text|caption|post)"\s*:\s*"(.*)', text, re.S)
-    if m:
-        inner = m.group(1).strip().rstrip('"').replace("\\n", "\n").replace("\\'", "'").replace('\\"', '"')
-        return inner.strip()
-    return ""
 
 
 def texts_overlap(a: str, b: str, *, threshold: float = 0.55) -> bool:
@@ -345,9 +326,9 @@ Text to rewrite:
             allow_fallback=allow_fallback,
         )
         rewritten = extract_rewritten_only((result.get("text") or "").strip())
-        if _looks_like_scaffolding(rewritten):
-            inner = _unwrap_json_text(rewritten)
-            rewritten = inner if inner and not _looks_like_scaffolding(inner) else ""
+        if _looks_like_prompt_leak(rewritten):
+            logger.warning("plain-english rewrite returned prompt leak — keeping original")
+            return text
         return rewritten or text
     except HTTPException:
         return text
