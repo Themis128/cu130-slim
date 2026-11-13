@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -19,6 +20,15 @@ from app.db.session import init_db
 from app.services.metrics import PrometheusMiddleware, register_route_metrics
 
 settings = get_settings()
+
+# uvicorn's default log config only wires its own loggers — app.* loggers
+# propagate to a handlerless root and INFO records are dropped. Give root a
+# stderr handler so service logs (e.g. webhook conversion lines) reach
+# `docker logs`.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 @asynccontextmanager

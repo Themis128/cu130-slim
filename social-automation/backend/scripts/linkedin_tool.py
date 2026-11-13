@@ -166,14 +166,8 @@ def cmd_access_matrix(account_id: str) -> None:
             f"{REST_BASE}/posts?q=author&author={org_q}&count=1",
             {},
         ),
-        # Entity-scoped: org URN is not a valid socialMetadata entity, so a
-        # 400 here means the endpoint+auth path is reachable while a 403
-        # would mean the scope/product is denied.
-        "socialMetadata_reachability": (
-            "GET",
-            f"{REST_BASE}/socialMetadata?entity={org_q}",
-            {},
-        ),
+        # socialMetadata is entity-scoped (share/ugcPost/comment URN in the
+        # path, not ?entity=) — resolved dynamically after org_posts below.
     }
     if not is_org:
         # Org-URN probes are meaningless for member accounts — the fallback
@@ -184,7 +178,6 @@ def cmd_access_matrix(account_id: str) -> None:
             "followerStatistics",
             "organization",
             "org_posts",
-            "socialMetadata_reachability",
         }
         probes = {k: v for k, v in probes.items() if k not in org_only}
         probes["_org_probes"] = ("SKIP", "member account — org endpoints n/a", {})
@@ -220,6 +213,34 @@ def cmd_access_matrix(account_id: str) -> None:
                 print(f"{name}\t{resp.status_code}\t{body_hint}")
             except Exception as exc:  # noqa: BLE001
                 print(f"{name}\tERR\t{exc}")
+
+        if is_org:
+            # Real socialMetadata probe: GET /rest/socialMetadata/{entityUrn}
+            # needs a share/ugcPost/comment URN — borrow the latest org post.
+            try:
+                posts_resp = client.get(
+                    f"{REST_BASE}/posts",
+                    params={"q": "author", "author": org_urn, "count": "1"},
+                    headers=headers,
+                )
+                elements = posts_resp.json().get("elements", []) if posts_resp.status_code == 200 else []
+                entity = ""
+                if elements:
+                    raw = elements[0].get("entity") or elements[0].get("id") or ""
+                    entity = str(raw)
+                    if entity and not entity.startswith("urn:li:"):
+                        entity = f"urn:li:share:{entity}"
+                if not entity:
+                    print("socialMetadata_reachability\tSKIP\tno org posts to probe")
+                else:
+                    sm = client.get(
+                        f"{REST_BASE}/socialMetadata/{urllib.parse.quote(entity, safe='')}",
+                        headers=headers,
+                    )
+                    hint = sm.text[:120].replace("\n", " ") if sm.status_code != 200 else "reactions+comments ok"
+                    print(f"socialMetadata_reachability\t{sm.status_code}\t{hint}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"socialMetadata_reachability\tERR\t{exc}")
 
 
 def cmd_ad_accounts(account_id: str) -> None:
