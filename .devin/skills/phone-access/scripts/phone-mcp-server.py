@@ -2,14 +2,43 @@
 """phone MCP server — ADB + uiautomator2 control for the Galaxy S22+.
 
 Tools: phone_tap, phone_swipe, phone_text, phone_click_text, phone_app_start,
-phone_screenshot, phone_dump, phone_state. Device: 192.168.1.77:5555.
+phone_screenshot, phone_dump, phone_state. Device: auto-resolved (ADB_SERIAL > Tailscale 100.x > LAN ip:port > USB).
 """
 import json
+import os
 import subprocess
 import sys
 import re
 
-DEVICE = "192.168.1.77:5555"
+
+def _pick_serial(fallback: str) -> str:
+    """Resolve the live device: ADB_SERIAL env > Tailscale wireless ADB
+    (100.x CGNAT — survives USB unplug and LAN changes) > any network
+    serial > first device > fallback."""
+    env = os.environ.get("ADB_SERIAL")
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            ["adb", "devices"], capture_output=True, text=True, timeout=15
+        ).stdout
+    except Exception:
+        return fallback
+    devs = [
+        l.split()[0]
+        for l in out.splitlines()[1:]
+        if len(l.split()) == 2 and l.split()[1] == "device"
+    ]
+    for s in devs:
+        if s.startswith("100."):
+            return s
+    for s in devs:
+        if ":" in s:
+            return s
+    return devs[0] if devs else fallback
+
+
+DEVICE = _pick_serial("192.168.1.77:5555")
 
 def adb(*args):
     return subprocess.run(["adb", "-s", DEVICE, *args], capture_output=True, text=True, timeout=15)

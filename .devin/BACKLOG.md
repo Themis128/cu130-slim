@@ -2265,3 +2265,40 @@ superseded by rebuild):
 - Post-merge reminder stands: `docker compose restart celery-beat
   social-worker-default` to activate `synigoros-followups` +
   `synigoros-reply-watch` beat entries.
+
+- `popup_task_audit.ps1` (windows-host-ops skill, `.devin`+`.cursor`, host copy
+  `D:\DevOptimizer\scripts\`): audits all scheduled-task actions for console
+  flash risk; `-Fix` re-wraps in `conhost --headless`; `-FixElevated` repairs
+  elevation-protected tasks via the registered `PopupTaskAudit-Fix` helper
+  (RunLevel=Highest, `schtasks /run` = zero UAC). `-Json`, `-Path`,
+  `-IncludeVendor` (\Microsoft\* excluded by default — SYSTEM tasks).
+- Host state: helper task registered; SynigorosFollowupMon/Verify +
+  Vhdx-Compact-DevinExit re-wrapped headless; gmail-schedule-reply.py --arm
+  now emits conhost actions. Audit: 119 user actions, 0 flash-risk.
+- Known non-task flash source: Docker Desktop dashboard window polls
+  `docker stats` ~every 10s — close the window to stop it.
+- PRs: #1868 (tool), #1869 (elevated lane, merged), #1872 (regex/vendor
+  fixes). #1870 closed as superseded.
+
+## 2026-11-14 â€” wsl-fsbridge-ops + docker-mcp-ops battle test (PR #1878 merged)
+
+- Battle-tested both new skills live inside Ubuntu-24.04.
+- `fsbridge_doctor.py`: `status` correctly reports proxy ALIVE + 6-7 stale
+  empty hashed mounts from the 11-13 flap ("fs bridge nominal" â€” distinguishes
+  historical debris from a live break); `casualties` correctly empty post-heal;
+  `probe` on a never-mounted UNC path correctly reports MOUNT POISONED â€”
+  fresh `\wsl.localhost` mounts still fail, real heal remains full WSL stop
+  (nightly compact / Devin-exit gate).
+- `mcp_wsl_share.sh`: found + fixed CRLF line endings (bash `set: invalid
+  option`). After fix: idempotent on the live symlink; sandbox-tested all four
+  branches via HOME= override (absent -> LINK, real dir -> BACKUP+LINK with
+  data preserved, wrong-target symlink -> RELINK keeping `mcp.old-DATE`,
+  same-day backup collision nests into `mcp.bak-DATE/mcp` â€” data preserved).
+- Sandbox gotcha learned: the script reads `MCP="$DOCKER_DIR/mcp"` â€” path
+  redirection must override HOME, not sed the MCP var, or it mutates the
+  live link (caught + restored; script's RELINK path verified it worked).
+- CRLF normalized across all 6 new skill files: PR #1881 (parallel fix
+  #1879 already normalized mcp_wsl_share.sh on master).
+- Live MCP share verified end-to-end: `profile ls` (github, all_catalog),
+  `tools ls` (8 gateway tools), `version` v0.44.3 â€” all through the
+  `/mnt/c` symlink; WSL-only limits unchanged (oauth/secret sockets).
