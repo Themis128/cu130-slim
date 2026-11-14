@@ -288,8 +288,8 @@ services:
       # appends it to the base listen args. Override with CLI_ARGS if needed.
       - COMFYUI_PROFILE=flux
       - CLI_ARGS=
-      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
-      - FAL_KEY=${FAL_KEY}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
+      - FAL_KEY=${FAL_KEY:-}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
     <<: *public-dns
     runtime: nvidia
@@ -368,7 +368,7 @@ services:
       - N8N_INSTANCE_AI_MODEL_API_KEY=${N8N_INSTANCE_AI_MODEL_API_KEY:-dmr-local}
       - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://ollama:11434/v1}
       - N8N_SANDBOX_SERVICE_URL=http://stack-ops:8081
-      - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
+      - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN:-}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
       - N8N_SANDBOX_ENABLED=true
       - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=false
@@ -630,7 +630,7 @@ services:
       - gpu
     environment:
       - MODEL_ID=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
-      - HF_TOKEN=${HF_TOKEN}
+      - HF_TOKEN=${HF_TOKEN:-}
       # Retired 2026-10-05: SD 1.5 superseded by ComfyUI FLUX.1-schnell GGUF;
       # keeping it loaded permanently cost ~1.5-2GB VRAM on the 8GB card.
       # Service remains defined for manual/dormant use — not in any chain.
@@ -964,8 +964,8 @@ services:
       - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
       - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
       - TWITTER_REDIRECT_URI=${TWITTER_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/twitter/callback}
-      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
-      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
+      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
+      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
       - INSTAGRAM_REDIRECT_URI=${INSTAGRAM_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/instagram/callback}
       - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
       - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
