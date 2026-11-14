@@ -146,14 +146,12 @@ def cmd_access_matrix(account_id: str) -> None:
         ),
         "followerStatistics": (
             "GET",
-            f"{REST_BASE}/organizationalEntityFollowerStatistics"
-            f"?q=organizationalEntity&organizationalEntity={org_q}",
+            f"{REST_BASE}/organizationalEntityFollowerStatistics?q=organizationalEntity&organizationalEntity={org_q}",
             {},
         ),
         "organizationAcl_check": (
             "GET",
-            f"{REST_BASE}/organizationAcls"
-            "?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+            f"{REST_BASE}/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
             {},
         ),
         "organization": (

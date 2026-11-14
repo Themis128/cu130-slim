@@ -215,16 +215,24 @@ def test_gmail_hits_filters(monkeypatch):
         if "messages?" in path:
             return {"messages": [{"id": "m1"}, {"id": "m2"}]}
         if "m1" in path:
-            return {"payload": {"headers": [
-                {"name": "From", "value": "official@dypa.gov.gr"},
-                {"name": "Subject", "value": "Επανεξέταση αιτήματος"},
-                {"name": "Date", "value": "Mon, 24 Nov 2026"},
-            ]}}
-        return {"payload": {"headers": [
-            {"name": "From", "value": "noreply@dypa.gov.gr"},
-            {"name": "Subject", "value": "Υπενθύμιση"},
-            {"name": "Date", "value": "Mon"},
-        ]}}
+            return {
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "official@dypa.gov.gr"},
+                        {"name": "Subject", "value": "Επανεξέταση αιτήματος"},
+                        {"name": "Date", "value": "Mon, 24 Nov 2026"},
+                    ]
+                }
+            }
+        return {
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "noreply@dypa.gov.gr"},
+                    {"name": "Subject", "value": "Υπενθύμιση"},
+                    {"name": "Date", "value": "Mon"},
+                ]
+            }
+        }
 
     monkeypatch.setattr(M, "_gmail_get", fake_get)
     hits = M._gmail_hits("dypa.gov.gr", "2026-11-01", None)
@@ -238,14 +246,23 @@ def test_gmail_hits_require_regex(monkeypatch):
 
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "_gmail_get", lambda path: (
-        {"messages": [{"id": "m1"}]} if "messages?" in path else
-        {"payload": {"headers": [
-            {"name": "From", "value": "da2@dypa.gov.gr"},
-            {"name": "Subject", "value": "Πρόγραμμα 1000 πτυχιούχων"},
-            {"name": "Date", "value": "x"},
-        ]}}
-    ))
+    monkeypatch.setattr(
+        M,
+        "_gmail_get",
+        lambda path: (
+            {"messages": [{"id": "m1"}]}
+            if "messages?" in path
+            else {
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "da2@dypa.gov.gr"},
+                        {"name": "Subject", "value": "Πρόγραμμα 1000 πτυχιούχων"},
+                        {"name": "Date", "value": "x"},
+                    ]
+                }
+            }
+        ),
+    )
     req = re.compile("επανεξέταση|επιδότηση", re.I)
     assert M._gmail_hits("dypa.gov.gr", "2026-11-01", req) == []
 
@@ -257,8 +274,10 @@ class _FakeIMAP:
         self.host, self.port = host, port
         self.search_data = [b"7"]
         self.fetch_parts = [
-            (b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
-             b"From: dypa officials <noreply@dypa.gov.gr>\r\nSubject: =?utf-8?b?VGVzdA==?=\r\nDate: Mon\r\n"),
+            (
+                b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
+                b"From: dypa officials <noreply@dypa.gov.gr>\r\nSubject: =?utf-8?b?VGVzdA==?=\r\nDate: Mon\r\n",
+            ),
             b")",
         ]
         _FakeIMAP.instances.append(self)
@@ -301,8 +320,7 @@ def test_imap_hits_human_sender(monkeypatch):
         def __init__(self, h, p):
             super().__init__(h, p)
             self.fetch_parts = [
-                (b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
-                 b"From: ypourgos@dypa.gov.gr\r\nSubject: Re: Aithma 134573211\r\nDate: Mon\r\n"),
+                (b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}", b"From: ypourgos@dypa.gov.gr\r\nSubject: Re: Aithma 134573211\r\nDate: Mon\r\n"),
                 b")",
             ]
 
@@ -366,10 +384,17 @@ def test_smtp_send(monkeypatch):
             sent["raw"] = raw
 
     monkeypatch.setattr(M.smtplib, "SMTP", FakeSMTP)
-    monkeypatch.setattr(M, "_cfg", lambda k, d="": {
-        "SMTP_HOST": "smtp.test", "SMTP_PORT": "2525",
-        "SMTP_USER": "u@x", "SMTP_PASSWORD": "pw", "SMTP_FROM": "f@x",
-    }.get(k, d))
+    monkeypatch.setattr(
+        M,
+        "_cfg",
+        lambda k, d="": {
+            "SMTP_HOST": "smtp.test",
+            "SMTP_PORT": "2525",
+            "SMTP_USER": "u@x",
+            "SMTP_PASSWORD": "pw",
+            "SMTP_FROM": "f@x",
+        }.get(k, d),
+    )
     M._smtp_send(["a@b.gr"], "Θέμα", "σώμα")
     assert sent["host"] == "smtp.test"
     assert sent["to"] == ["a@b.gr"]
@@ -401,10 +426,22 @@ async def test_followups_sends_due_email(tmp_path, monkeypatch):
     body = tmp_path / "mail.txt"
     body.write_text("Subject: Test mail\n\nBody here", encoding="utf-8")
     monkeypatch.setattr(M, "CASE_DIR", tmp_path)
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"],
-        "file": "mail.txt", "skipIfRepliedFrom": "dypa.gov.gr",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "mail.txt",
+                    "skipIfRepliedFrom": "dypa.gov.gr",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value=None))
@@ -425,9 +462,21 @@ async def test_followups_sends_due_email(tmp_path, monkeypatch):
 async def test_followups_skips_already_sent(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "x.txt",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "x.txt",
+                }
+            ],
+        ),
+    )
     fake = _FakeRedis()
     fake.hash[M.SENT_KEY] = {"ev1": "2026-01-01T00:00:00+00:00"}
     _redis(monkeypatch, M, fake)
@@ -440,10 +489,22 @@ async def test_followups_skips_already_sent(tmp_path, monkeypatch):
 async def test_followups_status_gate(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
-        "requireStatus": "Προς Αποδοχή",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "tgOnly": True,
+                    "tgText": "hi",
+                    "requireStatus": "Προς Αποδοχή",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value="Σε εξέταση"))
@@ -459,10 +520,22 @@ async def test_followups_status_gate(tmp_path, monkeypatch):
 async def test_followups_status_gate_failopen(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
-        "requireStatus": "Προς Αποδοχή",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "tgOnly": True,
+                    "tgText": "hi",
+                    "requireStatus": "Προς Αποδοχή",
+                }
+            ],
+        ),
+    )
     fake = _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_latest_status", AsyncMock(return_value=None))
@@ -477,9 +550,21 @@ async def test_followups_status_gate_failopen(tmp_path, monkeypatch):
 async def test_followups_tg_failed_not_marked(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "tgOnly": True, "tgText": "hi",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "tgOnly": True,
+                    "tgText": "hi",
+                }
+            ],
+        ),
+    )
     fake = _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "send_telegram_alert", AsyncMock(return_value=False))
@@ -492,10 +577,22 @@ async def test_followups_tg_failed_not_marked(tmp_path, monkeypatch):
 async def test_followups_reply_gate_skips(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "x.txt",
-        "skipIfRepliedFrom": "dypa.gov.gr",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "x.txt",
+                    "skipIfRepliedFrom": "dypa.gov.gr",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_replied", lambda *a: (True, {"subject": "Re: case"}, None))
@@ -515,10 +612,22 @@ async def test_followups_reply_gate_failopen(tmp_path, monkeypatch):
     body = tmp_path / "mail.txt"
     body.write_text("Subject: S\n\nB", encoding="utf-8")
     monkeypatch.setattr(M, "CASE_DIR", tmp_path)
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"],
-        "file": "mail.txt", "skipIfRepliedFrom": "dypa.gov.gr",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "mail.txt",
+                    "skipIfRepliedFrom": "dypa.gov.gr",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_replied", lambda *a: (False, None, "imap: boom"))
@@ -535,9 +644,21 @@ async def test_followups_send_failure_alerts(tmp_path, monkeypatch):
     body = tmp_path / "mail.txt"
     body.write_text("Subject: S\n\nB", encoding="utf-8")
     monkeypatch.setattr(M, "CASE_DIR", tmp_path)
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "mail.txt",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "mail.txt",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
 
@@ -557,9 +678,21 @@ async def test_followups_missing_file_fails(tmp_path, monkeypatch):
     from app.worker.tasks import synigoros_case as M
 
     monkeypatch.setattr(M, "CASE_DIR", tmp_path)
-    monkeypatch.setattr(M, "FOLLOWUPS_FILE", _followups_file(tmp_path, [{
-        "id": "ev1", "sendAt": "2020-01-01", "to": ["a@b.gr"], "file": "ghost.txt",
-    }]))
+    monkeypatch.setattr(
+        M,
+        "FOLLOWUPS_FILE",
+        _followups_file(
+            tmp_path,
+            [
+                {
+                    "id": "ev1",
+                    "sendAt": "2020-01-01",
+                    "to": ["a@b.gr"],
+                    "file": "ghost.txt",
+                }
+            ],
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "send_telegram_alert", AsyncMock(return_value=True))
@@ -627,10 +760,13 @@ async def test_reply_watch_primes_silently(tmp_path, monkeypatch):
     monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path))
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
-    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
-        {"key": "gmail:1", "lane": "gmail", "from": "a@b", "subject": "s",
-         "snippet": "", "date": "", "auto": False},
-    ])
+    monkeypatch.setattr(
+        M,
+        "_scan_replies_sync",
+        lambda d, s: [
+            {"key": "gmail:1", "lane": "gmail", "from": "a@b", "subject": "s", "snippet": "", "date": "", "auto": False},
+        ],
+    )
     tg = AsyncMock()
     monkeypatch.setattr(M, "send_telegram_alert", tg)
     out = await M._run_reply_watch()
@@ -647,15 +783,24 @@ async def test_reply_watch_alerts_new_human_mail(tmp_path, monkeypatch):
     fake.kv[M.SEEN_PRIMED_KEY] = "1"
     _redis(monkeypatch, M, fake)
     _record_ok(monkeypatch, M)
-    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
-        {"key": "gmail:1", "lane": "gmail", "from": "of@dypa.gov.gr",
-         "subject": "Επανεξέταση", "snippet": "σας ενημερώνουμε", "date": "Mon",
-         "link": "https://mail.google.com/x", "auto": False},
-        {"key": "gmail:2", "lane": "gmail", "from": "noreply@x", "subject": "s",
-         "snippet": "", "date": "", "auto": True},
-        {"key": "gmail:3", "lane": "gmail", "from": "a@b", "subject": "ο κωδικός σας",
-         "snippet": "", "date": "", "auto": False},
-    ])
+    monkeypatch.setattr(
+        M,
+        "_scan_replies_sync",
+        lambda d, s: [
+            {
+                "key": "gmail:1",
+                "lane": "gmail",
+                "from": "of@dypa.gov.gr",
+                "subject": "Επανεξέταση",
+                "snippet": "σας ενημερώνουμε",
+                "date": "Mon",
+                "link": "https://mail.google.com/x",
+                "auto": False,
+            },
+            {"key": "gmail:2", "lane": "gmail", "from": "noreply@x", "subject": "s", "snippet": "", "date": "", "auto": True},
+            {"key": "gmail:3", "lane": "gmail", "from": "a@b", "subject": "ο κωδικός σας", "snippet": "", "date": "", "auto": False},
+        ],
+    )
     tg = AsyncMock(return_value=True)
     monkeypatch.setattr(M, "send_telegram_alert", tg)
     out = await M._run_reply_watch()
@@ -689,10 +834,17 @@ async def test_reply_watch_uses_config_domains(tmp_path, monkeypatch):
         captured["since"] = since
         return []
 
-    monkeypatch.setattr(M, "WATCH_FILE", _watch_file(tmp_path, {
-        "domains": ["custom.gr", {"name": "req.gr", "require": "abc"}],
-        "since": "2026-01-01",
-    }))
+    monkeypatch.setattr(
+        M,
+        "WATCH_FILE",
+        _watch_file(
+            tmp_path,
+            {
+                "domains": ["custom.gr", {"name": "req.gr", "require": "abc"}],
+                "since": "2026-01-01",
+            },
+        ),
+    )
     _redis(monkeypatch, M)
     _record_ok(monkeypatch, M)
     monkeypatch.setattr(M, "_scan_replies_sync", fake_scan)
@@ -711,12 +863,14 @@ async def test_reply_watch_truncates_alerts(tmp_path, monkeypatch):
     fake.kv[M.SEEN_PRIMED_KEY] = "1"
     _redis(monkeypatch, M, fake)
     _record_ok(monkeypatch, M)
-    monkeypatch.setattr(M, "_scan_replies_sync", lambda d, s: [
-        {"key": f"gmail:{i}", "lane": "gmail", "from": "of@dypa.gov.gr",
-         "subject": f"Επανεξέταση {i}", "snippet": "", "date": "Mon",
-         "auto": False}
-        for i in range(M.MAX_ALERTS_PER_RUN + 3)
-    ])
+    monkeypatch.setattr(
+        M,
+        "_scan_replies_sync",
+        lambda d, s: [
+            {"key": f"gmail:{i}", "lane": "gmail", "from": "of@dypa.gov.gr", "subject": f"Επανεξέταση {i}", "snippet": "", "date": "Mon", "auto": False}
+            for i in range(M.MAX_ALERTS_PER_RUN + 3)
+        ],
+    )
     tg = AsyncMock(return_value=True)
     monkeypatch.setattr(M, "send_telegram_alert", tg)
     out = await M._run_reply_watch()
@@ -752,11 +906,15 @@ def test_scan_replies_gmail_lane(monkeypatch):
     def fake_get(path):
         if "messages?" in path:
             return {"messages": [{"id": "m1", "snippet": "snip", "threadId": "t1"}]}
-        return {"payload": {"headers": [
-            {"name": "From", "value": "of@synigoros.gr"},
-            {"name": "Subject", "value": "Απάντηση"},
-            {"name": "Date", "value": "Mon, 24 Nov"},
-        ]}}
+        return {
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "of@synigoros.gr"},
+                    {"name": "Subject", "value": "Απάντηση"},
+                    {"name": "Date", "value": "Mon, 24 Nov"},
+                ]
+            }
+        }
 
     monkeypatch.setattr(M, "_gmail_get", fake_get)
     fresh = M._scan_replies_sync([("synigoros.gr", None)], "2026-11-01")
@@ -776,11 +934,15 @@ def test_scan_replies_gmail_require_and_auto(monkeypatch):
     def fake_get(path):
         if "messages?" in path:
             return {"messages": [{"id": "m1", "snippet": "", "threadId": "t1"}]}
-        return {"payload": {"headers": [
-            {"name": "From", "value": "noreply@dypa.gov.gr"},
-            {"name": "Subject", "value": "Τυχαίο θέμα"},
-            {"name": "Date", "value": "x"},
-        ]}}
+        return {
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "noreply@dypa.gov.gr"},
+                    {"name": "Subject", "value": "Τυχαίο θέμα"},
+                    {"name": "Date", "value": "x"},
+                ]
+            }
+        }
 
     monkeypatch.setattr(M, "_gmail_get", fake_get)
     # domain-require regex doesn't match subject -> dropped
@@ -798,8 +960,7 @@ def test_scan_replies_imap_lane(monkeypatch):
             super().__init__(h, p)
             self.search_data = [b"3 4"]
             self.fetch_parts = [
-                (b"1 (UID 3 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}",
-                 b"From: yp@hli.gov.gr\r\nSubject: Status?\r\nDate: Tue\r\n"),
+                (b"1 (UID 3 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {80}", b"From: yp@hli.gov.gr\r\nSubject: Status?\r\nDate: Tue\r\n"),
                 (b"2 (UID 3 BODY[TEXT]<0> {20}", b"Hello body text"),
                 b")",
             ]

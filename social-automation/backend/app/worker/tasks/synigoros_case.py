@@ -66,8 +66,8 @@ NOISE = re.compile(
 )
 AUTO_SENDER = re.compile(r"(noreply|no-?reply|donotreply|no_reply)", re.I)
 
-SENT_KEY = "synigoros-case:sent"          # hash: event_id -> iso ts | "skipped: ..."
-SEEN_KEY = "synigoros-case:reply-seen"    # set of lane:uid keys already handled
+SENT_KEY = "synigoros-case:sent"  # hash: event_id -> iso ts | "skipped: ..."
+SEEN_KEY = "synigoros-case:reply-seen"  # set of lane:uid keys already handled
 SEEN_PRIMED_KEY = "synigoros-case:reply-seen-primed"
 MAX_ALERTS_PER_RUN = 10
 
@@ -76,7 +76,7 @@ def _cfg(key: str, default: str = "") -> str:
     v = os.environ.get(key)
     if v:
         return v
-    return (_env_file().get(key) or default)
+    return _env_file().get(key) or default
 
 
 def _load_json(path: Path, default):
@@ -102,11 +102,7 @@ async def _record(event_type: str, meta: dict) -> None:
     """Observable-output contract for workforce_audit — one row per sweep."""
     try:
         async with task_session() as db:
-            acc = (
-                await db.execute(
-                    select(SocialAccount).where(SocialAccount.platform == "telegram").limit(1)
-                )
-            ).scalar_one_or_none()
+            acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram").limit(1))).scalar_one_or_none()
             if not acc:
                 return
             db.add(
@@ -127,12 +123,7 @@ async def _latest_status() -> str | None:
     """Confirmed status from the latest synigoros_status AnalyticsEvent."""
     async with task_session() as db:
         last = (
-            await db.execute(
-                select(AnalyticsEvent)
-                .where(AnalyticsEvent.event_type == STATUS_EVENT_TYPE)
-                .order_by(AnalyticsEvent.occurred_at.desc())
-                .limit(1)
-            )
+            await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.event_type == STATUS_EVENT_TYPE).order_by(AnalyticsEvent.occurred_at.desc()).limit(1))
         ).scalar_one_or_none()
     if not last:
         return None
@@ -143,15 +134,11 @@ async def _latest_status() -> str | None:
 def _dec(s: str) -> str:
     if not s:
         return ""
-    return "".join(
-        p.decode(c or "utf-8", errors="replace") if isinstance(p, bytes) else p
-        for p, c in decode_header(s)
-    )
+    return "".join(p.decode(c or "utf-8", errors="replace") if isinstance(p, bytes) else p for p, c in decode_header(s))
 
 
 def _imap_since(since: str) -> str:
-    mon = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-           7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
+    mon = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
     y, m, d = (int(x) for x in since.split("-"))
     return f"{d:02d}-{mon[m]}-{y}"
 
@@ -205,8 +192,7 @@ def _imap_hits(domain: str, since: str, require: re.Pattern | None) -> list[dict
             dat = re.search(r"^Date:\s*(.+)$", raw, re.M)
             f, s = _dec(frm.group(1).strip()) if frm else "", _dec(sub.group(1).strip()) if sub else ""
             if _interesting(f, s, require):
-                out.append({"lane": "cloudless", "from": f[:120], "subject": s[:160],
-                            "date": _dec(dat.group(1).strip())[:60] if dat else ""})
+                out.append({"lane": "cloudless", "from": f[:120], "subject": s[:160], "date": _dec(dat.group(1).strip())[:60] if dat else ""})
     finally:
         try:
             mail.logout()
@@ -220,15 +206,11 @@ def _gmail_hits(domain: str, since: str, require: re.Pattern | None) -> list[dic
     res = _gmail_get(f"messages?q={q}&maxResults=50")
     out = []
     for m in res.get("messages", []):
-        full = _gmail_get(
-            f"messages/{m['id']}?format=metadata"
-            "&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date"
-        )
+        full = _gmail_get(f"messages/{m['id']}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date")
         h = {x["name"].lower(): x["value"] for x in full.get("payload", {}).get("headers", [])}
         f, s = h.get("from", ""), h.get("subject", "")
         if _interesting(f, s, require):
-            out.append({"lane": "gmail", "from": f[:120], "subject": s[:160],
-                        "date": h.get("date", "")[:60]})
+            out.append({"lane": "gmail", "from": f[:120], "subject": s[:160], "date": h.get("date", "")[:60]})
     return out
 
 
@@ -328,8 +310,7 @@ async def _run_followups() -> dict:
                 ev.get("skipIfRepliedRequire"),
             )
             if replied:
-                why = (f"skipped: reply from {ev['skipIfRepliedFrom']} since "
-                       f"{ev.get('skipIfRepliedSince') or ev['sendAt']}")
+                why = f"skipped: reply from {ev['skipIfRepliedFrom']} since {ev.get('skipIfRepliedSince') or ev['sendAt']}"
                 await r.hset(SENT_KEY, eid, why)
                 subj = (match or {}).get("subject", "")
                 await send_telegram_alert("ops", f"⏭️ {eid} παραλείφθηκε — {why} ({subj})")
@@ -399,7 +380,8 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                     for uid in data[0].split() if data and data[0] else []:
                         key = f"imap:{dom}:{uid.decode()}"
                         _, msg = mail.uid(
-                            "FETCH", uid,
+                            "FETCH",
+                            uid,
                             "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)] BODY.PEEK[TEXT]<0.1200>)",
                         )
                         header_blob, body_blob = "", ""
@@ -423,14 +405,17 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                         subj = _dec(sub.group(1).strip()) if sub else ""
                         if req and not req.search(subj):
                             continue
-                        fresh.append({
-                            "key": key, "lane": "cloudless",
-                            "from": _dec(frm.group(1).strip()) if frm else "",
-                            "subject": subj,
-                            "snippet": snippet,
-                            "date": _dec(date_h.group(1).strip()) if date_h else "",
-                            "auto": bool(AUTO_SENDER.search(_dec(frm.group(1).strip()) if frm else "")),
-                        })
+                        fresh.append(
+                            {
+                                "key": key,
+                                "lane": "cloudless",
+                                "from": _dec(frm.group(1).strip()) if frm else "",
+                                "subject": subj,
+                                "snippet": snippet,
+                                "date": _dec(date_h.group(1).strip()) if date_h else "",
+                                "auto": bool(AUTO_SENDER.search(_dec(frm.group(1).strip()) if frm else "")),
+                            }
+                        )
             finally:
                 try:
                     mail.logout()
@@ -444,10 +429,7 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
         q = "(" + " OR ".join(f"from:{d}" for d, _ in domains) + f") after:{since.replace('-', '/')}"
         res = _gmail_get(f"messages?q={urllib.parse.quote(q)}&maxResults=100")
         for m in res.get("messages", []):
-            full = _gmail_get(
-                f"messages/{m['id']}?format=metadata"
-                "&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date"
-            )
+            full = _gmail_get(f"messages/{m['id']}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date")
             headers = {h["name"].lower(): h["value"] for h in full.get("payload", {}).get("headers", [])}
             frm_g = str(headers.get("from") or "")
             subj_g = str(headers.get("subject") or "")
@@ -459,14 +441,18 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                     break
             if req and not req.search(subj_g):
                 continue
-            fresh.append({
-                "key": f"gmail:{m['id']}", "lane": "gmail",
-                "from": frm_g[:120], "subject": subj_g[:160],
-                "snippet": (m.get("snippet") or "")[:160],
-                "date": headers.get("date", "")[:60],
-                "link": f"https://mail.google.com/mail/u/0/#all/{m.get('threadId', m['id'])}",
-                "auto": bool(AUTO_SENDER.search(frm_g)),
-            })
+            fresh.append(
+                {
+                    "key": f"gmail:{m['id']}",
+                    "lane": "gmail",
+                    "from": frm_g[:120],
+                    "subject": subj_g[:160],
+                    "snippet": (m.get("snippet") or "")[:160],
+                    "date": headers.get("date", "")[:60],
+                    "link": f"https://mail.google.com/mail/u/0/#all/{m.get('threadId', m['id'])}",
+                    "auto": bool(AUTO_SENDER.search(frm_g)),
+                }
+            )
     except Exception as e:  # noqa: BLE001
         logger.warning("synigoros_case reply-watch: Gmail lane failed: %s", e)
 
@@ -479,8 +465,7 @@ async def _run_reply_watch() -> dict:
         ("synigoros.gr", None),
         (
             "dypa.gov.gr",
-            "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|"
-            "πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828|επαναπροώθηση|διαβίβαση",
+            "επανεξέταση|επιδότηση|επίδομα|ανεργ|ημερομίσθι|απόρριψη|απορριπτικ|πρωτοκόλλου|ΚΠΑ2|Μαρκοπούλου|000134573211|40173828|επαναπροώθηση|διαβίβαση",
         ),
         ("hli.gov.gr", None),
     ]
@@ -503,10 +488,7 @@ async def _run_reply_watch() -> dict:
             await r.aclose()
             return {"primed": True, "seen": len(keys)}
 
-        interesting = [m for m in fresh
-                       if m["key"] in new_keys
-                       and not m.get("auto")
-                       and not NOISE.search(m.get("subject") or "")]
+        interesting = [m for m in fresh if m["key"] in new_keys and not m.get("auto") and not NOISE.search(m.get("subject") or "")]
         if not interesting:
             await _record("synigoros_case_reply_watch", {"new": len(new_keys), "alerted": 0})
             await r.aclose()
@@ -516,9 +498,7 @@ async def _run_reply_watch() -> dict:
         for m in interesting[:MAX_ALERTS_PER_RUN]:
             lines.append(
                 f"• [{m['lane']}] {m['subject'][:90]}\n"
-                f"  {m['from'][:60]} — {m['date'][:40]}"
-                + (f"\n  {m['snippet']}" if m.get("snippet") else "")
-                + (f"\n  {m['link']}" if m.get("link") else "")
+                f"  {m['from'][:60]} — {m['date'][:40]}" + (f"\n  {m['snippet']}" if m.get("snippet") else "") + (f"\n  {m['link']}" if m.get("link") else "")
             )
         if len(interesting) > MAX_ALERTS_PER_RUN:
             lines.append(f"… και {len(interesting) - MAX_ALERTS_PER_RUN} ακόμη")
