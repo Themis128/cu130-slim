@@ -145,7 +145,8 @@ def cmd_probe(_args):
 
 def _on_create_form():
     xml, nodes = vpc.dump_xml()
-    return ("create your business" in " ".join(nodes).lower()
+    joined = " ".join(t for t, _, _ in nodes).lower()
+    return ("create your business" in joined
             or L_RID_NAME in xml or L_RID_CREATE in xml)
 
 
