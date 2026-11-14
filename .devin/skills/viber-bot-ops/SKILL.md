@@ -31,11 +31,23 @@ viber_phone_capture machinery):
 ```bash
 viber_business_setup.py probe          # device + screen dump
 viber_business_setup.py run --dry-run  # navigate + dump, no submits
-viber_business_setup.py run            # fill name/website/description/category
+viber_business_setup.py run            # create form OR complete profile
+viber_business_setup.py link           # Business tools -> Chat link dump
 ```
 
-Stops at human steps (logo image pick, document upload, final submit) and
-prints exactly where.
+Stops at human steps (logo image pick, document upload, final submit,
+business hours/address real values) and prints exactly where.
+
+**State machine (verified live 2026-11-14):** `run` classifies the
+current screen first — create form → fill name + submit; "Business
+tools" dashboard / "Edit profile" → `_complete_profile` fills
+Description (free text) + Category (picker grid) via row-scoped Add/Edit
+taps; main app → More tab → "Business Account"/"Continue". Business
+Name was set to `Cloudless` + Category `IT` live; Description still
+pending a clean save. IME rule learned live: NEVER tap Save while the
+keyboard is open — bottom taps hit IME keys (stray chars, emoji panel);
+`_save_editor` BACK-dismisses the IME and verifies the editor title
+survives before tapping Save.
 
 **Phone access (verified 2026-11-14):** the Galaxy S22+ is on the tailnet
 (`galaxy-s22` = 100.84.31.85) but wireless-debugging uses a **random port**
