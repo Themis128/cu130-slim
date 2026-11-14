@@ -2502,3 +2502,39 @@ Follow-up to the Docker wipe recovery above:
 - Final state: 55 containers up / 0 exited, api /health ok, 4 celery
   nodes pong, beat firing, synigoros tasks registered, infisical
   healthy on :8090.
+
+## 2026-11-14 — SocialAuto media storage integrity guard
+
+Root cause verified live:
+- Cloudflare R2 bucket `cloudless-pipeline-assets` was recreated on
+  2026-11-03. Existing `media_assets` rows still pointed to the old bucket,
+  so 634/882 R2 references became orphaned (41/50 videos unreachable).
+- `/api/v1/media/upload/complete` previously wrote `r2` rows without proving
+  the object existed and could mislabel MinIO fallback uploads as R2.
+- No recurring worker audited storage drift, so publishing discovered stale
+  references only at runtime.
+
+Implemented on `feat/media-integrity-guard`:
+- `/upload/prepare` returns the actual selected backend;
+  `/upload/complete` verifies the uploaded object (explicit backend honored,
+  legacy discovery preserved), records verified backend/size/public URL,
+  and rejects missing objects before creating `media_assets`.
+- `app/services/media_integrity.py` + Celery task
+  `run_media_integrity_sweep` classify assets as ok/repaired/missing/
+  size_mismatch/backend_error, quarantine unresolved missing objects, and
+  write auditable evidence; no rows/objects are deleted.
+- Celery beat runs the bounded sweep every 6h on the default queue; workforce
+  audit has goal/guardrails/fallback/evidence/escalation queries.
+- Tests: 161 focused media/storage/Slack tests + 248 adjacent tests passed
+  locally; ruff/mypy clean. Live deploy/sweep remains pending while app
+  containers are healed from bind-mount exit-127.
+
+Remaining / watch:
+- [ ] Recreate affected social-api/worker/beat containers after deploy-lock
+  check (exit-127 stale bind mounts), restart media/default workers + beat,
+  run one live bounded sweep, inspect `audit_logs` and quarantined metadata.
+- [ ] Historical R2 objects lost in the old bucket cannot be recovered by the
+  sweep; rows remain quarantined for human review/re-upload.
+- [ ] After live verification, reassess TikTok candidate
+  `day18-stop-starting-from-scratch.mp4` / asset `d8b7b589…` and publish
+  only if the object verifies and account validation remains healthy.

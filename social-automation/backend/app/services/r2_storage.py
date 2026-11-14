@@ -154,12 +154,16 @@ async def delete_object(key: str) -> bool:
     raise HTTPException(status_code=502, detail=f"R2 delete failed ({resp.status_code}): {resp.text[:500]}")
 
 
-async def object_exists(key: str) -> bool:
-    """Check if an object exists in R2."""
+async def head_object(key: str) -> dict:
+    """Return normalized object metadata from R2.
+
+    Raises 404 when the object is absent and 502 for transport/API failures,
+    so callers can distinguish drift from a temporarily unreachable backend.
+    """
     key = _validate_key(key)
     url = _r2_object_url(key)
     if not url:
-        return False
+        raise HTTPException(status_code=500, detail="R2 is not configured")
 
     token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -167,4 +171,30 @@ async def object_exists(key: str) -> bool:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.head(url, headers=headers, follow_redirects=True)
 
-    return resp.status_code == 200
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"R2 object not found: {key}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"R2 head failed ({resp.status_code}): {resp.text[:500]}")
+
+    response_headers = getattr(resp, "headers", {}) or {}
+    size = None
+    try:
+        size = int(response_headers.get("content-length") or "") or None
+    except ValueError:
+        size = None
+    return {
+        "key": key,
+        "size": size,
+        "etag": (response_headers.get("etag") or response_headers.get("x-etag") or "").strip('"'),
+        "content_type": response_headers.get("content-type"),
+        "last_modified": response_headers.get("last-modified"),
+    }
+
+
+async def object_exists(key: str) -> bool:
+    """Check if an object exists in R2."""
+    try:
+        await head_object(key)
+        return True
+    except HTTPException:
+        return False

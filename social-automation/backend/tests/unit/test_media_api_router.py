@@ -799,6 +799,7 @@ async def test_prepare_upload_r2(monkeypatch):
     monkeypatch.setattr(media.r2_presigned, "presigned_upload_url", lambda **k: url)
     out = await prepare_upload(PresignedUploadRequest(filename="f.png", mime_type="image/png", size_bytes=10), uuid.uuid4(), _user(), _DB(team=_team()))
     assert out is url
+    assert out.storage_backend == "r2"
 
 
 @pytest.mark.asyncio
@@ -808,6 +809,7 @@ async def test_prepare_upload_minio_fallback(monkeypatch):
     monkeypatch.setattr(media.minio_storage, "presigned_upload_url", lambda **k: url)
     out = await prepare_upload(PresignedUploadRequest(filename="f.png", mime_type="image/png", size_bytes=10), uuid.uuid4(), _user(), _DB(team=_team()))
     assert out is url
+    assert out.storage_backend == "minio"
 
 
 @pytest.mark.asyncio
@@ -834,7 +836,11 @@ async def test_complete_upload_success(monkeypatch):
     team = _team()
     monkeypatch.setattr(media, "correct_text", AsyncMock(side_effect=lambda t: t))
     monkeypatch.setattr(media, "correct_tags", AsyncMock(return_value=["t"]))
-    monkeypatch.setattr(media.r2_presigned, "_public_url", lambda k: f"https://pub/{k}")
+    monkeypatch.setattr(
+        media.media_integrity,
+        "verify_uploaded_object",
+        AsyncMock(return_value=SimpleNamespace(backend="r2", size=1, public_url="https://pub/x.png")),
+    )
     monkeypatch.setattr(media.celery_app, "send_task", lambda *a, **k: SimpleNamespace(id="t"))
     db = _DB(team=team)
     out = await complete_upload(
@@ -842,6 +848,55 @@ async def test_complete_upload_success(monkeypatch):
     )
     assert out.storage_backend == "r2"
     assert db.committed == 1
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_rejects_missing_object(monkeypatch):
+    team = _team()
+    monkeypatch.setattr(
+        media.media_integrity,
+        "verify_uploaded_object",
+        AsyncMock(side_effect=HTTPException(status_code=400, detail="Uploaded object was not found")),
+    )
+    db = _DB(team=team)
+    with pytest.raises(HTTPException) as e:
+        await complete_upload(
+            CompleteUploadRequest(key=f"{team.id}/2026/x.png", filename="x.png", mime_type="image/png", size_bytes=1),
+            team.id,
+            _user(),
+            db,
+        )
+    assert e.value.status_code == 400
+    assert db.committed == 0
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_records_minio_backend(monkeypatch):
+    team = _team()
+    monkeypatch.setattr(media, "correct_text", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(media, "correct_tags", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        media.media_integrity,
+        "verify_uploaded_object",
+        AsyncMock(return_value=SimpleNamespace(backend="minio", size=1, public_url="/api/v1/media/view?path=x")),
+    )
+    monkeypatch.setattr(media.celery_app, "send_task", lambda *a, **k: SimpleNamespace(id="t"))
+    db = _DB(team=team)
+    out = await complete_upload(
+        CompleteUploadRequest(
+            key=f"{team.id}/2026/x.png",
+            filename="x.png",
+            mime_type="image/png",
+            size_bytes=1,
+            storage_backend="minio",
+        ),
+        team.id,
+        _user(),
+        db,
+    )
+    assert out.storage_backend == "minio"
+    assert media.media_integrity.verify_uploaded_object.await_args.kwargs["backend"] == "minio"
 
 
 # ── collections ───────────────────────────────────────────────────────
@@ -1255,7 +1310,11 @@ async def test_complete_upload_celery_fail_tolerated(monkeypatch):
     team = _team()
     monkeypatch.setattr(media, "correct_text", AsyncMock(side_effect=lambda t: t))
     monkeypatch.setattr(media, "correct_tags", AsyncMock(return_value=["t"]))
-    monkeypatch.setattr(media.r2_presigned, "_public_url", lambda k: f"https://pub/{k}")
+    monkeypatch.setattr(
+        media.media_integrity,
+        "verify_uploaded_object",
+        AsyncMock(return_value=SimpleNamespace(backend="r2", size=1, public_url="https://pub/x.png")),
+    )
 
     def _boom(*a, **k):
         raise RuntimeError("queue down")
