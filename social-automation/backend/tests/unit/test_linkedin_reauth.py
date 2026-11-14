@@ -316,7 +316,7 @@ def test_sms_codes_blocking_addr_fallback(monkeypatch, tmp_path):
             return ""
 
         def close(self):
-            pass
+            raise OSError("close failed")  # finally must swallow it
 
     monkeypatch.setattr(adb_mod, "AdbDeviceTcp", _Dead)
     with pytest.raises(R.LinkedInReauthError) as ei:

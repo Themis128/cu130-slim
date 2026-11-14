@@ -748,7 +748,7 @@ services:
     networks:
       - backend
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
     healthcheck:
       test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/api/status"]
@@ -1922,7 +1922,7 @@ services:
       - FB_MARKETING_APP_SECRET=${FB_MARKETING_APP_SECRET:-}
     volumes:
       - airbyte_mcp_data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9229/health || exit 1"]
       interval: 30s
@@ -2147,7 +2147,7 @@ services:
           sleep 10
         done
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - host.docker.internal:host-gateway
     mem_limit: 96m
@@ -2294,7 +2294,7 @@ services:
       - 127.0.0.1:9230:9230 # messenger-sidecar (9229 = airbyte health, direct)
       - 127.0.0.1:1080:1080 # warp-proxy socks5
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       - ./stack-ops/services.json:/app/services.json:ro
       # Compose file + env so wake() can recreate pruned services
       # (`docker compose -f /app/docker-compose.yml up -d --no-deps <svc>`).
@@ -2355,7 +2355,7 @@ services:
       - NETWORKS=1
       - POST=0
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
     healthcheck:
@@ -2378,7 +2378,7 @@ services:
       - DEPLOY_LOCK_MAX_AGE=3600
     volumes:
       - .:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       - /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker:/usr/bin/docker:ro
       - /mnt/wsl/docker-desktop/cli-tools/usr/local/lib/docker/cli-plugins/docker-compose:/root/.docker/cli-plugins/docker-compose:ro
     networks:
@@ -2417,7 +2417,7 @@ services:
       - AUTOHEAL_DEFAULT_STOP_TIMEOUT=20
       - WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
     networks:
       - backend
     healthcheck:
@@ -2523,7 +2523,7 @@ services:
     environment:
       - COMPOSE_PROJECT_DIR  # host compose dir — bind sources resolve identically inside the helper
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       # relative binds in sibling services resolve against COMPOSE_PROJECT_DIR;
       # mounting at the SAME absolute path keeps daemon-side sources valid
       - ${COMPOSE_PROJECT_DIR:-.}:${COMPOSE_PROJECT_DIR:-/w}:ro

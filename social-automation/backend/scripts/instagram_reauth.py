@@ -40,8 +40,10 @@ Exit codes: 0 ok/nothing-to-do, 2 lane-down, 3 human-gate-needed,
 import base64
 import json
 import os
+import re
 import sys
 import time
+from pathlib import Path
 import urllib.parse
 import urllib.request
 
@@ -134,7 +136,7 @@ _CLICK_JS = """
                && !deny.test(txt(e)));
   if (pick) { pick.click(); return 'picked-account:' + txt(pick).slice(0,40); }
   // 3) generic consent buttons
-  const ok = /^(continue|allow|save|agree|next|confirm|got it)/i;
+  const ok = /^(continue|allow|save|agree|next|confirm|got it|get started)/i;
   const b = cand.find(e => ok.test(txt(e)) && txt(e).length < 40 && !deny.test(txt(e)));
   if (b) { b.click(); return 'clicked:' + txt(b).slice(0,30); }
   return 'no-button';
@@ -324,9 +326,21 @@ def _mark(ok: bool) -> None:
 
 
 def _sidecar(path: str, payload: dict | None = None, timeout: int = 90) -> dict:
-    if payload is None:
-        return _get(f"{SIDECAR}{path}", timeout=timeout)
-    return _req(f"{SIDECAR}{path}", data=payload, timeout=timeout)
+    # The sidecar's express-rate-limit allows 60 req/min — the drive loop
+    # plus preflight probes can exceed that, so retry 429s with a window
+    # pause instead of failing the whole run.
+    for attempt in range(4):
+        try:
+            if payload is None:
+                return _get(f"{SIDECAR}{path}", timeout=timeout)
+            return _req(f"{SIDECAR}{path}", data=payload, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 3:
+                print("sidecar 429 — waiting out rate window")
+                time.sleep(20)
+                continue
+            raise
+    raise RuntimeError("sidecar rate-limited")
 
 
 def _eval(script: str, timeout: int = 60) -> dict:
@@ -356,14 +370,14 @@ def _page_url() -> str:
     is the fallback, page JS the last resort.
     """
     try:
-        r = _get(f"{SIDECAR}/debug/navigation-attempt", timeout=30)
+        r = _sidecar("/debug/navigation-attempt", timeout=30)
         url = r.get("attempted") or r.get("url") or ""
         if url:
             return url
     except Exception:
         pass
     try:
-        r = _get(f"{SIDECAR}/debug/page-text", timeout=30)
+        r = _sidecar("/debug/page-text", timeout=30)
         if r.get("url"):
             return r["url"]
     except Exception:
@@ -392,6 +406,195 @@ def _dump_diagnostics(tag: str) -> None:
             print(f"SCREENSHOT {path} url={shot.get('url', '')[:120]} title={shot.get('title', '')[:80]}")
     except Exception as e:
         print(f"screenshot failed: {e}")
+
+
+# ── IG onboarding wizard + 2FA helpers ──────────────────────────────────────
+#
+# The instagram-onboarding authorize URL opens a facebook.com/dialog/oauth
+# wizard. "Get started" window.open()s an instagram.com login popup (a NEW
+# sidecar page) which walks: profile picker → 2FA method picker → code
+# entry. The popup auto-completes once an IG session exists; the 2FA code
+# is an SMS to the office number (+**38 = Galaxy S22+, readable over WiFi
+# ADB via content://sms/inbox — same lane as linkedin_reauth.py).
+
+_IG_2FA_RE = re.compile(
+    r"check your (whatsapp|text) messages|enter the code we sent", re.I
+)
+_IG_CODE_INPUT_JS = """
+(() => {
+  const inp = [...document.querySelectorAll('input')].find(i =>
+    i.type !== 'hidden' &&
+    (i.type === 'text' || i.type === 'tel' || i.inputMode === 'numeric' ||
+     /code/i.test((i.name||'') + (i.placeholder||'') +
+                  (i.getAttribute('aria-label')||''))));
+  if (!inp) return 'nf';
+  const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  inp.focus(); s.call(inp, CODE); 
+  inp.dispatchEvent(new Event('input', {bubbles: true}));
+  inp.dispatchEvent(new Event('change', {bubbles: true}));
+  return 'filled';
+})()
+"""
+
+# Click the first element whose first text line matches `want` (case-insens),
+# climbing to the nearest role=button/link ancestor for React handlers.
+_CLICK_TXT_JS = """
+((want) => {
+  const els = [...document.querySelectorAll(
+      'div[role=button],button,a,label,span')];
+  const b = els.find(x => (x.innerText||'').trim().split('\\n')[0]
+                     .toLowerCase() === want.toLowerCase());
+  if (!b) return 'nf';
+  let el = b;
+  for (let i = 0; i < 6; i++) {
+    el = el.parentElement; if (!el) break;
+    const r = el.getAttribute && el.getAttribute('role');
+    if (r === 'button' || r === 'link' || el.tagName === 'A' || el.tagName === 'BUTTON') break;
+  }
+  if (!el || !el.getAttribute || !el.getAttribute('role')) el = b;
+  const rc = el.getBoundingClientRect(), cx = rc.x + rc.width/2, cy = rc.y + rc.height/2;
+  const o = {bubbles: true, cancelable: true, view: window,
+             clientX: cx, clientY: cy, button: 0, pointerId: 1,
+             pointerType: 'mouse', isPrimary: true};
+  el.dispatchEvent(new PointerEvent('pointerdown', o));
+  el.dispatchEvent(new MouseEvent('mousedown', o));
+  el.dispatchEvent(new PointerEvent('pointerup', o));
+  el.dispatchEvent(new MouseEvent('mouseup', o));
+  el.dispatchEvent(new MouseEvent('click', o));
+  return 'ok';
+})
+"""
+
+
+# Find the first element whose first text line matches `want` and return its
+# viewport-center coords as JSON {"x":…,"y":…} — real mouse clicks via
+# /debug/click are required for IG/Meta React submits (synthetic DOM events
+# select radios but do NOT fire the submit handler — proven live: SMS was
+# never sent until a trusted click landed).
+_CLICK_POS_JS = """
+((want) => {
+  const els = [...document.querySelectorAll(
+      'div[role=button],button,a,label,span,li')];
+  const b = els.find(x => {
+    const r = x.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 &&
+           (x.innerText||'').trim().split('\\n')[0].toLowerCase()
+             === want.toLowerCase();
+  });
+  if (!b) return 'null';
+  let el = b;
+  for (let i = 0; i < 6; i++) {
+    el = el.parentElement; if (!el) break;
+    const r = el.getAttribute && el.getAttribute('role');
+    if (r === 'button' || r === 'link' || el.tagName === 'A' || el.tagName === 'BUTTON') break;
+  }
+  if (!el || !el.getAttribute || !el.getAttribute('role')) el = b;
+  const rc = el.getBoundingClientRect();
+  return JSON.stringify({x: Math.round(rc.x + rc.width/2),
+                         y: Math.round(rc.y + rc.height/2)});
+})
+"""
+
+
+def _click_first_line(want: str) -> str:
+    """Real-mouse click on the first element whose first line == `want`."""
+    pos = _eval_str(_CLICK_POS_JS + f"({json.dumps(want)})", timeout=30)
+    try:
+        p = json.loads(pos) if pos else None
+    except Exception:
+        p = None
+    if not p:
+        return "nf"
+    try:
+        _sidecar("/debug/click", {"x": p["x"], "y": p["y"]}, timeout=30)
+        return "ok"
+    except Exception as e:
+        print(f"real click failed ({want}): {e}")
+        return "nf"
+
+
+def _sidecar_pages() -> list:
+    try:
+        r = _sidecar("/debug/pages", timeout=20)
+        return r.get("pages") or []
+    except Exception:
+        return []
+
+
+def _activate_url_part(part: str) -> bool:
+    """Activate the sidecar page whose URL contains `part`."""
+    for p in _sidecar_pages():
+        if part in (p.get("url") or ""):
+            try:
+                _sidecar("/debug/activate", {"index": p["index"]}, timeout=20)
+                return True
+            except Exception:
+                return False
+    return False
+
+
+_IG_SMS_RE = re.compile(r"(\d{6}) is your Instagram code", re.I)
+_IG_ROW_RE = re.compile(r"Row: \d+ address=([^,]+), date=(\d+), body=(.*)")
+
+
+def _fetch_ig_sms_code(since_ms: int, timeout_s: int = 180) -> str | None:
+    """Poll the Galaxy phone SMS inbox for a fresh Instagram code.
+
+    Same lane as app.services.linkedin_reauth: pure-python adb_shell over
+    WiFi ADB; keys bind-mounted at /run/li-adb-keys (ro). Returns None on
+    any failure — caller falls back to human gate."""
+    try:
+        from adb_shell.adb_device import AdbDeviceTcp
+        from adb_shell.auth.sign_cryptography import CryptographySigner
+    except Exception:
+        return None
+    keys = Path(os.environ.get("LINKEDIN_ADB_KEY_DIR", "/run/li-adb-keys"))
+    if not (keys / "adbkey").exists():
+        return None
+    # Wireless-debugging ports/IPs drift (mDNS random port, DHCP). Try the
+    # env override first, then the known live endpoints.
+    addrs = [a for a in (
+        os.environ.get("LINKEDIN_SMS_ADB_ADDR"),
+        "100.84.31.85:5555",
+        "192.168.1.77:5555",
+        "192.168.1.235:5555",
+    ) if a]
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        for addr in addrs:
+            host, _, port = addr.partition(":")
+            dev = None
+            try:
+                dev = AdbDeviceTcp(host, int(port or 5555))
+                dev.connect(rsa_keys=[
+                    CryptographySigner(str(keys / "adbkey"))])
+                out = dev.shell(
+                    "content query --uri content://sms/inbox "
+                    '--projection address,date,body --sort "date DESC"')
+            except Exception as e:
+                print(f"ig sms poll {addr}: {e}")
+                continue
+            finally:
+                if dev is not None:
+                    try:
+                        dev.close()
+                    except Exception:
+                        pass
+            for line in out.splitlines():
+                m = _IG_ROW_RE.search(line)
+                if not m:
+                    continue
+                ts = int(m.group(2))
+                # Grace window: the SMS can land a few seconds before our
+                # request timestamp (clock skew, IG pre-send) — accept codes
+                # up to 5 min older than the request, newest first wins.
+                if ts <= since_ms - 300_000:
+                    continue
+                cm = _IG_SMS_RE.search(m.group(3))
+                if cm:
+                    return cm.group(1)
+        time.sleep(8)
+    return None
 
 
 def _sidecar_identity() -> dict:
@@ -442,6 +645,106 @@ def _targets_refreshed(targets: list) -> tuple[bool, str]:
     if missing:
         parts.append("missing:" + ",".join(m[:12] for m in missing))
     return False, "; ".join(parts)
+
+
+_CODE_INPUT_PROBE_JS = """(() => {
+  const inp = [...document.querySelectorAll('input')].find(i =>
+    i.type !== 'hidden' &&
+    (i.type === 'text' || i.type === 'tel' || i.inputMode === 'numeric' ||
+     /code/i.test((i.name||'') + (i.placeholder||'') +
+                  (i.getAttribute('aria-label')||''))));
+  return inp ? 'yes' : 'no';
+})()"""
+
+
+def _code_input_present() -> bool:
+    return _eval_str(_CODE_INPUT_PROBE_JS, timeout=20) == "yes"
+
+
+def _fill_code(code: str) -> str:
+    js = _IG_CODE_INPUT_JS.replace("CODE", json.dumps(code))
+    return _eval_str(js, timeout=20)
+
+
+_IG_TXT_PICKED = False
+_IG_SMS_REQUESTED = False
+
+
+def _drive_ig_2fa(snap: dict, sms_since_ms: int) -> str:
+    """Advance the IG popup's 2FA wizard. Returns 'handled'|'waiting'|'none'."""
+    global _IG_TXT_PICKED, _IG_SMS_REQUESTED
+    text = (snap.get("text") or "")
+    low = text.lower()
+    if not _IG_2FA_RE.search(low) and "two-factor" not in low and "verification code" not in low:
+        _IG_TXT_PICKED = False
+        _IG_SMS_REQUESTED = False
+        return "none"
+    has_code_input = _code_input_present()
+    # Method picker first (until SMS is chosen): the default landing is the
+    # WhatsApp code page which ALSO has a code input — fetching SMS there
+    # would poll forever since no SMS was ever sent.
+    if not _IG_TXT_PICKED:
+        for want, label in (
+            ("text message", "Text message"),
+            ("sms", "SMS"),
+            ("see more options", "See more options"),
+            ("try another way", "Try another way"),
+        ):
+            if want in low:
+                act = _click_first_line(label)
+                if act == "ok":
+                    if label == "Text message":
+                        _IG_TXT_PICKED = True
+                    print(f"ig-2fa: clicked '{label}'")
+                    return "handled"
+    # Method chosen — advance via the primary button (the picker still
+    # shows "Text message" text, so never re-click the option itself).
+    if _IG_TXT_PICKED and not has_code_input:
+        for label in ("Continue", "Send code", "Next"):
+            if label.lower() in low:
+                act = _click_first_line(label)
+                if act == "ok":
+                    print(f"ig-2fa: clicked '{label}' (post-method)")
+                    return "handled"
+    # Code entry: only fetch SMS once the Text-message method was picked —
+    # otherwise the visible code page is WhatsApp's and no SMS exists yet.
+    if has_code_input:
+        if not _IG_TXT_PICKED:
+            act = _click_first_line("Try another way")
+            if act == "ok":
+                print("ig-2fa: on default code page — opening method picker")
+                return "handled"
+            return "none"
+        # Selecting the "Text message" radio does NOT send the SMS — the
+        # code field stays visible, so Continue must be clicked once to
+        # request it before polling the inbox.
+        if not _IG_SMS_REQUESTED:
+            act = _click_first_line("Continue")
+            if act == "ok":
+                _IG_SMS_REQUESTED = True
+                print("ig-2fa: requested SMS code (Continue)")
+                return "handled"
+        code = _fetch_ig_sms_code(sms_since_ms, timeout_s=150)
+        if not code:
+            print("ig-2fa: no SMS code within window — leaving for human/next run")
+            return "waiting"
+        print("ig-2fa: got SMS code, filling")
+        _fill_code(code)
+        time.sleep(1)
+        _click_first_line("Continue")
+        return "handled"
+    # Nothing clickable yet — let the generic clicker try.
+    return "none"
+
+
+def _callback_url_from_pages() -> str:
+    """Scan ALL sidecar pages for the OAuth callback — the redirect may
+    land on the dialog page while we are driving the IG popup."""
+    for p in _sidecar_pages():
+        u = p.get("url") or ""
+        if _is_callback(u):
+            return u
+    return ""
 
 
 def _invoke_callback(callback_url: str) -> bool:
@@ -513,10 +816,51 @@ def main() -> int:
         _mark(False)
         return 2
 
-    deadline = time.time() + 150
+    deadline = time.time() + 300
     gate = None
+    sms_since_ms = int(time.time() * 1000)
+    ig_page_active = False
     while time.time() < deadline:
-        cur = _page_url()
+        # The onboarding wizard opens a separate instagram.com popup — drive
+        # whichever page is currently relevant. Prefer the IG popup when it
+        # exists (2FA lives there); the dialog page advances on its own.
+        pages = _sidecar_pages()
+        ig_page = next(
+            (p for p in pages if "instagram.com" in (p.get("url") or "")),
+            None,
+        )
+        if ig_page is not None and not ig_page_active:
+            _activate_url_part("instagram.com")
+            ig_page_active = True
+            print(f"ig-2fa: driving popup page idx={ig_page.get('index')}")
+            time.sleep(2)
+        elif ig_page is None and ig_page_active:
+            # Popup finished/closed — hand control back to the dialog page.
+            fb = next(
+                (p for p in pages
+                 if "facebook.com" in (p.get("url") or "")),
+                None,
+            )
+            if fb is not None:
+                try:
+                    _sidecar("/debug/activate",
+                             {"index": fb["index"]}, timeout=20)
+                except Exception:
+                    pass
+            ig_page_active = False
+            print("ig-2fa: popup done — back on dialog page")
+            time.sleep(2)
+        # Callback check: page urls hide failed navigations (chrome-error),
+        # so scan page urls AND the recorded navigation attempt — both from
+        # calls we already made this iteration where possible.
+        cur = ""
+        for p in pages:
+            u = p.get("url") or ""
+            if _is_callback(u):
+                cur = u
+                break
+        if not cur:
+            cur = _page_url()
         if _is_callback(cur):
             break
         snap = _page_snapshot()
@@ -527,15 +871,19 @@ def main() -> int:
                 print(f"login wall: continued as profile ({act})")
                 time.sleep(4)
                 continue
-        if gate:
+        if gate and not ig_page_active:
             print(f"human gate detected: {gate} — {snap.get('text', '')[:200]}")
             _dump_diagnostics(gate)
             _mark(False)
             return 3
+        if ig_page_active and _drive_ig_2fa(snap, sms_since_ms) == "waiting":
+            _dump_diagnostics("ig-2fa-waiting")
+            _mark(False)
+            return 3
         _eval(_CLICK_JS, timeout=30)
-        time.sleep(4)
+        time.sleep(5)
 
-    cur = _page_url()
+    cur = _callback_url_from_pages() or _page_url()
     if not _is_callback(cur):
         print("timed out waiting for OAuth callback")
         _dump_diagnostics("timeout")
