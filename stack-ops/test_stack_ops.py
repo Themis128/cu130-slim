@@ -449,5 +449,49 @@ class TestProxyPipe(ProxyTestBase):
         self.assertEqual(data, b"ECHO:hello-proxy")
 
 
+class TestReseedIdleClocks(unittest.IsolatedAsyncioTestCase):
+    """Regression: containers restarted while stack-ops runs must get a
+    fresh idle window from StartedAt, not the stale boot-time seed —
+    otherwise they flap slept→started→slept within minutes."""
+
+    def _candidates(self):
+        return [("svc-a", {"idle_min": 20}, "cont-a")]
+
+    async def test_restarted_container_is_not_a_candidate(self):
+        # cont-a restarted 2 min ago; last_active holds a boot-time seed
+        # from hours ago -> without reseed it would be slept immediately.
+        stack_ops.last_active["cont-a"] = 0.0
+        self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
+        fresh_ts = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000000000Z")
+        fake = AsyncMock(return_value=(0, "/cont-a|" + fresh_ts + "\\n"))
+        with patch.object(stack_ops, "docker", new=fake):
+            out = await stack_ops.reseed_idle_clocks(self._candidates())
+        self.assertEqual(out, [])
+        self.assertGreater(stack_ops.last_active["cont-a"], 0.0)
+
+    async def test_long_running_container_stays_candidate(self):
+        stack_ops.last_active["cont-a"] = 0.0
+        self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
+        old_ts = "2020-01-01T00:00:00.000000000Z"
+        fake = AsyncMock(return_value=(0, "/cont-a|" + old_ts + "\\n"))
+        with patch.object(stack_ops, "docker", new=fake):
+            out = await stack_ops.reseed_idle_clocks(self._candidates())
+        self.assertEqual(len(out), 1)
+
+    async def test_never_moves_clock_backwards(self):
+        # A recent proxy touch must win over an older StartedAt.
+        stack_ops.last_active["cont-a"] = __import__("time").monotonic()
+        self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
+        before = stack_ops.last_active["cont-a"]
+        old_ts = "2020-01-01T00:00:00.000000000Z"
+        fake = AsyncMock(return_value=(0, "/cont-a|" + old_ts + "\\n"))
+        with patch.object(stack_ops, "docker", new=fake):
+            await stack_ops.reseed_idle_clocks(self._candidates())
+        self.assertEqual(stack_ops.last_active["cont-a"], before)
+
+
 if __name__ == "__main__":
     unittest.main()
+
