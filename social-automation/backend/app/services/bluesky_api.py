@@ -405,9 +405,7 @@ def set_429_backoff(meta: dict[str, Any], minutes: int = BACKOFF_MINUTES) -> Non
 
     Extending an already-active window is a plain overwrite — each observed
     429 pushes the deadline ``minutes`` out from *now*."""
-    meta[BACKOFF_KEY] = (
-        datetime.now(UTC) + timedelta(minutes=minutes)
-    ).isoformat().replace("+00:00", "Z")
+    meta[BACKOFF_KEY] = (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z")
 
 
 def apply_429_backoff(account: Any, minutes: int = BACKOFF_MINUTES) -> None:
