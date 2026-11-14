@@ -317,3 +317,40 @@ async def test_sweep_main_password_from_settings():
         os.environ.pop("BSKY_MAIN_PASSWORD", None)
         out = await bc._sweep()
     assert out["rotated"] is True
+
+
+@pytest.mark.asyncio
+async def test_probe_skips_during_backoff():
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.bluesky_api import BACKOFF_KEY
+
+    acc = _probe_account(meta_data={BACKOFF_KEY: (datetime.now(UTC) + timedelta(hours=1)).isoformat()})
+    client = AsyncMock()
+    client.create_session = AsyncMock(return_value=None)
+    with (
+        patch("app.core.security.decrypt_token", return_value="pw"),
+        patch("app.services.bluesky_api.BlueskyClient", return_value=client),
+    ):
+        assert await bc._stored_password_dead(acc) is None
+        client.create_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_probe_429_sets_backoff_and_commits():
+    from app.services.bluesky_api import BACKOFF_KEY, BlueskyAPIError
+
+    acc = _probe_account()
+    db = MagicMock()
+    db.commit = AsyncMock()
+    client = AsyncMock()
+    client.create_session = AsyncMock(side_effect=BlueskyAPIError(429, "rate limited", "u"))
+    with (
+        patch("app.core.security.decrypt_token", return_value="pw"),
+        patch("app.services.bluesky_api.BlueskyClient", return_value=client),
+        patch("sqlalchemy.orm.attributes.flag_modified") as fm,
+    ):
+        assert await bc._stored_password_dead(acc, db) is None
+        assert BACKOFF_KEY in acc.meta_data
+        db.commit.assert_awaited_once()
+        fm.assert_called_once()
