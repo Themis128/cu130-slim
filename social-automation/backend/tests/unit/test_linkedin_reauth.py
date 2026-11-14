@@ -256,6 +256,9 @@ def test_sms_codes_blocking_parses(monkeypatch, tmp_path):
                 "body=Your LinkedIn verification code is 654321.\n"
                 "Row: 2 address=+3069, date=1000, "
                 "body=Your LinkedIn verification code is 111111.\n"
+                "Row: 3 address=+3069, date=500, "
+                "body=Your LinkedIn sign-in link expired.\n"
+                "not a row line\n"
             )
 
         def close(self):
@@ -269,6 +272,56 @@ def test_sms_codes_blocking_parses(monkeypatch, tmp_path):
     assert codes == [(2000, "654321"), (1000, "111111")]
     # since_ms filters older rows
     assert R._sms_codes_blocking(tmp_path, 1500) == [(2000, "654321")]
+
+
+def test_sms_codes_blocking_addr_fallback(monkeypatch, tmp_path):
+    """First ADB endpoints refuse → next candidate wins; all fail → 503."""
+    _write_adb_keypair(tmp_path)
+    monkeypatch.delenv("LINKEDIN_SMS_ADB_ADDR", raising=False)
+
+    import adb_shell.adb_device as adb_mod
+
+    attempts = {"n": 0}
+
+    class _Flaky:
+        def __init__(self, host, port):
+            self.host = host
+
+        def connect(self, rsa_keys=None):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise OSError("connection refused")
+
+        def shell(self, cmd):
+            return (
+                "Row: 0 address=+3069, date=42, "
+                "body=Your LinkedIn verification code is 777777."
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(adb_mod, "AdbDeviceTcp", _Flaky)
+    assert R._sms_codes_blocking(tmp_path, None) == [(42, "777777")]
+    assert attempts["n"] == 3
+
+    class _Dead:
+        def __init__(self, host, port):
+            pass
+
+        def connect(self, rsa_keys=None):
+            raise OSError("no route")
+
+        def shell(self, cmd):
+            return ""
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(adb_mod, "AdbDeviceTcp", _Dead)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        R._sms_codes_blocking(tmp_path, None)
+    assert ei.value.status_code == 503
 
 
 @pytest.mark.asyncio
@@ -295,6 +348,48 @@ async def test_fetch_sms_code_timeout(tmp_path, monkeypatch):
     with pytest.raises(R.LinkedInReauthError) as ei:
         await R.fetch_linkedin_sms_code(timeout_s=0)
     assert ei.value.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_fetch_sms_code_error_then_timeout(tmp_path, monkeypatch):
+    import asyncio as _aio
+
+    (tmp_path / "adbkey").write_text("k")
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+
+    def fake_blocking(keys_dir, since_ms):
+        raise OSError("device offline")
+
+    async def _fast_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr(R, "_sms_codes_blocking", fake_blocking)
+    monkeypatch.setattr(_aio, "sleep", _fast_sleep)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        await R.fetch_linkedin_sms_code(timeout_s=0.01)
+    assert ei.value.status_code == 504
+    assert "device offline" in ei.value.detail
+
+
+@pytest.mark.asyncio
+async def test_arm_keepawake_success_and_failure(monkeypatch):
+    http = _Http()
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda *a, **k: http)
+    await R._arm_sidecar_keepawake()
+    assert any("keepawake" in c[1] for c in http.calls)
+
+    class _Boom:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            raise OSError("stack-ops down")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda *a, **k: _Boom())
+    await R._arm_sidecar_keepawake()  # non-fatal
 
 
 @pytest.mark.asyncio
@@ -410,6 +505,30 @@ async def test_api_reauth_verify_cancel_status(monkeypatch):
     assert out["logged_in"] is True
     assert (await L.linkedin_reauth_cancel(_user()))["cancelled"] is True
     assert (await L.linkedin_reauth_status(_user()))["logged_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_api_reauth_cancel_status_errors(monkeypatch):
+    async def _noop(*a, **k):
+        return None
+
+    class _ErrClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def cancel(self):
+            raise R.LinkedInReauthError(502, "cancel failed")
+
+        async def status(self):
+            raise R.LinkedInReauthError(503, "sidecar down")
+
+    monkeypatch.setattr(R, "LinkedInReauthClient", _ErrClient)
+    with pytest.raises(HTTPException) as ei:
+        await L.linkedin_reauth_cancel(_user())
+    assert ei.value.status_code == 502
+    with pytest.raises(HTTPException) as ei:
+        await L.linkedin_reauth_status(_user())
+    assert ei.value.status_code == 503
 
 
 @pytest.mark.asyncio
