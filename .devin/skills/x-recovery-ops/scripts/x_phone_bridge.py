@@ -12,6 +12,11 @@ One-shot per cron tick (every 2 min):
 
 State: ~/.local/state/x-phone-bridge — remembers which need_ts was answered
 and gives up on challenges older than 10 min.
+
+Deployed copy: ~/scripts/x_phone_bridge.py (cron runs that path) — kept
+in sync with this canonical; the 2026-11-14 popup sweep dropped the
+adb.exe fallbacks here too (every adb.exe spawn flashes a console
+window on the */2min cadence when a challenge is active).
 """
 
 from __future__ import annotations
@@ -32,11 +37,7 @@ KEY = os.path.expanduser("~/.ssh/id_rsa_win")
 PHONE_IP = os.environ.get("PHONE_ADB_IP", "192.168.1.77")
 NEED_TTL = 600  # give up on a challenge flag older than 10 min
 
-ADBS = [
-    "adb",
-    "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
-    "/mnt/c/platform-tools/adb.exe",
-]
+ADBS = ["adb"]  # Linux only — every adb.exe spawn flashes a console window
 X_SENDER = re.compile(r"twitter|x\.com|\bX\b|verify", re.I)
 CODE_RE = re.compile(r"\b(\d{5,8})\b")
 
