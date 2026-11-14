@@ -16,8 +16,11 @@ bot chat -> open Edit Info -> locate the App Token -> copy via clipboard
     viber_phone_capture.py devices
     viber_phone_capture.py probe    # just report app/screen state
 
-Env: VIBER_ADB_SERIAL pins the device (default: prefer 192.168.x — the
-Galaxy S22+; a second camera device also answers ADB on this LAN).
+Env: VIBER_ADB_SERIAL pins the device (default: prefer the phone — LAN
+192.168.x or Tailscale 100.x — over other ADB endpoints like cameras).
+Wireless-debugging ports are dynamic: when no device is connected,
+pick_device() runs `adb mdns services`, connects to the phone's
+_adb-tls-connect endpoint, and retries.
 """
 import argparse
 import json
@@ -71,18 +74,46 @@ def devices():
     return devs
 
 
+def discover_adb():
+    """Wireless ADB uses a random port per pairing — find it via mDNS.
+
+    `adb mdns services` lists `_adb-tls-connect._tcp` endpoints as
+    `ip:port`; connect to each until one answers `device`. Returns the
+    connected serial or None.
+    """
+    try:
+        out = _adb("mdns", "services", timeout=10).stdout
+    except Exception:
+        return None
+    for line in out.splitlines():
+        m = re.search(r"(\d+\.\d+\.\d+\.\d+):(\d+)", line)
+        if not m:
+            continue
+        ep = f"{m.group(1)}:{m.group(2)}"
+        _adb("connect", ep, timeout=8)
+        if ep in devices():
+            return ep
+    return None
+
+
 def pick_device():
     global _dev
     if _dev:
         return _dev
     pinned = os.environ.get("VIBER_ADB_SERIAL")
     devs = devices()
+    if not devs:
+        found = discover_adb()
+        if found:
+            devs = devices()
     if pinned and pinned in devs:
         _dev = pinned
     elif devs:
-        # prefer the phone (192.168.x), avoid camera/other ADB endpoints
-        lan = [d for d in devs if d.startswith("192.168.")]
-        _dev = lan[0] if lan else devs[0]
+        # prefer the phone (LAN 192.168.x or Tailscale 100.x), avoid
+        # camera/other ADB endpoints
+        phone = [d for d in devs
+                 if d.split(":")[0].startswith(("192.168.", "100."))]
+        _dev = phone[0] if phone else devs[0]
     return _dev
 
 
@@ -127,10 +158,21 @@ def tap_text(needle, timeout=6):
 
 
 def type_text(text):
-    """Clipboard + KEYCODE_PASTE — reliable on Samsung keyboards."""
-    subprocess.run(f"{TERMUX_SSH} \"termux-clipboard-set '{text}'\"",
-                   shell=True, capture_output=True, timeout=15)
-    sh("input", "keyevent", "KEYCODE_PASTE")
+    """Clipboard + KEYCODE_PASTE — reliable on Samsung keyboards.
+
+    Clipboard transport is Termux SSH; when that's unreachable (no creds),
+    fall back to `input text` (ASCII-safe only — caller should keep typed
+    values URL/ASCII).
+    """
+    r = subprocess.run(f"{TERMUX_SSH} \"termux-clipboard-set '{text}'\"",
+                       shell=True, capture_output=True, timeout=15)
+    if r.returncode == 0:
+        sh("input", "keyevent", "KEYCODE_PASTE")
+    else:
+        # `input text` is ASCII-only; %s = space, % needs %25
+        safe = (text.replace("%", "%25").replace(" ", "%s")
+                .encode("ascii", "ignore").decode())
+        sh("input", "text", safe)
     time.sleep(0.8)
 
 

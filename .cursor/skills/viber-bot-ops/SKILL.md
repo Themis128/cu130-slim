@@ -35,9 +35,23 @@ viber_business_setup.py run            # fill name/website/description/category
 ```
 
 Stops at human steps (logo image pick, document upload, final submit) and
-prints exactly where. **Phone currently unreachable** — wireless ADB off
-(192.168.1.77 no route, tailnet :5555 refused 2026-11-14), Termux SSH :8022
-needs credentials not on this host. Run `probe` once ADB is back.
+prints exactly where.
+
+**Phone access (verified 2026-11-14):** the Galaxy S22+ is on the tailnet
+(`galaxy-s22` = 100.84.31.85) but wireless-debugging uses a **random port**
+— `pick_device()` auto-discovers it via `adb mdns services` + `adb connect`
+(no pinning needed; `VIBER_ADB_SERIAL` still overrides). Termux SSH :8022
+is up but has no stored credentials — `type_text` falls back to
+`input text` (ASCII-only) when the clipboard transport fails.
+
+**Flow mapped live:** Chats → More tab → "Business Account" → intro
+("Get Started") → "Create your business" one-page form — name EditText
+(`one-page-business-name`, **prefilled with the personal name — the
+driver clears it**), "Update logo", `ssp-create-business-button`. Website/
+description/category appear on post-creation screens. `run` refuses to
+drive when the phone's foreground app isn't Viber (someone is using it)
+unless `--force` is passed; it resumes mid-flow if the create form is
+already on screen.
 
 ## Once a bot exists — fully automated capture
 
