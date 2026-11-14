@@ -418,8 +418,12 @@ def _team_map() -> dict:
 def main() -> int:
     cands = _env_token_candidates()
     if not cands:
-        print("no Slack-scoped token file found", file=sys.stderr)
-        return 1
+        # Nothing to sync is not a failure — the Slack MCP remote simply has
+        # no chat:write token file right now. The token-expiry sweep already
+        # pages when the env token actually dies; exiting 1 here just spammed
+        # ops every cron run.
+        print("no Slack-scoped token file found — nothing to sync")
+        return 0
     path, tok = _pick_workspace_token(cands)
     if path is None or tok is None:
         return 1
