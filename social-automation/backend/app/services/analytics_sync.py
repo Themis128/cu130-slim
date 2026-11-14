@@ -3005,17 +3005,36 @@ async def sync_bluesky_account(db: AsyncSession, account: SocialAccount) -> Sync
     protocol, so account reachability is the meaningful signal here.
     """
     result = SyncResult()
-    try:
-        from app.services.bluesky_api import BlueskyClient, ensure_session, persist_session
+    from app.services.bluesky_api import (
+        BlueskyAPIError,
+        BlueskyClient,
+        apply_429_backoff,
+        backoff_active,
+        ensure_session,
+        persist_session,
+    )
 
+    try:
         token = decrypt_token(account.access_token_enc)
         meta = account.meta_data or {}
+        if backoff_active(meta):
+            # The account is in bsky.social's createSession penalty box —
+            # every fresh login extends it. Stay quiet until the window
+            # expires; the publish deferral lane owns the actual retries.
+            result.skipped += 1
+            result.errors.append("bluesky sync: skipped — 429 backoff window active")
+            return result
         pds = meta.get("pds_url") or "https://bsky.social"
         client = BlueskyClient(account.username or "", token, pds_url=pds)
         await ensure_session(client, meta.get("bsky_session"))
         persist_session(account, client)
         await client.get_profile()
         result.synced += 1
+    except BlueskyAPIError as exc:
+        result.skipped += 1
+        if getattr(exc, "status_code", None) == 429:
+            apply_429_backoff(account)
+        result.errors.append(f"bluesky sync: {str(exc)[:150]}")
     except Exception as exc:  # noqa: BLE001
         result.skipped += 1
         result.errors.append(f"bluesky sync: {str(exc)[:150]}")

@@ -510,3 +510,39 @@ async def test_revoke_app_password_success(client):
     assert fake.calls[0]["method"] == "POST"
     assert "revokeAppPassword" in fake.calls[0]["url"]
     assert fake.calls[0]["json"] == {"name": "sa-rot-old"}
+
+
+class Test429Backoff:
+    """Backoff window helpers — the createSession penalty-loop breaker."""
+
+    def test_set_then_active(self):
+        from app.services.bluesky_api import backoff_active, set_429_backoff
+
+        meta: dict = {}
+        assert not backoff_active(meta)
+        set_429_backoff(meta, minutes=30)
+        assert backoff_active(meta)
+
+    def test_expired_window_inactive(self):
+        from app.services.bluesky_api import BACKOFF_KEY, backoff_active
+
+        assert not backoff_active({BACKOFF_KEY: "2000-01-01T00:00:00Z"})
+
+    def test_garbage_value_inactive(self):
+        from app.services.bluesky_api import BACKOFF_KEY, backoff_active
+
+        assert not backoff_active({BACKOFF_KEY: "not-a-date"})
+        assert not backoff_active(None)
+        assert not backoff_active({})
+
+    def test_apply_429_backoff_flags_meta(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from app.services.bluesky_api import BACKOFF_KEY, apply_429_backoff
+
+        acc = SimpleNamespace(meta_data=None)
+        with patch("sqlalchemy.orm.attributes.flag_modified") as fm:
+            apply_429_backoff(acc, minutes=15)
+        assert acc.meta_data.get(BACKOFF_KEY)
+        fm.assert_called_once_with(acc, "meta_data")

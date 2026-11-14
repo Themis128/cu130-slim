@@ -30,7 +30,7 @@ _401_MARKER = "AuthenticationRequired"
 _LOOKBACK_H = 24
 
 
-async def _stored_password_dead(account) -> bool | None:
+async def _stored_password_dead(account, db=None) -> bool | None:
     """Live-probe the stored app password with one createSession call.
 
     True  → PDS rejected it (401) — rotation warranted.
@@ -39,7 +39,18 @@ async def _stored_password_dead(account) -> bool | None:
             do NOT rotate on an ambiguous signal; next sweep retries.
     """
     from app.core.security import decrypt_token
-    from app.services.bluesky_api import BSKY_PDS_DEFAULT, BlueskyAPIError, BlueskyClient
+    from app.services.bluesky_api import (
+        BSKY_PDS_DEFAULT,
+        BlueskyAPIError,
+        BlueskyClient,
+        apply_429_backoff,
+        backoff_active,
+    )
+
+    if backoff_active(account.meta_data):
+        # In bsky.social's createSession penalty window — probing would just
+        # extend it. Inconclusive; the next sweep retries after it expires.
+        return None
 
     try:
         raw = account.access_token_enc
@@ -52,6 +63,9 @@ async def _stored_password_dead(account) -> bool | None:
         await client.create_session()
         return False
     except BlueskyAPIError as exc:
+        if exc.status_code == 429 and db is not None:
+            apply_429_backoff(account)
+            await db.commit()
         return True if exc.status_code == 401 else None
     except Exception:  # noqa: BLE001
         return None
@@ -88,7 +102,7 @@ async def _sweep() -> dict:
             # No failed posts ≠ healthy — app passwords die silently between
             # publishes. Probe createSession once: 401 → rotate, anything
             # else (incl. 429 rate-limit) → inconclusive, next sweep retries.
-            dead = await _stored_password_dead(account)
+            dead = await _stored_password_dead(account, db)
             if dead is None:
                 return {"rotated": False, "reason": "no recent 401; probe inconclusive"}
             if not dead:

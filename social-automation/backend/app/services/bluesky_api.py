@@ -21,7 +21,7 @@ import base64
 import json
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 
@@ -368,6 +368,54 @@ def persist_session(account: Any, client: BlueskyClient) -> None:
 
     meta = dict(account.meta_data or {})
     meta["bsky_session"] = session_state()
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+
+
+# ---------------------------------------------------------------------------
+# 429 backoff — break the createSession penalty loop
+#
+# ``createSession`` is the strictest rate-limited endpoint on bsky.social.
+# When an account lands in the penalty box (e.g. a publish burst logging in
+# fresh repeatedly), every subsequent createSession — sync sweep, credential
+# probe, publish retry — reads as fresh abuse and keeps the 429 alive for
+# days. While the backoff window is active on ``meta_data``, the periodic
+# callers skip the login entirely; one attempt per window is enough to learn
+# the limit lifted without extending it.
+BACKOFF_KEY = "bsky_backoff_until"
+BACKOFF_MINUTES = 120
+
+
+def backoff_active(meta: dict[str, Any] | None, now: float | None = None) -> bool:
+    """True while a 429 backoff window stored on ``meta`` is still running."""
+    if not meta:
+        return False
+    until = meta.get(BACKOFF_KEY)
+    if not until:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return ts.timestamp() > (now if now is not None else time.time())
+
+
+def set_429_backoff(meta: dict[str, Any], minutes: int = BACKOFF_MINUTES) -> None:
+    """Record the createSession backoff deadline (ISO UTC) on ``meta``.
+
+    Extending an already-active window is a plain overwrite — each observed
+    429 pushes the deadline ``minutes`` out from *now*."""
+    meta[BACKOFF_KEY] = (
+        datetime.now(UTC) + timedelta(minutes=minutes)
+    ).isoformat().replace("+00:00", "Z")
+
+
+def apply_429_backoff(account: Any, minutes: int = BACKOFF_MINUTES) -> None:
+    """Set the backoff window on ``account.meta_data`` — commit is the caller's."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    meta = dict(account.meta_data or {})
+    set_429_backoff(meta, minutes)
     account.meta_data = meta
     flag_modified(account, "meta_data")
 
