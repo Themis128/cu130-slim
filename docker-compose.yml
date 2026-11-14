@@ -38,6 +38,10 @@ x-worker-env: &worker-env
   - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
   - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
   - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
+  # Reauth lanes (instagram/threads/tiktok_reauth.py) mint authorize URLs
+  # and fire the OAuth callback against the API — inside a worker container
+  # 127.0.0.1:8000 is the worker itself, so they need the service address.
+  - SOCIAL_API_INTERNAL=http://social-api:8000
   - COMFYUI_URL=http://stack-ops:8199
   - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
   - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}

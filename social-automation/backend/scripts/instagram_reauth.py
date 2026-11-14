@@ -50,7 +50,13 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
-SIDECAR = os.environ.get("FACEBOOK_SIDECAR", "http://facebook-browser-sidecar:9226")
+# Compose sets FACEBOOK_BROWSER_SIDECAR_URL (stack-ops wake proxy); the
+# FACEBOOK_SIDECAR alias is kept for manual runs.
+SIDECAR = (
+    os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL")
+    or os.environ.get("FACEBOOK_SIDECAR")
+    or "http://facebook-browser-sidecar:9226"
+)
 STATE = "/tmp/instagram-reauth-state.json"
 # The @cloudless.gr account is login_type=business_login — it was connected
 # through the "Instagram API with Facebook Login" onboarding flow, whose
@@ -136,6 +142,25 @@ _CLICK_JS = """
   const b = cand.find(e => ok.test(txt(e)) && txt(e).length < 40 && !deny.test(txt(e)));
   if (b) { b.click(); return 'clicked:' + txt(b).slice(0,30); }
   return 'no-button';
+})()
+"""
+
+# FB OAuth sometimes bounces to facebook.com/login.php even with a valid
+# session — it renders the "continue as <profile>" account chooser (no
+# password field). That interstitial is auto-resolvable: click the exact
+# "Continue"/"Next" button. Anything with a password input or without a
+# matching button stays a human gate.
+_LOGIN_WALL_CONTINUE_JS = """
+(() => {
+  if (document.querySelector('input[type=password]')) return 'has-password';
+  const els = [...document.querySelectorAll(
+      'button,[role=button],a[role=link],div[role=button]')];
+  const vis = e => { const r = e.getBoundingClientRect();
+                     return r.width > 0 && r.height > 0; };
+  const txt = e => (e.innerText || e.getAttribute('aria-label') || "").trim();
+  const b = els.filter(vis).find(e => /^(continue|next)$/i.test(txt(e)));
+  if (b) { b.click(); return 'clicked:' + txt(b).slice(0, 30); }
+  return 'no-continue';
 })()
 """
 
@@ -500,6 +525,12 @@ def main() -> int:
             break
         snap = _page_snapshot()
         gate = snap.get("gate")
+        if gate == "login_wall":
+            act = _eval_str(_LOGIN_WALL_CONTINUE_JS, timeout=30)
+            if act.startswith("clicked"):
+                print(f"login wall: continued as profile ({act})")
+                time.sleep(4)
+                continue
         if gate:
             print(f"human gate detected: {gate} — {snap.get('text', '')[:200]}")
             _dump_diagnostics(gate)
