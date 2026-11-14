@@ -236,9 +236,11 @@ def test_funnel_sync_run_and_dbt(monkeypatch):
     assert out["mautic_rc"] == 0 and out["lake_rc"] == 0 and out["dbt_rc"] == 2
     assert len(out["mautic"]) == 500
     assert calls[0][0] == ["python", "scripts/mautic_sync.py", "--apply"] and calls[0][1]["cwd"] == "/app"
-    assert calls[1][0][1] == "scripts/lake_export.py"
+    assert calls[0][1]["timeout"] == 600
+    assert calls[1][0][1] == "scripts/lake_export.py" and calls[1][1]["timeout"] == 1200
     dbt_cmd, dbt_kw = calls[2]
     assert dbt_cmd[:2] == ["dbt", "run"] and dbt_kw["cwd"] == "/app/dbt"
+    assert dbt_kw["timeout"] == 600
     assert dbt_kw["env"]["PGPASSWORD"] == "s3cret"
     assert dbt_kw["env"]["DBT_TARGET_PATH"] == "/tmp/dbt/target"
 
