@@ -2364,3 +2364,18 @@ superseded by rebuild):
 - **OPEN — social-worker-default restart for synigoros beat**: DONE earlier
   this session (early-deployed files + restart verified; tasks registered,
   first reply-watch fired clean). #1874 merged during WSL outage.
+- **Viber Business Account — profile state (2026-11-14)**: account created on
+  phone; Business Name = `Cloudless` (verified on Edit profile), Category =
+  `IT` (saved, "Categories have been updated" toast). Description editor was
+  mid-fill when ADB dropped — field contained mixed literal-%20 + clean text;
+  needs one clean pass. Driver now handles post-creation states: PR #1906
+  (`viber-profile-statemachine`) adds dashboard/Edit-profile detection,
+  `_complete_profile` (description+category), IME-safe `_save_editor`
+  (never tap Save with keyboard open — hits IME keys), `link` command for
+  Chat link. Remaining human gates: business hours + address (real values),
+  logo upload, safety review. Phone ADB went fully offline after screen
+  lock — re-enable wireless debugging / wake phone, then
+  `viber_business_setup.py run` finishes description.
+- **LinkedIn sidecar cooldown**: rate_limited until ~13:40 EET 2026-11-14;
+  watchers armed (li_grant_watch cron, portal probes). Member DP /
+  Matched Audiences still 403 — grant watcher will catch transitions.
