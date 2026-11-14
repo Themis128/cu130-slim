@@ -52,11 +52,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 # Compose sets FACEBOOK_BROWSER_SIDECAR_URL (stack-ops wake proxy); the
 # FACEBOOK_SIDECAR alias is kept for manual runs.
-SIDECAR = (
-    os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL")
-    or os.environ.get("FACEBOOK_SIDECAR")
-    or "http://facebook-browser-sidecar:9226"
-)
+SIDECAR = os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL") or os.environ.get("FACEBOOK_SIDECAR") or "http://facebook-browser-sidecar:9226"
 STATE = "/tmp/instagram-reauth-state.json"
 # The @cloudless.gr account is login_type=business_login — it was connected
 # through the "Instagram API with Facebook Login" onboarding flow, whose
