@@ -1174,6 +1174,10 @@ services:
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
+      # Galaxy phone WiFi-ADB RSA keypair — LinkedIn SMS-2FA fetch during
+      # sidecar re-auth (app/services/linkedin_reauth.py). Read-only; the
+      # dir contains adbkey + adbkey.pub only.
+      - ${LINKEDIN_ADB_KEY_DIR:-/home/tbaltzakis/.android}:/run/li-adb-keys:ro
     command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
       - host.docker.internal:host-gateway

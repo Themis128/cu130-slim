@@ -5,10 +5,11 @@ Drives the sidecar's two-phase login (``POST /login/start`` →
 browser session can be recovered through the platform API instead of a
 host-side script. When LinkedIn's "quick security check" offers SMS, the
 6-digit code is fetched from the Galaxy phone over WiFi ADB using the
-pure-python ``adb-shell`` client (no adb binary in the image).
+pure-python ``adb-shell`` client (no adb binary in the image; the phone's
+``~/.android`` keypair is bind-mounted read-only at ``/run/li-adb-keys``).
 
-Credentials and the ADB private key come from ``secret_store`` — nothing
-secret is logged or returned.
+Credentials come from ``secret_store`` — nothing secret is logged or
+returned.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -90,19 +90,22 @@ _LI_HINT_RE = re.compile(r"linkedin", re.I)
 _ROW_RE = re.compile(r"Row: \d+ address=([^,]+), date=(\d+), body=(.*)")
 
 
-async def _adb_keys_dir() -> Path:
-    """Materialize the ADB RSA keypair from the secret store."""
-    priv = await secret_store.get("LINKEDIN_ADB_PRIVATE_KEY")
-    if not priv:
+def _adb_key_dir() -> Path:
+    """Resolve the read-only-mounted ADB key directory.
+
+    The Galaxy phone's WiFi-ADB RSA keypair is bind-mounted into the
+    container (compose: ``${LINKEDIN_ADB_KEY_DIR:-~/.android}:
+    /run/li-adb-keys:ro``) — adb-shell reads it in place, so the private
+    key is never copied or rewritten by this service.
+    """
+    d = Path(os.environ.get("LINKEDIN_ADB_KEY_DIR", "/run/li-adb-keys"))
+    if not (d / "adbkey").exists():
         raise LinkedInReauthError(
-            503, "LINKEDIN_ADB_PRIVATE_KEY not in secret store — "
-            "SMS auto-fetch unavailable; supply the code manually."
+            503,
+            "ADB key dir missing — mount the phone's ~/.android at "
+            "/run/li-adb-keys (or set LINKEDIN_ADB_KEY_DIR); SMS "
+            "auto-fetch unavailable, supply the code manually.",
         )
-    d = Path(tempfile.mkdtemp(prefix="li-adb-"))
-    (d / "adbkey").write_text(priv)
-    (d / "adbkey").chmod(0o600)
-    pub = await secret_store.get("LINKEDIN_ADB_PUBLIC_KEY") or ""
-    (d / "adbkey.pub").write_text(pub)
     return d
 
 
@@ -151,7 +154,7 @@ async def fetch_linkedin_sms_code(
     import asyncio
 
     deadline = time.time() + timeout_s
-    keys_dir = await _adb_keys_dir()
+    keys_dir = _adb_key_dir()
     last_err: Exception | None = None
     while time.time() < deadline:
         try:
