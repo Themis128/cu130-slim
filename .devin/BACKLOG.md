@@ -2398,3 +2398,36 @@ Human gates (unchanged, need owner action):
   refresh lane (env token still valid today).
 - Host RAM: Windows-side pressure (llama-server storms + Devin + Chrome);
   WSL already tuned to 10GB. Recurring flaps are environmental.
+
+## 2026-11-14 (pm) — Viber Business profile + office-LAN tailnet route
+
+Done:
+- **Viber Business Account profile ~43%** on Galaxy S22+ (`192.168.1.235:5555`,
+  Windows adb.exe — WSL adb auth-fails). Saved this session: business
+  **address = "Koropi, Greece"** (Google-places pick). Street-level
+  "Thermopylon 15, Koropi, Greece" fails 3x with Viber's own
+  "Something went wrong" — backend rejects that place_id, not a UI issue;
+  retry later or enter manually via Manage profile → location.
+- Remaining prompt on Business tools: **"Add your Google rating"** —
+  needs a Google Business Profile link = human gate.
+- **Office LAN on tailnet**: `office-1-win-exitnode` advertises+approved
+  `192.168.1.0/24`; IPv4 forwarding enabled on Wi-Fi + tailscaled restart
+  via NEW elevated-once lane in `check-wsl-memory-pressure.ps1`
+  (drop .ps1 in `D:\DevOptimizer\elevated-once\` → runs elevated on next
+  WSL-Memory-Watchdog pass; mirrored to devoptimizer repo, uncommitted).
+  Verified `tailscale ping 192.168.1.200` via office-1. ACL: office-1 /
+  wsl / grokbot-user have `*:*` → full LAN incl. cameras; phone stays
+  service-scoped (no LAN access — intentional).
+- Popup-flash audit: 131/131 scheduled-task actions already
+  `conhost --headless`; residual flashes = Docker backend polling +
+  per-session MCP/interop launches (bounded, mostly upstream).
+
+Open / watch:
+- **Docker Desktop mid-reinstall** (4.98, `installer.exe` running,
+  `C:\tmp\dd498\`) by another agent session — engine down until it lands;
+  `settings-store.json` missing was mid-uninstall state, expected.
+- **Phone has a SECOND ADB driver** — parallel session typing sshd/ntfy
+  setup into Termux/ntfy apps; concurrent UI automation corrupts both.
+  Coordinate before driving Viber again.
+- Viber street address (Thermopylon 15 Koropi 19441) + Google rating
+  remain the only profile gaps.
