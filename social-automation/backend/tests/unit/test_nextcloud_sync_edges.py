@@ -167,16 +167,35 @@ def test_row_key_without_platform_options():
 
 def test_card_title_description_duedate():
     sched = datetime(2026, 10, 20, 9, tzinfo=UTC)
-    p = _post("failed", "", scheduled_at=sched, published_at=sched, failure_reason="boom" * 100)
-    assert nc._card_title(p) == f"[failed] {p.id.hex[:8]}"
-    d = nc._card_description(p)
+    p = _post("scheduled", "", scheduled_at=sched)
+    assert nc._card_duedate(p) == sched.isoformat()
+    # Terminal posts never get a duedate — a stale date fires card-overdue pushes.
+    p_term = _post("failed", "", scheduled_at=sched, published_at=sched, failure_reason="boom" * 100)
+    assert nc._card_title(p_term) == f"[failed] {p_term.id.hex[:8]}"
+    d = nc._card_description(p_term)
     assert "scheduled_at: " in d and "published_at: " in d
     assert "failure: " + ("boom" * 75) in d
-    assert nc._card_duedate(p) == sched.isoformat()
+    assert nc._card_duedate(p_term) is None
+    p_pub = _post("published", "", scheduled_at=sched, published_at=sched)
+    assert nc._card_duedate(p_pub) is None
+
+
+def test_desired_duedate():
+    sched = datetime(2026, 10, 20, 9, tzinfo=UTC)
+    card = {"duedate": "2026-10-01T00:00:00+00:00"}
+    # Terminal post → explicit clear, even when the card still carries a date.
+    assert nc._desired_duedate(_post("published", scheduled_at=sched), card) is None
+    assert nc._desired_duedate(_post("failed"), card) is None
+    # Live post with a schedule → post-driven date.
+    assert nc._desired_duedate(_post("scheduled", scheduled_at=sched), card) == sched.isoformat()
+    # Live post without a schedule → keep the card's own date (don't stomp).
+    assert nc._desired_duedate(_post("draft"), card) == card["duedate"]
+    assert nc._desired_duedate(_post("draft"), {}) is None
 
 
 def test_duedate_differs():
-    assert nc._duedate_differs("x", None) is False
+    assert nc._duedate_differs(None, None) is False
+    assert nc._duedate_differs("x", None) is True  # card still has a date → clear it
     assert nc._duedate_differs(None, "2026-10-01T00:00:00+00:00") is True
     assert nc._duedate_differs("2026-10-01T00:00:00+00:00", "2026-10-01T00:00:00+00:00") is False
     assert nc._duedate_differs("2026-10-01T00:00:00+00:00", "2026-10-02T00:00:00+00:00") is True

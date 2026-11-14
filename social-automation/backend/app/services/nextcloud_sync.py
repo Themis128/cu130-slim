@@ -255,15 +255,34 @@ def _card_description(post: Post) -> str:
     return "\n".join(lines)
 
 
+# Terminal statuses: a shipped/broken post must carry no duedate — Deck fires
+# 'card-overdue' notifications for every past-date card, which is how the
+# published-cards flood happened.
+_TERMINAL_STATUSES = {"published", "failed"}
+
+
 def _card_duedate(post: Post) -> str | None:
     """Deck 'due today/tomorrow/upcoming' dashboard widgets key off duedate —
-    feed it from scheduled_at so the pipeline board drives them."""
+    feed it from scheduled_at so the pipeline board drives them. Terminal
+    posts get None so a stale date can never fire overdue notifications."""
+    if post.status.value in _TERMINAL_STATUSES:
+        return None
     return post.scheduled_at.isoformat() if post.scheduled_at else None
+
+
+def _desired_duedate(post: Post, card: dict | None = None) -> str | None:
+    """What the card's duedate should read after sync: post-driven for live
+    posts, explicit clear for terminal ones, and the card's own date when a
+    live post has nothing scheduled (don't stomp an unrelated date)."""
+    due = _card_duedate(post)
+    if due is None and post.status.value not in _TERMINAL_STATUSES:
+        return (card or {}).get("duedate")
+    return due
 
 
 def _duedate_differs(card_due: str | None, want: str | None) -> bool:
     if want is None:
-        return False
+        return bool(card_due)  # want-clear vs still-set
     if not card_due:
         return True
     try:
@@ -303,7 +322,7 @@ async def _update_card(client: httpx.AsyncClient, board_id: int, stack_id: int, 
             "type": "plain",
             "order": card.get("order", 999),
             "description": _card_description(post),
-            "duedate": _card_duedate(post) or card.get("duedate"),
+            "duedate": _desired_duedate(post, card),
             "owner": _owner_uid(card),
         },
     )
@@ -317,7 +336,7 @@ async def _create_card(client: httpx.AsyncClient, board_id: int, stack_id: int, 
         "order": 999,
         "description": _card_description(post),
     }
-    duedate = _card_duedate(post) or (source or {}).get("duedate")
+    duedate = _desired_duedate(post, source)
     if duedate:
         body["duedate"] = duedate
     r = await client.post(
@@ -416,7 +435,7 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
                 if (
                     card.get("title") != _card_title(post)
                     or card.get("description") != _card_description(post)
-                    or _duedate_differs(card.get("duedate"), _card_duedate(post))
+                    or _duedate_differs(card.get("duedate"), _desired_duedate(post, card))
                 ):
                     await _update_card(client, board_id, stack["id"], card, post)
                 continue
