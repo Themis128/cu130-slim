@@ -354,6 +354,37 @@ async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         writer.close()
 
 
+async def reseed_idle_clocks(candidates: list) -> list:
+    """Re-seed ``last_active`` from docker StartedAt for sleep candidates.
+
+    ``last_active`` is seeded once at boot; a container restarted while
+    stack-ops keeps running (daemon bounce, restart policy, healer,
+    manual ``docker start``) keeps its stale clock and becomes instantly
+    sleep-eligible — slept→started→slept flapping within minutes
+    (observed 2026-11-14: linkedin-browser-sidecar slept ~2 min after a
+    restart). One batched inspect per poll, candidates only.
+    """
+    if not candidates:
+        return candidates
+    rc, out = await docker(
+        "inspect", "-f", "{{.Name}}|{{.State.StartedAt}}",
+        *[dn for _, _, dn in candidates])
+    now_mono, now_wall = time.monotonic(), time.time()
+    for line in out.splitlines():
+        cname, _, ts = line.partition("|")
+        if not cname or not ts or ts == "<nil>":
+            continue
+        dn = cname.lstrip("/")
+        started_mono = _docker_ts_to_monotonic(ts, now_wall, now_mono)
+        # Never move the clock backwards — a later proxy touch wins.
+        if started_mono > last_active.get(dn, 0.0):
+            last_active[dn] = started_mono
+    return [
+        (n, s, d) for n, s, d in candidates
+        if time.monotonic() - last_active.get(d, 0.0) >= s["idle_min"] * 60
+    ]
+
+
 async def sleeper_loop() -> None:
     await asyncio.sleep(30)  # let the stack settle after boot
     # Canonical (non-alias) services precomputed — aliases share a container
@@ -385,6 +416,9 @@ async def sleeper_loop() -> None:
                 candidates.append((name, svc, docker_name))
             except Exception as e:
                 log.error("sleeper check %s: %s", name, e)
+        # Containers restarted while stack-ops runs keep their boot-time
+        # idle clock — refresh from StartedAt before judging them idle.
+        candidates = await reseed_idle_clocks(candidates)
         # One batched stats call for just the idle-expired candidates.
         pcts = await cpu_pcts([dn for _, _, dn in candidates])
         for name, svc, docker_name in candidates:
