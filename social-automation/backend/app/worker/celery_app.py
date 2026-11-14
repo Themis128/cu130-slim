@@ -985,9 +985,10 @@ celery_app.conf.update(
             "schedule": crontab(minute=20),
         },
         # Keep-warm ping every 90s — refreshes keep_alive on the warm-tier
-        # DMR models (mid 4B + llama3.2) so pipeline and chatbot calls never
-        # cold-load. Interval stays below llama3.2's 2m keep_alive; the task
-        # skips itself while a media job owns the GPU.
+        # DMR model (0.6B embedding only; mid-4B + llama3.2 pinning removed
+        # 2026-10-28 for VRAM/daemon stability). Interval stays below the
+        # embedding model's 15m keep_alive; the task skips itself while a
+        # media job owns the GPU.
         "survey-autosend": {
             "task": "app.worker.tasks.auto_gates.survey_autosend",
             "schedule": 900.0,  # every 15 min — fires flagged survey campaigns

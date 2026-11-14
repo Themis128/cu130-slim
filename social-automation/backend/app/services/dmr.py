@@ -1013,16 +1013,16 @@ async def _warm_models_locked() -> None:
 # ── Keep-warm tier (periodic refresh) ──────────────────────────────────────────
 #
 # Startup warmup only loads models once — afterwards keep_alive expiry evicts
-# them. The beat task `keep_warm_dmr_models` pings these models every ~90s so
-# their keep_alive timers never lapse between real calls.
+# them. The beat task `keep_warm_dmr_models` pings the warm set every ~90s so
+# its keep_alive timers never lapse between real calls.
 #
-# Only latency-sensitive models that co-reside on the 8GB card belong here:
-# the pinned mid 4B (~2.7GB, chatbots) + llama3.2 (~2.2GB, carousel/NLP copy)
-# = ~5GB resident, leaving ~2.5GB headroom for burst models (embedding,
-# smollm3) to co-load without eviction. The 8B and vision models stay cold by
-# design — warming them would evict this set and recreate the load storms.
-# The ping interval must stay below the shortest warm-tier keep_alive
-# (llama3.2 = 2m).
+# The warm set is now just the 0.6B embedding model (~0.7GB) — see
+# _keep_warm_models for the 2026-10-28 de-pinning rationale. The mid 4B
+# (~2.7GB) still rides a 30m keep_alive by design (chatbot latency); the 8B,
+# vision, and tiny models stay cold with 60s-2m TTLs. On a RAM-squeezed host,
+# transient loads — not this warm set — are the pressure source; the
+# DevOptimizer dmr-ram-guard task evicts non-pinned residents when the host
+# dives under ~1.5GB free.
 _KEEP_WARM_EXTRA = ("ai/llama3.2",)
 
 
