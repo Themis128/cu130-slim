@@ -1093,6 +1093,305 @@ async function handleLogin(req, res) {
   }
 }
 
+// ── Two-phase login (security-check method select + SMS/email 2FA) ──────
+// POST /login/start submits credentials, walks LinkedIn's "quick security
+// check" interstitial (choose SMS/email → send code) and stops on the PIN
+// page with the browser kept alive. POST /login/verify submits the code on
+// that same page; POST /login/cancel tears it down. The single-shot
+// /login cannot express this: every call rebuilds a fresh context, so a
+// code sent in phase 1 would be challenged again in phase 2.
+
+let pendingLogin = false;
+
+const PIN_SELECTOR =
+  'input#pin, input[name="pin"], input[autocomplete="one-time-code"], input[inputmode="numeric"]';
+
+async function loginPagePinVisible() {
+  try {
+    const loc = page.locator(PIN_SELECTOR);
+    if ((await loc.count()) === 0) return false;
+    return await loc.first().isVisible().catch(() => false);
+  } catch (_) {
+    return false;
+  }
+}
+
+// The security-check page renders a radio group (email vs SMS) plus a
+// send-code button, all under /login/ — URL checks alone can't see it.
+async function loginPageMethodSelect() {
+  try {
+    const radios = page.locator('input[type="radio"]');
+    if ((await radios.count()) < 2) return false;
+    const sendBtn = page.locator(
+      'button:has-text("code"), button:has-text("κωδικ"), button:has-text("Send"), button:has-text("Αποστολή")',
+    );
+    return (await sendBtn.count()) > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function chooseVerificationMethod(method) {
+  // method: "sms" (default) | "email" | "any". Match the option label —
+  // LinkedIn renders masked destinations (t***@gmail.com, ***7838).
+  const want =
+    method === "email"
+      ? /e-?mail|@|ταχυδρ|ηλ/i
+      : method === "sms"
+        ? /sms|text|μήνυμα|κινητ|τηλεφών|\*{2,}\d{4}/i
+        : /./;
+  const radios = page.locator('input[type="radio"]');
+  const n = await radios.count();
+  for (let i = 0; i < n; i++) {
+    const radio = radios.nth(i);
+    const id = await radio.getAttribute("id").catch(() => null);
+    let labelText = "";
+    if (id) {
+      labelText = await page
+        .locator(`label[for="${id}"]`)
+        .innerText()
+        .catch(() => "");
+    }
+    if (!labelText) {
+      // fall back to the radio's surrounding container text
+      labelText = await radio
+        .evaluate((el) => (el.closest("label") || el.parentElement || el).innerText || "")
+        .catch(() => "");
+    }
+    if (want.test(labelText)) {
+      const label = id ? page.locator(`label[for="${id}"]`) : null;
+      if (label && (await label.count()) > 0) {
+        await label.first().click({ timeout: 5000 }).catch(() => radio.click({ timeout: 5000 }));
+      } else {
+        await radio.click({ timeout: 5000 }).catch(() => {});
+      }
+      return labelText.slice(0, 80);
+    }
+  }
+  return null;
+}
+
+async function clickSendCodeButton() {
+  const btn = page
+    .locator(
+      'button:has-text("κωδικ"), button:has-text("code"), button:has-text("Send"), button:has-text("Αποστολή")',
+    )
+    .first();
+  if ((await btn.count()) > 0) {
+    await btn.click({ timeout: 5000 }).catch(async () => {
+      await page.keyboard.press("Enter");
+    });
+    return true;
+  }
+  return false;
+}
+
+async function submitPinCode(code) {
+  const input = page.locator(PIN_SELECTOR).first();
+  if ((await input.count()) === 0) return false;
+  await input.click({ timeout: 5000 }).catch(() => {});
+  await input.fill(String(code), { timeout: 5000 });
+  const verifyBtn = page
+    .locator(
+      'button:has-text("επαλήθευση"), button:has-text("Verify"), button:has-text("verify"), button[type="submit"], button:has-text("Υποβολή"), button:has-text("Submit")',
+    )
+    .first();
+  if ((await verifyBtn.count()) > 0) {
+    await verifyBtn.click({ timeout: 5000 }).catch(() => input.press("Enter"));
+  } else {
+    await input.press("Enter");
+  }
+  return true;
+}
+
+function loginUrlIndicatesSuccess(url) {
+  return !url.includes("/login") && !url.includes("/checkpoint");
+}
+
+async function handleLoginStart(req, res) {
+  const { username, password, method } = req.body || {};
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ error: "username and password are required" });
+  }
+  try {
+    clearRateLimit();
+    pendingLogin = false;
+    await closeBrowser();
+    storageState = null;
+    await ensureBrowser(true);
+    await page.goto("https://www.linkedin.com/login", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    await settle();
+    await dismissDialogs();
+
+    const emailInputs = page.locator('input[type="email"]');
+    const emailCount = await emailInputs.count();
+    const emailInput =
+      emailCount >= 2 ? emailInputs.nth(1) : emailInputs.first();
+    if (emailCount === 0) {
+      return res
+        .status(404)
+        .json({ error: "Could not find email input on LinkedIn login page" });
+    }
+    await emailInput.click({ timeout: 5000 });
+    await emailInput.fill(username, { timeout: 5000 });
+    const passInputs = page.locator('input[type="password"]');
+    const passCount = await passInputs.count();
+    const passInput = passCount >= 2 ? passInputs.nth(1) : passInputs.first();
+    if (passCount === 0) {
+      return res.status(404).json({
+        error: "Could not find password input on LinkedIn login page",
+      });
+    }
+    await passInput.click({ timeout: 5000 });
+    await passInput.fill(password, { timeout: 5000 });
+    const submitBtns = page.locator(
+      'button[type="submit"], button:has-text("Sign in"), button:has-text("Σύνδεση"), button:has-text("Anmelden"), button:has-text("Connexion")',
+    );
+    const submitCount = await submitBtns.count();
+    const submitBtn =
+      submitCount >= 2 ? submitBtns.nth(submitCount - 1) : submitBtns.first();
+    if (submitCount > 0) {
+      try {
+        await submitBtn.click({ timeout: 5000 });
+      } catch (_) {
+        await passInput.press("Enter");
+      }
+    } else {
+      await passInput.press("Enter");
+    }
+    await page.waitForTimeout(8000);
+
+    // Walk the post-submit stages: success → PIN entry → method select.
+    for (let i = 0; i < 6; i++) {
+      const url = page.url();
+      if (loginUrlIndicatesSuccess(url)) {
+        storageState = await context.storageState();
+        await saveSession();
+        pendingLogin = false;
+        return res.json({
+          status: "ok",
+          stage: "done",
+          logged_in: true,
+          storage_state: storageState,
+        });
+      }
+      if (await loginPagePinVisible()) {
+        pendingLogin = true;
+        return res.json({
+          status: "ok",
+          stage: "enter_code",
+          two_factor_required: true,
+          logged_in: false,
+          message: "Verification code sent — POST /login/verify with the code.",
+        });
+      }
+      if (await loginPageMethodSelect()) {
+        const chosen = await chooseVerificationMethod(method || "sms");
+        agentLog("H-L", "loginStart", "method select", { chosen });
+        await page.waitForTimeout(800);
+        await clickSendCodeButton();
+        await page.waitForTimeout(6000);
+        continue;
+      }
+      await page.waitForTimeout(3000);
+    }
+
+    // Final classification for the caller.
+    const url = page.url();
+    if (await loginPagePinVisible()) {
+      pendingLogin = true;
+      return res.json({
+        status: "ok",
+        stage: "enter_code",
+        two_factor_required: true,
+        logged_in: false,
+      });
+    }
+    let errorMsg = "LinkedIn login failed";
+    try {
+      const errorEl = page
+        .locator(
+          "div[role='alert'], .form-error, #error-for-username, #error-for-password",
+        )
+        .first();
+      if ((await errorEl.count()) > 0) errorMsg = await errorEl.innerText();
+    } catch (_) {}
+    pendingLogin = false;
+    await closeBrowser().catch(() => {});
+    res.json({
+      status: "ok",
+      stage: "failed",
+      logged_in: false,
+      message: errorMsg,
+      url,
+    });
+  } catch (err) {
+    pendingLogin = false;
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleLoginVerify(req, res) {
+  const { code } = req.body || {};
+  if (!code) {
+    return res.status(400).json({ error: "code is required" });
+  }
+  if (!pendingLogin || !page) {
+    return res.status(409).json({
+      error: "no pending login — call POST /login/start first",
+    });
+  }
+  try {
+    const filled = await submitPinCode(code);
+    if (!filled) {
+      return res.status(409).json({
+        error: "PIN input not found — login flow may have expired",
+      });
+    }
+    await page.waitForTimeout(8000);
+    const url = page.url();
+    if (loginUrlIndicatesSuccess(url) && !(await loginPagePinVisible())) {
+      storageState = await context.storageState();
+      await saveSession();
+      pendingLogin = false;
+      return res.json({
+        status: "ok",
+        stage: "done",
+        logged_in: true,
+        storage_state: storageState,
+      });
+    }
+    let errorMsg = "Verification code rejected or login still pending";
+    try {
+      const errorEl = page
+        .locator("div[role='alert'], .form-error, .artdeco-inline-feedback__message")
+        .first();
+      if ((await errorEl.count()) > 0) errorMsg = await errorEl.innerText();
+    } catch (_) {}
+    res.json({
+      status: "ok",
+      stage: "enter_code",
+      logged_in: false,
+      two_factor_required: true,
+      message: errorMsg,
+      url,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+async function handleLoginCancel(req, res) {
+  pendingLogin = false;
+  await closeBrowser().catch(() => {});
+  res.json({ status: "ok", cancelled: true });
+}
+
 // ── API: Personal profile read ─────────────────────────────────────────────
 
 async function handleReadProfile(req, res) {
@@ -3338,6 +3637,9 @@ app.post("/session/clear-rate-limit", (req, res) => {
 app.post("/session", authLimiter, handleSetSession);
 app.get("/session", handleCheckSession);
 app.post("/login", authLimiter, handleLogin);
+app.post("/login/start", authLimiter, handleLoginStart);
+app.post("/login/verify", authLimiter, handleLoginVerify);
+app.post("/login/cancel", authLimiter, handleLoginCancel);
 
 // Personal profile
 app.get("/profile", handleReadProfile);

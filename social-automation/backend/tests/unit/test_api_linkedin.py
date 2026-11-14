@@ -482,3 +482,196 @@ class TestAdsControl:
         with pytest.raises(HTTPException) as ei:
             await L.linkedin_ads_control(L.AdsControlRequest(action="explode"), _user())
         assert ei.value.status_code == 400
+
+
+# ── Ad Library intel endpoints ─────────────────────────────────────────────
+
+
+class _Q:
+    """Minimal execute() result: scalar_one/scalar_one_or_none/all/scalars."""
+
+    def __init__(self, scalar=None, one=None, rows=None):
+        self._scalar = scalar
+        self._one = one
+        self._rows = rows or []
+
+    def scalar_one(self):
+        return self._scalar
+
+    def scalar_one_or_none(self):
+        return self._one
+
+    def all(self):
+        return self._rows
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: self._rows)
+
+
+class _DBX:
+    def __init__(self, results=(), get_result=None):
+        self._q = list(results)
+        self._get = get_result
+        self.added = []
+        self.deleted = []
+        self.commits = 0
+
+    async def execute(self, *a, **kw):
+        return self._q.pop(0)
+
+    async def get(self, model, key):
+        return self._get
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
+
+    async def commit(self):
+        self.commits += 1
+
+
+def _ad_row(**kw):
+    d = dict(
+        id=uuid.uuid4(),
+        ad_url="https://ad",
+        advertiser="AdvCo",
+        ad_payer="AdvCo",
+        advertiser_url="https://adv",
+        is_restricted=False,
+        impressions_from=1000,
+        impressions_to=5000,
+        first_impression_at=None,
+        latest_impression_at=None,
+        countries=["GR"],
+        targeting={"locations": ["GR"]},
+        status="active",
+        last_keyword="crm",
+        first_seen_at=None,
+        last_seen_at=None,
+        miss_count=0,
+    )
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+class TestLinkedInAdIntel:
+    @pytest.mark.asyncio
+    async def test_ads_list_with_filters(self):
+        db = _DBX(results=[_Q(rows=[_ad_row(), _ad_row(status="ended")])])
+        out = await L.linkedin_intel_ads(
+            status="active",
+            advertiser="adv",
+            keyword="crm",
+            limit=10,
+            offset=0,
+            current_user=_user(),
+            db=db,
+        )
+        assert out["count"] == 2
+        assert out["ads"][0]["advertiser"] == "AdvCo"
+        assert out["ads"][0]["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_ads_list_no_filters(self):
+        db = _DBX(results=[_Q(rows=[])])
+        out = await L.linkedin_intel_ads(
+            status=None,
+            advertiser=None,
+            keyword=None,
+            limit=50,
+            offset=0,
+            current_user=_user(),
+            db=db,
+        )
+        assert out == {"ads": [], "count": 0}
+
+    @pytest.mark.asyncio
+    async def test_summary(self):
+        db = _DBX(
+            results=[
+                _Q(scalar=10),   # total
+                _Q(scalar=4),    # active
+                _Q(scalar=6),    # ended
+                _Q(rows=[("AdvCo", 3), ("Other", 1)]),  # top advertisers
+                _Q(rows=[_ad_row()]),  # newest
+            ]
+        )
+        out = await L.linkedin_intel_summary(current_user=_user(), db=db)
+        assert out["total"] == 10
+        assert out["active"] == 4
+        assert out["ended"] == 6
+        assert out["top_advertisers"] == [
+            {"advertiser": "AdvCo", "ads": 3},
+            {"advertiser": "Other", "ads": 1},
+        ]
+        assert out["newest"][0]["advertiser"] == "AdvCo"
+
+    @pytest.mark.asyncio
+    async def test_watchlist_list(self):
+        w = SimpleNamespace(
+            id=uuid.uuid4(),
+            kind="keyword",
+            value="crm",
+            country="GR",
+            enabled=True,
+            last_run_at=None,
+        )
+        db = _DBX(results=[_Q(rows=[w])])
+        out = await L.linkedin_intel_watchlist(current_user=_user(), db=db)
+        assert out["watches"] == [
+            {
+                "id": str(w.id),
+                "kind": "keyword",
+                "value": "crm",
+                "country": "GR",
+                "enabled": True,
+                "last_run_at": None,
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_watch_add_and_dup(self):
+        body = L.IntelWatchRequest(kind=" Keyword ", value=" crm ", country="gr")
+        db = _DBX(results=[_Q(one=None)])
+        out = await L.linkedin_intel_watch_add(body, _user(), db)
+        assert out["kind"] == "keyword"
+        assert out["value"] == "crm"
+        assert out["country"] == "GR"
+        assert len(db.added) == 1 and db.commits == 1
+
+        db_dup = _DBX(results=[_Q(one=SimpleNamespace(id=uuid.uuid4()))])
+        with pytest.raises(HTTPException) as ei:
+            await L.linkedin_intel_watch_add(body, _user(), db_dup)
+        assert ei.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_watch_add_bad_kind(self):
+        body = L.IntelWatchRequest(kind="bogus", value="x")
+        with pytest.raises(HTTPException) as ei:
+            await L.linkedin_intel_watch_add(body, _user(), _DBX())
+        assert ei.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_watch_delete_found_and_missing(self):
+        wid = uuid.uuid4()
+        w = SimpleNamespace(id=wid)
+        db = _DBX(get_result=w)
+        out = await L.linkedin_intel_watch_delete(wid, _user(), db)
+        assert out == {"deleted": str(wid)}
+        assert db.deleted == [w] and db.commits == 1
+
+        with pytest.raises(HTTPException) as ei:
+            await L.linkedin_intel_watch_delete(wid, _user(), _DBX(get_result=None))
+        assert ei.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_intel_run_enqueues(self, monkeypatch):
+        import app.worker.tasks.linkedin_intel as mod
+
+        task = Mock()
+        monkeypatch.setattr(mod, "run_linkedin_ad_library_watch", task)
+        out = await L.linkedin_intel_run(_user())
+        assert out == {"ok": True, "queued": "linkedin-ad-library-watch"}
+        task.delay.assert_called_once_with()
