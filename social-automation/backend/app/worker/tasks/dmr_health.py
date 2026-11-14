@@ -90,10 +90,12 @@ async def _keep_warm() -> dict:
 
 @celery_app.task(name="app.worker.tasks.dmr_health.keep_warm_dmr_models")
 def keep_warm_dmr_models() -> dict:
-    """Refresh keep_alive on the warm-tier models (mid 4B + llama3.2).
+    """Refresh keep_alive on the warm-tier model (0.6B embedding only).
 
-    Runs every 90s via celery-beat — below llama3.2's 2m keep_alive — so
-    pipeline/chatbot calls never pay a cold-load. Skips while a media job
-    owns the GPU.
+    Runs every 90s via celery-beat — below the embedding model's 15m
+    keep_alive — so recall/remember calls never pay a cold-load. The
+    mid-4B + llama3.2 pinning was removed 2026-10-28 (VRAM saturation →
+    daemon instability); they now ride their own configured keep_alive.
+    Skips while a media job owns the GPU.
     """
     return _run_async(_keep_warm())
