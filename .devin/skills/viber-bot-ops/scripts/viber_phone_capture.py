@@ -31,9 +31,11 @@ import sys
 import time
 import urllib.request
 
+# Linux adb first — the Windows adb.exe hangs when invoked through WSL
+# interop while its server is mid-reconnect (2026-11-14 timeout).
 ADB_CANDIDATES = [
-    "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
     "adb",
+    "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
 ]
 TERMUX_SSH = ("ssh -p 8022 -o ConnectTimeout=8 "
               "-o StrictHostKeyChecking=no u0_a357@192.168.1.77")
