@@ -2364,18 +2364,37 @@ superseded by rebuild):
 - **OPEN — social-worker-default restart for synigoros beat**: DONE earlier
   this session (early-deployed files + restart verified; tasks registered,
   first reply-watch fired clean). #1874 merged during WSL outage.
-- **Viber Business Account — profile state (2026-11-14)**: account created on
-  phone; Business Name = `Cloudless` (verified on Edit profile), Category =
-  `IT` (saved, "Categories have been updated" toast). Description editor was
-  mid-fill when ADB dropped — field contained mixed literal-%20 + clean text;
-  needs one clean pass. Driver now handles post-creation states: PR #1906
-  (`viber-profile-statemachine`) adds dashboard/Edit-profile detection,
-  `_complete_profile` (description+category), IME-safe `_save_editor`
-  (never tap Save with keyboard open — hits IME keys), `link` command for
-  Chat link. Remaining human gates: business hours + address (real values),
-  logo upload, safety review. Phone ADB went fully offline after screen
-  lock — re-enable wireless debugging / wake phone, then
-  `viber_business_setup.py run` finishes description.
-- **LinkedIn sidecar cooldown**: rate_limited until ~13:40 EET 2026-11-14;
-  watchers armed (li_grant_watch cron, portal probes). Member DP /
-  Matched Audiences still 403 — grant watcher will catch transitions.
+
+## 2026-11-14 — Telegram/ntfy alert sweep (48h triage)
+
+Done:
+- `lake_export` blew the 600s subprocess timeout 20×/48h: DMR wedged by
+  host-RAM evictions → every `ai_mask` hung. Fixed: 15s wait_for + 5min
+  budget + 3-strike circuit + fault-tolerant espo/mautic fetch (PR #1903).
+- `slack_token_sync` paged rc=1 every 2h on "no Slack-scoped token file" —
+  now exits 0 (nothing-to-sync ≠ failure) in the same PR.
+- `mcp-health-watch` alerted "(new) -> ok" every 30min — diff read the
+  state-file wrapper instead of `results` (home-ops c9b59d6).
+- Bluesky: app password dead + `bsky-post-reset-verify` regex only matched
+  4-5-char-first-half codes; real codes are 5+5 (fixed, home-ops 3fc4f92).
+  Completed the unattended reset manually: new BSKY_MAIN_PASSWORD stored in
+  both .env checkouts, bsky.txt, Infisical. `rotate` still 429 (rate limit
+  from the night's hammering) — watcher re-arms and finishes it next tick.
+- tiktok `cloudless.gr` row marked revoked (refresh token dead; replaced by
+  the two `Cloudless | Managed Cloud` rows, both active).
+- Stale X post 5f2cb7ed (20h-old M365-outage news, API quota out + browser
+  session down) marked failed/terminal — stops the deferral alert loop.
+- Telegram webhook healthy (pending=0); earlier 502 was during the outage.
+
+Human gates (unchanged, need owner action):
+- **Meta OAuth**: instagram/threads/whatsapp `cloudless.gr` revoked +
+  facebook `Themistoklis Baltzakis` expired → Accounts UI re-auth
+  (meta-oauth-ops); FB sidecar session also needs one manual login.
+- **X write credits**: API quota exhausted — add credits at console.x.com
+  or accept browser-only publishing (needs the :9229 session logged in).
+- **Galaxy S22**: ADB unreachable >24h — re-enable wireless debugging or
+  USB `adb tcpip 5555` to restore the SMS-2FA lane.
+- **Slack MCP remote**: re-auth with chat:write to restore the token
+  refresh lane (env token still valid today).
+- Host RAM: Windows-side pressure (llama-server storms + Devin + Chrome);
+  WSL already tuned to 10GB. Recurring flaps are environmental.
