@@ -15,6 +15,7 @@ import asyncio
 import json
 import re
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,9 +39,19 @@ def _regex_mask(text: str) -> str:
 
 async def export(apply: bool = False) -> None:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-    leads = await espocrm_client.espo_get("/Lead", params={"maxSize": 200})
-    contacts = await mautic_client.list_contacts() if mautic_client.configured() else []
-    segments = await mautic_client.list_segments() if mautic_client.configured() else []
+    # Per-source fault tolerance: a transient EspoCRM/Mautic outage exports
+    # what it can instead of dying before any zone is written.
+    try:
+        leads = await asyncio.wait_for(espocrm_client.espo_get("/Lead", params={"maxSize": 200}), 60)
+    except Exception as exc:
+        print(f"leads fetch failed ({exc}) — exporting empty zone")
+        leads = {}
+    try:
+        contacts = await asyncio.wait_for(mautic_client.list_contacts(), 60) if mautic_client.configured() else []
+        segments = await asyncio.wait_for(mautic_client.list_segments(), 60) if mautic_client.configured() else []
+    except Exception as exc:
+        print(f"mautic fetch failed ({exc}) — exporting empty zones")
+        contacts, segments = [], []
     rows = {
         "leads": leads.get("list") or [],
         "contacts": contacts,
@@ -61,12 +72,22 @@ async def export(apply: bool = False) -> None:
             from app.services import ai_functions
 
             rows_masked = []
+            mask_fails = 0
+            mask_deadline = time.monotonic() + 300  # model pass gets 5 min total
             for i in items:
                 raw = _regex_mask(json.dumps(i, default=str))
                 # model pass only where PII was actually detected — regex
                 # alone already strips emails/phones; ai_mask catches names.
-                if "[REDACTED]" in raw:
-                    raw = await ai_functions.ai_mask(raw)
+                # Bounded: a wedged DMR (cold model loads under host RAM
+                # pressure) must not let 200 sequential calls blow the task's
+                # 600s subprocess timeout — after 3 consecutive hangs or the
+                # 5-min budget the regex floor alone carries the rest.
+                if "[REDACTED]" in raw and mask_fails < 3 and time.monotonic() < mask_deadline:
+                    try:
+                        raw = await asyncio.wait_for(ai_functions.ai_mask(raw), timeout=15)
+                        mask_fails = 0
+                    except Exception:
+                        mask_fails += 1
                 rows_masked.append(raw)
             payload = "\n".join(rows_masked)
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
