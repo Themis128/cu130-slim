@@ -46,6 +46,7 @@ jobs:
       - run: pip install pytest && python -m pytest stack-ops/test_stack_ops.py -v --tb=short
 
   build-and-push:
+    if: github.actor != 'dependabot[bot]'
     timeout-minutes: 60
     runs-on: ubuntu-24.04
     strategy:
