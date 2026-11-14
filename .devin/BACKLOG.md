@@ -2317,3 +2317,50 @@ superseded by rebuild):
   with files they don't actually touch. Rebase/rebuild clears it.
 - DevOptimizer: PR #28 (sshd host-key ownership root-cause fix) merged;
   all repos 0 open PRs.
+
+## 2026-11-15 — phone mail + WSL/Docker leftovers
+
+- **DONE — tbaltzakis@cloudless.gr on Galaxy S22+ (Thunderbird 24.0, F-Droid)**:
+  fully set up via ADB UI automation. IMAP `100.95.117.84:993` SSL/TLS +
+  SMTP `100.95.117.84:587` STARTTLS, password from `.env`
+  `MAIL_TBALTZAKIS_PASSWORD`. Inbox verified syncing real mail.
+  Key learnings: (a) Android 16 local-network protection blocks direct LAN
+  IPs for Thunderbird (EACCES) — Tailscale IP `100.95.117.84` bypasses it
+  entirely and works on cellular too; (b) cert is valid LE `mail.cloudless.gr`
+  — IP-vs-hostname mismatch needs one-time "Accept risk" (cert details
+  verified: SAN mail.cloudless.gr, YE1, valid to 2027-01-09); Thunderbird
+  stores the exception. (c) Tailscale app "Allow LAN access" toggle already ON.
+  (d) `input text` autocorrect appended `.com` to the email field — fix =
+  KEYCODE_MOVE_END + KEYCODE_DEL loop, verify via uiautomator before Next.
+  (e) wizard state is lost if the screen sleeps mid-setup — set
+  `screen_off_timeout 1800000` first, restore after.
+- **DONE — New Outlook**: `themis.baltzakis@gmail.com` added by user;
+  `baltzakis.themis@gmail.com` already present. `tbaltzakis@cloudless.gr`
+  CANNOT work in New Outlook — it syncs IMAP via Microsoft's cloud which
+  needs public reachability; Starlink CGNAT (WAN 100.80.158.201) blocks all
+  inbound. Classic Mail app has the account (added via UIA-automated
+  Settings→Internet email flow); Thunderbird on phone is the mobile path.
+- **DONE — Win32-OpenSSH sshd crash-loop root cause** (DevOptimizer
+  `sshd-repair.ps1`): host keys `C:\ProgramData\ssh\ssh_host_*_key` had
+  wrong OWNER (manual keygen run as user) → SYSTEM-context sshd rejected
+  all keys → SCM 1067 loop since Nov 7. Fix = `icacls /setowner SYSTEM` +
+  ACL reset; now self-heals via Sshd-Watch every 15 min. Same bug class as
+  upstream issue PowerShell/Win32-OpenSSH#2282 (logs-dir perms).
+- **OPEN — WSL/Docker Desktop recurring wedge**: `docker-desktop-user-distro
+  proxy` exits (WSAETIMEOUT/wsexec error) → "WSL integration unexpectedly
+  stopped" popup; Ubuntu-24.04 hangs intermittently (flapped again after
+  user's wsl --shutdown). Web research: matches Docker Desktop 4.92/4.99
+  WSL-integration regression reports (docker/for-win issues re:
+  docker-desktop-user-distro proxy timeout + systemd=true interaction).
+  Current DD version 4.99.0.245822. Candidate fixes in order:
+  (1) `wsl --update` (already weekly via DevOptimizer-WSL-Repair);
+  (2) controlled DD downgrade to 4.91.x/4.92.x — needs user confirmation,
+  preserves settings-store.json;
+  (3) test `systemd=false` in /etc/wsl.conf — LAST resort, breaks
+  systemd-dependent units;
+  (4) if wedge persists → real reboot (netsh winsock reset is near-no-op).
+  Existing heal lanes already live: repair-wsl-docker-integration.ps1
+  (30min), Vhdx-Compact-DevinExit idle-escalation heal, nightly 23:59 bounce.
+- **OPEN — social-worker-default restart for synigoros beat**: DONE earlier
+  this session (early-deployed files + restart verified; tasks registered,
+  first reply-watch fired clean). #1874 merged during WSL outage.
