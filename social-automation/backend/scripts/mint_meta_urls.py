@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import os, sys, json, urllib.request, urllib.parse
+import json
+import os
+import urllib.parse
+import urllib.request
 
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://localhost:8000")
 TEAM = "10024d25-2ea4-40ea-86c6-ba89f515a2eb"

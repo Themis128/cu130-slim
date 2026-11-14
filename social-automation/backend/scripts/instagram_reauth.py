@@ -43,9 +43,9 @@ import os
 import re
 import sys
 import time
-from pathlib import Path
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 # Script-mode runs put /app/scripts on sys.path, not /app — app.* imports
 # (token decryption) need the repo root explicitly.
@@ -429,7 +429,7 @@ _IG_CODE_INPUT_JS = """
                   (i.getAttribute('aria-label')||''))));
   if (!inp) return 'nf';
   const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-  inp.focus(); s.call(inp, CODE); 
+  inp.focus(); s.call(inp, CODE);
   inp.dispatchEvent(new Event('input', {bubbles: true}));
   inp.dispatchEvent(new Event('change', {bubbles: true}));
   return 'filled';
