@@ -53,6 +53,18 @@ drive when the phone's foreground app isn't Viber (someone is using it)
 unless `--force` is passed; it resumes mid-flow if the create form is
 already on screen.
 
+**Shortcut:** Viber Help Center's "Create Viber business" button is the
+deep link `viber://business/create` — fire it straight to the form:
+
+```bash
+adb -s <serial> shell am start -a android.intent.action.VIEW \
+    -d "viber://business/create"
+```
+
+**Desktop cannot create it** — Viber Help Center (verified 2026-11-14):
+"a business account can only be opened on your primary device"; desktop
+tablet are chat-only for business accounts. No Win11 path exists.
+
 ## Once a bot exists — fully automated capture
 
 `viber_phone_capture.py` drives the phone over ADB:
