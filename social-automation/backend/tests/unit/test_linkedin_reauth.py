@@ -258,6 +258,8 @@ def test_sms_codes_blocking_parses(monkeypatch, tmp_path):
                 "body=Your LinkedIn verification code is 111111.\n"
                 "Row: 3 address=+3069, date=500, "
                 "body=Your LinkedIn sign-in link expired.\n"
+                "Row: 4 address=+1, date=3000, "
+                "body=Your verification code is 999999.\n"
                 "not a row line\n"
             )
 
@@ -347,6 +349,27 @@ async def test_fetch_sms_code_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "_sms_codes_blocking", fake_blocking)
     with pytest.raises(R.LinkedInReauthError) as ei:
         await R.fetch_linkedin_sms_code(timeout_s=0)
+    assert ei.value.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_fetch_sms_code_empty_poll(tmp_path, monkeypatch):
+    """Empty poll results must loop until the deadline (180->185 branch)."""
+    import asyncio as _aio
+
+    (tmp_path / "adbkey").write_text("k")
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+
+    def fake_blocking(keys_dir, since_ms):
+        return []
+
+    async def _fast_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr(R, "_sms_codes_blocking", fake_blocking)
+    monkeypatch.setattr(_aio, "sleep", _fast_sleep)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        await R.fetch_linkedin_sms_code(timeout_s=0.05)
     assert ei.value.status_code == 504
 
 

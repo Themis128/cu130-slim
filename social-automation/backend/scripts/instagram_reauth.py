@@ -521,10 +521,23 @@ def _sidecar_pages() -> list:
         return []
 
 
+def _page_on_domain(page: dict, domain: str) -> bool:
+    """True when the page URL's hostname is `domain` or a subdomain.
+
+    A substring check would also match lookalike hosts
+    (e.g. ``instagram.com.evil.example``) — parse the hostname instead.
+    """
+    try:
+        host = urllib.parse.urlparse(page.get("url") or "").hostname or ""
+    except Exception:
+        return False
+    return host == domain or host.endswith(f".{domain}")
+
+
 def _activate_url_part(part: str) -> bool:
-    """Activate the sidecar page whose URL contains `part`."""
+    """Activate the sidecar page whose URL is on the `part` domain."""
     for p in _sidecar_pages():
-        if part in (p.get("url") or ""):
+        if _page_on_domain(p, part):
             try:
                 _sidecar("/debug/activate", {"index": p["index"]}, timeout=20)
                 return True
@@ -826,7 +839,7 @@ def main() -> int:
         # exists (2FA lives there); the dialog page advances on its own.
         pages = _sidecar_pages()
         ig_page = next(
-            (p for p in pages if "instagram.com" in (p.get("url") or "")),
+            (p for p in pages if _page_on_domain(p, "instagram.com")),
             None,
         )
         if ig_page is not None and not ig_page_active:
@@ -837,8 +850,7 @@ def main() -> int:
         elif ig_page is None and ig_page_active:
             # Popup finished/closed — hand control back to the dialog page.
             fb = next(
-                (p for p in pages
-                 if "facebook.com" in (p.get("url") or "")),
+                (p for p in pages if _page_on_domain(p, "facebook.com")),
                 None,
             )
             if fb is not None:
