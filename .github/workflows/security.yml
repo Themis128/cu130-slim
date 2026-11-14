@@ -82,6 +82,7 @@ jobs:
           path: reports/
 
   container-scan:
+    if: github.actor != 'dependabot[bot]'
     timeout-minutes: 60
     runs-on: ubuntu-24.04
     permissions:

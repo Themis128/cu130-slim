@@ -33,6 +33,7 @@ permissions:
 
 jobs:
   notify:
+    if: github.actor != 'dependabot[bot]'
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
