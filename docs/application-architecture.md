@@ -684,6 +684,20 @@ app/worker/tasks/
 │                             recovery; Slack-alerts only when human
 │                             action needed (24h per-platform cooldown).
 │                             On-demand: POST /api/v1/ops/session-heal
+├── instagram_reauth.py     — run_instagram_reauth (hourly :52): drives the
+│                             facebook-browser-sidecar (:9226, reached via
+│                             FACEBOOK_BROWSER_SIDECAR_URL stack-ops proxy)
+│                             through the Instagram-onboarding OAuth flow
+│                             (Facebook Login for Business + IG_API_ONBOARDING
+│                             extras). Mints the authorize URL and fires the
+│                             callback via SOCIAL_API_INTERNAL →
+│                             api-gateway:8080 (blue/green-safe). Self-
+│                             throttles 1/hr; auto-clicks the login.php
+│                             "continue as profile" chooser; escalates
+│                             credential/2FA walls.
+├── threads_reauth.py       — run_threads_reauth (hourly :51): same pattern
+│                             through the browser-novnc bridge (:9223) on
+│                             the threads.net OAuth flow.
 ├── workflows.py            — execute_workflow, deploy_workflow
 ├── telegram_digest.py      — send_telegram_group_digests
 ├── paddle_digest.py        — send_paddle_slack_digest (billing digest)
