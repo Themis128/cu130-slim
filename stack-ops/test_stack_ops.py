@@ -9,6 +9,7 @@ routing, and the full proxy pipe path against an in-process echo server.
 
 import asyncio
 import json
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -460,7 +461,7 @@ class TestReseedIdleClocks(unittest.IsolatedAsyncioTestCase):
     async def test_restarted_container_is_not_a_candidate(self):
         # cont-a restarted 2 min ago; last_active holds a boot-time seed
         # from hours ago -> without reseed it would be slept immediately.
-        stack_ops.last_active["cont-a"] = 0.0
+        stack_ops.last_active["cont-a"] = time.monotonic() - 7200
         self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
         fresh_ts = __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc).strftime(
@@ -472,7 +473,7 @@ class TestReseedIdleClocks(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(stack_ops.last_active["cont-a"], 0.0)
 
     async def test_long_running_container_stays_candidate(self):
-        stack_ops.last_active["cont-a"] = 0.0
+        stack_ops.last_active["cont-a"] = time.monotonic() - 7200
         self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
         old_ts = "2020-01-01T00:00:00.000000000Z"
         fake = AsyncMock(return_value=(0, "/cont-a|" + old_ts + "\\n"))
@@ -482,7 +483,7 @@ class TestReseedIdleClocks(unittest.IsolatedAsyncioTestCase):
 
     async def test_never_moves_clock_backwards(self):
         # A recent proxy touch must win over an older StartedAt.
-        stack_ops.last_active["cont-a"] = __import__("time").monotonic()
+        stack_ops.last_active["cont-a"] = time.monotonic()
         self.addCleanup(stack_ops.last_active.pop, "cont-a", None)
         before = stack_ops.last_active["cont-a"]
         old_ts = "2020-01-01T00:00:00.000000000Z"
