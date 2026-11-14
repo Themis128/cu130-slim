@@ -2431,3 +2431,32 @@ Open / watch:
   Coordinate before driving Viber again.
 - Viber street address (Thermopylon 15 Koropi 19441) + Google rating
   remain the only profile gaps.
+
+## 2026-11-14 — Docker Desktop wipe → full stack rebuild + PG restore
+
+Docker Desktop 4.98 reinstall left a FRESH engine (0 containers/images/
+volumes). Recovered same-day:
+
+- `docker compose up -d` from `~/cu130-slim`; external volumes recreated
+  (`cu130-slim_social_postgres_data_v17`, `engagement_cookies/profile`).
+- **19 named volumes restored** from NAS `devoptimizer-backups/nightly`
+  2026-11-12 08:12 tars (minio media, mautic db+data, browser_profile/
+  cookies/adhoc, fb/ig/li/tiktok browser data, instagram_sessions,
+  nextcloud/linkedin mcp, social_api_data, metabase postgres_data,
+  warp_data, engagement_*). Script: `~/docker-restore/restore-volumes-0812.sh`.
+- **Postgres**: nightly `pgdumpall-*.sql.gz` files are ALL CORRUPT —
+  backup-docker-nas.ps1 used PS `>` redirect (UTF-16-mangles gzip binary;
+  parallel session already patched to `cmd /c` byte-transparent + 1F8B
+  magic check, uncommitted in D:\DevOptimizer). Fell back to partial
+  extract of `vol-cu130-slim_social_postgres_data_v17-20261112-0812.tar.gz`
+  (tar truncated ~83% — `pg_resetwal -f` + start; state ≈ Nov-12 06:15 UTC,
+  ~2d stale, 59 tables / 13 accounts / 412 posts verified). The 0430 v17
+  tar is intact gzip but captured a pre-migration EMPTY cluster — do NOT
+  use it. If 0812-corruption recurs, next good volume backup is needed.
+- **fsbridge poisoned** post-reinstall: 32/33 hashed bind-mounts empty
+  (exit-127 class). Healed WITHOUT wsl --shutdown: force-recreate per
+  service AFTER dd-user-distro-proxy re-materialized mounts on demand.
+- Verified: social-api /health ok, alembic ran, all 4 workers ping OK,
+  social.cloudless.gr 200, cf-db/health all true. autoheal container
+  restart-loops on missing docker.sock — non-blocking (watchdog covers).
+- Remaining pulls (comfyui ~1.8GB etc.) finished by background compose up.
