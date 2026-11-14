@@ -192,6 +192,21 @@ async def resolve_linkedin_credentials(
     return username, password
 
 
+async def _arm_sidecar_keepawake(ttl_s: int = 3600) -> None:
+    """Best-effort stack-ops keepawake so the sleeper can't stop the
+    sidecar mid-login (SMS waits + editor steps can exceed idle_min).
+    In-memory on stack-ops — re-armed on every reauth run."""
+    base = os.environ.get("STACK_OPS_URL", "http://stack-ops:8787")
+    try:
+        async with httpx.AsyncClient(base_url=base, timeout=10.0) as c:
+            await c.post(
+                "/keepawake/linkedin-browser-sidecar",
+                params={"ttl": ttl_s},
+            )
+    except Exception as e:
+        logger.warning("keepawake arm failed (non-fatal): %s", e)
+
+
 async def run_reauth(
     username: str,
     password: str,
@@ -202,6 +217,7 @@ async def run_reauth(
     """Full flow: start → (auto-fetch SMS code) → verify → session check."""
     client = LinkedInReauthClient()
     started_ms = int(time.time() * 1000)
+    await _arm_sidecar_keepawake()
     res = await client.start(username, password, method=method)
 
     if res.get("logged_in"):

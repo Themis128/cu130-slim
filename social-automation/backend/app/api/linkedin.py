@@ -860,8 +860,10 @@ async def linkedin_reauth_verify(
     from app.services.linkedin_reauth import (
         LinkedInReauthClient,
         LinkedInReauthError,
+        _arm_sidecar_keepawake,
     )
 
+    await _arm_sidecar_keepawake()
     try:
         result = await LinkedInReauthClient().verify(req.code)
     except LinkedInReauthError as e:
