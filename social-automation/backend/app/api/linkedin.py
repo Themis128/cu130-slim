@@ -800,3 +800,102 @@ async def linkedin_intel_run(
 
     run_linkedin_ad_library_watch.delay()
     return {"ok": True, "queued": "linkedin-ad-library-watch"}
+
+
+# ── Browser sidecar re-auth ─────────────────────────────────────────────────
+#
+# Drives the sidecar two-phase login so a dead LinkedIn browser session can
+# be recovered via the API. POST /reauth runs the full flow (credentials →
+# security-check → SMS code auto-fetch → verify). POST /reauth/verify
+# submits a code manually when auto_sms is off or the SMS lane is down;
+# POST /reauth/cancel abandons a pending login; GET /reauth/status reports
+# the live session state.
+
+
+class ReauthRequest(BaseModel):
+    method: str = "sms"  # "sms" | "email" — LinkedIn security-check choice
+    account_id: uuid.UUID | None = None
+    auto_sms: bool = True
+    code: str | None = None  # manual fallback — skips the SMS poll
+
+
+class ReauthVerifyRequest(BaseModel):
+    code: str
+
+
+@router.post("/reauth")
+async def linkedin_reauth(
+    req: ReauthRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Run the full sidecar re-auth: login → security check → SMS 2FA."""
+    from app.services.linkedin_reauth import (
+        LinkedInReauthError,
+        resolve_linkedin_credentials,
+        run_reauth,
+    )
+
+    try:
+        username, password = await resolve_linkedin_credentials(
+            str(req.account_id) if req.account_id else None
+        )
+        result = await run_reauth(
+            username,
+            password,
+            method=req.method,
+            code=req.code,
+            auto_sms=req.auto_sms,
+        )
+    except LinkedInReauthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return result
+
+
+@router.post("/reauth/verify")
+async def linkedin_reauth_verify(
+    req: ReauthVerifyRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Submit a verification code to a pending sidecar login."""
+    from app.services.linkedin_reauth import (
+        LinkedInReauthClient,
+        LinkedInReauthError,
+    )
+
+    try:
+        result = await LinkedInReauthClient().verify(req.code)
+    except LinkedInReauthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return result
+
+
+@router.post("/reauth/cancel")
+async def linkedin_reauth_cancel(
+    current_user: User = Depends(get_current_user),
+):
+    """Abandon a pending two-phase login and close the browser."""
+    from app.services.linkedin_reauth import (
+        LinkedInReauthClient,
+        LinkedInReauthError,
+    )
+
+    try:
+        return await LinkedInReauthClient().cancel()
+    except LinkedInReauthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/reauth/status")
+async def linkedin_reauth_status(
+    current_user: User = Depends(get_current_user),
+):
+    """Live LinkedIn browser-session state on the sidecar."""
+    from app.services.linkedin_reauth import (
+        LinkedInReauthClient,
+        LinkedInReauthError,
+    )
+
+    try:
+        return await LinkedInReauthClient().status()
+    except LinkedInReauthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
