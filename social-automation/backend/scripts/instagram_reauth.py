@@ -20,7 +20,7 @@ this lane exit 2 on every run until 2026-11-11). Flow:
   3. Admin-login to the local API, mint a fresh authorize URL.
   4. Drive the sidecar: /debug/navigate the authorize URL -> /debug/eval
      clicks Continue/Allow through the FB permission dialog -> poll
-     location.href until the oauth/instagram/callback URL appears.
+     location.href until the oauth/facebook/callback URL appears.
   5. INSTAGRAM_REDIRECT_URI is http://localhost:8083/... which the sidecar
      container cannot reach — so instead of letting the browser finish the
      navigation, we extract code+state from the stuck callback URL and
@@ -460,7 +460,7 @@ def _invoke_callback(callback_url: str) -> bool:
     if not q:
         return False
     try:
-        _get(f"{API}/api/v1/auth/oauth/instagram/callback?{q}", timeout=60)
+        _get(f"{API}{CALLBACK_PATH}?{q}", timeout=60)
         return True
     except Exception as e:
         print(f"callback invoke failed: {e}")
