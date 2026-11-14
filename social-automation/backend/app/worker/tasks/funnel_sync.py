@@ -11,8 +11,8 @@ from app.worker.celery_app import celery_app
 _BACKEND = "/app"
 
 
-def _run(script: str) -> tuple[int, str]:
-    r = subprocess.run(["python", f"scripts/{script}", "--apply"], cwd=_BACKEND, capture_output=True, text=True, timeout=600)
+def _run(script: str, timeout: int = 600) -> tuple[int, str]:
+    r = subprocess.run(["python", f"scripts/{script}", "--apply"], cwd=_BACKEND, capture_output=True, text=True, timeout=timeout)
     return r.returncode, (r.stdout + r.stderr)[-500:]
 
 
@@ -35,6 +35,6 @@ def _dbt_run() -> tuple[int, str]:
 def run_funnel_sync() -> dict:
     """Hourly: CRM→Mautic sync, funnel-zone MinIO export, dbt metrics refresh."""
     rc1, out1 = _run("mautic_sync.py")
-    rc2, out2 = _run("lake_export.py")
+    rc2, out2 = _run("lake_export.py", timeout=1200)  # export runs ~13min; 600s timed out
     rc3, out3 = _dbt_run()
     return {"mautic_rc": rc1, "lake_rc": rc2, "dbt_rc": rc3, "mautic": out1, "lake": out2, "dbt": out3}
