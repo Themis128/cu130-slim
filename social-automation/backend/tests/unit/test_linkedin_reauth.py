@@ -200,3 +200,229 @@ async def test_run_reauth_manual_code_skips_sms(monkeypatch):
     out = await R.run_reauth("u", "p", code="111222", auto_sms=True)
     assert out["stage"] == "enter_code"
     assert calls == ["111222"]
+
+
+# ── ADB key dir + SMS inbox fetch ──────────────────────────────────────────
+
+
+def test_adb_key_dir_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        R._adb_key_dir()
+    assert ei.value.status_code == 503
+
+
+def _write_adb_keypair(d) -> None:
+    """Real RSA keypair — adb-shell's CryptographySigner parses the PEMs."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    (d / "adbkey").write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
+    (d / "adbkey.pub").write_bytes(
+        key.public_key().public_bytes(
+            serialization.Encoding.OpenSSH,
+            serialization.PublicFormat.OpenSSH,
+        )
+    )
+
+
+def test_adb_key_dir_present(tmp_path, monkeypatch):
+    (tmp_path / "adbkey").write_text("k")
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+    assert R._adb_key_dir() == tmp_path
+
+
+def test_sms_codes_blocking_parses(monkeypatch, tmp_path):
+    _write_adb_keypair(tmp_path)
+
+    class _Dev:
+        def __init__(self, *a, **k):
+            pass
+
+        def connect(self, **kw):
+            pass
+
+        def shell(self, cmd):
+            return (
+                "Row: 0 address=+1, date=999, body=not linkedin 123456.\n"
+                "Row: 1 address=+3069, date=2000, "
+                "body=Your LinkedIn verification code is 654321.\n"
+                "Row: 2 address=+3069, date=1000, "
+                "body=Your LinkedIn verification code is 111111.\n"
+            )
+
+        def close(self):
+            pass
+
+    import adb_shell.adb_device as adb_mod
+
+    monkeypatch.setattr(adb_mod, "AdbDeviceTcp", _Dev)
+    monkeypatch.setenv("LINKEDIN_SMS_ADB_ADDR", "192.168.1.77:5555")
+    codes = R._sms_codes_blocking(tmp_path, None)
+    assert codes == [(2000, "654321"), (1000, "111111")]
+    # since_ms filters older rows
+    assert R._sms_codes_blocking(tmp_path, 1500) == [(2000, "654321")]
+
+
+@pytest.mark.asyncio
+async def test_fetch_sms_code_success(tmp_path, monkeypatch):
+    (tmp_path / "adbkey").write_text("k")
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+
+    def fake_blocking(keys_dir, since_ms):
+        return [(123, "246810")]
+
+    monkeypatch.setattr(R, "_sms_codes_blocking", fake_blocking)
+    assert await R.fetch_linkedin_sms_code() == "246810"
+
+
+@pytest.mark.asyncio
+async def test_fetch_sms_code_timeout(tmp_path, monkeypatch):
+    (tmp_path / "adbkey").write_text("k")
+    monkeypatch.setenv("LINKEDIN_ADB_KEY_DIR", str(tmp_path))
+
+    def fake_blocking(keys_dir, since_ms):
+        return []
+
+    monkeypatch.setattr(R, "_sms_codes_blocking", fake_blocking)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        await R.fetch_linkedin_sms_code(timeout_s=0)
+    assert ei.value.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_run_reauth_start_failure(monkeypatch):
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def start(self, u, p, method="sms"):
+            return {"message": "bad credentials"}
+
+    monkeypatch.setattr(R, "LinkedInReauthClient", FakeClient)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        await R.run_reauth("u", "p")
+    assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_run_reauth_enter_code_without_sms(monkeypatch):
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def start(self, u, p, method="sms"):
+            return {"two_factor_required": True}
+
+    monkeypatch.setattr(R, "LinkedInReauthClient", FakeClient)
+
+    async def boom(since_ms=None, timeout_s=240):
+        raise AssertionError("SMS fetch must not run with auto_sms=False")
+
+    monkeypatch.setattr(R, "fetch_linkedin_sms_code", boom)
+    out = await R.run_reauth("u", "p", auto_sms=False)
+    assert out["stage"] == "enter_code"
+    assert out["two_factor_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_status_error_raises(monkeypatch):
+    http = _Http(default=_Resp(503, text="down"))
+    c = _client(monkeypatch, http)
+    with pytest.raises(R.LinkedInReauthError) as ei:
+        await c.status()
+    assert ei.value.status_code == 503
+
+
+# ── API endpoints ──────────────────────────────────────────────────────────
+
+from fastapi import HTTPException  # noqa: E402
+
+import app.api.linkedin as L  # noqa: E402
+
+
+def _user():
+    import uuid as _u
+    from types import SimpleNamespace as _S
+
+    return _S(id=_u.uuid4(), email="a@x.co")
+
+
+@pytest.mark.asyncio
+async def test_api_reauth_success(monkeypatch):
+    async def fake_creds(account_id=None):
+        return "u@x.com", "pw"
+
+    async def fake_run(u, p, **kw):
+        return {"logged_in": True, "stage": "done"}
+
+    monkeypatch.setattr(R, "resolve_linkedin_credentials", fake_creds)
+    monkeypatch.setattr(R, "run_reauth", fake_run)
+    out = await L.linkedin_reauth(L.ReauthRequest(), _user())
+    assert out["logged_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_api_reauth_error_maps_status(monkeypatch):
+    async def fake_creds(account_id=None):
+        return "u", "p"
+
+    async def fake_run(u, p, **kw):
+        raise R.LinkedInReauthError(502, "login start failed")
+
+    monkeypatch.setattr(R, "resolve_linkedin_credentials", fake_creds)
+    monkeypatch.setattr(R, "run_reauth", fake_run)
+    with pytest.raises(HTTPException) as ei:
+        await L.linkedin_reauth(L.ReauthRequest(), _user())
+    assert ei.value.status_code == 502
+
+
+class _FakeSidecarClient:
+    def __init__(self, *a, **k):
+        pass
+
+    async def verify(self, code):
+        return {"logged_in": True}
+
+    async def cancel(self):
+        return {"cancelled": True}
+
+    async def status(self):
+        return {"logged_in": True}
+
+
+@pytest.mark.asyncio
+async def test_api_reauth_verify_cancel_status(monkeypatch):
+    async def _noop(*a, **k):
+        return None
+
+    monkeypatch.setattr(R, "_arm_sidecar_keepawake", _noop)
+    monkeypatch.setattr(R, "LinkedInReauthClient", _FakeSidecarClient)
+
+    out = await L.linkedin_reauth_verify(L.ReauthVerifyRequest(code="123456"), _user())
+    assert out["logged_in"] is True
+    assert (await L.linkedin_reauth_cancel(_user()))["cancelled"] is True
+    assert (await L.linkedin_reauth_status(_user()))["logged_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_api_reauth_verify_error(monkeypatch):
+    async def _noop(*a, **k):
+        return None
+
+    class _Boom(_FakeSidecarClient):
+        async def verify(self, code):
+            raise R.LinkedInReauthError(500, "sidecar down")
+
+    monkeypatch.setattr(R, "_arm_sidecar_keepawake", _noop)
+    monkeypatch.setattr(R, "LinkedInReauthClient", _Boom)
+    with pytest.raises(HTTPException) as ei:
+        await L.linkedin_reauth_verify(L.ReauthVerifyRequest(code="1"), _user())
+    assert ei.value.status_code == 500

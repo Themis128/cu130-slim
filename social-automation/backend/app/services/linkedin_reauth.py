@@ -84,7 +84,13 @@ class LinkedInReauthClient:
 # ── SMS code fetch (WiFi ADB → content://sms/inbox) ─────────────────────────
 
 _SMS_ADDR_ENV = "LINKEDIN_SMS_ADB_ADDR"
-_DEFAULT_SMS_ADDR = "192.168.1.77:5555"
+# Wireless-debugging IPs/ports drift (mDNS random port, DHCP). Env override
+# first, then the known live endpoints — first reachable wins.
+_DEFAULT_SMS_ADDRS = (
+    "100.84.31.85:5555",
+    "192.168.1.77:5555",
+    "192.168.1.235:5555",
+)
 _LI_CODE_RE = re.compile(r"verification code is (\d{6})", re.I)
 _LI_HINT_RE = re.compile(r"linkedin", re.I)
 _ROW_RE = re.compile(r"Row: \d+ address=([^,]+), date=(\d+), body=(.*)")
@@ -114,21 +120,31 @@ def _sms_codes_blocking(
 ) -> list[tuple[int, str]]:
     """Return [(epoch_ms, code)] for LinkedIn SMS, newest first."""
     from adb_shell.adb_device import AdbDeviceTcp  # lazy: optional dep
+    from adb_shell.auth.sign_cryptography import CryptographySigner
 
-    addr = os.environ.get(_SMS_ADDR_ENV, _DEFAULT_SMS_ADDR)
-    host, _, port = addr.partition(":")
-    device = AdbDeviceTcp(host, int(port or 5555))
-    device.connect(rsa_keys=[str(keys_dir / "adbkey")])
-    try:
-        out = device.shell(
-            "content query --uri content://sms/inbox "
-            "--projection address,date,body --sort \"date DESC\""
-        )
-    finally:
+    env_addr = os.environ.get(_SMS_ADDR_ENV)
+    addrs = [env_addr, *_DEFAULT_SMS_ADDRS] if env_addr else list(_DEFAULT_SMS_ADDRS)
+    signer = CryptographySigner(str(keys_dir / "adbkey"))
+    out = ""
+    for addr in addrs:
+        host, _, port = addr.partition(":")
+        device = AdbDeviceTcp(host, int(port or 5555))
         try:
-            device.close()
+            device.connect(rsa_keys=[signer])
+            out = device.shell(
+                "content query --uri content://sms/inbox "
+                "--projection address,date,body --sort \"date DESC\""
+            )
+            break
         except Exception:
-            pass
+            continue
+        finally:
+            try:
+                device.close()
+            except Exception:
+                pass
+    if not out:
+        raise LinkedInReauthError(503, "no reachable ADB endpoint for SMS fetch")
     codes: list[tuple[int, str]] = []
     for line in out.splitlines():
         m = _ROW_RE.search(line)

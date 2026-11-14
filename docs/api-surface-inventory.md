@@ -329,6 +329,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/linkedin/intel/watchlist/{watch_id}` — DELETE
 - `/api/v1/linkedin/intel/watchlist` — GET,POST
 - `/api/v1/linkedin/publish` — POST
+- `/api/v1/linkedin/reauth` — POST
+- `/api/v1/linkedin/reauth/cancel` — POST
+- `/api/v1/linkedin/reauth/status` — GET
+- `/api/v1/linkedin/reauth/verify` — POST
 - `/api/v1/linkedin/{account_id}/dm/auto-reply` — GET,PUT
 - `/api/v1/linkedin/{account_id}/dm/conversations` — GET
 - `/api/v1/linkedin/{account_id}/dm/threads/{thread_id}/send` — POST
