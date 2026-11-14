@@ -2460,3 +2460,45 @@ volumes). Recovered same-day:
   social.cloudless.gr 200, cf-db/health all true. autoheal container
   restart-loops on missing docker.sock — non-blocking (watchdog covers).
 - Remaining pulls (comfyui ~1.8GB etc.) finished by background compose up.
+
+## 2026-11-14 (pm) — Infisical KMS recovery + pg_statistic fix + NAS gap closed
+
+Follow-up to the Docker wipe recovery above:
+
+- **postgres (metabase/infisical) volume** restored from NAS
+  `vol-cu130-slim_postgres_data-20261114-0430.tar.gz` (the 0430 set —
+  intact gzip, verified). Brought back `infisical` + `metabase` DBs,
+  org/project/identity `social-api` UA all intact.
+- **Infisical KMS was corrupt** (torn-page in the live-tar backup):
+  every secrets read/write 500'd with `Unsupported state or unable to
+  authenticate data` at `decryptWithKmsKey`. Surgical fix, no rebuild:
+  `delete kms_root_config` (app regenerated ROOT key from
+  ENCRYPTION_KEY on boot) → `update projects set
+  kmsSecretManagerKeyId=null, kmsSecretManagerEncryptedDataKey=null`
+  (forces fresh project data-key) → wiped ciphertext tables
+  (`secrets_v2`, `secret_versions_v2`, `secret_blind_indexes`,
+  `internal_kms*`, `kms_keys`, `project_keys`) → re-pushed all
+  secrets: `python3 ~/home-ops/scripts/infisical-sync.py push
+  ~/cu130-slim/.env --overwrite` → **610/610 created, status shows
+  610 common / 0 value-differs**. Pre-reset pg_dump safe at
+  `D:\DevOptimizer\backups\infisical-rescue\infisical-pre-kms-reset.dump`.
+  Gotcha for next time: project data key lives in
+  `projects.kmsSecretManagerEncryptedDataKey`, NOT project_keys.
+- **pg_statistic corruption** (duplicate-key on auto-ANALYZE after the
+  v17 volume restore): fixed per postgrespro guidance —
+  `SET allow_system_table_mods=on; TRUNCATE pg_catalog.pg_statistic;`
+  then `ANALYZE`. No recurrences since.
+- **autoheal** exit-127 (docker.sock bind-mount) healed via
+  `wsl --terminate Ubuntu-24.04` + `compose up -d --force-recreate
+  autoheal` — matches the documented fsbridge fix.
+- **NAS gap closed**: the 04:30 run's scp loop died mid-transfer (5/35
+  files — omv link dropped after pre-flight check passed). All 41
+  `20261114-0430` files manually scp'd to
+  `devoptimizer-backups/nightly/` (verified 41 remote). Script patched
+  in DevOptimizer (retry×3 + ssh liveness probe + all-fail marker,
+  commit 11a4f62). pgdumpall gzip corruption fix also committed
+  (f5627a8).
+- Removed junk key `__probe_delete_me` from `.env` (leftover probe).
+- Final state: 55 containers up / 0 exited, api /health ok, 4 celery
+  nodes pong, beat firing, synigoros tasks registered, infisical
+  healthy on :8090.
