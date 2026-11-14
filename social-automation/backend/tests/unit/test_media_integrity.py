@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.user import AuditLog
-from app.services import media_integrity
+from app.services import media_integrity, r2_storage
 
 
 class _Res:
@@ -256,3 +256,43 @@ async def test_sweep_failed_alert_does_not_suppress_retry(monkeypatch):
     assert first["newly_unresolved"] == 1
     assert second["newly_unresolved"] == 1
     assert alert.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_r2_head_object_uses_s3_metadata(monkeypatch):
+    calls = []
+
+    class _Client:
+        def head_object(self, bucket, key):
+            calls.append((bucket, key))
+            return {
+                "Content-Length": "123",
+                "ETag": '"abc"',
+                "Content-Type": "video/mp4",
+                "Last-Modified": "Fri, 14 Nov 2026 00:00:00 GMT",
+            }
+
+    monkeypatch.setattr(r2_storage, "_r2_s3_client", lambda: _Client())
+    monkeypatch.setattr(r2_storage.settings, "R2_BUCKET_NAME", "media-bucket")
+
+    out = await r2_storage.head_object("team/2026/asset.mp4")
+
+    assert calls == [("media-bucket", "team/2026/asset.mp4")]
+    assert out["size"] == 123
+    assert out["etag"] == "abc"
+    assert out["content_type"] == "video/mp4"
+
+
+@pytest.mark.asyncio
+async def test_r2_head_object_preserves_zero_byte_size(monkeypatch):
+    class _Client:
+        def head_object(self, bucket, key):
+            return {"Content-Length": "0", "ETag": '"empty"'}
+
+    monkeypatch.setattr(r2_storage, "_r2_s3_client", lambda: _Client())
+    monkeypatch.setattr(r2_storage.settings, "R2_BUCKET_NAME", "media-bucket")
+
+    out = await r2_storage.head_object("team/2026/empty.mp4")
+
+    assert out["size"] == 0
+    assert out["etag"] == "empty"

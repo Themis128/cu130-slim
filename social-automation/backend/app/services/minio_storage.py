@@ -7,6 +7,7 @@ auto-created on first use if it does not exist.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -155,14 +156,14 @@ async def head_object(key: str) -> dict:
     Raises 404 when the object is absent and 502 for transport failures, so
     callers can distinguish drift from a temporarily unreachable backend.
     """
-    if not ensure_bucket():
+    if not await asyncio.to_thread(ensure_bucket):
         raise HTTPException(status_code=500, detail="MinIO is not configured or unreachable")
 
     client = _client()
     assert client is not None
 
     try:
-        headers = client.head_object(_bucket(), key) or {}
+        headers = await asyncio.to_thread(client.head_object, _bucket(), key) or {}
     except S3Error as exc:
         if exc.status == 404:
             raise HTTPException(status_code=404, detail=f"MinIO object not found: {key}") from exc
@@ -171,10 +172,12 @@ async def head_object(key: str) -> dict:
         raise HTTPException(status_code=502, detail=f"MinIO head failed: {exc}") from exc
 
     size = None
-    try:
-        size = int(headers.get("Content-Length") or headers.get("content-length") or "") or None
-    except ValueError:
-        size = None
+    raw_size = headers.get("Content-Length") or headers.get("content-length")
+    if raw_size not in (None, ""):
+        try:
+            size = int(raw_size)
+        except ValueError:
+            size = None
     return {
         "key": key,
         "size": size,

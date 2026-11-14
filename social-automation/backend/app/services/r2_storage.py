@@ -15,6 +15,7 @@ Reference:
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import quote
 
@@ -22,6 +23,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import get_settings
+from app.services.s3_sigv4 import S3Error, S3LiteClient
 
 settings = get_settings()
 
@@ -63,6 +65,22 @@ def _r2_public_url(key: str) -> str | None:
     if not public.endswith("/"):
         public += "/"
     return f"{public}{key}"
+
+
+def _r2_s3_client() -> S3LiteClient | None:
+    """Return an S3-compatible R2 client when object credentials exist."""
+    access_key = (settings.R2_ACCESS_KEY_ID or "").strip()
+    secret_key = (settings.R2_SECRET_ACCESS_KEY or "").strip()
+    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    if not all([account_id, access_key, secret_key]):
+        return None
+
+    endpoint = (settings.R2_S3_ENDPOINT or "").strip()
+    if not endpoint:
+        endpoint = f"{account_id}.r2.cloudflarestorage.com"
+    if "://" not in endpoint:
+        endpoint = f"https://{endpoint}"
+    return S3LiteClient(endpoint.rstrip("/"), access_key, secret_key, region="auto")
 
 
 async def upload_object(
@@ -161,27 +179,68 @@ async def head_object(key: str) -> dict:
     so callers can distinguish drift from a temporarily unreachable backend.
     """
     key = _validate_key(key)
+    bucket = (settings.R2_BUCKET_NAME or "").strip()
+    s3_client = _r2_s3_client()
+    if s3_client and bucket:
+        try:
+            response_headers = await asyncio.to_thread(s3_client.head_object, bucket, key) or {}
+        except S3Error as exc:
+            if exc.status == 404:
+                raise HTTPException(status_code=404, detail=f"R2 object not found: {key}") from exc
+            raise HTTPException(status_code=502, detail=f"R2 head failed ({exc.status}): {exc}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"R2 head failed: {exc}") from exc
+
+        size = None
+        raw_size = response_headers.get("Content-Length") or response_headers.get("content-length")
+        if raw_size not in (None, ""):
+            try:
+                size = int(raw_size)
+            except ValueError:
+                size = None
+        return {
+            "key": key,
+            "size": size,
+            "etag": (response_headers.get("ETag") or response_headers.get("etag") or "").strip('"'),
+            "content_type": response_headers.get("Content-Type") or response_headers.get("content-type"),
+            "last_modified": response_headers.get("Last-Modified") or response_headers.get("last-modified"),
+        }
+
     url = _r2_object_url(key)
     if not url:
         raise HTTPException(status_code=500, detail="R2 is not configured")
 
     token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    headers = {"Range": "bytes=0-0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.head(url, headers=headers, follow_redirects=True)
+        async with client.stream("GET", url, headers=headers, follow_redirects=True) as resp:
+            status = resp.status_code
+            body = b"" if status in {200, 206, 404} else await resp.aread()
+            response_headers = getattr(resp, "headers", {}) or {}
 
-    if resp.status_code == 404:
+    if status == 404:
         raise HTTPException(status_code=404, detail=f"R2 object not found: {key}")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"R2 head failed ({resp.status_code}): {resp.text[:500]}")
+    if status not in {200, 206}:
+        detail = body[:500].decode("utf-8", "replace") if isinstance(body, bytes) else str(body)[:500]
+        raise HTTPException(status_code=502, detail=f"R2 head failed ({status}): {detail}")
 
-    response_headers = getattr(resp, "headers", {}) or {}
     size = None
-    try:
-        size = int(response_headers.get("content-length") or "") or None
-    except ValueError:
-        size = None
+    content_range = response_headers.get("content-range") or ""
+    if "/" in content_range:
+        try:
+            size = int(content_range.rsplit("/", 1)[-1])
+        except ValueError:
+            size = None
+    if size is None:
+        raw_size = response_headers.get("content-length")
+        if raw_size not in (None, ""):
+            try:
+                size = int(raw_size)
+            except ValueError:
+                size = None
     return {
         "key": key,
         "size": size,

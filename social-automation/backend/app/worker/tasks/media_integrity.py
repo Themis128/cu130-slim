@@ -50,7 +50,7 @@ async def _run(*, batch_size: int, notify: bool) -> dict:
                 reports.append({"team_id": str(team.id), "error": str(exc)})
 
     try:
-        await sync_after_worker_task(["media_assets", "audit_logs"])
+        await sync_after_worker_task(["media_assets"])
     except Exception:  # noqa: BLE001 — sync is best-effort after durable writes
         logger.debug("media integrity D1 sync failed", exc_info=True)
 

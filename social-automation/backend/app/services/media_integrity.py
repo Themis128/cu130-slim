@@ -9,6 +9,7 @@ state instead of letting publishing discover it later.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import urllib.parse
@@ -33,6 +34,7 @@ settings = get_settings()
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 _CHECK_KEY = "storage_integrity"
 _BACKEND_ORDER = (StorageBackend.r2, StorageBackend.minio, StorageBackend.local)
+_PROBE_CONCURRENCY = 8
 
 
 @dataclass
@@ -336,8 +338,14 @@ async def run_integrity_sweep(
         "backend_error_assets": [],
     }
 
-    for asset in assets:
-        result = await inspect_and_repair_asset(asset, referenced=asset.id in referenced_ids)
+    semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
+
+    async def inspect(asset: MediaAsset) -> dict:
+        async with semaphore:
+            return await inspect_and_repair_asset(asset, referenced=asset.id in referenced_ids)
+
+    results = await asyncio.gather(*(inspect(asset) for asset in assets))
+    for asset, result in zip(assets, results, strict=True):
         summary["checked"] += 1
         status = result["status"]
         if status == "ok":
