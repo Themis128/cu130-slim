@@ -113,3 +113,24 @@ async def test_post_swallows_slack_failure(monkeypatch):
 
     monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", _boom)
     await TE._post({"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []})
+
+
+async def test_sweep_reauth_invalid_dedup_iso_still_escalates(monkeypatch):
+    rows = [_acc("linkedin", "li-bad", {"reauth_escalated_at": "not-a-date"}, status="expired")]
+    monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))
+    rep = await TE._sweep()
+    assert [e["platform"] for e in rep["reauth"]] == ["linkedin"]
+
+
+async def test_sweep_warn_dead_dedup_variants(monkeypatch):
+    import datetime as _dt
+
+    recent = _dt.datetime.now(_dt.UTC).isoformat()
+    rows = [
+        _acc("instagram", "ig-recent", {"reauth_escalated_at": recent}, status="expired"),   # deduped -> skip
+        _acc("tiktok", "tt-bad", {"reauth_escalated_at": "garbage"}, status="revoked"),       # ValueError -> warn
+        _acc("facebook", "fb-old", {"reauth_escalated_at": "2000-01-01T00:00:00+00:00"}, status="expired"),  # stale -> warn
+    ]
+    monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))
+    rep = await TE._sweep()
+    assert {e["account"] for e in rep["warn"]} == {"tt-bad", "fb-old"}

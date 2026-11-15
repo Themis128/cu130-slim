@@ -381,3 +381,20 @@ def test_request_log_timestamp_edges_and_task_error():
     with patch.object(wv, "run_async", _boom):
         out = wv.check_whatsapp_verification()
     assert out == {"error": "celery dead"}
+
+
+def test_needs_manual_register_skips_code_request():
+    # terminal marker -> parked, no Meta call
+    stats, calls, acct = _run({"phone_number_id": "1", "whatsapp_code_status": "needs_manual_register"})
+    assert stats["rate_limited"] == 1 and calls == []
+    assert "needs manual register" in stats["details"][0]
+
+
+def test_2388091_marks_needs_manual_register():
+    stats, calls, acct = _run(
+        {"phone_number_id": "1"},
+        req={"_status_code": 400, "error": {"code": 2388091, "error_user_msg": "not migrating"}},
+    )
+    assert stats["errors"] == 1
+    assert acct.meta_data["whatsapp_code_status"] == "needs_manual_register"
+    assert acct.meta_data["whatsapp_code_error"] == "not migrating"

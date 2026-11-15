@@ -251,3 +251,26 @@ async def test_poll_stale_pending_alerts_once(monkeypatch):
     out2 = await WT._poll()
     assert out2["changes"] == 0
     slack.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_poll_stale_pending_invalid_iso_resets(monkeypatch):
+    # pending_since holds a corrupt timestamp -> ValueError -> reset to now
+    meta = {
+        "waba_id": "w9",
+        "whatsapp_templates": {"t|en": "PENDING"},
+        "whatsapp_template_pending_since": {"t|en": "garbage"},
+    }
+    acct = _acct(meta)
+    db = _DB([acct])
+    monkeypatch.setattr(WT, "task_session", lambda: _ACM(db))
+    monkeypatch.setattr(WT, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(
+        WT,
+        "_fetch_templates",
+        AsyncMock(return_value=[{"name": "t", "language": "en", "status": "PENDING"}]),
+    )
+    out = await WT._poll()
+    assert out["templates"] == 1
+    # corrupt value was replaced by a fresh ISO timestamp
+    assert acct.meta_data["whatsapp_template_pending_since"]["t|en"] != "garbage"
