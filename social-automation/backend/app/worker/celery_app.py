@@ -96,6 +96,9 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_dmp_sync",
         "app.worker.tasks.linkedin_engagement",
         "app.worker.tasks.linkedin_conversion_ensure",
+        "app.worker.tasks.linkedin_community",
+        "app.worker.tasks.linkedin_offline_conversions",
+        "app.worker.tasks.linkedin_ads_guard",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
@@ -377,6 +380,9 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement.engage_linkedin_watchlist": {"queue": "default"},
         "app.worker.tasks.linkedin_conversion_ensure.ensure_linkedin_conversion_rules": {"queue": "default"},
+        "app.worker.tasks.linkedin_community.moderate_linkedin_community": {"queue": "default"},
+        "app.worker.tasks.linkedin_offline_conversions.sync_linkedin_offline_conversions": {"queue": "default"},
+        "app.worker.tasks.linkedin_ads_guard.guard_linkedin_ads": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -521,6 +527,24 @@ celery_app.conf.update(
         "linkedin-conversion-ensure": {
             "task": "app.worker.tasks.linkedin_conversion_ensure.ensure_linkedin_conversion_rules",
             "schedule": crontab(hour=5, minute=10),
+        },
+        # Every 2h: Company Page comment moderation — spam delete
+        # (LINKEDIN_COMMENT_HIDE gated), lead/question alerts, dedup ledger.
+        "linkedin-community-moderation": {
+            "task": "app.worker.tasks.linkedin_community.moderate_linkedin_community",
+            "schedule": crontab(minute="7", hour="*/2"),
+        },
+        # Daily: closed-loop conversions — EspoCRM Converted leads that
+        # came from LinkedIn → lead_won Conversions API events w/ value.
+        "linkedin-offline-conversions": {
+            "task": "app.worker.tasks.linkedin_offline_conversions.sync_linkedin_offline_conversions",
+            "schedule": crontab(hour=6, minute=40),
+        },
+        # Daily: ads spend guard — alert on ACTIVE campaigns not on the
+        # LINKEDIN_ADS_ALLOWED_ACTIVE allowlist (r_ads read-only lane).
+        "linkedin-ads-guard": {
+            "task": "app.worker.tasks.linkedin_ads_guard.guard_linkedin_ads",
+            "schedule": crontab(hour=8, minute=0),
         },
         # Weekly LinkedIn Ad Library watch → linkedin_ad_intel + #intel digest.
         # ~7 watches × up to 10 pages × 5s pacing — runs well inside 30 min.

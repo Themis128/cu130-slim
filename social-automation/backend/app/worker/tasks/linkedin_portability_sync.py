@@ -164,8 +164,39 @@ async def _member_dp(
     if denied:
         return {"pending-grant": "member-dp", "domains_done": len(summary["domains"])}
 
-    # Changelog — incremental via Redis cursor (latest processedAt).
+    # Diff alert — LinkedIn populates the export asynchronously; when a
+    # domain's payload first appears or materially changes, surface it
+    # instead of letting the data sit silently in analytics_events.
     r = _redis()
+    changed_domains: list[str] = []
+    if r is not None:
+        import hashlib
+
+        for domain, info in summary["domains"].items():
+            if "elements" not in info:
+                continue
+            digest = hashlib.sha256(
+                json.dumps(info["elements"], sort_keys=True, default=str).encode()
+            ).hexdigest()[:16]
+            key = f"linkedin:dma:hash:{domain}"
+            prev = r.get(key)
+            if prev is None:
+                r.set(key, digest)  # baseline — first sighting is not an alert
+            elif prev != digest:
+                r.set(key, digest)
+                changed_domains.append(domain)
+        if changed_domains:
+            try:
+                from app.services.slack_notifications import send_telegram_alert
+
+                await send_telegram_alert(
+                    "ops",
+                    "LinkedIn Member DP export changed: " + ", ".join(changed_domains[:10]),
+                )
+            except Exception:  # noqa: BLE001 — alerting is best-effort
+                logger.debug("member-dp diff alert failed", exc_info=True)
+
+    # Changelog — incremental via Redis cursor (latest processedAt).
     cursor = r.get(CHANGELOG_CURSOR_KEY) if r else None
     cl = await lp.member_changelog(client, token, start_time=cursor, count=50)
     changelog_payload: dict[str, Any] = {"cursor_in": cursor}

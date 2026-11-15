@@ -25,6 +25,13 @@ Everything below is live on the granted scope set (verified 2026-11-15 on app
 | Lead form question map | `linkedin_advanced.get_lead_form` + `lead_form_question_map` | resolves questionId→email/name |
 | Lead routing (shared) | `linkedin_lead_boost.route_lead_response()` | `LINKEDIN_ADVANCED=1` |
 | Ops endpoints | `/api/v1/linkedin/feed/{posts,metadata,comments,react,comment}` | admin JWT |
+| Org comment moderation | `app/services/linkedin_community.py` + `linkedin_community` task | beat `linkedin-community-moderation` every 2h |
+| Closed-loop won conversions | `linkedin_offline_conversions` task | beat daily 06:40 |
+| Org-actor feed engagement | `linkedin_engagement` org pass | `LINKEDIN_ENGAGE_ORG_MAX_REACTIONS_DAY` (3) |
+| Ads spend guard | `linkedin_ads_guard` task | beat daily 08:00, `LINKEDIN_ADS_ALLOWED_ACTIVE` |
+| Org admin ACL | `app/services/linkedin_admin.py` (`list/set_role/remove_role`) | `rw_organization_admin` |
+| LinkedIn Events | `app/services/linkedin_events.py` (`create_org_event`/`post_org_event`/`list_org_events`) | `rw_events` |
+| Member DP diff alerts | `linkedin_portability_sync._member_dp` | Redis `linkedin:dma:hash:*` |
 | CLI | `backend/scripts/linkedin_feed_tool.py` | run in backend container |
 
 ### Lead Sync webhook contract (verified vs Microsoft Learn 2026-11-15)
@@ -52,9 +59,52 @@ Everything below is live on the granted scope set (verified 2026-11-15 on app
 - `lead_created` (LEAD) — Lead Sync webhook + poller
 - `contact_created`, `consultation_booked` (LEAD) — cloudless.gr site fires
 - `signup` (SIGNUP), `purchase` (PURCHASE) — cloudless.gr site fires
+- `lead_won` (CUSTOM) — `linkedin_offline_conversions` daily beat: EspoCRM
+  leads in Converted/Won status that carry a LinkedIn lead-form response
+  URN in their description → `stream_conversion` with `conversionValue` +
+  currency. Dedup = sha256(email|responseUrn) in `analytics_events`
+  (`event_type=linkedin_offline_conversion`). Rule env:
+  `LINKEDIN_CONVERSION_RULE_WON`.
 
-Rule URNs resolve env → `social_secrets` (same key name). Missing rules are
-auto-created daily by `ensure_linkedin_conversion_rules` and persisted back.
+## Community moderation (`linkedin_community`)
+
+Scans recent Company Page posts' comments (`r_organization_social_feed`),
+classifies spam|lead|question|praise|other. Spam deletes are gated by
+`LINKEDIN_COMMENT_HIDE=1` (default dry-run); org's own comments are never
+targeted. Lead/question comments → Telegram ops alert. Dedup ledger =
+`analytics_events` `event_type=linkedin_community_comment`. Delete uses
+`DELETE /rest/socialActions/{postUrn}/comments/{commentId}?actor={orgUrn}`.
+
+## Org admin ACL (`linkedin_admin`)
+
+`GET/PUT/DELETE /rest/organizationAcls` — `list_acls()`,
+`set_role(person_urn, role, state)` (state REQUESTED = invite pending,
+APPROVED = active), `remove_role()`. Roles: ADMINISTRATOR,
+DIRECT_SPONSORED_CONTENT_POSTER, RECRUITING_POSTER,
+LEAD_CAPTURE_ADMINISTRATOR, LEAD_GEN_FORMS_MANAGER, ANALYST, CURATOR,
+CONTENT_ADMINISTRATOR. CLI: `linkedin_feed_tool.py admins --action
+list|set|remove --person urn:li:person:… --role … --state REQUESTED`.
+
+## Events (`linkedin_events`)
+
+`create_org_event(name, starts_at_ms, ends_at_ms, event_url=…)` then
+`post_org_event(event_id, commentary=…)` — the Posts API reference is what
+publishes the event (draft otherwise). CLI: `linkedin_feed_tool.py events
+--action list|create|post`. Registrants route via Lead Sync (EVENT owner
+type) into EspoCRM + `lead_created` conversion.
+
+## Member analytics — verified live 2026-11-15
+
+- `memberCreatorPostAnalytics?q=entity` REQUIRES the Rest.li complex key
+  `entity=(share:urn%3Ali%3Ashare%3A…)` / `(ugc:…)` — a bare URN 400s.
+  Fixed in `analytics_sync._fetch_member_post_analytics`. IMPRESSION does
+  NOT support `aggregation=DAILY` (400) — REACTION does.
+- `memberFollowersCount?q=me` works → member_followers events (live: 857).
+- `/rest/posts?author=urn:li:person:…` 400s "Member permissions must be
+  used" — the member token lacks `r_member_social` (read); member post
+  URNs come from `post_targets.platform_post_id` instead.
+- Org posts must use the ORG token; `linkedin_feed.list_posts` now picks
+  member vs org ctx by author URN kind.
 
 ## Engagement safety posture
 
@@ -89,6 +139,8 @@ or worker logs `linkedin-engage:` stats line.
 ## Not covered (external gates)
 
 - `rw_dmp_segments` Matched Audiences — `linkedin_dmp_sync` staged, product grant pending
-- `r_dma_portability_self_serve` Member DP — portal watcher driving
+- Member DP granted (app 265100977, `LINKEDIN_MEMBER_DP_TOKEN` in secret store);
+  `memberSnapshotData` domains return 404 until LinkedIn populates the export —
+  diff alerts fire automatically when data lands
 - Lead Sync webhook registration itself is a Campaign Manager UI step
   (Lead Sync → Connect → webhook URL); polling fallback covers the gap
