@@ -123,16 +123,15 @@ async def list_lead_notifications(owner_urn: str, lead_type: str = "SPONSORED") 
         return {"notifications": [], "skip": "disabled-or-no-account"}
     token, _ = ctx
     owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
-    owner = quote(owner_urn, safe="")
+    # Rest.li union params must be pre-encoded in the URL — httpx params=
+    # would double-encode the %XX sequences (verified live 2026-11-15).
+    enc = quote(owner_urn, safe="")
+    url = (
+        f"{REST}/leadNotifications?q=criteria"
+        f"&owner=(value:({owner_key}:{enc}))&leadType=(leadType:{lead_type})"
+    )
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
-        r = await c.get(
-            f"{REST}/leadNotifications",
-            params={
-                "q": "criteria",
-                "owner": f"(value:({owner_key}:{owner}))",
-                "leadType": f"(leadType:{lead_type})",
-            },
-        )
+        r = await c.get(url)
     if r.status_code != 200:
         return {"notifications": [], "status": r.status_code}
     return {"notifications": r.json().get("elements") or [], "status": 200}
