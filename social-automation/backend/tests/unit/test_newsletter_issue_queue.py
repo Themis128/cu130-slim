@@ -321,3 +321,127 @@ async def test_dispatch_lock_redis_down_proceeds(monkeypatch):
     token = await q.acquire_dispatch_lock()
     assert token is not None  # best-effort sentinel
     await q.release_dispatch_lock(token)  # must not raise
+
+
+# ── remaining queue branches ──────────────────────────────────────────
+
+
+def test_slugify_explicit_blank_falls_through():
+    # An explicit slug that sanitizes to nothing falls back to the title.
+    assert q.slugify_issue("Hello World", explicit="!!!") == "hello-world"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_integrity_error_reraises_when_no_existing():
+    db = _FakeDB()
+
+    async def _commit_fail():
+        db.commits += 1
+        raise IntegrityError("dup", None, None)
+
+    db.commit = _commit_fail  # type: ignore[method-assign]
+    db._results = [_FakeResult(obj=None)]
+    with pytest.raises(IntegrityError):
+        await q.enqueue_issue(db, title="Hello", html_body="<p>x</p>")
+
+
+@pytest.mark.asyncio
+async def test_get_issue_and_list_issues():
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHED)
+    db = _FakeDB(results=[_FakeResult(obj=issue), _FakeResult(rows=[issue])])
+    assert await q.get_issue(db, issue.id) is issue
+    out = await q.list_issues(db, status="published", limit=10)
+    assert out == [issue]
+
+
+@pytest.mark.asyncio
+async def test_record_publish_result_missing_and_unpublished():
+    db = _FakeDB(results=[_FakeResult(obj=None)])
+    assert await q.record_publish_result(db, uuid.uuid4(), {}, "sidecar") is None
+
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHING)
+    db2 = _FakeDB(results=[_FakeResult(obj=issue)])
+    out = await q.record_publish_result(db2, issue.id, {}, "sidecar")
+    assert out.status == NewsletterIssueStatus.FAILED
+    assert "without published" in out.last_error
+
+
+@pytest.mark.asyncio
+async def test_record_failure_missing_issue():
+    db = _FakeDB(results=[_FakeResult(obj=None)])
+    assert await q.record_publish_failure(db, uuid.uuid4(), "x") is None
+
+
+@pytest.mark.asyncio
+async def test_mark_due_now_only_when_queued():
+    db = _FakeDB()
+    published = _issue(status=NewsletterIssueStatus.PUBLISHED)
+    await q.mark_due_now(db, published)
+    assert db.commits == 0
+    queued = _issue(status=NewsletterIssueStatus.QUEUED)
+    await q.mark_due_now(db, queued)
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_verify_no_article_url():
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHED, article_url=None)
+    out = await q.verify_issue_article(_FakeDB(), issue)
+    assert out["verified"] is False and "no article_url" in out["detail"]
+
+
+@pytest.mark.asyncio
+async def test_list_issues_needing_verify():
+    rows = [_issue(status=NewsletterIssueStatus.PUBLISHED)]
+    db = _FakeDB(results=[_FakeResult(rows=rows)])
+    out = await q.list_issues_needing_verify(db, limit=5)
+    assert out == rows
+
+
+@pytest.mark.asyncio
+async def test_release_lock_no_token_and_error(monkeypatch):
+    await q.release_dispatch_lock(None)  # early return, no redis
+
+    def _boom(*a, **k):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr("redis.asyncio.from_url", _boom)
+    await q.release_dispatch_lock("tok")  # exception swallowed
+
+
+# ── publisher: publish_stored_issue ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_publish_stored_issue_rendered_and_explicit_cover(monkeypatch):
+    import app.services.newsletter_cover as cover
+    import app.services.newsletter_publisher as pub
+
+    seen = {}
+
+    async def fake_fallback(**kw):
+        seen.update(kw)
+        return {"published": True}, "sidecar", []
+
+    monkeypatch.setattr(pub, "publish_with_fallback", fake_fallback)
+    monkeypatch.setattr(cover, "render_newsletter_cover", lambda *a, **k: b"PNG")
+
+    issue = _issue(title="Stored", html_body="<p>x</p>")
+    issue.cover_base64 = None
+    issue.render_cover = True
+    issue.newsletter_name = "The Cloudless Build Log"
+    issue.seo_title = None
+    issue.seo_description = "desc"
+    issue.post_description = "post"
+    issue.dry_run = False
+
+    result, via, warnings = await pub.publish_stored_issue(issue)
+    assert via == "sidecar" and result["published"] is True and warnings == []
+    assert seen["title"] == "Stored" and seen["seo_title"] == "Stored"
+    assert seen["cover_base64"]  # rendered cover was passed through
+
+    issue2 = _issue(title="NoRender")
+    issue2.cover_base64 = "QUJD"
+    issue2.render_cover = False
+    await pub.publish_stored_issue(issue2)
+    assert seen["cover_base64"] == "QUJD"
