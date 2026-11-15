@@ -2688,3 +2688,26 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 - [ ] watch: first live runs of the 3 new beats after deploy —
   community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
   offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
+
+## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
+
+- [x] Member DP changelog retention covered — LinkedIn keeps
+  `memberChangeLogs` for **28 days only**; the daily 09:30
+  `linkedin-portability-sync` beat + persisted cursor already captures
+  every event inside the window. No cadence change needed.
+- [x] DP token TTL confirmed — OAuth `expires_in=31535999` (~1yr, no
+  refresh token) on app 265100977. Re-auth needed ~Nov 2026 via the same
+  OAuth lane (sidecar session + SMS checkpoint, proven 2026-11-15).
+- [ ] decide: `MEMBER_DOMAINS` is a hardcoded 15-domain subset; LinkedIn
+  now exposes ~66 snapshot domains (new: `ADS_LAN`, `ACCOUNT_HISTORY`,
+  `INSTANT_REPOSTS`, `LEARNING_*`, `VOLUNTEERING_EXPERIENCES`). Adding
+  PII-bearing domains needs the retention decision first (per the
+  task's privacy note) — and all domains currently return LinkedIn 404
+  "no data" until their export pipeline populates, so expansion has zero
+  value today. Revisit when snapshot data flows.
+- [ ] watch: Matched Audiences (`rw_dmp_segments`) — private API, requires
+  Advertising API approval FIRST (already have `r_ads` live) then a
+  separate Matched Audiences application; LinkedIn responds within ~60
+  days of the interest form. Support case already filed on app 264925843
+  (linkedin-portal-gates-ops). Portal probe currently 429-blocked by the
+  LinkedIn cooldown — recheck case status after cooldown ends.
