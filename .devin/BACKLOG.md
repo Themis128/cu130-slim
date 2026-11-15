@@ -2586,3 +2586,36 @@ Follow-up to the Docker wipe recovery above:
   configs every ~60s (overwrites ad-hoc `docker model configure` on
   managed models - edit compose Cmd + dmr.py _BEST_PRACTICE_CONFIGS
   together for durable changes).
+
+## 2026-11-15 — LinkedIn scope-infra build (PR #1942, auto-merge armed)
+
+- **New lanes** (cu130-slim `feat/linkedin-scope-infra`):
+  `linkedin_feed.py` CM-API service (posts/metadata/comments/reactions,
+  member+org actors, writes gated by LINKEDIN_FEED_WRITES), engagement
+  worker `linkedin-engage` */45m (watchlist LINKEDIN_ENGAGE_AUTHORS,
+  caps 10 react/3 comment/day, 72h freshness, analytics_events dedup),
+  Conversions API rule lifecycle (list/create/resolve env→social_secrets,
+  value+currency on stream_conversion), `linkedin-conversion-ensure`
+  daily beat auto-provisioning rules, `/webhooks/linkedin-conversion`
+  ingest (X-Conversion-Key), `/webhooks/linkedin-lead-sync` Lead Sync
+  push receiver → shared `route_lead_response` (EspoCRM + lead_created),
+  `r_1st_connections_size` via networkSizes FIRST_DEGREE, ops CLI
+  `scripts/linkedin_feed_tool.py`, 17 unit tests, route inventory 544.
+- **cloudless.gr PR #2429** (auto-merge): server-side fires via SocialAuto
+  ingest — contact→contact_created, subscribe→signup, Stripe paid→purchase.
+  Needs `SOCIALAUTO_CONVERSION_KEY` wrangler secret = SocialAuto
+  `LINKEDIN_CONVERSION_INGEST_KEY` (both already generated in .env).
+- **Env vars set** in .env (WSL+Windows): LINKEDIN_CONVERSION_INGEST_KEY,
+  LINKEDIN_LEAD_SYNC_KEY, LINKEDIN_FEED_WRITES=1,
+  LINKEDIN_ENGAGE_AUTHORS=urn:li:organization:108614163. Compose now
+  passes them (x-worker-env + social-api) — live only after #1942 merges
+  + containers recreate.
+- **Writes posture**: FEED_WRITES=1 but COMMENT_TEMPLATES empty →
+  reactions only until templates are set deliberately.
+- **fsbridge flap #3 today**: 39/40 hashed mounts empty, wsl.exe interop
+  timed out; `wsl.exe -t docker-desktop` + full compose force-recreate
+  recovered all containers (0 exited). Durable fix still full
+  `wsl --shutdown`.
+- **Pending external**: Lead Sync webhook URL registration in Campaign
+  Manager (polling fallback covers), Member DP + Matched Audiences grants,
+  `SOCIALAUTO_CONVERSION_KEY` wrangler secret on cloudless.gr.
