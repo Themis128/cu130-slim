@@ -2503,36 +2503,38 @@ Follow-up to the Docker wipe recovery above:
   nodes pong, beat firing, synigoros tasks registered, infisical
   healthy on :8090.
 
-## 2026-11-15 - Media integrity guard + TikTok invoice video (Devin)
+## 2026-11-14 — SocialAuto media storage integrity guard
 
-- **Media integrity platform fix**: branch `feat/media-integrity-guard`,
-  PR #1921 (open, auto-merge armed). Root cause: R2 bucket
-  `cloudless-pipeline-assets` was recreated 2026-11-03 orphaning ~635
-  media_assets rows; `/upload/complete` also created rows without
-  verifying the object existed and always labeled backend=r2. Fix:
-  object-presence verification on complete, correct backend persistence,
-  scheduled `media_integrity` sweep (6h, default queue) that classifies
-  healthy/repaired/quarantined/backend_error and writes audit evidence.
-  Live dry sweep: 893 checked, 254 healthy, 635 missing/quarantined, 0
-  backend errors. NOTE: PR `test` + `integration-test` checks FAILED on
-  CI (required validate/secret-scan green) - investigate before merge
-  if auto-merge blocks.
-- **TikTok video published via SocialAuto**: post
-  e9710b32-e426-4996-86fc-4780d56ae19a, media
-  ac4a404d-14fd-4338-9b0a-108fb7545dd4 (tiktok-invoice-60.mp4, 720x1280
-  9:16, 60.04s, h264/aac, quality gate 80/80). Account ab439e1e
-  (@cloudless.gr profile). TikTok result: publish_mode MEDIA_UPLOAD,
-  status SEND_TO_USER_INBOX, publish_id
-  v_inbox_file~v2.7708188531985975318 - video is in the creator TikTok
-  app inbox awaiting manual finish, NOT a direct post. dcda73fb row is
-  status=expired (token invalid, 401); ab439e1e/7c33ed15 both map to
-  @cloudless.gr with active tokens (dupe rows - cleanup candidate).
-- **Render env**: container ffmpeg 7.1.5 lacks the sawtooth filter so
-  `scripts/audio_bed.py` fails (exit 8) - video was rendered on Windows
-  host via imageio-ffmpeg 9.0.2 + sine-based bed instead. Fix
-  `audio_bed.py` pad preset to sine or document the ffmpeg dep.
-- **Stack**: fsbridge kept bouncing (mass exit 127/255, compose-healer
-  converge loops). Publishing was done via rescue containers from the
-  baked image while bind-mounts were poisoned; stack recovered on its
-  own afterwards - all 4 celery nodes healthy, api /health ok, lock
-  released, rescue containers removed.
+Root cause verified live:
+- Cloudflare R2 bucket `cloudless-pipeline-assets` was recreated on
+  2026-11-03. Existing `media_assets` rows still pointed to the old bucket,
+  so 634/882 R2 references became orphaned (41/50 videos unreachable).
+- `/api/v1/media/upload/complete` previously wrote `r2` rows without proving
+  the object existed and could mislabel MinIO fallback uploads as R2.
+- No recurring worker audited storage drift, so publishing discovered stale
+  references only at runtime.
+
+Implemented on `feat/media-integrity-guard`:
+- `/upload/prepare` returns the actual selected backend;
+  `/upload/complete` verifies the uploaded object (explicit backend honored,
+  legacy discovery preserved), records verified backend/size/public URL,
+  and rejects missing objects before creating `media_assets`.
+- `app/services/media_integrity.py` + Celery task
+  `run_media_integrity_sweep` classify assets as ok/repaired/missing/
+  size_mismatch/backend_error, quarantine unresolved missing objects, and
+  write auditable evidence; no rows/objects are deleted.
+- Celery beat runs the bounded sweep every 6h on the default queue; workforce
+  audit has goal/guardrails/fallback/evidence/escalation queries.
+- Tests: 161 focused media/storage/Slack tests + 248 adjacent tests passed
+  locally; ruff/mypy clean. Live deploy/sweep remains pending while app
+  containers are healed from bind-mount exit-127.
+
+Remaining / watch:
+- [ ] Recreate affected social-api/worker/beat containers after deploy-lock
+  check (exit-127 stale bind mounts), restart media/default workers + beat,
+  run one live bounded sweep, inspect `audit_logs` and quarantined metadata.
+- [ ] Historical R2 objects lost in the old bucket cannot be recovered by the
+  sweep; rows remain quarantined for human review/re-upload.
+- [ ] After live verification, reassess TikTok candidate
+  `day18-stop-starting-from-scratch.mp4` / asset `d8b7b589…` and publish
+  only if the object verifies and account validation remains healthy.

@@ -7,6 +7,7 @@ auto-created on first use if it does not exist.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -149,22 +150,49 @@ async def delete_object(key: str) -> bool:
         raise HTTPException(status_code=502, detail=f"MinIO delete failed: {exc}") from exc
 
 
-async def object_exists(key: str) -> bool:
-    """Check if an object exists in MinIO."""
-    if not ensure_bucket():
-        return False
+async def head_object(key: str) -> dict:
+    """Return normalized object metadata from MinIO.
+
+    Raises 404 when the object is absent and 502 for transport failures, so
+    callers can distinguish drift from a temporarily unreachable backend.
+    """
+    if not await asyncio.to_thread(ensure_bucket):
+        raise HTTPException(status_code=500, detail="MinIO is not configured or unreachable")
 
     client = _client()
     assert client is not None
 
     try:
-        client.head_object(_bucket(), key)
-        return True
+        headers = await asyncio.to_thread(client.head_object, _bucket(), key) or {}
     except S3Error as exc:
         if exc.status == 404:
-            return False
-        return False
-    except Exception:
+            raise HTTPException(status_code=404, detail=f"MinIO object not found: {key}") from exc
+        raise HTTPException(status_code=502, detail=f"MinIO head failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"MinIO head failed: {exc}") from exc
+
+    size = None
+    raw_size = headers.get("Content-Length") or headers.get("content-length")
+    if raw_size not in (None, ""):
+        try:
+            size = int(raw_size)
+        except ValueError:
+            size = None
+    return {
+        "key": key,
+        "size": size,
+        "etag": (headers.get("ETag") or headers.get("etag") or "").strip('"'),
+        "content_type": headers.get("Content-Type") or headers.get("content-type"),
+        "last_modified": headers.get("Last-Modified") or headers.get("last-modified"),
+    }
+
+
+async def object_exists(key: str) -> bool:
+    """Check if an object exists in MinIO."""
+    try:
+        await head_object(key)
+        return True
+    except HTTPException:
         return False
 
 
