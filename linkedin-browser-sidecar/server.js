@@ -3828,6 +3828,29 @@ app.post("/company/:vanity/post/image", handleCompanyPostImage);
 // `dry_run: true` fills everything and stops before publishing — used by the
 // backend to validate the flow end-to-end without spamming subscribers.
 
+// LinkedIn's cover uploader opens a media-editor modal (preview +
+// Edit/Delete/Next) that keeps intercepting pointer events until
+// confirmed. Click its primary/confirm action until the dialog closes.
+async function confirmMediaEditorModal() {
+  for (let i = 0; i < 4; i++) {
+    const modal = page
+      .locator("#artdeco-modal-outlet [role='dialog'], #artdeco-modal-outlet")
+      .last();
+    if (!(await modal.isVisible().catch(() => false))) return;
+    const btn = modal
+      .locator(
+        'button:has-text("Next"), button:has-text("Save"), button:has-text("Apply"), ' +
+          'button:has-text("Done"), button:has-text("Confirm"), ' +
+          'button[aria-label*="save" i], button[aria-label*="apply" i], ' +
+          'button[aria-label*="done" i], button.artdeco-button--primary',
+      )
+      .last();
+    if ((await btn.count()) === 0) return;
+    await btn.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+  }
+}
+
 async function handleNewsletterPublish(body) {
   const {
     title,
@@ -3995,6 +4018,7 @@ async function handleNewsletterPublish(body) {
         ]);
         await chooser.setFiles(coverTmp);
         await page.waitForTimeout(4000);
+        await confirmMediaEditorModal();
         step("cover-uploaded");
       } catch (_) {
         // Fallback: a hidden input[type=file] may exist after the click.
@@ -4005,6 +4029,7 @@ async function handleNewsletterPublish(body) {
         if (fi) {
           await fi.setInputFiles(coverTmp);
           await page.waitForTimeout(4000);
+          await confirmMediaEditorModal();
           step("cover-uploaded");
         } else {
           agentLog("H-NL", "newsletter/publish", "cover upload control not found", {});
