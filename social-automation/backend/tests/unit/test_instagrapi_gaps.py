@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: instagrapi_client story uploads + retry-exhaust paths."""
 
 from __future__ import annotations

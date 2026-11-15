@@ -1,9 +1,9 @@
 """Unit tests for the Slack ops journal — classification, report, channels."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 from app.services.slack_ops_journal import (
     _channels,
@@ -107,7 +107,6 @@ def test_enabled_flag(monkeypatch):
 
 
 def test_slack_api_success_and_failure(monkeypatch):
-    import io
     import json as _json
     import urllib.request
 

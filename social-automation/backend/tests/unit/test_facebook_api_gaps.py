@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: facebook_api reel/multi-photo/insights branch paths."""
 
 from __future__ import annotations

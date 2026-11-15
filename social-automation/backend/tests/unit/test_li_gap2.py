@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: linkedin_ads error paths, linkedin_events error paths,
 linkedin_ad_library watch-run edge paths."""
 
@@ -7,7 +6,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ── linkedin_ads ─────────────────────────────────────────────────────────
 
@@ -285,7 +283,7 @@ async def test_run_watch_miss_below_threshold(monkeypatch):
     monkeypatch.setattr(AL, "_token", AsyncMock(return_value="tok"))
     monkeypatch.setattr(AL, "search_all", fake_search)
 
-    out = await AL.run_watch(db)
+    await AL.run_watch(db)
     assert row.miss_count == 1 and row.status == "active"
     assert seen.miss_count == 5 and seen.status == "active"
 

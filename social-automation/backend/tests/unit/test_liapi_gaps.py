@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: linkedin_api member groups, v2 fallbacks, comment/delete ids."""
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
 from app.services import linkedin_api as api

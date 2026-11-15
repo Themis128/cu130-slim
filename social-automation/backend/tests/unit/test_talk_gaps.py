@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: nextcloud_talk rooms/messages/files/ping paths."""
 
 from __future__ import annotations

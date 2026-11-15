@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage: threads_reauth task — script-missing, timeout, rc branches, _alert."""
 
 from __future__ import annotations

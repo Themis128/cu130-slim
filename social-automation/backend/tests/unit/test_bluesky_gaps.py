@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Coverage gaps: bluesky_api refresh/session/app-password paths."""
 
 from __future__ import annotations

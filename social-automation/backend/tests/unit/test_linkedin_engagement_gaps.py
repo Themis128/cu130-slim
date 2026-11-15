@@ -1,16 +1,14 @@
-# -*- coding: utf-8 -*-
 """Coverage: linkedin_engagement helpers + _run branch paths."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.worker.tasks import linkedin_engagement as ENG
-
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
