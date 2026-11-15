@@ -393,10 +393,7 @@ async def test_score_winners_write_boost_metadata(monkeypatch):
     commenter row is not re-added."""
     acc = SimpleNamespace(id="acc1", access_token_enc=b"x", team_id="t")
     n = 12
-    tgts = [
-        (SimpleNamespace(platform_post_id=f"urn:{i}"), SimpleNamespace(id=f"p{i}"))
-        for i in range(n)
-    ]
+    tgts = [(SimpleNamespace(platform_post_id=f"urn:{i}"), SimpleNamespace(id=f"p{i}")) for i in range(n)]
     scores = {f"urn:{i}": 1.0 for i in range(10)}
     scores.update({"urn:10": 100.0, "urn:11": 101.0})
     exec_results = [

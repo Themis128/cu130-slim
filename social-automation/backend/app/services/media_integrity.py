@@ -311,14 +311,7 @@ async def run_integrity_sweep(
     referenced_ids = {mid for media_ids, _music_id in post_rows for mid in (media_ids or [])}
     referenced_ids.update(music_id for _media_ids, music_id in post_rows if music_id)
 
-    assets = (
-        await db.execute(
-            select(MediaAsset)
-            .where(MediaAsset.team_id == team_id)
-            .order_by(MediaAsset.updated_at.asc())
-            .limit(batch_size)
-        )
-    ).scalars().all()
+    assets = (await db.execute(select(MediaAsset).where(MediaAsset.team_id == team_id).order_by(MediaAsset.updated_at.asc()).limit(batch_size))).scalars().all()
 
     summary: dict[str, Any] = {
         "team_id": str(team_id),
@@ -395,10 +388,7 @@ async def run_integrity_sweep(
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
-            sample = ", ".join(
-                f"{item['id'][:8]}:{item['status']}:{(item.get('filename') or 'unnamed')[:40]}"
-                for item in summary["unresolved_assets"][:5]
-            )
+            sample = ", ".join(f"{item['id'][:8]}:{item['status']}:{(item.get('filename') or 'unnamed')[:40]}" for item in summary["unresolved_assets"][:5])
             alert_sent = await post_alert_to_slack(
                 "Media integrity sweep found unresolved storage drift: "
                 f"{summary['missing']} missing, {summary['size_mismatch']} size-mismatched "

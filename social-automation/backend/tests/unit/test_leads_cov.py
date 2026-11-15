@@ -173,13 +173,15 @@ async def test_audit_success_creates_lead_and_row(monkeypatch):
     monkeypatch.setattr(
         sa,
         "run_site_audit",
-        AsyncMock(return_value={
-            "score": 82,
-            "url": "https://x.gr",
-            "findings": [{"k": "v"}],
-            "recommended_services": ["seo"],
-            "action_plan": {"step": 1},
-        }),
+        AsyncMock(
+            return_value={
+                "score": 82,
+                "url": "https://x.gr",
+                "findings": [{"k": "v"}],
+                "recommended_services": ["seo"],
+                "action_plan": {"step": 1},
+            }
+        ),
     )
     lead = SimpleNamespace(id=_uuid.uuid4())
     monkeypatch.setattr(L, "create_lead", AsyncMock(return_value=lead))

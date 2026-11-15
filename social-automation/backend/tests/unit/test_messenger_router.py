@@ -1943,9 +1943,7 @@ class TestCoverageTails3:
         a = _fb_user()
         u = _user()
         m = TeamMember(team_id=a.team_id, user_id=u.id)
-        out = await messenger._get_facebook_user_account(
-            FakeDB(accounts=[a], memberships=[m]), a.id, u
-        )
+        out = await messenger._get_facebook_user_account(FakeDB(accounts=[a], memberships=[m]), a.id, u)
         assert out is a
 
     async def test_personal_auto_reply_disabled_skips_plan_check(self):

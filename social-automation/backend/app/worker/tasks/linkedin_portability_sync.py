@@ -250,9 +250,7 @@ async def _run() -> dict[str, Any]:
             # Member DP — member's own data, person token only. A dedicated
             # LINKEDIN_MEMBER_DP_TOKEN secret (separate app grant) satisfies
             # the scope gate even when the account token lacks the scope.
-            member_dp_ready = bool(person) and (
-                _has_scope(person, MEMBER_SCOPE) or await _has_member_dp_secret()
-            )
+            member_dp_ready = bool(person) and (_has_scope(person, MEMBER_SCOPE) or await _has_member_dp_secret())
             if member_dp_ready:
                 try:
                     result["member_dp"] = await _member_dp(db, person, client)

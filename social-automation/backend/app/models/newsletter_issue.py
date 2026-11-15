@@ -56,9 +56,7 @@ class NewsletterIssue(Base):
     issue_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # When the dispatch sweep may claim this row (UTC).
-    scheduled_for: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     dry_run: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Explicit cover (base64 PNG). NULL + render_cover → render at dispatch.
     cover_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -78,6 +76,4 @@ class NewsletterIssue(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)

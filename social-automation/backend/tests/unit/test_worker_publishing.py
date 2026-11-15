@@ -1581,11 +1581,7 @@ def test_apply_capacity_deferral_counts_existing_state(monkeypatch):
     now = datetime.now(UTC)
     monkeypatch.setattr(W, "flag_modified", lambda *a, **kw: None)
     aid = str(item.social_account_id)
-    post.platform_specific = {
-        W._DEFER_STATE_KEY: {
-            aid: {"queue_id": str(item.id), "count": 1, "first_at": now.isoformat()}
-        }
-    }
+    post.platform_specific = {W._DEFER_STATE_KEY: {aid: {"queue_id": str(item.id), "count": 1, "first_at": now.isoformat()}}}
     r = W._apply_capacity_deferral(
         item=item,
         target=target,
@@ -1631,9 +1627,7 @@ async def test_notify_publish_failure_telegram_raises_swallowed(monkeypatch):
     monkeypatch.setattr(W2, "publish_failure_buttons", lambda qid: [])
     import app.services.slack_notifications as sn
 
-    monkeypatch.setattr(
-        sn, "send_telegram_alert", AsyncMock(side_effect=RuntimeError("tg down"))
-    )
+    monkeypatch.setattr(sn, "send_telegram_alert", AsyncMock(side_effect=RuntimeError("tg down")))
     await W2._notify_publish_failure(
         post=_post(),
         account=_acct(platform="tiktok"),
@@ -1698,9 +1692,7 @@ async def test_pq_exception_refreshes_item_when_supported(monkeypatch):
     )
     db.refresh = AsyncMock()
     _patch_db(monkeypatch, db)
-    monkeypatch.setattr(
-        W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("socket dead"))
-    )
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("socket dead")))
     await W._process_publish_queue_async()
     db.refresh.assert_awaited_once_with(item)
     assert item.status == QueueStatus.PENDING

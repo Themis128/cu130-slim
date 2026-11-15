@@ -417,9 +417,7 @@ async def enqueue_newsletter_issue(
         render_cover=body.render_cover,
     )
 
-    due = body.dispatch_now or (scheduled_for is None) or (
-        scheduled_for is not None and scheduled_for <= datetime.now(UTC)
-    )
+    due = body.dispatch_now or (scheduled_for is None) or (scheduled_for is not None and scheduled_for <= datetime.now(UTC))
     if created and issue.status.value == "queued" and due:
         try:
             from app.worker.tasks.newsletter_issues import dispatch_newsletter_issues
