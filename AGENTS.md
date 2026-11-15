@@ -369,7 +369,7 @@ TikTok Login Kit has several non-standard OAuth requirements that differ from ot
 - **Comma-separated scopes**: TikTok requires scopes as a comma-separated string (e.g. `user.info.basic,video.publish,video.upload`), not space-separated like other OAuth providers. SocialAuto passes scopes via `extras_params["scope"]` with `",".join(scopes)` and sets the library `scope` to `None`.
 - **HTTPS-only redirect URIs**: `TIKTOK_REDIRECT_URI` must use `https://`. The production callback `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` is routed through the Cloudflare named tunnel to the local `social-api` container.
 - **Env vars**: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
-- **Connected account**: `cloudless.gr` TikTok account (sandbox: `cloudless-dev`, target user `user3113682023385`).
+- **Connected account**: `Cloudless | Managed Cloud` TikTok account — `social_accounts` row `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88`, open_id `-0008cAvjhaTErZRUzxvdAoPYUhtsa38lg-5` (confirmed canonical 2026-11-15: it is the account used for today's posts). The old `cloudless.gr` row (`dcda73fb`, different open_id `…lqpsmrEy`, expired 2026-11-04) and a duplicate Managed Cloud row (`7c33ed15`, same open_id) were **deleted** 2026-11-15 — do not recreate them; the OAuth client only resolves the Managed Cloud account. Sandbox: `cloudless-dev`, target user `user3113682023385`.
 
 ### TikTok Content Posting API
 
