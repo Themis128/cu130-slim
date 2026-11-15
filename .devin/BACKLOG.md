@@ -2608,7 +2608,7 @@ Remaining / watch:
 
 ## 2026-11-15 — tailnet battle test (Devin)
 Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded tests validate; all infra peers ping (k8s nodes via DERP fra/nue); 192.168.1.0/24 primary omv-ha, 10.42/10.43 primary k3s-subnet-router-0; office LAN pinned local (/25 on Wi-Fi), k8s API 10.43.0.1:443 reachable; MagicDNS ok on office + WSL (WSL Tailscale health now clean); phone always-on (no lockdown), full tunnel, reaches github-omv + cam-189; tailnet-watch-status 0 bad.
-- [ ] **WSL ssh on tailnet**: docs say `wsl-ubuntu2404-1` sshd :22 but `openssh-server` is NOT installed and Tailscale SSH is off (`RunSSH:false`) — 100.100.186.88:22/2222 closed. Owner decision: install openssh-server or `tailscale set --ssh` + ACL `ssh` rule.
+- [x] **WSL ssh on tailnet**: openssh-server not installed → enabled Tailscale SSH on WSL (`tailscale set --ssh`, existing ACL `ssh` rule covers autogroup:self). Verified `ssh tbaltzakis@wsl-ubuntu2404-1.tail4ecae1.ts.net` from office-1 (by IP + MagicDNS).
 - [ ] **omv-ha :443 closed** (80 open) — ACL/phone rule grants 443; either nothing should listen there (drop 443 from docs/ACL) or the HTTPS frontend is down.
 - [ ] **cam-nc220 (192.168.1.42) offline** — no ports open; needs a power/DHCP check on site.
 - [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows.
