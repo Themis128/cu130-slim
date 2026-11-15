@@ -7,10 +7,11 @@ and capture the otpauth secret into .env, closing the last X manual gate.
     totp_setup.py --code     # print a fresh TOTP code from the stored secret
 """
 import json
+import os
 import sys
 import urllib.request
 
-CDP = "http://localhost:9222"
+CDP = os.environ.get("CDP_URL", "http://localhost:9222")
 ENV_PATH = ".env"
 
 
