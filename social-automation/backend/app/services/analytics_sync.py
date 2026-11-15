@@ -625,7 +625,14 @@ async def _fetch_member_post_analytics(
     as "not granted", not an outage. ``entity`` takes the bare post URN.
     """
     headers = _linkedin_headers(token)
-    base = f"https://api.linkedin.com/rest/memberCreatorPostAnalytics?q=entity&entity={quote(post_urn, safe='')}"
+    # MS Learn: entity is a Rest.li complex key —
+    # ``(share:urn%3Ali%3Ashare%3A…)`` for share URNs,
+    # ``(ugc:urn%3Ali%3AugcPost%3A…)`` for ugcPost URNs. A bare URN 400s.
+    kind = "ugc" if ":ugcPost:" in post_urn else "share"
+    # Docs pass the complex key verbatim in the URL — inner URN colons are
+    # %3A-encoded, the ``(kind:`` wrapper and parens stay literal.
+    entity = f"({kind}:{quote(post_urn, safe='')})"
+    base = f"https://api.linkedin.com/rest/memberCreatorPostAnalytics?q=entity&entity={entity}"
     metrics: dict[str, Any] = {}
     for query_type in _MEMBER_POST_QUERY_TYPES:
         resp = await client.get(
@@ -643,13 +650,14 @@ async def _fetch_member_post_analytics(
         )
         metrics[query_type] = total
         metrics[f"{query_type}_raw"] = elements
-    # Daily impression trend for charts.
+    # Daily trend — verified live 2026-11-15: IMPRESSION rejects DAILY
+    # ("Unsupported query type DAILY_COUNT"), REACTION accepts it.
     resp = await client.get(
-        f"{base}&queryType=IMPRESSION&aggregation=DAILY",
+        f"{base}&queryType=REACTION&aggregation=DAILY",
         headers=headers,
     )
     if resp.status_code < 400:
-        metrics["IMPRESSION_DAILY"] = (resp.json() or {}).get("elements") or []
+        metrics["REACTION_DAILY"] = (resp.json() or {}).get("elements") or []
     if not metrics:  # pragma: no cover — every query_type sets an entry or returns early
         return {"error": "no metrics returned", "status": 200}
     return {"data": metrics}

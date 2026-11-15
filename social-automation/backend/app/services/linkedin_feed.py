@@ -85,8 +85,13 @@ async def list_posts(author_urn: str, count: int = 10) -> dict[str, Any]:
     ``GET /rest/posts?author={urn}&count=N`` — requires
     ``r_organization_social``/``r_organization_social_feed`` for org authors
     and ``r_member_social``/``r_member_social_feed`` for person authors.
+    The token must match the author kind — LinkedIn 400s a member-author
+    query made with an org token ("Member permissions must be used").
     """
-    ctx = await org_ctx()
+    if author_urn.startswith("urn:li:organization:"):
+        ctx = await org_ctx()
+    else:
+        ctx = await member_ctx()
     if not ctx:
         return {"posts": [], "error": "no-linkedin-account"}
     token, _ = ctx
