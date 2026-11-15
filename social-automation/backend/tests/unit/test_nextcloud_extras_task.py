@@ -2,7 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 
 def _run_coro(coro):
@@ -21,7 +21,8 @@ def test_extras_disabled_returns_early(monkeypatch):
 
 
 def test_extras_enabled_runs_sync_extras(monkeypatch):
-    from app.services import nextcloud_extras, nextcloud_sync as svc
+    from app.services import nextcloud_extras
+    from app.services import nextcloud_sync as svc
     from app.worker.tasks import nextcloud_sync as T
 
     monkeypatch.setattr(svc, "nextcloud_sync_enabled", lambda: True)

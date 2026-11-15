@@ -17,12 +17,14 @@ async def _run() -> dict | None:
     import uuid
 
     from app.core.config import get_settings
-    from app.db.session import async_session_maker
-    from app.services.nurture_sequence import nurture_sweep
 
     team_raw = getattr(get_settings(), "CLOUDLESS_WEB_ANALYTICS_TEAM_ID", "")
     if not team_raw:
         return {"skipped": "no public-lead team configured"}
+
+    from app.db.session import async_session_maker
+    from app.services.nurture_sequence import nurture_sweep
+
     async with async_session_maker() as db:
         return await nurture_sweep(db, uuid.UUID(team_raw))
 

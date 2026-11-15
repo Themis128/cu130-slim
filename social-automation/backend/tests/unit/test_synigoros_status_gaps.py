@@ -135,9 +135,7 @@ def test_gmail_otp_list_failure_resets_token(monkeypatch):
     from app.worker.tasks import synigoros_status as M
 
     monkeypatch.setattr(M, "_gmail_access_token", lambda: "tok")
-    monkeypatch.setattr(
-        M.urllib.request, "urlopen", MagicMock(side_effect=OSError("gmail list down"))
-    )
+    monkeypatch.setattr(M.urllib.request, "urlopen", MagicMock(side_effect=OSError("gmail list down")))
     monkeypatch.setattr(M, "time", _FakeTime([0, 1, 200]))
     assert M._gmail_otp(1000) is None
 
@@ -145,9 +143,7 @@ def test_gmail_otp_list_failure_resets_token(monkeypatch):
 def test_gmail_otp_token_refresh_failure(monkeypatch):
     from app.worker.tasks import synigoros_status as M
 
-    monkeypatch.setattr(
-        M, "_gmail_access_token", MagicMock(side_effect=RuntimeError("no creds"))
-    )
+    monkeypatch.setattr(M, "_gmail_access_token", MagicMock(side_effect=RuntimeError("no creds")))
     monkeypatch.setattr(M, "time", _FakeTime([0, 1, 200]))
     assert M._gmail_otp(1000) is None
 

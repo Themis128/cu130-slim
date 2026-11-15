@@ -145,7 +145,6 @@ async def test_publish_retry_skips_when_active_queue_row(monkeypatch):
 @pytest.mark.asyncio
 async def test_publish_retry_no_failed_queue_row_skips(monkeypatch):
     """Eligible target but no failed PublishQueue row → skipped, not retried."""
-    import asyncio
     from datetime import UTC, datetime, timedelta
 
     from app.worker.tasks import publish_retry as P
