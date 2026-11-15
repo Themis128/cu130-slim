@@ -154,7 +154,13 @@ def _lead_answers(resp: dict, qmap: dict | None = None) -> dict[str, str]:
         out.setdefault(label, value)
 
     fr = resp.get("formResponse") or {}
-    for item in fr.get("answers") or resp.get("answers") or []:
+    if isinstance(fr, list):
+        # Flat {question, answer} payloads — normalize into top-level
+        # answers so the flat-shape pass below keys them by question.
+        resp = {**resp, "answers": fr}
+        fr = {}
+    answers = fr.get("answers") if isinstance(fr, dict) else None
+    for item in answers or resp.get("answers") or []:
         if not isinstance(item, dict):
             continue
         qid = item.get("questionId", item.get("question"))
