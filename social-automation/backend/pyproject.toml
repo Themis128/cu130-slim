@@ -61,6 +61,9 @@ dependencies = [
     # token introspection (AuthClient.introspect_access_token) and as the
     # reference client for new versioned-API work.
     "linkedin-api-client>=0.3.0",
+    # Pure-python ADB client — reads the LinkedIn SMS 2FA code from the
+    # Galaxy phone over WiFi ADB during sidecar re-auth (no adb binary).
+    "adb-shell>=0.4.4,<1.0",
     # Security: pin setuptools and wheel for vulnerability fixes
     "setuptools>=78.1.1",
     "wheel>=0.46.2",
