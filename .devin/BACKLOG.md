@@ -2629,3 +2629,22 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
   linkedin_portability_sync docstring, PR #1964 review).
 - [ ] watch: next annual Member DP re-auth (~2027-11) — app 265100977,
   scope r_dma_portability_self_serve; expiry now alerts via ops channel.
+
+## 2026-11-15 (late) — remaining human gates (verified live)
+
+- [ ] human: WhatsApp Business verification in Meta Business Settings
+  (business 1558125105019725) — token is revoked (Graph 190/subcode 460);
+  after Meta approves verification, mint a fresh access token and update
+  WHATSAPP_ACCESS_TOKEN. Phone SMS/ADB verify lanes (wa_verify_daemon,
+  flock'd cron) are armed and will pick it up.
+- [ ] human: X (@TBaltzakis) free-tier monthly write quota exhausted —
+  resets on the billing date; token itself validates live, no action
+  until then. Do NOT add a retry loop.
+- [ ] human: Galaxy S22+ PIN lockscreen — blocks ADB-driven phone flows
+  (Viber Business setup, WhatsApp SMS verification). Unlock the phone
+  when those lanes are needed; phone-adb-watch alerts after 24h down.
+- [ ] human: Viber — Business Account is already LIVE (see 2026-11-15 GBP +
+  Viber entry); what remains is the REST bot, which is commercially gated
+  (Rakuten partner application). Any further in-app Business Account edits
+  need the unlocked phone. Token-capture path (viber_phone_capture.py) is
+  ready for when a bot exists.
