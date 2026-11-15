@@ -18,10 +18,12 @@ Member DP is pinned to ``Linkedin-Version: 202312`` and Pages DP to
 
 Privacy note: member snapshots include the ``CONNECTIONS`` domain, which
 carries third-party LinkedIn member PII (names/positions of the member's
-connections). Elements persist in ``analytics_events.meta_data`` and flow
-to the datalake via ``export-datalake`` — retention follows the
-``analytics_events`` policy. Do not add further PII-bearing domains
-without a retention decision.
+connections). Retention decision (2026-11-15): this is the member's own
+LinkedIn data-portability export stored in our own Postgres
+(``analytics_events``) and mirrored wholesale to the datalake by
+``export-datalake`` — both retain indefinitely, volume is bounded at
+``MAX_ELEMENTS_STORE`` elements per domain per daily run. Revisit with a
+purge/redaction lane only if lake size or a privacy review requires it.
 """
 
 from __future__ import annotations
