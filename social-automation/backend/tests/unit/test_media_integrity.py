@@ -541,3 +541,48 @@ async def test_sweep_alert_marks_alerted_at_only_for_unresolved(monkeypatch):
     assert bad_integrity.get("alerted_at")
     assert not ok_asset.meta_data["storage_integrity"].get("alerted_at")
 
+
+@pytest.mark.asyncio
+async def test_sweep_sample_lists_cap_at_25(monkeypatch):
+    """>25 same-status assets trip the ``len(...) < 25`` false arcs."""
+    team_id = uuid.uuid4()
+    assets = []
+    kinds = {}
+    for i in range(26):
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio",
+                   storage_path=f"team/r{i}.png", public_url="https://old/x")
+        kinds[a.storage_path] = "repaired"
+        assets.append(a)
+    for i in range(26):
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="local",
+                   storage_path=f"team/m{i}.png")
+        kinds[a.storage_path] = "missing"
+        assets.append(a)
+    for i in range(26):
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="r2",
+                   storage_path=f"team/e{i}.png")
+        kinds[a.storage_path] = "backend_error"
+        assets.append(a)
+    db = _DB([([], None)], assets)
+
+    async def probe(backend, key):
+        kind = kinds[key]
+        if kind == "repaired":
+            if backend == "r2":
+                return media_integrity.ObjectProbe(backend=backend, status="ok", size=123,
+                                                   public_url="https://pub/x")
+            return media_integrity.ObjectProbe(backend=backend, status="missing")
+        if kind == "missing":
+            return media_integrity.ObjectProbe(backend=backend, status="missing")
+        if backend == "r2":
+            return media_integrity.ObjectProbe(backend=backend, status="unavailable", error="down")
+        return media_integrity.ObjectProbe(backend=backend, status="missing")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    summary = await media_integrity.run_integrity_sweep(db, team_id, notify=False)
+    assert summary["repaired"] == 26
+    assert summary["missing"] == 26
+    assert summary["backend_errors"] == 26
+    assert len(summary["repaired_assets"]) == 25
+    assert len(summary["unresolved_assets"]) == 25
+    assert len(summary["backend_error_assets"]) == 25
