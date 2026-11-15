@@ -2502,3 +2502,37 @@ Follow-up to the Docker wipe recovery above:
 - Final state: 55 containers up / 0 exited, api /health ok, 4 celery
   nodes pong, beat firing, synigoros tasks registered, infisical
   healthy on :8090.
+
+## 2026-11-15 - Media integrity guard + TikTok invoice video (Devin)
+
+- **Media integrity platform fix**: branch `feat/media-integrity-guard`,
+  PR #1921 (open, auto-merge armed). Root cause: R2 bucket
+  `cloudless-pipeline-assets` was recreated 2026-11-03 orphaning ~635
+  media_assets rows; `/upload/complete` also created rows without
+  verifying the object existed and always labeled backend=r2. Fix:
+  object-presence verification on complete, correct backend persistence,
+  scheduled `media_integrity` sweep (6h, default queue) that classifies
+  healthy/repaired/quarantined/backend_error and writes audit evidence.
+  Live dry sweep: 893 checked, 254 healthy, 635 missing/quarantined, 0
+  backend errors. NOTE: PR `test` + `integration-test` checks FAILED on
+  CI (required validate/secret-scan green) - investigate before merge
+  if auto-merge blocks.
+- **TikTok video published via SocialAuto**: post
+  e9710b32-e426-4996-86fc-4780d56ae19a, media
+  ac4a404d-14fd-4338-9b0a-108fb7545dd4 (tiktok-invoice-60.mp4, 720x1280
+  9:16, 60.04s, h264/aac, quality gate 80/80). Account ab439e1e
+  (@cloudless.gr profile). TikTok result: publish_mode MEDIA_UPLOAD,
+  status SEND_TO_USER_INBOX, publish_id
+  v_inbox_file~v2.7708188531985975318 - video is in the creator TikTok
+  app inbox awaiting manual finish, NOT a direct post. dcda73fb row is
+  status=expired (token invalid, 401); ab439e1e/7c33ed15 both map to
+  @cloudless.gr with active tokens (dupe rows - cleanup candidate).
+- **Render env**: container ffmpeg 7.1.5 lacks the sawtooth filter so
+  `scripts/audio_bed.py` fails (exit 8) - video was rendered on Windows
+  host via imageio-ffmpeg 9.0.2 + sine-based bed instead. Fix
+  `audio_bed.py` pad preset to sine or document the ffmpeg dep.
+- **Stack**: fsbridge kept bouncing (mass exit 127/255, compose-healer
+  converge loops). Publishing was done via rescue containers from the
+  baked image while bind-mounts were poisoned; stack recovered on its
+  own afterwards - all 4 celery nodes healthy, api /health ok, lock
+  released, rescue containers removed.
