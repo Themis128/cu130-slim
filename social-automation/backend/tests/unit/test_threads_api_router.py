@@ -798,3 +798,53 @@ class TestHttpStatusFallbacks:
         a = _account()
         out = await threads.get_threads_followers(a.team_id, a.id, FakeDB(accounts=[a]))
         assert out.values == []
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+class TestResidualArcs:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_update_profile_without_biography_skips_meta_sync(self, monkeypatch):
+        class Bridge:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def update_threads_profile(self, *a, **kw):
+                return {"status": "updated", "updated_fields": ["full_name"], "ignored_fields": []}
+
+        monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
+        a = _account()
+        db = FakeDB(accounts=[a])
+        out = await threads.update_threads_profile(
+            threads.ThreadsProfileUpdateRequest(full_name="New Name"),
+            a.team_id,
+            a.id,
+            db,
+        )
+        assert out.success is True
+        assert "biography" not in (a.meta_data or {})
+        assert db.commits == 0
+
+    async def test_quota_non_list_usage_and_nonmatching_items(self):
+        _HTTP.responses = [
+            _Resp(200, {"data": [{"quota_usage": {"not": "a list"}, "config": {"quota_total": 100}}]}),
+            _Resp(200, {"data": [{"quota_usage": [{"metric": "impressions"}, {"metric": "other"}], "config": {"quota_total": 100}}]}),
+        ]
+        a = _account()
+        db = FakeDB(accounts=[a])
+        out1 = await threads.get_threads_quota(a.team_id, a.id, db)
+        assert out1.used == 0 and out1.total == 100
+        out2 = await threads.get_threads_quota(a.team_id, a.id, db)
+        assert out2.used == 0 and out2.total == 100
+
+    async def test_dm_login_account_missing_404(self):
+        with pytest.raises(HTTPException) as e:
+            await threads.threads_dm_login("no-such", uuid.uuid4(), FakeDB(accounts=[]))
+        assert e.value.status_code == 404
+
+    async def test_dm_session_status_account_missing_404(self):
+        with pytest.raises(HTTPException) as e:
+            await threads.threads_dm_session_status("no-such", uuid.uuid4(), FakeDB(accounts=[]))
+        assert e.value.status_code == 404

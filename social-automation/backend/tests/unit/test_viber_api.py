@@ -363,3 +363,12 @@ def test_error_detail_property():
     assert with_description.detail == "bad"
     without = api.ViberAPIError(400, "")
     assert without.detail == str(without)
+
+
+@pytest.mark.asyncio
+async def test_send_video_minimal(client):
+    w, fake = _wire(_FakeResponse(200, {"status": 0}))
+    with w:
+        await client.send_video("u1", "https://a/v.mp4", size=1)
+    msg = fake.calls[0]["json"]
+    assert "duration" not in msg and "thumbnail" not in msg

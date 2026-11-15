@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -165,3 +165,20 @@ async def test_organic_campaign_creates_post_and_targets(monkeypatch):
     post = next(o for o in db.added if o.__class__.__name__ == "Post")
     assert post.meta_data["organic_meta_campaign"] is True
     assert db.commits == 1
+
+
+def test_organic_campaign_rejects_blank_content():
+    with pytest.raises(ValidationError):
+        OrganicCampaignRequest(content_text="   ", media_ids=[uuid.uuid4()])
+
+
+@pytest.mark.asyncio
+async def test_organic_campaign_tzaware_scheduled_at(monkeypatch):
+    monkeypatch.setattr(MG, "check_quota", AsyncMock())
+    acc = _account("instagram")
+    media_id = uuid.uuid4()
+    db = _DB([_Res([acc]), _Res([(media_id,)])])
+    aware = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+    req = OrganicCampaignRequest(content_text="x", media_ids=[media_id], scheduled_at=aware)
+    out = await MG.create_organic_campaign(request=req, team_id=uuid.uuid4(), current_user=SimpleNamespace(id=uuid.uuid4()), db=db)
+    assert out.scheduled_at == aware

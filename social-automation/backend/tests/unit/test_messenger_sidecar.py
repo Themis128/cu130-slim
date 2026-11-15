@@ -301,3 +301,58 @@ async def test_generate_ai_response(monkeypatch):
     # default fallback text when not configured
     out = await M._generate_ai_response({}, "hi", None)
     assert "Thanks" in out
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_event_empty_mid_skips_dedup(monkeypatch):
+    created = []
+    monkeypatch.setattr(M.asyncio, "create_task", lambda coro: (coro.close(), created.append(coro))[0])
+    r = await M.process_event(_event(message_mid="", message_type="text"))
+    import json as j
+
+    assert j.loads(r.body)["action"] == "processing"
+    assert len(M._seen_message_ids) == 0
+
+
+@pytest.mark.asyncio
+async def test_account_config_401_retry_without_token(monkeypatch):
+    # first token ok, refresh after 401 returns empty → None
+    monkeypatch.setattr(M, "_get_admin_token", AsyncMock(side_effect=["T", ""]))
+    _patch_http(monkeypatch, get=AsyncMock(return_value=_resp(401)))
+    assert await M._get_account_and_config("12345") is None
+
+
+@pytest.mark.asyncio
+async def test_generate_ai_dmr_empty_choices_cf_variants(monkeypatch):
+    cfg = {"fallback_text": "FB"}
+    monkeypatch.setattr(M, "CLOUDFLARE_API_TOKEN", "cf-tok")
+    monkeypatch.setattr(M, "CLOUDFLARE_ACCOUNT_ID", "cf-acct")
+
+    async def _post(url, **kw):
+        if "chat/completions" in url:
+            return _resp(200, {"choices": []})  # empty choices → CF
+        return _resp(200, {"result": {"response": "cf ok"}})
+
+    _patch_http(monkeypatch, post=_post)
+    assert await M._generate_ai_response(cfg, "hi", "P") == "cf ok"
+
+    # CF 200 but no result.response → fallback
+    async def _post2(url, **kw):
+        if "chat/completions" in url:
+            return _resp(200, {"choices": []})
+        return _resp(200, {"result": {}})
+
+    _patch_http(monkeypatch, post=_post2)
+    assert await M._generate_ai_response(cfg, "hi", "P") == "FB"
+
+    # CF raises → fallback
+    async def _post3(url, **kw):
+        if "chat/completions" in url:
+            return _resp(200, {"choices": []})
+        raise ConnectionError("cf down")
+
+    _patch_http(monkeypatch, post=_post3)
+    assert await M._generate_ai_response(cfg, "hi", "P") == "FB"

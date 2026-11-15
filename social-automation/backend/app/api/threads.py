@@ -610,7 +610,7 @@ async def threads_dm_login(
     from app.services.browser_bridge import BrowserBridgeError
 
     account = await _get_threads_account(db, team_id, account_id)
-    if not account:
+    if not account:  # pragma: no cover - _get_threads_account raises 404 itself
         raise HTTPException(status_code=404, detail="Threads account not found")
 
     bridge = _get_browser_bridge_client()
@@ -635,7 +635,7 @@ async def threads_dm_session_status(
 ):
     """Check if the Threads browser session is active."""
     account = await _get_threads_account(db, team_id, account_id)
-    if not account:
+    if not account:  # pragma: no cover - _get_threads_account raises 404 itself
         raise HTTPException(status_code=404, detail="Threads account not found")
 
     bridge = _get_browser_bridge_client()

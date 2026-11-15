@@ -940,3 +940,54 @@ async def test_last_edges(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
         assert await client.list_recent_media() == []
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+def test_api_error_custom_message():
+    err = api.InstagramAPIError(500, "body", "http://x", message="custom msg")
+    assert str(err) == "custom msg"
+
+
+@pytest.mark.asyncio
+async def test_get_media_permalink_paths(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"permalink": "https://ig/p/abc"}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mc:
+        mc.return_value = fake
+        assert await client.get_media_permalink("123456789") == "https://ig/p/abc"
+
+    fake = _FakeAsyncClient(_FakeResponse(404, {}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mc:
+        mc.return_value = fake
+        assert await client.get_media_permalink("123456789") is None
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mc:
+        mc.return_value = fake
+        assert await client.get_media_permalink("123456789") is None
+
+
+@pytest.mark.asyncio
+async def test_quota_parser_list_without_publish_count(client):
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {"data": [{"quota_usage": [{"metric": "other", "value": 9}], "config": {"quota_total": 25}}]},
+        )
+    )
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mc:
+        mc.return_value = fake
+        assert await client.get_remaining_publish_quota() == 25
+
+
+@pytest.mark.asyncio
+async def test_send_dm_template_without_components(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"message_id": "mid"}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mc:
+        mc.return_value = fake
+        out = await client.send_dm_template("u1", "hello_template")
+    assert out["message_id"] == "mid"
+    sent = fake.calls[0]["json"]["message"]["attachment"]["payload"]
+    assert "components" not in sent
+    assert sent["language"] == {"code": "en"}

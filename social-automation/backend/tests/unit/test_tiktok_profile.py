@@ -260,3 +260,14 @@ class TestProfileService:
         svc = TP.TikTokProfileService(session_id="s", user_id=1)
         out = await svc.check_username("taken")
         assert out["is_valid"] is False
+
+
+class TestPrivateGetNoExtraParams:
+    @pytest.mark.asyncio
+    async def test_get_without_extra_params(self, monkeypatch):
+        c = _HTTP(_resp(200, {"ok": 1}))
+        monkeypatch.setattr(TP.httpx, "AsyncClient", lambda **kw: c)
+        cli = TP._TikTokPrivateClient("sess123", 999)
+        out = await cli._get("/aweme/v1/test/")
+        assert out == {"ok": 1}
+        assert "unique_id" not in c.calls[0][2].get("params", {})

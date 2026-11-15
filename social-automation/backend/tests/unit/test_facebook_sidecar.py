@@ -209,3 +209,21 @@ async def test_default_base_url_from_env():
     with patch.dict("os.environ", {"FACEBOOK_BROWSER_SIDECAR_URL": "http://custom:9999"}):
         c = fb.FacebookSidecarClient()
         assert c.base_url == "http://custom:9999"
+
+
+# ── residual gaps: optional args absent ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_post_methods_without_optionals(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"posted": True}))
+    with patch.object(fb.httpx, "AsyncClient", return_value=fake):
+        await client.post_text("hi")
+        await client.post_photo([{"image_base64": "x"}])
+        await client.post_link("https://x")
+        await client.post_video(b"v", "v.mp4")
+    for call in fake.calls:
+        assert "privacy" not in call["json"]
+    assert "message" not in fake.calls[1]["json"]
+    assert "message" not in fake.calls[2]["json"]
+    assert "message" not in fake.calls[3]["json"]

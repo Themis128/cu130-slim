@@ -146,3 +146,8 @@ async def test_business_verification_and_settings(svc):
     assert out == {"status": "pending"}
     await svc.read_all_settings()
     assert fake.calls[-1][1].endswith("/settings")
+
+
+@pytest.mark.asyncio
+async def test_close_without_client(svc):
+    await svc.close()  # _client never created → no-op

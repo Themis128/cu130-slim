@@ -274,3 +274,37 @@ async def test_pages_batch_get_error_returns_partial_and_bare_map():
     client2 = SimpleNamespace(get=AsyncMock(return_value=_resp(200, {"urn:li:share:1": {"id": "a"}, "urn:li:share:2": "skip"})))
     out2 = await lp.pages_batch_get(client2, "tok", "/dmaPosts", ["urn:li:share:1", "urn:li:share:2"])
     assert out2 == [{"id": "a"}]
+
+
+@pytest.mark.asyncio
+async def test_member_snapshot_without_domain():
+    client = SimpleNamespace(get=AsyncMock(return_value=_resp(200, {"elements": []})))
+    out = await lp.member_snapshot(client, "tok")
+    assert out["ok"]
+    _, kwargs = client.get.await_args
+    assert "domain" not in kwargs["params"]
+
+
+@pytest.mark.asyncio
+async def test_member_snapshot_domain_hits_max_pages():
+    nxt = {
+        "elements": [],
+        "paging": {"total": 9, "links": [{"rel": "next", "href": "/rest/memberSnapshotData?start=50"}]},
+    }
+    client = SimpleNamespace(get=AsyncMock(side_effect=[_resp(200, nxt), _resp(200, nxt)]))
+    out = await lp.member_snapshot_domain(client, "tok", "SKILLS", max_pages=2)
+    assert out["ok"] and out["pages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_pages_batch_get_skips_non_dict_data():
+    client = SimpleNamespace(
+        get=AsyncMock(
+            side_effect=[
+                _resp(200, ["not", "a", "dict"]),
+                _resp(200, {"results": {"urn:li:share:9": {"id": "z"}}}),
+            ]
+        )
+    )
+    out = await lp.pages_batch_get(client, "tok", "/dmaPosts", ["urn:li:share:1", "urn:li:share:2"], chunk=1)
+    assert out == [{"id": "z"}]

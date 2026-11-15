@@ -519,3 +519,15 @@ def test_extract_chat_member_update_join_request():
     )
     assert out["via_join_request"] is True
     assert out["invite_link_name"] == ""
+
+
+# ── residual coverage ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_join_request_approve_decline(client):
+    calls = _call_stub(client, True)
+    assert await client.approve_chat_join_request(-100, 555) is True
+    assert await client.decline_chat_join_request("-100", 556) is True
+    assert calls[0] == ("approveChatJoinRequest", {"chat_id": -100, "user_id": 555})
+    assert calls[1] == ("declineChatJoinRequest", {"chat_id": "-100", "user_id": 556})

@@ -257,3 +257,21 @@ def test_interpolate_and_parser():
     assert events[2]["postback_payload"] == "PB"
     assert events[3]["message_type"] == "delivery"
     assert events[4]["message_type"] == "read"
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_residual_optional_branches(monkeypatch):
+    c = _client(monkeypatch)
+    # page_url without a parseable netloc → no whitelisted_domains
+    await c.setup_default_profile(page_name="P", page_url="notaurl")
+    profile = c._http.calls[-1][2]["json"]
+    assert "whitelisted_domains" not in profile
+    # send_text without metadata
+    await c.send_text("999", "hi")
+    assert "metadata" not in c._http.calls[-1][2]["json"]["message"]
+    # get_user_profile with explicit fields → skip default
+    await c.get_user_profile("999", fields=["first_name"])
+    assert c._http.calls[-1][2]["params"]["fields"] == "first_name"

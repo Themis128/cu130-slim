@@ -177,3 +177,60 @@ def test_top_relevant_signal_fails_open(monkeypatch):
         lambda geo: [{"query": "x", "geo": geo, "traffic": 1, "news": []}],
     )
     assert trend_context.top_relevant_signal() is None
+
+
+# ── residual gaps ───────────────────────────────────────────────────────
+
+
+def test_int_bad_values():
+    assert T._int("abc") == 0
+    assert T._int(None) == 0
+    assert T._int("12") == 12
+
+
+def test_fetch_paces_calls_and_skips_empty_ids():
+    item = _item("42", "paced video")
+    no_id = {"itemInfo": {"title": "no id"}, "itemMetrics": {}}
+    payloads = {
+        "GetTopContentsOverview": OVERVIEW,
+        "CreativeCenterGetTopContentsList": {"BaseResp": {"StatusCode": 0}, "entityInfos": [no_id, item]},
+    }
+    sweep = (
+        {"orderByMetric": 1, "contentLabelIDs": "", "organicOnly": "false"},
+        {"orderByMetric": 2, "contentLabelIDs": "", "organicOnly": "false"},
+    )
+    out = T.fetch_trending_videos(sweep=sweep, client=_client(payloads), pace=0.05)
+    assert len(out) == 1
+
+
+def test_fetch_own_client_closed(monkeypatch):
+    closed = []
+
+    class _Resp:
+        status_code = 200
+
+        def __init__(self, body):
+            self._body = body
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._body
+
+    class _HTTP:
+        def __init__(self, **kw):
+            pass
+
+        def get(self, url, **kw):
+            if "Overview" in url:
+                return _Resp(OVERVIEW)
+            return _Resp({"BaseResp": {"StatusCode": 0}, "entityInfos": []})
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(T.httpx, "Client", _HTTP)
+    sweep = ({"orderByMetric": 1, "contentLabelIDs": "", "organicOnly": "false"},)
+    out = T.fetch_trending_videos(sweep=sweep, pace=0)
+    assert out == [] and closed == [True]

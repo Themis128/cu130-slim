@@ -71,3 +71,69 @@ async def test_unknown_event_label_fallback(monkeypatch):
     await notify.notify_channel_event(event="some_new_thing", chat_title="HQ", chat_id=1)
     text = slack.await_args.args[0] if slack.await_args.args else slack.await_args.kwargs["text"]
     assert "Some New Thing" in text
+
+
+# ── residual coverage: _rpc + send_telegram ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rpc_sends_session_header(monkeypatch):
+    calls = []
+
+    class _Resp:
+        headers = {"mcp-session-id": "sid-1"}
+
+    class _C:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            calls.append({"url": url, "headers": headers, "json": json})
+            return _Resp()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: _C())
+    r = await notify._rpc(_C(), "tools/call", {"x": 1}, sid="sid-1")
+    assert r.headers["mcp-session-id"] == "sid-1"
+    assert calls[0]["headers"]["Mcp-Session-Id"] == "sid-1"
+    assert calls[0]["json"]["method"] == "tools/call"
+
+
+@pytest.mark.asyncio
+async def test_send_telegram_success_and_failure(monkeypatch):
+    posts = []
+
+    class _Resp:
+        headers = {}
+
+    class _C:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            posts.append(json)
+            return _Resp()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: _C())
+    assert await notify.send_telegram("hello", chat="42") is True
+    assert posts[-1]["method"] == "tools/call"
+    assert posts[-1]["params"]["arguments"]["chat_id"] == "42"
+
+    class _Boom:
+        async def __aenter__(self):
+            raise ConnectionError("down")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: _Boom())
+    assert await notify.send_telegram("hello") is False

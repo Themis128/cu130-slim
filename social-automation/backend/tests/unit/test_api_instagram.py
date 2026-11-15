@@ -369,3 +369,13 @@ class TestAppReview:
         assert statuses[1]["has_token"] is False
         # acct_noid: decrypt raises → error
         assert statuses[2]["permission_status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_status_token_but_empty_account_id(self, monkeypatch):
+        # token present but account_id falsy → permission check skipped
+        acct = _account(account_id="")
+        db = _DB(results=[_Res(all_items=[acct])])
+        monkeypatch.setattr(I, "decrypt_token", lambda e: "tok")
+        out = await I.get_app_review_status(AsyncMock(), db)
+        assert out["accounts"][0]["permission_status"] == "unknown"
+        assert out["accounts"][0]["has_token"] is True

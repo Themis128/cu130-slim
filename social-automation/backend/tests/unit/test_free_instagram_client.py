@@ -219,3 +219,43 @@ async def test_html_non200_and_meta_bio():
     with patch.object(FC.httpx, "AsyncClient", return_value=_Seq([_Resp(404), RuntimeError("x")])):
         with pytest.raises(FC.FreeInstagramError):
             await c.get_user_by_username("x")
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+def test_parse_embedded_minimal_and_decode_fallbacks():
+    # only follower_count: following/media_count keys absent, no bio/pic
+    out = FC._parse_embedded('"follower_count": 42')
+    assert out == {"follower_count": 42}
+    # bio + pic present but decoder raises → raw fallback
+    html = '"follower_count": 1, "biography": "b", "profile_pic_url": "p"'
+    with patch.object(FC, "_decode_unicode_escapes", side_effect=RuntimeError("x")):
+        out = FC._parse_embedded(html)
+    assert out["biography"] == "b" and out["profile_pic_url"] == "p"
+
+
+@pytest.mark.asyncio
+async def test_sidecar_200_without_pk_returns_none():
+    c = _client()
+    with patch.object(FC.httpx, "AsyncClient", return_value=_AC(_Resp(200, {}))):
+        assert await c._get_via_sidecar("x") is None
+
+
+@pytest.mark.asyncio
+async def test_html_no_markers_returns_none():
+    c = _client()
+    html = "<html><body>plain page, nothing embedded</body></html>"
+
+    class _Seq:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **kw):
+            return _Resp(200, text=html)
+
+    with patch.object(FC.httpx, "AsyncClient", return_value=_Seq()):
+        assert await c._get_via_html("x") is None

@@ -563,3 +563,169 @@ async def test_process_inbound_bad_team_uuid(monkeypatch, redis):
     )
     assert out["reply"] == "reply"
     assert W.generate_contextual_reply.await_args.kwargs["team_id"] is None
+
+
+# ── residual branch arcs ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_memory_non200_returns_empty(monkeypatch):
+    import app.services.chroma_client as C
+
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=[0.1]))
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value="col-1"))
+    monkeypatch.setattr(C, "_collection_base_url", lambda: "http://chroma/c")
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 500
+            return r
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await W.get_conversation_memory("a", "p") == []
+
+
+@pytest.mark.asyncio
+async def test_index_brand_no_name_and_retrieve_edges(monkeypatch):
+    _patch_chroma(monkeypatch)
+    # no "name" → first optional-doc arc skipped
+    assert await W.index_brand_knowledge("t", {"tagline": "tag"}) == 1
+
+    # retrieve: non-200 → ""
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 500
+            return r
+
+    import app.services.chroma_client as C
+
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=[0.1]))
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value="col-1"))
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await W.retrieve_brand_context("q") == ""
+
+    # retrieve: 200 but empty docs → ""
+    class _Client2(_Client):
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {"documents": [[]]}
+            return r
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client2())
+    assert await W.retrieve_brand_context("q") == ""
+
+
+@pytest.mark.asyncio
+async def test_detect_intent_cf_failures_fall_to_keywords(monkeypatch):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "dunno"}))
+
+    class _Client:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            return self._resp
+
+    # CF non-200 → keyword fallback
+    r = Mock()
+    r.status_code = 500
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r))
+    assert await W.detect_intent("what is the price", "t", "a", "u") == "business"
+
+    # CF 200 but no intent keyword → keyword fallback
+    r2 = Mock()
+    r2.status_code = 200
+    r2.json = lambda: {"result": {"response": "unclear"}}
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r2))
+    assert await W.detect_intent("hello there", "t", "a", "u") == "greeting"
+
+
+@pytest.mark.asyncio
+async def test_pricing_already_disclosed(monkeypatch, redis):
+    monkeypatch.setattr(W, "_is_pricing_question", lambda m: True)
+    monkeypatch.setattr(W, "track_bot_reply", AsyncMock())
+    await W.mark_disclosed("a1", "30699")
+    reply = await W.generate_contextual_reply(**_reply_kwargs())
+    assert reply == W._PRICING_RESPONSES["english"]
+
+
+@pytest.mark.asyncio
+async def test_reply_dmr_empty_then_cf_variants(monkeypatch, redis):
+    monkeypatch.setattr(W, "_is_pricing_question", lambda m: False)
+    monkeypatch.setattr(W, "track_bot_reply", AsyncMock())
+    monkeypatch.setattr(W, "get_conversation_memory", AsyncMock(return_value=[]))
+    import app.services.messenger_chatbot as M
+
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+    import app.services.dmr as D
+
+    # DMR empty text → CF path
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "  "}))
+
+    class _Client:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            return self._resp
+
+    # CF non-200 → static fallback
+    r = Mock()
+    r.status_code = 500
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r))
+    reply = await W.generate_contextual_reply(**_reply_kwargs(phone="p1"))
+    assert reply.startswith("🤖 Thanks for your message!")
+
+    # CF 200 missing result → fallback
+    r2 = Mock()
+    r2.status_code = 200
+    r2.json = lambda: {}
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r2))
+    reply = await W.generate_contextual_reply(**_reply_kwargs(phone="p2"))
+    assert reply.startswith("🤖")
+
+    # CF 200 empty response text → fallback
+    r3 = Mock()
+    r3.status_code = 200
+    r3.json = lambda: {"result": {"response": "   "}}
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r3))
+    reply = await W.generate_contextual_reply(**_reply_kwargs(phone="p3"))
+    assert reply.startswith("🤖")
+
+    # CF success while disclosed → no prefix
+    r4 = Mock()
+    r4.status_code = 200
+    r4.json = lambda: {"result": {"response": "cf ok"}}
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client(r4))
+    await W.mark_disclosed("a1", "p4")
+    reply = await W.generate_contextual_reply(**_reply_kwargs(phone="p4"))
+    assert reply == "cf ok"

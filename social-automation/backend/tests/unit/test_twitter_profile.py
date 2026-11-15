@@ -147,3 +147,17 @@ def test_missing_oauthlib(monkeypatch):
         TwitterProfileService("k", "s", "t", "ts")
     assert e.value.status_code == 500
     assert "requests-oauthlib" in e.value.detail
+
+
+def test_update_profile_image_exception(monkeypatch):
+    sess = _svc(monkeypatch)
+    sess.post.side_effect = ConnectionError("boom")
+    with pytest.raises(TwitterProfileError, match="image upload failed"):
+        TwitterProfileService("k", "s", "t", "ts").update_profile_image(b"x")
+
+
+def test_update_profile_banner_exception(monkeypatch):
+    sess = _svc(monkeypatch)
+    sess.post.side_effect = ConnectionError("boom")
+    with pytest.raises(TwitterProfileError, match="banner upload failed"):
+        TwitterProfileService("k", "s", "t", "ts").update_profile_banner(b"x")
