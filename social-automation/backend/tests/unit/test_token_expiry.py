@@ -127,8 +127,8 @@ async def test_sweep_warn_dead_dedup_variants(monkeypatch):
 
     recent = _dt.datetime.now(_dt.UTC).isoformat()
     rows = [
-        _acc("instagram", "ig-recent", {"reauth_escalated_at": recent}, status="expired"),   # deduped -> skip
-        _acc("tiktok", "tt-bad", {"reauth_escalated_at": "garbage"}, status="revoked"),       # ValueError -> warn
+        _acc("instagram", "ig-recent", {"reauth_escalated_at": recent}, status="expired"),  # deduped -> skip
+        _acc("tiktok", "tt-bad", {"reauth_escalated_at": "garbage"}, status="revoked"),  # ValueError -> warn
         _acc("facebook", "fb-old", {"reauth_escalated_at": "2000-01-01T00:00:00+00:00"}, status="expired"),  # stale -> warn
     ]
     monkeypatch.setattr(TE, "task_session", lambda: _AsyncCM(_db(rows)))

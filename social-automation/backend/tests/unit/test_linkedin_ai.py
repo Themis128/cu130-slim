@@ -343,7 +343,5 @@ async def test_suggest_best_time_unqualified_samples_fall_back():
     from datetime import datetime
 
     # samples present but too few to rank → static fallback windows
-    windows = await linkedin_ai.suggest_best_time_to_post(
-        timezone="UTC", samples=[(datetime(2026, 10, 6, 9, 0), 0.9)]
-    )
+    windows = await linkedin_ai.suggest_best_time_to_post(timezone="UTC", samples=[(datetime(2026, 10, 6, 9, 0), 0.9)])
     assert windows and windows[0]["day"] == "Tuesday"

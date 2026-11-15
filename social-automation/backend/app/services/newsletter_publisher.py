@@ -94,14 +94,8 @@ async def publish_with_fallback(
             )
         except (LinkedInNewsletterBridgeError, BrowserBridgeError, httpx.HTTPError) as exc:
             detail = getattr(exc, "detail", str(exc))
-            raise LinkedInNewsletterBridgeError(
-                f"sidecar: {sidecar_error or 'skipped'}; bridge: {detail}"
-            ) from exc
-        warnings = [
-            "linkedin sidecar failed — issue handled via browser-bridge fallback"
-            if sidecar_error
-            else "published via browser bridge (browser=bridge)"
-        ]
+            raise LinkedInNewsletterBridgeError(f"sidecar: {sidecar_error or 'skipped'}; bridge: {detail}") from exc
+        warnings = ["linkedin sidecar failed — issue handled via browser-bridge fallback" if sidecar_error else "published via browser bridge (browser=bridge)"]
         return result, "bridge", warnings
     return result, "sidecar", []
 

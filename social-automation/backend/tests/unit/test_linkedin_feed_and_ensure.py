@@ -336,7 +336,7 @@ async def test_engage_reacts_and_dedups(monkeypatch):
     monkeypatch.setenv("LINKEDIN_FEED_WRITES", "1")
     monkeypatch.setattr(LF, "WRITES_ENABLED", True)
 
-    posts = [{"id": "urn:li:share:1", "publishedAt": {"time": int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp()*1000)}}]
+    posts = [{"id": "urn:li:share:1", "publishedAt": {"time": int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp() * 1000)}}]
     monkeypatch.setattr(LF, "list_posts", AsyncMock(return_value={"posts": posts, "status": 200}))
     react_calls = []
 
@@ -405,7 +405,7 @@ async def test_engage_cap_blocks_writes(monkeypatch):
     monkeypatch.setattr(ENG, "MAX_REACTIONS_DAY", 0)
     monkeypatch.setattr(LF, "WRITES_ENABLED", True)
 
-    posts = [{"id": "urn:li:share:1", "publishedAt": {"time": int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp()*1000)}}]
+    posts = [{"id": "urn:li:share:1", "publishedAt": {"time": int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp() * 1000)}}]
     monkeypatch.setattr(LF, "list_posts", AsyncMock(return_value={"posts": posts, "status": 200}))
     react = AsyncMock()
     monkeypatch.setattr(LF, "react", react)
@@ -586,18 +586,23 @@ def test_lead_answers_real_api_shape():
     form = {
         "content": {
             "questions": [
-                {"questionId": 1, "name": "firstName", "predefinedField": "FIRST_NAME",
-                 "question": {"localized": {"en_US": "First name"}}},
-                {"questionId": 2, "name": "lastName", "predefinedField": "LAST_NAME",
-                 "question": {"localized": {"en_US": "Last name"}}},
-                {"questionId": 3, "name": "email", "predefinedField": "EMAIL",
-                 "question": {"localized": {"en_US": "Email"}}},
-                {"questionId": 4, "name": "interest", "predefinedField": None,
-                 "question": {"localized": {"en_US": "Interested?"}},
-                 "questionDetails": {"multipleChoiceQuestionDetails": {"options": [
-                     {"id": 0, "text": {"localized": {"en_US": "Yes"}}},
-                     {"id": 1, "text": {"localized": {"en_US": "No"}}},
-                 ]}}},
+                {"questionId": 1, "name": "firstName", "predefinedField": "FIRST_NAME", "question": {"localized": {"en_US": "First name"}}},
+                {"questionId": 2, "name": "lastName", "predefinedField": "LAST_NAME", "question": {"localized": {"en_US": "Last name"}}},
+                {"questionId": 3, "name": "email", "predefinedField": "EMAIL", "question": {"localized": {"en_US": "Email"}}},
+                {
+                    "questionId": 4,
+                    "name": "interest",
+                    "predefinedField": None,
+                    "question": {"localized": {"en_US": "Interested?"}},
+                    "questionDetails": {
+                        "multipleChoiceQuestionDetails": {
+                            "options": [
+                                {"id": 0, "text": {"localized": {"en_US": "Yes"}}},
+                                {"id": 1, "text": {"localized": {"en_US": "No"}}},
+                            ]
+                        }
+                    },
+                },
             ]
         }
     }
@@ -616,8 +621,12 @@ def test_lead_answers_real_api_shape():
 def test_lead_answers_no_map_falls_back():
     from app.worker.tasks.linkedin_lead_boost import _lead_answers
 
-    resp = {"formResponse": {"answers": [
-        {"questionId": 9, "answerDetails": {"textQuestionAnswer": {"answer": "x@y.z"}}},
-    ]}}
+    resp = {
+        "formResponse": {
+            "answers": [
+                {"questionId": 9, "answerDetails": {"textQuestionAnswer": {"answer": "x@y.z"}}},
+            ]
+        }
+    }
     a = _lead_answers(resp)
     assert a.get("question_9") == "x@y.z"

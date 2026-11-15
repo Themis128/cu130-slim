@@ -111,9 +111,9 @@ async def test_actions_today_counts():
         async def execute(self, q):
             self._calls += 1
             if self._calls == 1:
-                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [
-                    {"action": "reaction"}, {"action": "comment"}, {"action": "reaction"}, None, {}
-                ]))
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: [{"action": "reaction"}, {"action": "comment"}, {"action": "reaction"}, None, {}])
+                )
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
 
     r, c = await ENG._actions_today(_DB2(), "t1")
@@ -186,30 +186,33 @@ async def test_run_list_posts_error_and_branches(monkeypatch):
 
     async def fake_list(author, count=5):
         if author == "urn:li:org:1":
-            return {"status": 500, "posts": []}          # -> errors + continue (158-159)
-        return {"status": 200, "posts": [
-            {"id": "no-urn-here"},                        # no urn -> skip (163)
-            {"id": "urn:li:share:old", "publishedAt": {"time": 1}},   # age skip
-            {"id": "urn:li:share:ok1", "publishedAt": fresh},         # react ok + comment ok
-            {"id": "urn:li:share:ok2", "publishedAt": fresh},         # react ok + comment 500
-            {"id": "urn:li:share:ok3", "publishedAt": fresh},         # react ok + comment 403
-            {"id": "urn:li:share:dedup", "publishedAt": fresh},       # already acted
-            {"id": "urn:li:share:reactfail", "publishedAt": fresh},  # react generic error
-            {"id": "urn:li:share:authfail", "publishedAt": fresh},    # react 401 -> break
-        ]}
+            return {"status": 500, "posts": []}  # -> errors + continue (158-159)
+        return {
+            "status": 200,
+            "posts": [
+                {"id": "no-urn-here"},  # no urn -> skip (163)
+                {"id": "urn:li:share:old", "publishedAt": {"time": 1}},  # age skip
+                {"id": "urn:li:share:ok1", "publishedAt": fresh},  # react ok + comment ok
+                {"id": "urn:li:share:ok2", "publishedAt": fresh},  # react ok + comment 500
+                {"id": "urn:li:share:ok3", "publishedAt": fresh},  # react ok + comment 403
+                {"id": "urn:li:share:dedup", "publishedAt": fresh},  # already acted
+                {"id": "urn:li:share:reactfail", "publishedAt": fresh},  # react generic error
+                {"id": "urn:li:share:authfail", "publishedAt": fresh},  # react 401 -> break
+            ],
+        }
 
     async def fake_react(kind, urn, rtype):
         if urn == "urn:li:share:authfail":
-            return {"status": 401}                        # -> error + break (181-183)
+            return {"status": 401}  # -> error + break (181-183)
         if urn == "urn:li:share:reactfail":
             return {"status": 500, "error": "react-boom"}
         return {"ok": True}
 
     async def fake_comment(kind, urn, text):
         if urn == "urn:li:share:ok2":
-            return {"status": 500, "error": "nope"}       # -> comment generic error (200)
+            return {"status": 500, "error": "nope"}  # -> comment generic error (200)
         if urn == "urn:li:share:ok3":
-            return {"status": 403}                        # -> comment 401/403 (197-198)
+            return {"status": 403}  # -> comment 401/403 (197-198)
         return {"ok": True}
 
     monkeypatch.setattr(ENG, "task_session", lambda: _CM())
@@ -261,16 +264,19 @@ async def test_run_comment_generic_error_and_caps(monkeypatch):
             pass
 
     async def fake_list(author, count=5):
-        return {"status": 200, "posts": [
-            {"id": "urn:li:share:cap1", "publishedAt": {"time": datetime.now(UTC).timestamp() * 1000}},
-            {"id": "urn:li:share:cap2", "publishedAt": {"time": datetime.now(UTC).timestamp() * 1000}},
-        ]}
+        return {
+            "status": 200,
+            "posts": [
+                {"id": "urn:li:share:cap1", "publishedAt": {"time": datetime.now(UTC).timestamp() * 1000}},
+                {"id": "urn:li:share:cap2", "publishedAt": {"time": datetime.now(UTC).timestamp() * 1000}},
+            ],
+        }
 
     async def fake_react(kind, urn, rtype):
-        return {"status": 503, "error": "down"}   # generic react error, not 401/403
+        return {"status": 503, "error": "down"}  # generic react error, not 401/403
 
     async def fake_comment(kind, urn, text):
-        return {"status": 500, "error": "nope"}   # generic comment error
+        return {"status": 500, "error": "nope"}  # generic comment error
 
     monkeypatch.setattr(ENG, "task_session", lambda: _CM())
     monkeypatch.setattr(ENG.linkedin_feed, "list_posts", fake_list)

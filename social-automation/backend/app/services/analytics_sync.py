@@ -1166,9 +1166,7 @@ async def sync_linkedin_account(
                 if followers_res.get("data"):
                     _persist_account_event(db, account, captured_at, "member_followers", followers_res["data"])
             # 1st-degree connection count (r_1st_connections_size).
-            person_urn = getattr(account, "account_urn", None) or (
-                f"urn:li:person:{account.account_id}" if getattr(account, "account_id", None) else None
-            )
+            person_urn = getattr(account, "account_urn", None) or (f"urn:li:person:{account.account_id}" if getattr(account, "account_id", None) else None)
             if person_urn and (not granted_scopes or "r_1st_connections_size" in granted_scopes):
                 conn_res = await _fetch_member_connections(client, token, person_urn)
                 if conn_res.get("data"):

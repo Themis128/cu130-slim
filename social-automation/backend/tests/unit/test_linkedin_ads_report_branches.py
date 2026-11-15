@@ -297,9 +297,7 @@ async def test_api_stats_error_with_campaign_raises(monkeypatch):
         "runSchedule": {"start": 1_757_529_600_000},
         "campaignGroup": "urn:li:adCampaignGroup:777",
     }
-    http = _Http(
-        [_http_resp(200, campaign), _http_resp(200, {"runSchedule": {}}), _http_resp(200, {"elements": []})]
-    )
+    http = _Http([_http_resp(200, campaign), _http_resp(200, {"runSchedule": {}}), _http_resp(200, {"elements": []})])
     monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
     err = SimpleNamespace(notes="403 denied")
     monkeypatch.setattr(A, "_fetch_linkedin_ad_stats", AsyncMock(return_value={"_error": err}))
@@ -314,11 +312,7 @@ async def test_api_rollup_skips_underscore_keys(monkeypatch):
 
     monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
     monkeypatch.setattr(A, "_linkedin_headers", lambda t: {})
-    campaigns_body = {
-        "elements": [
-            {"id": "c1", "name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}}
-        ]
-    }
+    campaigns_body = {"elements": [{"id": "c1", "name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}}]}
     http = _Http([_http_resp(200, campaigns_body)])
     monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
     b1 = SimpleNamespace(raw={"costLocal": "7"}, clicks=2, impressions=70, engagement=3)

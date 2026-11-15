@@ -26,9 +26,7 @@ class _AsyncCM:
 @pytest.mark.asyncio
 async def test_route_leads_no_org_account(monkeypatch):
     monkeypatch.setattr(LB, "ENABLED", True)
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None)))
-    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
     out = await LB._route_linkedin_leads()
     assert out == {"skip": "no-linkedin-org-account"}

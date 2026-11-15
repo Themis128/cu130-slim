@@ -100,9 +100,7 @@ async def route_lead_response(resp: dict, form_id: str | None = None) -> bool:
         import hashlib
 
         sha = hashlib.sha256(email.strip().lower().encode()).hexdigest()
-        rule = await linkedin_advanced.resolve_conversion_rule("lead_created") or os.environ.get(
-            "LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"
-        )
+        rule = await linkedin_advanced.resolve_conversion_rule("lead_created") or os.environ.get("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created")
         conv = await linkedin_advanced.stream_conversion(
             conversion_rule=rule,
             happened_at_ms=int(datetime.now(UTC).timestamp() * 1000),
