@@ -2651,7 +2651,9 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
 
 ## 2026-11-15 (late) — LinkedIn scope-utilization build-out (ranked roadmap)
 
-All 8 ranked lanes implemented on master pending this PR's merge:
+All 8 ranked lanes **merged via PR #1986** (2026-11-15 23:13 UTC, all
+checks green incl. new-file coverage gate — 5 new modules at 94-99%
+via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 
 - [x] #1 Closed-loop conversions — `linkedin_offline_conversions` beat
   (daily 06:40): EspoCRM Converted/Won leads w/ LinkedIn lead-form
