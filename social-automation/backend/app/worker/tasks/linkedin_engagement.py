@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 import os
 import random
-from typing import Any
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from celery import shared_task
 from sqlalchemy import select
