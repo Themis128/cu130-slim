@@ -141,10 +141,7 @@ async def _fetch_response(rid: str, owner_urn: str, lead_type: str) -> dict | No
     # Rest.li params are pre-encoded in the URL — httpx params= double-encodes.
     enc = quote(owner_urn, safe="")
     lt = quote(lead_type or "SPONSORED", safe="")
-    url = (
-        f"{linkedin_advanced.REST}/leadFormResponses"
-        f'?ids=List("{rid}")&owner=({owner_key}:{enc})&leadType=(leadType:{lt})'
-    )
+    url = f'{linkedin_advanced.REST}/leadFormResponses?ids=List("{rid}")&owner=({owner_key}:{enc})&leadType=(leadType:{lt})'
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **linkedin_advanced.HDRS}) as c:
         r = await c.get(url)
     if r.status_code != 200:

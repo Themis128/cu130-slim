@@ -94,9 +94,7 @@ async def enqueue_issue(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        existing = (
-            await db.execute(select(NewsletterIssue).where(NewsletterIssue.slug == issue.slug))
-        ).scalar_one_or_none()
+        existing = (await db.execute(select(NewsletterIssue).where(NewsletterIssue.slug == issue.slug))).scalar_one_or_none()
         if existing is None:
             raise
         return existing, False
@@ -105,9 +103,7 @@ async def enqueue_issue(
 
 
 async def get_issue(db: AsyncSession, issue_id: uuid.UUID) -> NewsletterIssue | None:
-    return (
-        await db.execute(select(NewsletterIssue).where(NewsletterIssue.id == issue_id))
-    ).scalar_one_or_none()
+    return (await db.execute(select(NewsletterIssue).where(NewsletterIssue.id == issue_id))).scalar_one_or_none()
 
 
 async def list_issues(
@@ -191,10 +187,15 @@ async def record_publish_result(
     else:
         issue.status = NewsletterIssueStatus.FAILED
         issue.last_error = "publish returned without published/scheduled flag"
-    issue.last_error = "" if issue.status in (
-        NewsletterIssueStatus.PUBLISHED,
-        NewsletterIssueStatus.DRYRUN,
-    ) else issue.last_error
+    issue.last_error = (
+        ""
+        if issue.status
+        in (
+            NewsletterIssueStatus.PUBLISHED,
+            NewsletterIssueStatus.DRYRUN,
+        )
+        else issue.last_error
+    )
     await db.commit()
     return issue
 

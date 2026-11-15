@@ -94,15 +94,18 @@ async def _already_acted(db, team_id, platform_event_id: str) -> bool:
 async def _actions_today(db, team_id) -> tuple[int, int]:
     day_ago = datetime.now(UTC) - timedelta(hours=24)
     rows = (
-        await db.execute(
-            select(AnalyticsEvent.meta_data)
-            .where(
-                AnalyticsEvent.event_type == "linkedin_engagement",
-                AnalyticsEvent.team_id == team_id,
-                AnalyticsEvent.occurred_at >= day_ago,
+        (
+            await db.execute(
+                select(AnalyticsEvent.meta_data).where(
+                    AnalyticsEvent.event_type == "linkedin_engagement",
+                    AnalyticsEvent.team_id == team_id,
+                    AnalyticsEvent.occurred_at >= day_ago,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     reactions = sum(1 for m in rows if (m or {}).get("action") == "reaction")
     comments = sum(1 for m in rows if (m or {}).get("action") == "comment")
     return reactions, comments
@@ -139,12 +142,7 @@ async def _run() -> dict:
         # Resolve account ids for journaling
         from app.models.social_account import SocialAccount
 
-        accounts = {
-            a.account_type: a.id
-            for a in (
-                (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().all()
-            )
-        }
+        accounts = {a.account_type: a.id for a in ((await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().all())}
         member_account_id = accounts.get("person")
 
         reactions_today, comments_today = await _actions_today(db, team_id)

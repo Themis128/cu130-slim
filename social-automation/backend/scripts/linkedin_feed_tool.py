@@ -83,11 +83,13 @@ async def main() -> int:
         _print(await linkedin_feed.comment(args.actor, args.object, args.text, args.parent))
     elif args.cmd == "engage":
         from app.worker.tasks.linkedin_engagement import _run
+
         _print(await _run())
     elif args.cmd == "rules":
         _print(await linkedin_advanced.list_conversion_rules())
     elif args.cmd == "ensure-rules":
         from app.worker.tasks.linkedin_conversion_ensure import _ensure
+
         _print(await _ensure())
     elif args.cmd == "lead-notifications":
         _print(await linkedin_advanced.list_lead_notifications(args.owner, args.type))

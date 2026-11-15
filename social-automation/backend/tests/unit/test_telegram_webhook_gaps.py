@@ -402,9 +402,7 @@ async def test_run_lead_capture_invokes_fsm(monkeypatch):
         return "REPLY"
 
     monkeypatch.setattr(LC, "handle_lead_capture_message", _fsm)
-    out = await T._run_lead_capture(
-        _db(), acc, {"chat_id": 42, "chat_type": "private", "text": "hi", "chat_title": "T"}, payload="LEAD_X"
-    )
+    out = await T._run_lead_capture(_db(), acc, {"chat_id": 42, "chat_type": "private", "text": "hi", "chat_title": "T"}, payload="LEAD_X")
     assert out == "REPLY"
     assert seen["thread_id"] == "42" and seen["postback_payload"] == "LEAD_X"
 

@@ -297,6 +297,7 @@ async def test_r2_head_object_preserves_zero_byte_size(monkeypatch):
     assert out["size"] == 0
     assert out["etag"] == "empty"
 
+
 # ── probe_object / _local_probe / _public_url_for (real, unmocked) ──────
 
 
@@ -352,6 +353,7 @@ async def test_probe_object_minio_ok(monkeypatch):
     ok = await media_integrity.probe_object("minio", "team/y.jpg")
     assert ok.status == "ok" and ok.size == 7
     head.assert_awaited_once_with("team/y.jpg")
+
 
 @pytest.mark.asyncio
 async def test_probe_object_local_path_escape_is_missing(tmp_path, monkeypatch):
@@ -416,10 +418,8 @@ async def test_inspect_backend_error_repeat_is_not_new(monkeypatch):
 @pytest.mark.asyncio
 async def test_sweep_counts_repaired_and_referenced_missing(monkeypatch):
     team_id = uuid.uuid4()
-    repaired_asset = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio",
-                            public_url="https://old.example/object")
-    missing_asset = _asset(id=uuid.uuid4(), team_id=team_id, filename="gone.png",
-                           storage_path="team/2026/gone.png")
+    repaired_asset = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio", public_url="https://old.example/object")
+    missing_asset = _asset(id=uuid.uuid4(), team_id=team_id, filename="gone.png", storage_path="team/2026/gone.png")
     db = _DB([([missing_asset.id], None)], [repaired_asset, missing_asset])
 
     async def probe(backend, key):
@@ -427,8 +427,7 @@ async def test_sweep_counts_repaired_and_referenced_missing(monkeypatch):
             return media_integrity.ObjectProbe(backend=backend, status="missing")
         # repaired asset: declared minio misses, r2 has it -> repair label
         if backend == "r2":
-            return media_integrity.ObjectProbe(backend=backend, status="ok", size=repaired_asset.size_bytes,
-                                               public_url="https://pub/x")
+            return media_integrity.ObjectProbe(backend=backend, status="ok", size=repaired_asset.size_bytes, public_url="https://pub/x")
         return media_integrity.ObjectProbe(backend=backend, status="missing")
 
     monkeypatch.setattr(media_integrity, "probe_object", probe)
@@ -441,6 +440,7 @@ async def test_sweep_counts_repaired_and_referenced_missing(monkeypatch):
     assert summary["referenced_unresolved"] == 1
     assert summary["unresolved_assets"][0]["id"] == str(missing_asset.id)
     assert missing_asset.is_archived is True
+
 
 @pytest.mark.asyncio
 async def test_probe_object_local_public_url_with_base(tmp_path, monkeypatch):
@@ -472,8 +472,7 @@ async def test_inspect_unarchives_previously_quarantined_asset(monkeypatch):
     )
 
     async def probe(backend, key):
-        return media_integrity.ObjectProbe(backend=backend, status="ok", size=asset.size_bytes,
-                                           public_url=asset.public_url)
+        return media_integrity.ObjectProbe(backend=backend, status="ok", size=asset.size_bytes, public_url=asset.public_url)
 
     monkeypatch.setattr(media_integrity, "probe_object", probe)
     out = await media_integrity.inspect_and_repair_asset(asset, referenced=False)
@@ -512,8 +511,7 @@ async def test_sweep_alert_failure_is_swallowed(monkeypatch):
         raise RuntimeError("slack down")
 
     monkeypatch.setattr(media_integrity, "probe_object", probe)
-    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications",
-                        SimpleNamespace(post_alert_to_slack=boom))
+    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications", SimpleNamespace(post_alert_to_slack=boom))
     summary = await media_integrity.run_integrity_sweep(db, team_id, notify=True)
     assert summary["newly_unresolved"] == 1
 
@@ -529,12 +527,10 @@ async def test_sweep_alert_marks_alerted_at_only_for_unresolved(monkeypatch):
     async def probe(backend, key):
         if key == "team/bad.png":
             return media_integrity.ObjectProbe(backend=backend, status="missing")
-        return media_integrity.ObjectProbe(backend=backend, status="ok", size=ok_asset.size_bytes,
-                                           public_url=ok_asset.public_url)
+        return media_integrity.ObjectProbe(backend=backend, status="ok", size=ok_asset.size_bytes, public_url=ok_asset.public_url)
 
     monkeypatch.setattr(media_integrity, "probe_object", probe)
-    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications",
-                        SimpleNamespace(post_alert_to_slack=alert))
+    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications", SimpleNamespace(post_alert_to_slack=alert))
     summary = await media_integrity.run_integrity_sweep(db, team_id, notify=True)
     assert summary["newly_unresolved"] == 1
     bad_integrity = bad_asset.meta_data["storage_integrity"]
@@ -549,18 +545,15 @@ async def test_sweep_sample_lists_cap_at_25(monkeypatch):
     assets = []
     kinds = {}
     for i in range(26):
-        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio",
-                   storage_path=f"team/r{i}.png", public_url="https://old/x")
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio", storage_path=f"team/r{i}.png", public_url="https://old/x")
         kinds[a.storage_path] = "repaired"
         assets.append(a)
     for i in range(26):
-        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="local",
-                   storage_path=f"team/m{i}.png")
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="local", storage_path=f"team/m{i}.png")
         kinds[a.storage_path] = "missing"
         assets.append(a)
     for i in range(26):
-        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="r2",
-                   storage_path=f"team/e{i}.png")
+        a = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="r2", storage_path=f"team/e{i}.png")
         kinds[a.storage_path] = "backend_error"
         assets.append(a)
     db = _DB([([], None)], assets)
@@ -569,8 +562,7 @@ async def test_sweep_sample_lists_cap_at_25(monkeypatch):
         kind = kinds[key]
         if kind == "repaired":
             if backend == "r2":
-                return media_integrity.ObjectProbe(backend=backend, status="ok", size=123,
-                                                   public_url="https://pub/x")
+                return media_integrity.ObjectProbe(backend=backend, status="ok", size=123, public_url="https://pub/x")
             return media_integrity.ObjectProbe(backend=backend, status="missing")
         if kind == "missing":
             return media_integrity.ObjectProbe(backend=backend, status="missing")

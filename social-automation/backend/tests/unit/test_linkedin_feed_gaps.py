@@ -138,10 +138,13 @@ async def test_social_metadata_no_ctx_and_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_comments_ok_and_error(monkeypatch):
     _patch_ctx(monkeypatch)
-    _patch_http(monkeypatch, [
-        _Resp(200, {"elements": [{"id": "c1"}]}),
-        _Resp(404, {}, text="gone"),
-    ])
+    _patch_http(
+        monkeypatch,
+        [
+            _Resp(200, {"elements": [{"id": "c1"}]}),
+            _Resp(404, {}, text="gone"),
+        ],
+    )
     out = await LF.list_comments("urn:li:share:1")
     assert out["status"] == 200
     assert out["comments"][0]["id"] == "c1"
@@ -176,10 +179,13 @@ async def test_react_enabled_failure_and_no_ctx(monkeypatch):
 async def test_comment_enabled_success_and_parent(monkeypatch):
     _patch_ctx(monkeypatch)
     monkeypatch.setattr(LF, "WRITES_ENABLED", True)
-    calls = _patch_http(monkeypatch, [
-        _Resp(201, {"commentUrn": "urn:li:comment:1"}, {"x-restli-id": "cid-1"}),
-        _Resp(500, {}, text="boom"),
-    ])
+    calls = _patch_http(
+        monkeypatch,
+        [
+            _Resp(201, {"commentUrn": "urn:li:comment:1"}, {"x-restli-id": "cid-1"}),
+            _Resp(500, {}, text="boom"),
+        ],
+    )
     out = await LF.comment("member", "urn:li:share:1", "nice post", parent_comment="urn:li:comment:0")
     assert out["ok"] is True
     assert out["commentUrn"] == "urn:li:comment:1"

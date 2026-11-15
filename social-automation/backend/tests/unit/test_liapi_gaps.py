@@ -87,10 +87,15 @@ async def test_member_orgs_dict_name_and_org_404(client):
 @pytest.mark.asyncio
 async def test_member_orgs_bad_urn_skipped(client):
     _use(
-        _Resp(200, {"elements": [
-            {"organization": "not-an-org-urn"},
-            {"organizationalTarget": "urn:li:organization:8"},
-        ]}),
+        _Resp(
+            200,
+            {
+                "elements": [
+                    {"organization": "not-an-org-urn"},
+                    {"organizationalTarget": "urn:li:organization:8"},
+                ]
+            },
+        ),
         _Resp(200, {"name": {"localized": {"fr_FR": "Huit"}}}),
     )
     orgs = await client.get_member_organizations()
@@ -103,8 +108,8 @@ async def test_member_orgs_bad_urn_skipped(client):
 @pytest.mark.asyncio
 async def test_member_groups_success_and_fallback(client):
     _use(
-        _Resp(200, {"sub": "person-1"}),                      # userinfo
-        _Resp(400),                                            # REST memberships fail
+        _Resp(200, {"sub": "person-1"}),  # userinfo
+        _Resp(400),  # REST memberships fail
         _Resp(200, {"elements": [{"group": "urn:li:group:1", "name": "G1"}]}),
     )
     out = await client.get_member_groups()
@@ -115,8 +120,9 @@ async def test_member_groups_success_and_fallback(client):
 @pytest.mark.asyncio
 async def test_member_groups_userinfo_fails_and_all_400(client):
     _use(
-        _Resp(500),          # userinfo fails
-        _Resp(400), _Resp(400),  # both membership urls fail
+        _Resp(500),  # userinfo fails
+        _Resp(400),
+        _Resp(400),  # both membership urls fail
     )
     assert await client.get_member_groups() == []
 
@@ -252,8 +258,9 @@ class _BadJsonResp(_Resp):
 @pytest.mark.asyncio
 async def test_member_groups_userinfo_json_raises(client):
     _use(
-        _BadJsonResp(200, {}),   # userinfo 200 but json() raises -> except: pass
-        _Resp(400), _Resp(400),
+        _BadJsonResp(200, {}),  # userinfo 200 but json() raises -> except: pass
+        _Resp(400),
+        _Resp(400),
     )
     assert await client.get_member_groups() == []
 

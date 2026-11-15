@@ -14,9 +14,7 @@ from app.services import bluesky_api as api
 
 
 def _jwt(exp_offset=3600):
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"exp": time.time() + exp_offset}).encode()
-    ).decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": time.time() + exp_offset}).encode()).decode().rstrip("=")
     return f"h.{payload}.s"
 
 

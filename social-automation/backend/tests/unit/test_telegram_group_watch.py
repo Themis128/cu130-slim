@@ -669,7 +669,7 @@ async def test_list_buffered_messages_non_dict_json(monkeypatch):
 
     monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R()))
     key = gw._BUF_KEY.format(account_id="acc", chat_id=-100)
-    store[key] = ['[1, 2]', '"just a string"', '{"ok": true}']
+    store[key] = ["[1, 2]", '"just a string"', '{"ok": true}']
     out = await gw.list_buffered_messages("acc", -100)
     assert out == [{"ok": True}]
 

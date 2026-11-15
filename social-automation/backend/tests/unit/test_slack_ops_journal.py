@@ -294,9 +294,9 @@ def test_build_report_skips_empty_and_info_lines():
     md, stats = J.build_report(
         {
             "ch": [
-                {"ts": "1", "text": ""},                      # no text -> skipped (168)
-                {"ts": "2", "text": "all good today"},        # info, not noise -> line (180)
-                {"ts": "3", "text": "post published ok"},     # info but noise -> counted, no line
+                {"ts": "1", "text": ""},  # no text -> skipped (168)
+                {"ts": "2", "text": "all good today"},  # info, not noise -> line (180)
+                {"ts": "3", "text": "post published ok"},  # info but noise -> counted, no line
             ]
         },
         "2026-01-01",

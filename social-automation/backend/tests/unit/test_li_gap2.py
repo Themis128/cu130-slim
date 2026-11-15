@@ -66,12 +66,13 @@ async def test_snapshot_no_acc_after_accounts(monkeypatch):
     L = _patch_ads(
         monkeypatch,
         [
-            _R(200, {"elements": [{"id": 1, "name": "A"}]}),   # ad_accounts
-            _R(200, {"elements": []}),                          # campaigns
+            _R(200, {"elements": [{"id": 1, "name": "A"}]}),  # ad_accounts
+            _R(200, {"elements": []}),  # campaigns
         ],
     )
     # _token needs an account w/ token; snapshot's later SocialAccount lookup → None
     acc_tok = MagicMock(access_token_enc="enc")
+
     def _res(acc):
         r = MagicMock()
         r.scalars.return_value.first.return_value = acc
@@ -89,7 +90,7 @@ async def test_snapshot_team_scoped(monkeypatch):
     L = _patch_ads(
         monkeypatch,
         [
-            _R(200, {"elements": []}),   # ad_accounts (team scoped via _token)
+            _R(200, {"elements": []}),  # ad_accounts (team scoped via _token)
         ],
     )
     db = _db(MagicMock(access_token_enc="enc"))
@@ -166,9 +167,15 @@ async def test_events_error_and_skip_paths(monkeypatch):
 
     # create_org_event 201 with body fallback id
     class _ClientBody:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
         async def post(self, url, json=None, **kw):
             return _RespE(201, {"id": "urn:li:event:99"}, text="{}", headers={})
 
@@ -294,8 +301,8 @@ async def test_snapshot_team_scoped_with_accounts(monkeypatch):
     import app.services.linkedin_ads as L
 
     responses = [
-        _R(200, {"elements": [{"id": 1, "name": "A"}]}),   # ad_accounts
-        _R(200, {"elements": []}),                          # campaigns
+        _R(200, {"elements": [{"id": 1, "name": "A"}]}),  # ad_accounts
+        _R(200, {"elements": []}),  # campaigns
     ]
     monkeypatch.setattr("app.core.security.decrypt_token", lambda t: "tok", raising=False)
     monkeypatch.setattr(L, "decrypt_token", lambda t: "tok", raising=False)
@@ -328,10 +335,17 @@ async def test_search_all_skips_unsummarizable_elements(monkeypatch):
             return {"elements": [{"noAdUrl": True}, {"adUrl": "https://x/ok", "details": {}}]}
 
     class _Client:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def get(self, *a, **k): return _Resp()
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            return _Resp()
 
     monkeypatch.setattr(AL.httpx, "AsyncClient", _Client)
     monkeypatch.setattr(AL, "_token", AsyncMock(return_value="tok"))
@@ -353,10 +367,17 @@ async def test_ad_library_search_page_error_and_public_search(monkeypatch):
             return {}
 
     class _ClientErr:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def get(self, *a, **k): return _RespErr()
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            return _RespErr()
 
     monkeypatch.setattr(AL.httpx, "AsyncClient", _ClientErr)
     monkeypatch.setattr(AL, "_token", AsyncMock(return_value="tok"))

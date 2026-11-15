@@ -73,10 +73,13 @@ async def test_get_lead_form_paths(monkeypatch):
     assert await ADV.get_lead_form("urn:li:leadGenForm:5") is None
 
     _patch_ctx(monkeypatch)
-    _patch_http(monkeypatch, [
-        _Resp(200, {"content": {"questions": [{"questionId": 1}]}}),
-        _Resp(404, text="gone"),
-    ])
+    _patch_http(
+        monkeypatch,
+        [
+            _Resp(200, {"content": {"questions": [{"questionId": 1}]}}),
+            _Resp(404, text="gone"),
+        ],
+    )
     out = await ADV.get_lead_form("urn:li:versionedLeadGenForm:(urn:li:leadGenForm:5,1)")
     assert out["content"]["questions"][0]["questionId"] == 1
     assert await ADV.get_lead_form("urn:li:leadGenForm:9") is None
@@ -90,11 +93,7 @@ def test_question_map_skips_missing_qid_and_builds_options():
                 {
                     "questionId": 9,
                     "question": {"localized": {"el_GR": "Ερώτηση"}},
-                    "questionDetails": {
-                        "multipleChoiceQuestionDetails": {
-                            "options": [{"id": "o1", "text": {"localized": {"en_US": "Yes"}}}]
-                        }
-                    },
+                    "questionDetails": {"multipleChoiceQuestionDetails": {"options": [{"id": "o1", "text": {"localized": {"en_US": "Yes"}}}]}},
                 },
             ]
         }
@@ -114,10 +113,13 @@ async def test_list_lead_notifications_paths(monkeypatch):
     assert out["skip"] == "disabled-or-no-account"
 
     _patch_ctx(monkeypatch)
-    _patch_http(monkeypatch, [
-        _Resp(200, {"elements": [{"id": "n1"}]}),
-        _Resp(500, text="err"),
-    ])
+    _patch_http(
+        monkeypatch,
+        [
+            _Resp(200, {"elements": [{"id": "n1"}]}),
+            _Resp(500, text="err"),
+        ],
+    )
     out = await ADV.list_lead_notifications("urn:li:organization:2")
     assert out["notifications"][0]["id"] == "n1"
     out = await ADV.list_lead_notifications("urn:li:sponsoredAccount:3")
@@ -131,10 +133,13 @@ async def test_create_lead_notification_paths(monkeypatch):
     assert out["error"] == "disabled-or-no-account"
 
     _patch_ctx(monkeypatch)
-    _patch_http(monkeypatch, [
-        _Resp(201, {}, {"x-restli-id": "notif-1"}),
-        _Resp(400, text="bad"),
-    ])
+    _patch_http(
+        monkeypatch,
+        [
+            _Resp(201, {}, {"x-restli-id": "notif-1"}),
+            _Resp(400, text="bad"),
+        ],
+    )
     out = await ADV.create_lead_notification("https://x/hook", "urn:li:sponsoredAccount:9")
     assert out["ok"] is True and out["id"] == "notif-1"
     out = await ADV.create_lead_notification("https://x/hook", "urn:li:organization:9")
@@ -147,10 +152,13 @@ async def test_create_lead_notification_paths(monkeypatch):
 @pytest.mark.asyncio
 async def test_stream_conversion_variants(monkeypatch):
     _patch_ctx(monkeypatch)
-    calls = _patch_http(monkeypatch, [
-        _Resp(201, {"elements": [{"status": "ok"}]}),
-        _Resp(200, bad_json=True),
-    ])
+    calls = _patch_http(
+        monkeypatch,
+        [
+            _Resp(201, {"elements": [{"status": "ok"}]}),
+            _Resp(200, bad_json=True),
+        ],
+    )
     out = await ADV.stream_conversion(
         conversion_rule="urn:lla:rule:1",
         happened_at_ms=123,
@@ -165,9 +173,7 @@ async def test_stream_conversion_variants(monkeypatch):
     assert element["conversionValue"] == 9.99 and element["currencyCode"] == "EUR"
 
     # urn lead + bad-json body + no optional fields
-    out = await ADV.stream_conversion(
-        conversion_rule="urn:lla:rule:1", happened_at_ms=1, lead_id="urn:li:leadGenFormResponse:5"
-    )
+    out = await ADV.stream_conversion(conversion_rule="urn:lla:rule:1", happened_at_ms=1, lead_id="urn:li:leadGenFormResponse:5")
     assert out["ok"] is True and "element" not in out
     element = calls[1][2]["json"]["elements"][0]
     assert element["user"]["lead"] == "urn:li:leadGenFormResponse:5"
@@ -198,12 +204,15 @@ async def test_create_conversion_rule_paths(monkeypatch):
     assert out["error"] == "disabled-or-no-account"
 
     _patch_ctx(monkeypatch)
-    _patch_http(monkeypatch, [
-        _Resp(201, {}, {"x-restli-id": "r1"}),
-        _Resp(201, {"id": "r2"}),          # id from body
-        _Resp(201, bad_json=True),          # json fails, no header -> no-rule-id
-        _Resp(500, text="err"),
-    ])
+    _patch_http(
+        monkeypatch,
+        [
+            _Resp(201, {}, {"x-restli-id": "r1"}),
+            _Resp(201, {"id": "r2"}),  # id from body
+            _Resp(201, bad_json=True),  # json fails, no header -> no-rule-id
+            _Resp(500, text="err"),
+        ],
+    )
     out = await ADV.create_conversion_rule("n1", "LEAD")
     assert out["rule_urn"] == "urn:lla:llaPartnerConversion:r1"
     out = await ADV.create_conversion_rule("n2", "LEAD")
