@@ -501,6 +501,7 @@ Environment variables:
 | `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 | `scripts/dmr_pressure.py` | Fleet pressure verdict — wedged loads, low host RAM, dmr_lock contention, chat-probe canary |
+| `scripts/dmr-restore.sh` | Runner-container-GONE recovery — image pull (EOF retry), `install-runner` with `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1`, API wait + verify. `--check` reports state only |
 
 ## Common operations
 
@@ -611,7 +612,10 @@ Notes:
 - Admin keep-alive overrides persist in Redis hash dmr:config_overrides
 - ComfyUI /free is called by the heal path only when its queue is idle
 
-## Runner container gone — full reinstall (seen 2026-10-08)
+## Runner container gone — full reinstall (seen 2026-10-08, again 2026-11-15)
+
+Automated: `scripts/dmr-restore.sh` runs this whole procedure (`--check`
+for state only). Manual steps below.
 
 Symptom: `docker-model-runner` missing from `docker ps -a`, port 12435
 refused everywhere, watchdog logs "container gone — Docker Desktop restart
