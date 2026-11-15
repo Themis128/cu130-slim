@@ -20,7 +20,7 @@ from app.core.path_utils import safe_resolve
 from app.db.session import get_db
 from app.models.content import MediaAsset, MediaCollection
 from app.models.user import Team, User
-from app.services import minio_storage, r2_presigned, r2_storage
+from app.services import media_integrity, minio_storage, r2_presigned, r2_storage
 from app.services.media_ai import get_similar_assets
 from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
 from app.services.media_spellcheck import correct_tags, correct_text
@@ -1090,6 +1090,7 @@ class PresignedUploadResponse(BaseModel):
     key: str
     upload_url: str
     public_url: str | None
+    storage_backend: str
 
 
 class CompleteUploadRequest(BaseModel):
@@ -1097,6 +1098,7 @@ class CompleteUploadRequest(BaseModel):
     filename: str
     mime_type: str
     size_bytes: int
+    storage_backend: str | None = None
     width: int | None = None
     height: int | None = None
     alt_text: str | None = None
@@ -1115,6 +1117,7 @@ async def prepare_upload(body: PresignedUploadRequest, team_id: TeamId, current_
         mime_type=body.mime_type,
         size_bytes=body.size_bytes,
     )
+    backend = "r2"
     if not url:
         # Fall back to MinIO presigned URL if R2 S3 credentials are not configured
         url = minio_storage.presigned_upload_url(
@@ -1123,11 +1126,16 @@ async def prepare_upload(body: PresignedUploadRequest, team_id: TeamId, current_
             mime_type=body.mime_type,
             size_bytes=body.size_bytes,
         )
+        backend = "minio"
     if not url:
         raise HTTPException(
             status_code=503,
             detail="Neither R2 nor MinIO S3 credentials are configured. Use the server-side /upload endpoint instead.",
         )
+    if isinstance(url, dict):
+        url["storage_backend"] = backend
+    else:
+        url.storage_backend = backend
     return url
 
 
@@ -1147,19 +1155,24 @@ async def complete_upload(body: CompleteUploadRequest, team_id: TeamId, current_
             detail="Upload key does not belong to your team",
         )
 
+    probe = await media_integrity.verify_uploaded_object(
+        body.key,
+        backend=body.storage_backend,
+        expected_size=body.size_bytes,
+    )
+
     corrected_alt = await correct_text(body.alt_text)
     corrected_tags = await correct_tags(body.tags or [])
-    public_url = r2_presigned._public_url(body.key)
 
     asset = MediaAsset(
         team_id=team.id,
         user_id=current_user.id,
         filename=body.filename,
         mime_type=body.mime_type,
-        size_bytes=body.size_bytes,
-        storage_backend="r2",
+        size_bytes=probe.size if probe.size is not None else body.size_bytes,
+        storage_backend=probe.backend,
         storage_path=body.key,
-        public_url=public_url,
+        public_url=probe.public_url,
         width=body.width,
         height=body.height,
         alt_text=corrected_alt,

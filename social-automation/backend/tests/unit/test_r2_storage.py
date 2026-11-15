@@ -17,6 +17,9 @@ def _settings(**kw):
         R2_API_BASE="https://api.cloudflare.com/client/v4",
         R2_PUBLIC_URL="https://pub.example.com",
         CLOUDFLARE_API_TOKEN="tok",
+        R2_ACCESS_KEY_ID="",
+        R2_SECRET_ACCESS_KEY="",
+        R2_S3_ENDPOINT="",
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -28,14 +31,18 @@ def _patch_settings(monkeypatch):
 
 
 class _Resp:
-    def __init__(self, code=200, data=None, content=b"data", text=""):
+    def __init__(self, code=200, data=None, content=b"data", text="", headers=None):
         self.status_code = code
         self._data = data or {}
         self.content = content
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         return self._data
+
+    async def aread(self):
+        return self.content
 
 
 class _HTTP:
@@ -65,6 +72,22 @@ class _HTTP:
     async def head(self, url, **kw):
         self.calls.append(("HEAD", url, kw))
         return self._ret()
+
+    def stream(self, method, url, **kw):
+        self.calls.append((method, url, kw))
+        resp = self.resp
+        exc = self.exc
+
+        class _Stream:
+            async def __aenter__(self):
+                if exc:
+                    raise exc
+                return resp
+
+            async def __aexit__(self, *a):
+                return False
+
+        return _Stream()
 
     def _ret(self):
         if self.exc:
