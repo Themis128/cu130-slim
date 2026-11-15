@@ -379,6 +379,22 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def navigate(self, url: str) -> dict[str, Any]:
+        """Navigate the sidecar browser to ``url`` (debug lane)."""
+        async with self._client as c:
+            r = await c.post("/debug/navigate", json={"url": url}, timeout=90.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def page_text(self) -> dict[str, Any]:
+        """Return ``{"url", "text"}`` for the current sidecar page (≤2000 chars)."""
+        async with self._client as c:
+            r = await c.get("/debug/page-text", timeout=60.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
     async def send_connect(
         self,
         *,

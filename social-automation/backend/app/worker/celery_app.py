@@ -116,6 +116,7 @@ celery_app = Celery(
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.media_heal",
         "app.worker.tasks.newsletter_subs",
+        "app.worker.tasks.newsletter_issues",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.workforce_audit",
         "app.worker.tasks.bluesky_credential",
@@ -175,6 +176,16 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.publish_post_now": {
             "soft_time_limit": 300,
             "time_limit": 600,
+        },
+        # Newsletter issue publish drives the LinkedIn sidecar editor —
+        # same multi-minute envelope as the org-image publish path.
+        "app.worker.tasks.newsletter_issues.dispatch_newsletter_issues": {
+            "soft_time_limit": 2700,
+            "time_limit": 3000,
+        },
+        "app.worker.tasks.newsletter_issues.verify_newsletter_issues": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
         },
         "app.worker.tasks.token_refresh.refresh_expiring_tokens": {
             "soft_time_limit": 300,
@@ -389,6 +400,10 @@ celery_app.conf.update(
         "app.worker.tasks.engagement_archive.compact_ledger": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
+        # Newsletter issue dispatch — drives the LinkedIn sidecar browser
+        # (multi-minute publish), serialized by a Redis mutex inside the task.
+        "app.worker.tasks.newsletter_issues.dispatch_newsletter_issues": {"queue": "publishing"},
+        "app.worker.tasks.newsletter_issues.verify_newsletter_issues": {"queue": "publishing"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.media_heal.run_media_heal_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
@@ -459,6 +474,18 @@ celery_app.conf.update(
         "newsletter-subs-sync": {
             "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
             "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
+        # Queued LinkedIn newsletter issues → sidecar/bridge publish. Claims
+        # one due row per sweep; scheduled_for supports future editions.
+        "newsletter-issue-dispatch": {
+            "task": "app.worker.tasks.newsletter_issues.dispatch_newsletter_issues",
+            "schedule": 300.0,
+        },
+        # Verify published article_urls live in the sidecar browser — the
+        # platform replacement for newsletter_verify_published.sh.
+        "newsletter-issue-verify": {
+            "task": "app.worker.tasks.newsletter_issues.verify_newsletter_issues",
+            "schedule": crontab(minute="*/15"),
         },
         # Daily LinkedIn conversions lane audit — rules exist/enabled and
         # env URNs match live ids; alerts #ops on drift.

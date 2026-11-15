@@ -333,3 +333,38 @@ async def test_publish_newsletter_issue_dry_run_and_error(monkeypatch):
     with pytest.raises(L.LinkedInSidecarError) as e:
         await c.publish_newsletter_issue(title="t", text_body="b")
     assert e.value.status_code == 500 and e.value.detail == "editor dead"
+
+
+@pytest.mark.asyncio
+async def test_navigate_and_page_text(monkeypatch):
+    c = _client(
+        monkeypatch,
+        _Http(
+            routes={
+                "/debug/navigate": _resp(200, {"status": "ok"}),
+                "/debug/page-text": _resp(200, {"url": "https://x", "text": "hello"}),
+            }
+        ),
+    )
+    out = await c.navigate("https://www.linkedin.com/pulse/x/")
+    assert out == {"status": "ok"}
+    nav_call = [c2 for c2 in c._http.calls if c2[0] == "POST" and "/debug/navigate" in c2[1]]
+    assert nav_call and nav_call[0][2]["json"] == {"url": "https://www.linkedin.com/pulse/x/"}
+
+    text = await c.page_text()
+    assert text == {"url": "https://x", "text": "hello"}
+    txt_call = [c2 for c2 in c._http.calls if c2[0] == "GET" and "/debug/page-text" in c2[1]]
+    assert txt_call
+
+
+@pytest.mark.asyncio
+async def test_navigate_and_page_text_errors(monkeypatch):
+    c = _client(monkeypatch, _Http(routes={"/debug/navigate": _resp(502, text="nav boom")}))
+    with pytest.raises(L.LinkedInSidecarError) as e:
+        await c.navigate("https://x")
+    assert e.value.status_code == 502
+
+    c2 = _client(monkeypatch, _Http(routes={"/debug/page-text": _resp(503, text="txt boom")}))
+    with pytest.raises(L.LinkedInSidecarError) as e2:
+        await c2.page_text()
+    assert e2.value.status_code == 503
