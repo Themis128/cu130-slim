@@ -94,6 +94,8 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_intel",
         "app.worker.tasks.linkedin_conversion_audit",
         "app.worker.tasks.linkedin_dmp_sync",
+        "app.worker.tasks.linkedin_engagement",
+        "app.worker.tasks.linkedin_conversion_ensure",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
@@ -357,6 +359,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_portability_sync.sync_linkedin_portability": {"queue": "default"},
         "app.worker.tasks.linkedin_conversion_audit.audit_linkedin_conversions": {"queue": "default"},
         "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences": {"queue": "default"},
+        "app.worker.tasks.linkedin_engagement.engage_linkedin_watchlist": {"queue": "default"},
+        "app.worker.tasks.linkedin_conversion_ensure.ensure_linkedin_conversion_rules": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -471,6 +475,19 @@ celery_app.conf.update(
         "linkedin-dmp-sync": {
             "task": "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences",
             "schedule": crontab(hour=8, minute=30),
+        },
+        # LinkedIn Community Management engagement watchlist — read posts on
+        # LINKEDIN_ENGAGE_AUTHORS, react/comment with daily caps + dedup.
+        # Writes self-gate unless LINKEDIN_FEED_WRITES=1.
+        "linkedin-engage": {
+            "task": "app.worker.tasks.linkedin_engagement.engage_linkedin_watchlist",
+            "schedule": crontab(minute="*/45"),
+        },
+        # Daily: ensure every mapped conversion event has a CONVERSIONS_API
+        # rule on the ads account; auto-create + persist rule URNs.
+        "linkedin-conversion-ensure": {
+            "task": "app.worker.tasks.linkedin_conversion_ensure.ensure_linkedin_conversion_rules",
+            "schedule": crontab(hour=5, minute=10),
         },
         # Weekly LinkedIn Ad Library watch → linkedin_ad_intel + #intel digest.
         # ~7 watches × up to 10 pages × 5s pacing — runs well inside 30 min.

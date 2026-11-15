@@ -5,6 +5,7 @@ Behind ``LINKEDIN_ADVANCED=1`` until the access requests on 265077368 +
 flagged off or token missing.
 """
 
+import logging
 import os
 
 import httpx
@@ -19,6 +20,8 @@ V2 = "https://api.linkedin.com/v2"
 HDRS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
 
 ENABLED = os.getenv("LINKEDIN_ADVANCED", "0") == "1"
+
+logger = logging.getLogger(__name__)
 
 
 async def _ctx() -> tuple[str, str] | None:
@@ -71,6 +74,8 @@ async def stream_conversion(
     happened_at_ms: int,
     email_sha256: str | None = None,
     lead_id: str | None = None,
+    conversion_value: float | None = None,
+    currency_code: str | None = None,
 ) -> dict:
     """Stream a server-side conversion event (``audit_booked``, ``lead_created``).
 
@@ -88,15 +93,16 @@ async def stream_conversion(
         user["userIds"] = [{"idType": "SHA256_EMAIL", "idValue": email_sha256}]
     if lead_id:
         user["lead"] = lead_id if lead_id.startswith("urn:") else f"urn:li:leadGenFormResponse:{lead_id}"
-    payload = {
-        "elements": [
-            {
-                "conversion": conversion_rule,
-                "conversionHappenedAt": happened_at_ms,
-                "user": user,
-            }
-        ]
+    element: dict = {
+        "conversion": conversion_rule,
+        "conversionHappenedAt": happened_at_ms,
+        "user": user,
     }
+    if conversion_value is not None:
+        element["conversionValue"] = conversion_value
+    if currency_code:
+        element["currencyCode"] = currency_code
+    payload = {"elements": [element]}
     headers = {
         "Authorization": f"Bearer {token}",
         **HDRS,
@@ -113,6 +119,96 @@ async def stream_conversion(
         except ValueError:
             pass
         return out
+
+
+# ── Conversion rules (create/list/resolve) ───────────────────────────────
+
+# event name → (env var holding the rule URN, LinkedIn conversion `type`)
+# ``type`` is the Campaign Manager "key conversion behavior" — LEAD for
+# form/booking captures, SIGNUP for subscriptions, PURCHASE for checkout,
+# CUSTOM for everything else.
+CONVERSION_EVENTS: dict[str, tuple[str, str]] = {
+    "audit_booked": ("LINKEDIN_CONVERSION_RULE", "LEAD"),
+    "lead_created": ("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "LEAD"),
+    "contact_created": ("LINKEDIN_CONVERSION_RULE_CONTACT", "LEAD"),
+    "consultation_booked": ("LINKEDIN_CONVERSION_RULE_CONSULT", "LEAD"),
+    "signup": ("LINKEDIN_CONVERSION_RULE_SIGNUP", "SIGNUP"),
+    "purchase": ("LINKEDIN_CONVERSION_RULE_PURCHASE", "PURCHASE"),
+}
+
+
+async def list_conversion_rules() -> dict:
+    """All conversion rules on the ads account — ``GET /rest/conversions``."""
+    ctx = await _ctx()
+    if not ctx:
+        return {"rules": [], "skip": "disabled-or-no-account"}
+    token, _ = ctx
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(f"{REST}/conversions", params={"q": "account", "account": AD_ACCOUNT_URN, "count": 100})
+    if r.status_code != 200:
+        return {"rules": [], "status": r.status_code}
+    return {"rules": r.json().get("elements") or [], "status": 200}
+
+
+async def create_conversion_rule(name: str, conv_type: str = "LEAD") -> dict:
+    """Create a ``CONVERSIONS_API`` rule — ``POST /rest/conversions``.
+
+    Returns ``{"rule_urn": "urn:lla:llaPartnerConversion:{id}", "id": ...}``
+    on success (id from ``x-restli-id`` / body ``id``).
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"error": "disabled-or-no-account"}
+    token, _ = ctx
+    payload = {
+        "name": name,
+        "account": AD_ACCOUNT_URN,
+        "conversionMethod": "CONVERSIONS_API",
+        "postClickAttributionWindowSize": 30,
+        "viewThroughAttributionWindowSize": 7,
+        "attributionType": "LAST_TOUCH_BY_CAMPAIGN",
+        "type": conv_type,
+    }
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.post(
+            f"{REST}/conversions",
+            params={"autoAssociationType": "ALL_CAMPAIGNS"},
+            json=payload,
+        )
+    if r.status_code not in (200, 201):
+        return {"error": r.status_code, "body": r.text[:300]}
+    rule_id = r.headers.get("x-restli-id")
+    if not rule_id:
+        try:
+            rule_id = r.json().get("id")
+        except ValueError:
+            rule_id = None
+    if not rule_id:
+        return {"error": "no-rule-id", "body": r.text[:300]}
+    return {"rule_urn": f"urn:lla:llaPartnerConversion:{rule_id}", "id": str(rule_id), "name": name}
+
+
+async def resolve_conversion_rule(event: str) -> str | None:
+    """Rule URN for *event*: env var first, then ``social_secrets`` fallback.
+
+    The ensure-task stores auto-created rules under the same env-var key in
+    the secret store, so resolution order stays env → secret → None.
+    """
+    spec = CONVERSION_EVENTS.get(event)
+    if not spec:
+        return None
+    env_key, _ = spec
+    urn = os.environ.get(env_key, "")
+    if urn:
+        return urn
+    try:
+        from app.services.secret_store import secret_store
+
+        val = await secret_store.get(env_key)
+        return str(val) if val else None
+    except Exception:  # noqa: BLE001 — resolution must never break the caller
+        logger.debug("conversion rule secret lookup failed for %s", env_key, exc_info=True)
+        return None
 
 
 # ── Matched Audiences ────────────────────────────────────────────────────
