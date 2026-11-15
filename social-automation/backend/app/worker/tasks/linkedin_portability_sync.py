@@ -93,8 +93,30 @@ def _event(
     )
 
 
+async def _has_member_dp_secret() -> bool:
+    try:
+        from app.services.secret_store import secret_store
+
+        return bool(await secret_store.get("LINKEDIN_MEMBER_DP_TOKEN"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _member_dp_token(person: SocialAccount) -> str | None:
+    """Dedicated Member DP token (app 265100977) wins; account token is fallback."""
+    try:
+        from app.services.secret_store import secret_store
+
+        dedicated = await secret_store.get("LINKEDIN_MEMBER_DP_TOKEN")
+        if dedicated:
+            return str(dedicated)
+    except Exception:  # noqa: BLE001 — secret store outage must not break the sweep
+        pass
+    return decrypt_token(bytes(person.access_token_enc))
+
+
 async def _member_dp(db, person: SocialAccount, client: httpx.AsyncClient) -> dict[str, Any]:
-    token = decrypt_token(bytes(person.access_token_enc))
+    token = await _member_dp_token(person)
     summary: dict[str, Any] = {"domains": {}, "truncated_domains": []}
     denied = False
     for domain in lp.MEMBER_DOMAINS:
@@ -225,8 +247,13 @@ async def _run() -> dict[str, Any]:
 
         result: dict[str, Any] = {}
         async with httpx.AsyncClient(timeout=60) as client:
-            # Member DP — member's own data, person token only.
-            if person and _has_scope(person, MEMBER_SCOPE):
+            # Member DP — member's own data, person token only. A dedicated
+            # LINKEDIN_MEMBER_DP_TOKEN secret (separate app grant) satisfies
+            # the scope gate even when the account token lacks the scope.
+            member_dp_ready = bool(person) and (
+                _has_scope(person, MEMBER_SCOPE) or await _has_member_dp_secret()
+            )
+            if member_dp_ready:
                 try:
                     result["member_dp"] = await _member_dp(db, person, client)
                 except Exception as exc:  # noqa: BLE001 — never abort the sweep
