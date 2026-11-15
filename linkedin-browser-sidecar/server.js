@@ -1153,9 +1153,24 @@ async function chooseVerificationMethod(method) {
         .catch(() => "");
     }
     if (!labelText) {
-      // fall back to the radio's surrounding container text
+      // LinkedIn's security-check radios have no <label for>; the option
+      // text sits a few ancestors up (React Aria pattern). Climb until a
+      // container yields text, but stop before a wrapper holding multiple
+      // radios — that would mix both options into one string.
       labelText = await radio
-        .evaluate((el) => (el.closest("label") || el.parentElement || el).innerText || "")
+        .evaluate((el) => {
+          let node = el.parentElement;
+          for (let i = 0; i < 6 && node; i++) {
+            const radiosInside = node.querySelectorAll
+              ? node.querySelectorAll('input[type="radio"]').length
+              : 99;
+            if (radiosInside > 1) break;
+            const text = (node.innerText || "").trim();
+            if (text) return text.slice(0, 160);
+            node = node.parentElement;
+          }
+          return "";
+        })
         .catch(() => "");
     }
     if (want.test(labelText)) {
@@ -1163,7 +1178,25 @@ async function chooseVerificationMethod(method) {
       if (label && (await label.count()) > 0) {
         await label.first().click({ timeout: 5000 }).catch(() => radio.click({ timeout: 5000 }));
       } else {
-        await radio.click({ timeout: 5000 }).catch(() => {});
+        await radio.click({ timeout: 5000 }).catch(async () => {
+          // last resort: click the option's text container
+          await radio
+            .evaluate((el) => {
+              let node = el.parentElement;
+              for (let i = 0; i < 6 && node; i++) {
+                const radiosInside = node.querySelectorAll
+                  ? node.querySelectorAll('input[type="radio"]').length
+                  : 99;
+                if (radiosInside > 1) break;
+                if ((node.innerText || "").trim()) {
+                  node.click();
+                  return;
+                }
+                node = node.parentElement;
+              }
+            })
+            .catch(() => {});
+        });
       }
       return labelText.slice(0, 80);
     }
@@ -1267,7 +1300,8 @@ async function handleLoginStart(req, res) {
     await page.waitForTimeout(8000);
 
     // Walk the post-submit stages: success → PIN entry → method select.
-    for (let i = 0; i < 6; i++) {
+    // The security-check page can take ~30s to render after submit.
+    for (let i = 0; i < 12; i++) {
       const url = page.url();
       if (loginUrlIndicatesSuccess(url)) {
         storageState = await context.storageState();
