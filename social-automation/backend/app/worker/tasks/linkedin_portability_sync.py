@@ -288,8 +288,8 @@ async def _run() -> dict[str, Any]:
             if member_person is not None and (
                 _has_scope(member_person, MEMBER_SCOPE) or member_secret is not None
             ):
-                token = member_secret or decrypt_token(bytes(member_person.access_token_enc))
                 try:
+                    token = member_secret or decrypt_token(bytes(member_person.access_token_enc))
                     result["member_dp"] = await _member_dp(db, member_person, client, token)
                 except Exception as exc:  # noqa: BLE001 — never abort the sweep
                     result["member_dp"] = {"error": f"{type(exc).__name__}: {exc}"}

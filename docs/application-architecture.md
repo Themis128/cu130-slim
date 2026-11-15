@@ -671,6 +671,15 @@ app/worker/tasks/
 ├── instagram_token_refresh.py — refresh_instagram_tokens
 ├── linkedin_session_check.py  — check_linkedin_sessions
 ├── linkedin_session_refresh.py — refresh_linkedin_sessions
+├── linkedin_portability_sync.py — sync_linkedin_portability (daily):
+│                             Member DP + Pages DP exports →
+│                             AnalyticsEvents → datalake. Member token =
+│                             LINKEDIN_MEMBER_DP_TOKEN secret (app
+│                             265100977; JSON {"token","account_id"} pins
+│                             the grant to one social_accounts row) →
+│                             person token fallback; pending-grant while
+│                             the dedicated secret is set alerts ops
+│                             (~1yr TTL, no refresh = expiry, not approval)
 ├── session_healer.py       — heal_sessions: hourly self-heal sweep —
 │                             LinkedIn sidecar (429-circuit clear →
 │                             credential login → app-push 2FA wait),
