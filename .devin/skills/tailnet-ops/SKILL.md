@@ -77,7 +77,7 @@ on release builds so injection is the only no-root path.
 | node | ip | role |
 |---|---|---|
 | office-1-win-exitnode | 100.83.120.93 | Windows workstation — exit node |
-| wsl-ubuntu2404-1 | 100.100.186.88 | WSL2 dev env — sshd :22, /home/tbaltzakis share (re-registered 2026-11; was 100.86.188.43) |
+| wsl-ubuntu2404-1 | 100.100.186.88 | WSL2 dev env — Tailscale SSH :22 (`tailscale set --ssh`, no openssh-server; ACL `ssh` autogroup:self), /home/tbaltzakis share (re-registered 2026-11; was 100.86.188.43) |
 | galaxy-s22 | 100.84.31.85 | phone — Termux :8022; full access to tag:pi via admin grant (see Theft resilience) |
 | github-omv | 100.74.191.58 | OMV NAS RPi — k3s+authentik+cloudflared+app-connector (DO NOT rename: admin URL bound to it) |
 | omv-ha | 100.95.117.84 | OMV-HA box, tag:pi — primary subnet router for 192.168.1.0/24 (office-1 is standby) |
