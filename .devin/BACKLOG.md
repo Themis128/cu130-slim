@@ -2629,7 +2629,8 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
 - [ ] human: Galaxy S22+ PIN lockscreen — blocks ADB-driven phone flows
   (Viber Business setup, WhatsApp SMS verification). Unlock the phone
   when those lanes are needed; phone-adb-watch alerts after 24h down.
-- [ ] human: Viber — REST bot creation is commercially gated (Rakuten
-  partner application); free Viber Business Account setup exists but
-  needs the unlocked phone. Token-capture path (viber_phone_capture.py)
-  is ready for when a bot exists.
+- [ ] human: Viber — Business Account is already LIVE (see 2026-11-15 GBP +
+  Viber entry); what remains is the REST bot, which is commercially gated
+  (Rakuten partner application). Any further in-app Business Account edits
+  need the unlocked phone. Token-capture path (viber_phone_capture.py) is
+  ready for when a bot exists.
