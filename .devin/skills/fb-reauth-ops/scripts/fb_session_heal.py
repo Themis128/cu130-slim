@@ -105,6 +105,19 @@ EVAL_CLICKTHROUGH = r"""
 })()
 """
 
+# On checkpoint "choose a way to confirm" screens prefer the
+# authenticator-app method now that META_TOTP_SECRET is enrolled.
+EVAL_PICK_METHOD = r"""
+(() => {
+  const els = [...document.querySelectorAll(
+    '[role=button],button,a,label,div[tabindex]')];
+  const b = els.find(e => /authentication app|authenticator app|"
+    + "google authenticator|duo mobile/i.test(e.innerText||''));
+  if (b) { b.click(); return 'picked-app'; }
+  return 'no-method-choice';
+})()
+"""
+
 EVAL_2FA = r"""
 (() => {
   const code = %s;
@@ -172,6 +185,19 @@ def _fb_sms_code():
     except Exception:
         pass
     return None
+
+
+def _fb_totp_code():
+    """Current TOTP from META_TOTP_SECRET (authenticator app enrolled
+    2026-11-15), or None when unset/unavailable."""
+    secret = (_env("META_TOTP_SECRET") or "").strip()
+    if not secret:
+        return None
+    try:
+        import pyotp
+        return pyotp.TOTP(secret).now()
+    except Exception:
+        return None
 
 
 def _find_fb_tab(base):
@@ -420,6 +446,7 @@ def _credential_login(base):
         eval_fails = 0
         reloads = 0
         swaps = 0
+        totp_tried = False
         for attempt in range(20):
             time.sleep(5)
             st = probe_state(c)
@@ -474,10 +501,19 @@ def _credential_login(base):
             if st.get("captcha"):
                 return {"ok": False, "reason": "captcha", "state": st}
             if st.get("needCode"):
-                code = _fb_sms_code()
+                code = None
+                if not totp_tried:
+                    totp_tried = True
+                    code = _fb_totp_code()
+                    if code:
+                        _eval_quick(c, EVAL_PICK_METHOD, timeout=15)
+                        time.sleep(2)
                 if not code:
-                    return {"ok": False, "reason": "2fa-no-sms-code",
-                            "state": st}
+                    code = _fb_sms_code()
+                    if not code:
+                        return {"ok": False,
+                                "reason": "2fa-no-code-source",
+                                "state": st}
                 _eval_quick(c, EVAL_2FA % json.dumps(code), timeout=25)
                 continue
             _drive_interstitials(c, rounds=2)
