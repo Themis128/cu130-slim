@@ -8,7 +8,7 @@ Self-hosted Infisical secrets manager on the WSL docker stack. Companion to `aut
 - Dedicated DB `infisical` inside the shared `postgres` container — the postgres superuser is `metabase`, NOT `postgres` (the `POSTGRES_*` env vars belong to a different service; using them fails auth).
 - `DB_CONNECTION_URI`/`INFISICAL_ENCRYPTION_KEY`/`INFISICAL_AUTH_SECRET` live in `.env` (root-owned file; patch as root). Keys ALSO in `~/.config/secrets/infisical`.
 - ENCRYPTION_KEY = 16-byte hex, AUTH_SECRET = base64 32-byte — wrong format crashes with `Invalid key length`.
-- Ports: `127.0.0.1:8090:8080` + `100.86.188.43:8090:8080` (tailnet). Health: `GET /api/status` -> `{"message":"Ok","emailConfigured":true,...}`.
+- Ports: `127.0.0.1:8090:8080` + `${INFISICAL_TAILNET_IP}:8090:8080` (tailnet; WSL node, currently 100.100.186.88 — compose-watchdog rewrites it on drift). Health: `GET /api/status` -> `{"message":"Ok","emailConfigured":true,...}`.
 - Public: `https://secrets.cloudless.gr` gated by authentik proxy provider (see authentik-gate-ops). OIDC SSO is Pro-tier paywalled — the proxy gate is the free-tier path; an `infisical` OIDC provider (pk23) is pre-staged if Pro is ever bought.
 - Admin: `tbaltzakis@cloudless.gr` (password in `~/.config/secrets`). Org: `Admin Org`, project `cloudless-infra` id `27660119-de58-4d8b-adaf-a39c8fc8c79e`, envs dev/staging/prod.
 

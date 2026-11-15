@@ -277,7 +277,7 @@ Remaining:
   REMAINING one-time step to expose it to LAN/tailnet (pick ONE):
   a) `sudo tailscale set --operator=$USER` then `tailscale serve
      --tcp=2222 tcp://localhost:2222` — then omv reaches
-     100.86.188.43:2222; or
+     100.100.186.88:2222 (WSL tailnet IP; was 100.86.188.43); or
   b) add `networkingMode=mirrored` under [wsl2] in
      C:\Users\tbaltzakis\.wslconfig + `wsl --shutdown` (user file, no
      admin, but drops the session — do it at a quiet moment).
