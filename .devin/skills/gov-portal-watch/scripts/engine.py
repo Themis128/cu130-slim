@@ -30,24 +30,55 @@ def _new_tab(url):
                                method="PUT"), timeout=10).read())
 
 
-def ensure_browser():
+def _browser_healthy():
+    """Real roundtrip: /json/version alone passes on a wedged browser whose
+    page renderers are all dead (2026-11-15 IDIKA false '2FA or consent'
+    alert). Open a throwaway tab and eval — that exercises the whole path."""
     try:
         urllib.request.urlopen(CDP + "/json/version", timeout=5).read()
-        return
     except Exception:
-        pass
+        return False
+    t = None
+    try:
+        t = _new_tab("about:blank")
+        tab = Tab(t["webSocketDebuggerUrl"])
+        try:
+            return tab.eval("1+1") == 2
+        finally:
+            tab.close()
+    except Exception:
+        return False
+    finally:
+        if t:
+            _close_target(t.get("id", ""))
+
+
+def _kill_debug_chrome():
+    """Kill every chrome.exe carrying --user-data-dir=chrome-debug-profile.
+    The profile is single-instance, so this only ever hits the debug lane."""
+    import subprocess
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          "Where-Object { $_.CommandLine -like '*chrome-debug-profile*' } | "
+          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
+          "-ErrorAction SilentlyContinue }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                   timeout=30, capture_output=True)
+    time.sleep(2)
+
+
+def ensure_browser():
+    if _browser_healthy():
+        return
+    _kill_debug_chrome()
     import subprocess
     subprocess.Popen([CHROME, "--remote-debugging-port=9229",
                       f"--user-data-dir={PROFILE}", "--no-first-run",
                       "--no-default-browser-check", "about:blank"],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(30):
+    for _ in range(40):
         time.sleep(1)
-        try:
-            urllib.request.urlopen(CDP + "/json/version", timeout=5).read()
+        if _browser_healthy():
             return
-        except Exception:
-            continue
     raise RuntimeError("chrome debug port never came up")
 
 
@@ -115,6 +146,14 @@ def find_tab(url_match):
         if t.get("type") == "page" and url_match in t.get("url", ""):
             return t
     return None
+
+
+def _close_target(tid):
+    """Kill a zombie/crashed tab target so the next find_tab opens fresh."""
+    try:
+        urllib.request.urlopen(CDP + "/json/close/" + tid, timeout=5).read()
+    except Exception:
+        pass
 
 
 # ---------- Telegram ----------
@@ -252,15 +291,23 @@ def run_check(cfg):
         return
 
     host = re.sub(r"^https?://", "", cfg["url"]).split("/")[0]
-    t = find_tab(host)
-    if t is None:
-        t = _new_tab(cfg["url"])
-        time.sleep(6)
-    tab = Tab(t["webSocketDebuggerUrl"])
-    try:
-        raw = tab.reload_and_eval(cfg["extract_js"])
-    finally:
-        tab.close()
+    raw = None
+    for attempt in range(2):
+        t = find_tab(host)
+        if t is None:
+            t = _new_tab(cfg["url"])
+            time.sleep(6)
+        try:
+            tab = Tab(t["webSocketDebuggerUrl"])
+            try:
+                raw = tab.reload_and_eval(cfg["extract_js"])
+            finally:
+                tab.close()
+            break
+        except Exception as e:
+            print("check attempt", attempt, "err", e)
+            _close_target(t.get("id", ""))
+            time.sleep(3)
     if not raw:
         print("no eval result")
         return
@@ -276,7 +323,15 @@ def run_check(cfg):
         if cfg.get("login") != "gsis":
             return
         creds = json.load(open(cfg["creds"])) if cfg.get("creds") else {}
-        tab = Tab(find_tab(host)["webSocketDebuggerUrl"])
+        ft = find_tab(host)
+        if ft is None:
+            print("relogin: portal tab vanished")
+            return
+        try:
+            tab = Tab(ft["webSocketDebuggerUrl"])
+        except Exception as e:
+            print("relogin tab err", e)
+            return
         try:
             ok = gsis_login(tab, cfg, creds, cfg["url"], notify=lambda m: tg(f"{cfg['name']}: {m}", cfg["chat_id"]))
         finally:
@@ -321,22 +376,29 @@ def run_ping(cfg):
         print("ensure_browser:", e)
         return
     host = re.sub(r"^https?://", "", cfg["url"]).split("/")[0]
-    t = find_tab(host)
-    if t is None:
-        t = _new_tab(cfg["url"])
-        time.sleep(6)
-    tab = Tab(t["webSocketDebuggerUrl"])
-    try:
-        tab.cmd("Page.enable")
-        tab.cmd("Page.reload", {"ignoreCache": False})
-        tab.ws.settimeout(30)
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            m = json.loads(tab.ws.recv())
-            if m.get("method") == "Page.loadEventFired":
-                break
-    finally:
-        tab.close()
+    for attempt in range(2):
+        t = find_tab(host)
+        if t is None:
+            t = _new_tab(cfg["url"])
+            time.sleep(6)
+        try:
+            tab = Tab(t["webSocketDebuggerUrl"])
+            try:
+                tab.cmd("Page.enable")
+                tab.cmd("Page.reload", {"ignoreCache": False})
+                tab.ws.settimeout(30)
+                deadline = time.time() + 30
+                while time.time() < deadline:
+                    m = json.loads(tab.ws.recv())
+                    if m.get("method") == "Page.loadEventFired":
+                        break
+            finally:
+                tab.close()
+            return
+        except Exception as e:
+            print("ping attempt", attempt, "err", e)
+            _close_target(t.get("id", ""))
+            time.sleep(3)
 
 
 def run_relogin(cfg):
@@ -345,7 +407,12 @@ def run_relogin(cfg):
     t = find_tab(host) or _new_tab(cfg["url"])
     time.sleep(6)
     creds = json.load(open(cfg["creds"])) if cfg.get("creds") else {}
-    tab = Tab(t["webSocketDebuggerUrl"])
+    try:
+        tab = Tab(t["webSocketDebuggerUrl"])
+    except Exception as e:
+        print("relogin tab err", e)
+        tg(f"{cfg['name']}: could not attach to portal tab for re-login.", cfg["chat_id"])
+        return
     try:
         ok = gsis_login(tab, cfg, creds, cfg["url"], notify=lambda m: tg(f"{cfg['name']}: {m}", cfg["chat_id"]))
     finally:
