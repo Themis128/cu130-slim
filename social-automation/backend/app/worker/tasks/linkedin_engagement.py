@@ -39,6 +39,35 @@ MAX_AGE_H = int(os.getenv("LINKEDIN_ENGAGE_MAX_AGE_H", "72"))
 POSTS_PER_AUTHOR = int(os.getenv("LINKEDIN_ENGAGE_POSTS_PER_AUTHOR", "5"))
 REACTION_TYPES = ["LIKE", "PRAISE", "INTEREST", "APPRECIATION"]
 
+# Post-restriction warm-up: after the sidecar circuit closes we ramp daily
+# caps back over ~7 days instead of jumping straight to full volume
+# (LinkedIn flags "slide-then-spike" resumptions — phantomBuster/Waalaxy
+# recovery guidance: restart at ~30-50% for 5-7 days).
+WARMUP_DAYS = 7
+SIDECAR_HEALTH_URL = os.getenv(
+    "LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225"
+)
+
+
+def _warmup_factor() -> float:
+    """1.0 normally; ramps 0.3→1.0 across WARMUP_DAYS after a cooldown ends."""
+    try:
+        import httpx
+
+        health = httpx.get(f"{SIDECAR_HEALTH_URL}/health", timeout=5).json()
+    except Exception:  # noqa: BLE001 — health probe must never break the task
+        return 1.0
+    until = health.get("rate_limit_until")
+    if until:
+        return 0.0  # still cooling — no engagement writes
+    ended = health.get("cooldown_ended_at")
+    if not ended:
+        return 1.0  # no recorded cooldown — normal operation
+    days = (datetime.now(UTC).timestamp() * 1000 - float(ended)) / 86_400_000
+    if days >= WARMUP_DAYS:
+        return 1.0
+    return max(0.3, 1.0 - 0.1 * days)
+
 
 def _watchlist() -> list[str]:
     raw = os.getenv("LINKEDIN_ENGAGE_AUTHORS", "")
@@ -146,8 +175,17 @@ async def _run() -> dict:
         member_account_id = accounts.get("person")
 
         reactions_today, comments_today = await _actions_today(db, team_id)
+        warmup = _warmup_factor()
+        max_reactions = int(MAX_REACTIONS_DAY * warmup)
+        max_comments = int(MAX_COMMENTS_DAY * warmup)
         templates = _comment_templates()
-        stats: dict[str, Any] = {"scanned": 0, "reacted": 0, "commented": 0, "skipped_dedup": 0, "skipped_cap": 0, "skipped_age": 0, "errors": []}
+        stats: dict[str, Any] = {
+            "scanned": 0, "reacted": 0, "commented": 0, "skipped_dedup": 0,
+            "skipped_cap": 0, "skipped_age": 0, "warmup_factor": warmup, "errors": [],
+        }
+        if warmup <= 0:
+            logger.info("linkedin-engage: sidecar cooling — skipping writes")
+            return stats
 
         for author_urn in authors:
             listing = await linkedin_feed.list_posts(author_urn, count=POSTS_PER_AUTHOR)
@@ -169,7 +207,7 @@ async def _run() -> dict:
                     continue
 
                 # ── reaction ──
-                if reactions_today < MAX_REACTIONS_DAY:
+                if reactions_today < max_reactions:
                     rtype = random.choice(REACTION_TYPES)
                     res = await linkedin_feed.react("member", urn, rtype)
                     if res.get("ok") or res.get("dry_run"):
@@ -185,7 +223,7 @@ async def _run() -> dict:
                     stats["skipped_cap"] += 1
 
                 # ── comment (templates only, smaller cap) ──
-                if templates and comments_today < MAX_COMMENTS_DAY and reactions_today <= MAX_REACTIONS_DAY:
+                if templates and comments_today < max_comments and reactions_today <= max_reactions:
                     text = random.choice(templates)
                     cres = await linkedin_feed.comment("member", urn, text)
                     if cres.get("ok") or cres.get("dry_run"):
