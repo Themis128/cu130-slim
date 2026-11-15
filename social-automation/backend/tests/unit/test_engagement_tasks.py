@@ -700,3 +700,13 @@ async def test_dispatch_draft_fails_quality_gate(monkeypatch):
     assert "Previous draft scored" in dmr.await_args_list[1].args[0]
     assert slack.await_count == 0  # failed drafts are never announced
     assert out["drafted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_autoapproves_high_score_reposts(monkeypatch):
+    """Repost actions at/above the gate score skip human review entirely."""
+    hi = _row_action(platform="linkedin", action="repost", status="pending_human_gate", score=9.5)
+    db = _use_db(monkeypatch, _DB([[], [], [hi], [], []]))
+    await ENG._run(5)
+    assert hi.status == "approved"
+    assert db.commits >= 1

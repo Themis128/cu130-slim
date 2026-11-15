@@ -974,3 +974,25 @@ def test_export_devapps_snapshots_and_channel_actions():
     actions = _run(de._export_channel_actions(_DB()))
     assert len(actions) == 2
     assert {a["type"] for a in actions} == {"channel_action"}
+
+
+def test_export_survey_responses():
+    resp = SimpleNamespace(
+        id=uuid.uuid4(),
+        campaign_id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        lead_id=None,
+        answers={"q1": "a"},
+        espocrm_noted=True,
+        submitted_at=datetime(2026, 1, 2, 3, 4, tzinfo=UTC),
+    )
+    rows = _run(de._export_survey_responses(_OneExecDB(_Scalars([(resp, "A@X.com", "sent")]))))
+    assert len(rows) == 1
+    assert rows[0]["email_hash"] == _email_hash("a@x.com")
+    assert rows[0]["email_domain"] == "x.com"
+    assert rows[0]["recipient_status"] == "sent"
+    assert rows[0]["lead_id"] is None
+    assert rows[0]["espocrm_noted"] is True
+    # outer-join miss → null email/status tolerated
+    rows2 = _run(de._export_survey_responses(_OneExecDB(_Scalars([(resp, None, None)]))))
+    assert rows2[0]["email_hash"] is None and rows2[0]["recipient_status"] is None

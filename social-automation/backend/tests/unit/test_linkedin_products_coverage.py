@@ -384,3 +384,67 @@ async def test_calcom_bad_sig_and_non_booking(monkeypatch):
     )
     out = await CW.calcom_booking(req2)
     assert out.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_score_winners_write_boost_metadata(monkeypatch):
+    """Two outliers clear median+2σ → winner loop stamps meta_data; a winner
+    whose Post row vanished (db.get → None) is skipped, and an existing
+    commenter row is not re-added."""
+    acc = SimpleNamespace(id="acc1", access_token_enc=b"x", team_id="t")
+    n = 12
+    tgts = [
+        (SimpleNamespace(platform_post_id=f"urn:{i}"), SimpleNamespace(id=f"p{i}"))
+        for i in range(n)
+    ]
+    scores = {f"urn:{i}": 1.0 for i in range(10)}
+    scores.update({"urn:10": 100.0, "urn:11": 101.0})
+    exec_results = [
+        _result(acc),
+        SimpleNamespace(all=lambda: tgts),
+        SimpleNamespace(scalar_one_or_none=lambda: "existing-candidate"),
+    ]
+    marked = []
+
+    async def _get(model, pid):
+        if pid == "p10":  # winner whose Post row is gone → skipped
+            return None
+        p = SimpleNamespace(meta_data={})
+        marked.append((pid, p))
+        return p
+
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=exec_results),
+        get=AsyncMock(side_effect=_get),
+        add=lambda o: None,
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(S, "task_session", lambda: _AsyncCM(db))
+    import app.core.security as sec
+
+    monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
+
+    async def _meta(client, urn):
+        return {"s": scores[urn]}
+
+    monkeypatch.setattr(S, "_social_metadata", AsyncMock(side_effect=_meta))
+    monkeypatch.setattr(S, "_score", lambda stats: stats["s"])
+
+    async def _comments(client, urn):
+        if urn == "urn:11":
+            return [{"actor": "u1", "message": {"text": "hi"}}]
+        return []
+
+    monkeypatch.setattr(S, "_comments", AsyncMock(side_effect=_comments))
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(lambda *a, **k: _Resp(200, {})))
+    out = await S._score_linkedin_posts()
+    assert out["scored"] == n
+    assert {w["post"] for w in out["winners"]} == {"p10", "p11"}
+    # p10's row vanished → only p11 got boost metadata
+    assert [pid for pid, _ in marked] == ["p11"]
+    assert marked[0][1].meta_data["boost_candidate"] is True
+    assert marked[0][1].meta_data["linkedin_score"] == 101.0
+    # existing commenter row → not re-added
+    assert out["commenters_added"] == 0

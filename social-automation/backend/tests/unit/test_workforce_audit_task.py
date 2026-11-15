@@ -45,3 +45,22 @@ def test_run_workforce_audit_notify_off_and_slack_failure(monkeypatch):
 
     out = W.run_workforce_audit(notify=False)
     assert out["workers"] == 0 and out["attention"] == 0
+
+
+def test_run_workforce_audit_notify_push_failure_swallowed(monkeypatch):
+    """push_slack raising must not fail the audit — warning only."""
+    import app.worker.tasks.workforce_audit as W
+    import scripts.workforce_audit as WA
+
+    async def fake_audit():
+        return {"workers": [{"status": "ok"}], "autonomy_proposals": []}
+
+    async def boom(report):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(WA, "audit", fake_audit)
+    monkeypatch.setattr(WA, "push_slack", boom)
+    monkeypatch.setattr(W, "run_async", lambda coro: asyncio.run(coro))
+
+    out = W.run_workforce_audit(notify=True)
+    assert out["workers"] == 1 and out["ok"] == 1

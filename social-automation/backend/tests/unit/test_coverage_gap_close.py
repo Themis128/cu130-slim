@@ -76,6 +76,56 @@ def test_nurture_sweep_skips_without_team(monkeypatch):
     assert out == {"skipped": "no public-lead team configured"}
 
 
+def test_nurture_sweep_runs_when_team_configured(monkeypatch):
+    import asyncio
+    import uuid
+    from contextlib import asynccontextmanager
+
+    from app.worker.tasks import nurture
+
+    team_id = uuid.uuid4()
+    s = MagicMock()
+    s.CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(team_id)
+    # app.db.session builds its engine from get_settings() at import — give
+    # the mock a parseable URL so the lazy import succeeds hermetically.
+    s.DATABASE_URL = "postgresql+asyncpg://u:p@localhost:5432/test"
+    s.DEBUG = False
+    monkeypatch.setattr("app.core.config.get_settings", lambda: s)
+
+    db = MagicMock()
+
+    @asynccontextmanager
+    async def _cm():
+        yield db
+
+    import app.db.session as dbs
+    import app.services.nurture_sequence as ns
+
+    monkeypatch.setattr(dbs, "async_session_maker", lambda: _cm())
+    seen = {}
+
+    async def _sweep(session, tid):
+        seen["tid"] = tid
+        return {"advanced": 3}
+
+    monkeypatch.setattr(ns, "nurture_sweep", _sweep)
+    monkeypatch.setattr(nurture, "run_async", lambda coro: asyncio.run(coro))
+    out = nurture.run_nurture_sweep()
+    assert out == {"advanced": 3}
+    assert seen["tid"] == team_id
+
+
+def test_nurture_sweep_exception_returns_none(monkeypatch):
+    from app.worker.tasks import nurture
+
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(nurture, "run_async", _boom)
+    assert nurture.run_nurture_sweep() is None
+
+
 @pytest.mark.asyncio
 async def test_publish_retry_resets_and_skips(monkeypatch):
     from datetime import UTC, datetime, timedelta
@@ -140,3 +190,49 @@ async def test_publish_retry_skips_when_active_queue_row(monkeypatch):
     assert stale.status == "failed"
     assert calls["n"] == 2  # count query ran; no queue-row select needed
     assert out["retried"] == 0
+
+
+@pytest.mark.asyncio
+async def test_publish_retry_no_failed_queue_row_skips(monkeypatch):
+    """Eligible target but no failed PublishQueue row → skipped, not retried."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.worker.tasks import publish_retry as P
+
+    now = datetime.now(UTC)
+    stale = MagicMock(error_message="timeout", error_class=None, updated_at=now - timedelta(hours=2), status="failed", id="t1", target_id="t1", meta_data={})
+
+    res = MagicMock()
+    res.scalars.return_value.all.return_value = [stale]
+    res2 = MagicMock()
+    res2.scalar_one.return_value = 0  # no active row
+    res2.scalars.return_value.first.return_value = None  # no failed queue row
+
+    calls = {"n": 0}
+
+    async def _exec(*a, **k):
+        calls["n"] += 1
+        return res if calls["n"] == 1 else res2
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_exec)
+    db.commit = AsyncMock()
+    monkeypatch.setattr(P, "task_session", lambda: _Sess(db))
+    out = await P._sweep()
+    assert stale.status == "failed"
+    assert out["retried"] == 0 and out["skipped"] >= 1
+
+
+def test_run_publish_retry_sweep_wrapper(monkeypatch):
+    import asyncio
+
+    from app.worker.tasks import publish_retry as P
+
+    res = MagicMock()
+    res.scalars.return_value.all.return_value = []
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=res)
+    db.commit = AsyncMock()
+    monkeypatch.setattr(P, "task_session", lambda: _Sess(db))
+    monkeypatch.setattr(P, "run_async", lambda coro: asyncio.run(coro))
+    assert P.run_publish_retry_sweep() == {"retried": 0, "skipped": 0}

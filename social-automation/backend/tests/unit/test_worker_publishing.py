@@ -1568,3 +1568,140 @@ async def test_pq_quality_gate_fail_open_on_exception(monkeypatch):
     monkeypatch.setattr(W, "publish_to_platform", pub)
     await W._process_publish_queue_async()
     pub.assert_awaited_once()
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+def test_apply_capacity_deferral_counts_existing_state(monkeypatch):
+    """queue_id matches the row → keep accumulated count, don't reset."""
+    item = _qitem()
+    post = _post()
+    target = _target()
+    now = datetime.now(UTC)
+    monkeypatch.setattr(W, "flag_modified", lambda *a, **kw: None)
+    aid = str(item.social_account_id)
+    post.platform_specific = {
+        W._DEFER_STATE_KEY: {
+            aid: {"queue_id": str(item.id), "count": 1, "first_at": now.isoformat()}
+        }
+    }
+    r = W._apply_capacity_deferral(
+        item=item,
+        target=target,
+        post=post,
+        account_id=item.social_account_id,
+        retry_after=now + timedelta(hours=1),
+        error="cap",
+        now=now,
+        max_hours=72.0,
+        max_count=500,
+    )
+    assert r is None
+    state = post.platform_specific[W._DEFER_STATE_KEY][aid]
+    assert state["count"] == 2
+    assert state["queue_id"] == str(item.id)
+
+
+def test_apply_capacity_deferral_without_target():
+    """Deferred with no PostTarget row → schedules, returns None."""
+    item = _qitem()
+    post = _post()
+    now = datetime.now(UTC)
+    r = W._apply_capacity_deferral(
+        item=item,
+        target=None,
+        post=post,
+        account_id=item.social_account_id,
+        retry_after=now + timedelta(hours=1),
+        error="cap",
+        now=now,
+        max_hours=72.0,
+        max_count=500,
+    )
+    assert r is None
+    assert item.status == QueueStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_notify_publish_failure_telegram_raises_swallowed(monkeypatch):
+    """send_telegram_alert blowing up must not break the Slack alert path."""
+    W2 = _real_worker(monkeypatch)
+    monkeypatch.setattr(W2, "post_alert_to_slack", AsyncMock())
+    monkeypatch.setattr(W2, "publish_failure_buttons", lambda qid: [])
+    import app.services.slack_notifications as sn
+
+    monkeypatch.setattr(
+        sn, "send_telegram_alert", AsyncMock(side_effect=RuntimeError("tg down"))
+    )
+    await W2._notify_publish_failure(
+        post=_post(),
+        account=_acct(platform="tiktok"),
+        queue_item=_qitem(),
+        reason="boom",
+        targets_summary="other failed",
+    )
+    W2.post_alert_to_slack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pq_run_budget_releases_unstarted_items(monkeypatch):
+    """Budget exhausted before the first target → hand rows back as PENDING."""
+    i1 = _qitem()
+    i2 = _qitem()
+    db = _FakeDB([_res(scalars_all=[i1, i2])])
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(W, "_RUN_BUDGET_S", 0.0)
+    await W._process_publish_queue_async()
+    assert i1.status == QueueStatus.PENDING
+    assert i2.status == QueueStatus.PENDING
+    assert i1.locked_at is None and i2.locked_at is None
+    assert db.commits == 2  # claim commit + release commit
+
+
+@pytest.mark.asyncio
+async def test_pq_empty_caption_without_target_row(monkeypatch):
+    """Empty-caption guard with no PostTarget → skip target write, still
+    complete + alert."""
+    item = _qitem()
+    post = _post(id=item.post_id, content_text="")
+    acct = _acct(id=item.social_account_id)
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=None),  # no PostTarget row
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    alert = AsyncMock()
+    monkeypatch.setattr(W, "post_alert_to_slack", alert)
+    await W._process_publish_queue_async()
+    assert item.status == QueueStatus.COMPLETED
+    alert.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pq_exception_refreshes_item_when_supported(monkeypatch):
+    """db.refresh present → item refreshed after rollback before retry math."""
+    item = _qitem()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=_post(id=item.post_id)),
+            _res(one=_acct(id=item.social_account_id)),
+            _res(one=_target()),
+            _res(scalars_all=[]),
+        ]
+    )
+    db.refresh = AsyncMock()
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(
+        W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("socket dead"))
+    )
+    await W._process_publish_queue_async()
+    db.refresh.assert_awaited_once_with(item)
+    assert item.status == QueueStatus.PENDING
+    assert item.attempts == 1
