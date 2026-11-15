@@ -22,7 +22,9 @@ SKIP = (".consumed", ".part", ".crdownload", ".tmp")
 MIN_BYTES = 100 * 1024  # screen recordings are MBs; 0-byte recorder aborts are junk
 STATE = os.path.expanduser("~/.local/state/cm-survey-watch")
 DONE = os.path.join(STATE, "done.json")
+ATTEMPTS = os.path.join(STATE, "attempts.json")
 BLOCKED = os.path.join(STATE, "blocked.json")
+MAX_ATTEMPTS = 3  # transient rc=1 failures (stack flaps, RemoteDisconnected) retry across cron runs
 BLOCKED_REMIND = 6 * 3600
 DRIVE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "cm_survey_drive.py")
@@ -57,6 +59,28 @@ def mark(p):
     os.makedirs(STATE, exist_ok=True)
     s = done_set() | {os.path.abspath(p)}
     json.dump(sorted(s), open(DONE, "w"), indent=0)
+
+
+def _attempts():
+    try:
+        return json.load(open(ATTEMPTS))
+    except Exception:
+        return {}
+
+
+def _bump_attempt(path):
+    a = _attempts()
+    a[os.path.abspath(path)] = a.get(os.path.abspath(path), 0) + 1
+    os.makedirs(STATE, exist_ok=True)
+    json.dump(a, open(ATTEMPTS, "w"), indent=0)
+    return a[os.path.abspath(path)]
+
+
+def _clear_attempt(path):
+    a = _attempts()
+    a.pop(os.path.abspath(path), None)
+    os.makedirs(STATE, exist_ok=True)
+    json.dump(a, open(ATTEMPTS, "w"), indent=0)
 
 
 def _blocked():
@@ -111,6 +135,7 @@ def main():
         log(f"drive rc={r.returncode}: " + " | ".join(tail))
         if r.returncode == 0:
             mark(mp4)
+            _clear_attempt(mp4)
             os.rename(mp4, mp4 + ".consumed")
             tg(f"📋 CM Standard-tier survey submitted — recording {os.path.basename(mp4)} "
                "consumed. LinkedIn review takes days; check the portal for status.")
@@ -123,10 +148,17 @@ def main():
                    "will retry once unblocked.")
                 _mark_blocked()
             return 2
-        # other failure: keep file for manual inspection, mark to avoid loop
+        # other failure: transient errors (stack flap, RemoteDisconnected,
+        # upload timeout) retry on later cron runs; only mark done after
+        # MAX_ATTEMPTS so a flaky window can't permanently drop a recording.
+        n = _bump_attempt(mp4)
+        if n < MAX_ATTEMPTS:
+            log(f"drive rc={r.returncode} attempt {n}/{MAX_ATTEMPTS} — will retry")
+            return 1
         mark(mp4)
+        _clear_attempt(mp4)
         tg(f"❌ cm-survey-watch: drive failed on {os.path.basename(mp4)} "
-           f"(rc={r.returncode}) — file kept for manual retry. "
+           f"(rc={r.returncode}, {n} attempts) — file kept for manual retry. "
            + " | ".join(tail[-2:]))
         return 1
     return 0
