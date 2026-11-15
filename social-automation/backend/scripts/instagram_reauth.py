@@ -820,6 +820,18 @@ def main() -> int:
         _mark(False)
         return 2
 
+    # Fast path (default): strip the IG_API_ONBOARDING extras param. Meta's
+    # embedded "Connect to Instagram" wizard is a known-broken flow that
+    # strands automation at "Get started" (verified 2026-11-15). Without
+    # extras the dialog is a plain FB consent -> callback still carries
+    # p=instagram-onboarding state so IG discovery runs identically.
+    # IG_WIZARD=1 restores the wizard path for accounts not yet page-linked.
+    if not os.environ.get("IG_WIZARD"):
+        stripped = re.sub(r"&extras=[^&]*", "", url)
+        if stripped != url:
+            print("fast path: IG_API_ONBOARDING extras stripped (no wizard)")
+            url = stripped
+
     print("sidecar: browsing authorize URL")
     try:
         _sidecar("/debug/navigate", {"url": url}, timeout=90)
