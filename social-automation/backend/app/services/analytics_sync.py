@@ -689,6 +689,28 @@ async def _fetch_member_followers(
     return {"data": out}
 
 
+async def _fetch_member_connections(
+    client: httpx.AsyncClient,
+    token: str,
+    person_urn: str,
+) -> dict[str, Any]:
+    """Member 1st-degree connection count — ``r_1st_connections_size`` scope.
+
+    ``GET /rest/networkSizes/{person}?edgeType=FIRST_DEGREE`` — same finder
+    family as the org follower total. 401/403 = product grant pending, not an
+    outage.
+    """
+    headers = _linkedin_headers(token)
+    url = f"https://api.linkedin.com/rest/networkSizes/{quote(person_urn, safe='')}?edgeType=FIRST_DEGREE"
+    resp = await client.get(url, headers=headers)
+    if resp.status_code in (401, 403):
+        return {"error": f"HTTP {resp.status_code}", "status": resp.status_code}
+    if resp.status_code >= 400:
+        return {"error": f"HTTP {resp.status_code}", "status": resp.status_code}
+    body = resp.json() or {}
+    return {"data": {"connections": int(body.get("firstDegreeSize") or 0), "follower": int(body.get("followerSize") or 0)}}
+
+
 async def _fetch_org_lifetime_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -1143,6 +1165,14 @@ async def sync_linkedin_account(
                 followers_res = await _fetch_member_followers(client, token)
                 if followers_res.get("data"):
                     _persist_account_event(db, account, captured_at, "member_followers", followers_res["data"])
+            # 1st-degree connection count (r_1st_connections_size).
+            person_urn = getattr(account, "account_urn", None) or (
+                f"urn:li:person:{account.account_id}" if getattr(account, "account_id", None) else None
+            )
+            if person_urn and (not granted_scopes or "r_1st_connections_size" in granted_scopes):
+                conn_res = await _fetch_member_connections(client, token, person_urn)
+                if conn_res.get("data"):
+                    _persist_account_event(db, account, captured_at, "member_connections", conn_res["data"])
 
         for urn in all_urns:
             metrics = stats_map.get(urn) or MetricBundle(notes="missing_stats")

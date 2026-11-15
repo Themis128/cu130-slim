@@ -845,6 +845,7 @@ def _li_patches(monkeypatch):
         AsyncMock(return_value={"period": {"days": 7}, "lifetime": {}}),
     )
     monkeypatch.setattr(A, "_fetch_member_followers", AsyncMock(return_value={"data": {}}))
+    monkeypatch.setattr(A, "_fetch_member_connections", AsyncMock(return_value={"data": {}}))
 
 
 def _li_org(**kw):

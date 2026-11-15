@@ -41,9 +41,10 @@ async def _audit() -> dict:
 
     rules = {e.get("name"): e for e in r.json().get("elements", [])}
     problems: list[str] = []
-    for name, env in _RULE_ENVS.items():
-        rule = rules.get(name)
-        urn = os.environ.get(env, "")
+    for event, env in _RULE_ENVS.items():
+        rule = rules.get(event) or rules.get(f"SocialAuto {event.replace('_', ' ').title()}")
+        name = event
+        urn = await linkedin_advanced.resolve_conversion_rule(event) or os.environ.get(env, "")
         want_id = urn.rsplit(":", 1)[-1] if urn else ""
         if not rule:
             problems.append(f"{name}: rule missing — recreate via POST /rest/conversions")
