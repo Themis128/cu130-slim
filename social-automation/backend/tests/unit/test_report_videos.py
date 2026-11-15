@@ -235,3 +235,181 @@ def test_happy_path_attaches_and_schedules():
     assert "pending_video_task" not in fresh.meta_data
     assert fresh.scheduled_at is not None
     db2.commit.assert_awaited()
+
+
+# ── _redispatch_video ───────────────────────────────────────────────────────
+
+
+def test_redispatch_uses_meta_instruction():
+    p = _post(meta_data={"pending_video_task": "t", "instruction": "  make a reel  "})
+    p.team_id = uuid.uuid4()
+    p.user_id = uuid.uuid4()
+    with patch("app.worker.tasks.media.generate_video_asset_task") as g:
+        g.delay.return_value = SimpleNamespace(id="task-9")
+        assert RV._redispatch_video(p, p.meta_data) == "task-9"
+    args = g.delay.call_args[0]
+    assert args[2] == "make a reel"
+    assert args[3] == {"model": "wan22"}
+
+
+def test_redispatch_falls_back_to_content_text():
+    p = _post(content_text="fallback prompt")
+    p.meta_data = {"pending_video_task": "t"}
+    p.team_id = uuid.uuid4()
+    p.user_id = None
+    with patch("app.worker.tasks.media.generate_video_asset_task") as g:
+        g.delay.return_value = SimpleNamespace(id="task-8")
+        assert RV._redispatch_video(p, p.meta_data) == "task-8"
+    assert g.delay.call_args[0][2] == "fallback prompt"
+
+
+def test_redispatch_empty_prompt_returns_none():
+    p = _post(content_text="", meta_data={"pending_video_task": "t"})
+    assert RV._redispatch_video(p, p.meta_data) is None
+
+
+# ── _mark_failed / _retry_or_fail inner branches ────────────────────────────
+
+
+def test_mark_failed_post_gone_is_noop():
+    """fresh is None inside _mark_failed → return early, counter still ticks."""
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 2})
+    cm = _session(_db(rows=[p], get_map={}), _db(get_map={}))
+    with (
+        patch.object(RV, "run_async", _drain),
+        patch.object(RV, "task_session", cm),
+        patch(
+            "app.worker.celery_app.celery_app.AsyncResult",
+            return_value=_Res(ready=True, ok=False, result="boom"),
+        ),
+    ):
+        out = RV.materialize_report_videos()
+    assert out["failed"] == 1
+    assert p.status is None  # never marked — row vanished
+
+
+def test_retry_dispatch_raises_falls_to_fail():
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 0})
+    with patch.object(RV, "_redispatch_video", side_effect=RuntimeError("queue down")):
+        out = _task([p], res=_Res(ready=True, ok=False, result="boom"))
+    assert out["failed"] == 1 and out["retried"] == 0
+    assert "video render failed" in p.failure_reason
+
+
+def test_retry_post_gone_is_skipped():
+    """fresh is None inside the retry-commit session → silent return."""
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 0})
+    cm = _session(_db(rows=[p], get_map={p.id: p}), _db(get_map={}))
+    with (
+        patch.object(RV, "run_async", _drain),
+        patch.object(RV, "task_session", cm),
+        patch.object(RV, "_redispatch_video", return_value="new-task-id"),
+        patch(
+            "app.worker.celery_app.celery_app.AsyncResult",
+            return_value=_Res(ready=True, ok=False, result="boom"),
+        ),
+    ):
+        out = RV.materialize_report_videos()
+    assert out["retried"] == 0 and out["failed"] == 0
+
+
+# ── dispatched_at parsing ───────────────────────────────────────────────────
+
+
+def test_dispatched_at_garbage_falls_back_to_created():
+    p = _post(
+        meta_data={
+            "pending_video_task": "task-1",
+            "video_render_attempts": 2,
+            "video_render_dispatched_at": "not-a-date",
+        }
+    )
+    out = _task([p], res=_Res(ready=False))
+    assert out["pending"] == 1  # fresh created_at → not timed out
+
+
+def test_dispatched_at_naive_old_is_timed_out():
+    naive_old = (datetime.now(UTC) - timedelta(hours=7)).replace(tzinfo=None)
+    p = _post(
+        meta_data={
+            "pending_video_task": "task-1",
+            "video_render_attempts": 2,
+            "video_render_dispatched_at": naive_old.isoformat(),
+        }
+    )
+    out = _task([p])
+    assert out["failed"] == 1
+    assert "timed out" in p.failure_reason
+
+
+# ── happy-path scheduled_at already set ─────────────────────────────────────
+
+
+def test_happy_path_keeps_existing_scheduled_at():
+    aid = uuid.uuid4()
+    when = datetime.now(UTC) + timedelta(hours=5)
+    p = _post()
+    asset = SimpleNamespace(id=aid)
+    fresh = _post(id=p.id, scheduled_at=when)
+    db2 = _db(get_map={aid: asset, p.id: fresh})
+    out = _task([p], res=_Res(result=str(aid)), extra_db=db2)
+    assert out["attached"] == 1
+    assert fresh.scheduled_at == when
+
+
+# ── stale-archive inner branches ────────────────────────────────────────────
+
+
+def test_stale_draft_naive_created_at_archived():
+    naive_old = (datetime.now(UTC) - timedelta(hours=80)).replace(tzinfo=None)
+    sp = _post(
+        status="draft",
+        meta_data={"source": "monetization-report"},
+        created_at=naive_old,
+    )
+    extra = _db(rows=[sp], get_map={sp.id: sp})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 1
+
+
+def test_stale_draft_no_longer_draft_skipped():
+    sp = _post(
+        status="draft",
+        meta_data={"source": "strategy-brief"},
+        created_at=datetime.now(UTC) - timedelta(hours=80),
+    )
+    moved = _post(id=sp.id, status="scheduled", meta_data={"source": "strategy-brief"})
+    extra = _db(rows=[sp], get_map={sp.id: moved})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 0
+    assert moved.status == "scheduled"
+
+
+def test_stale_draft_render_in_flight_skipped():
+    sp = _post(
+        status="draft",
+        meta_data={"source": "strategy-brief"},
+        created_at=datetime.now(UTC) - timedelta(hours=80),
+    )
+    busy = _post(
+        id=sp.id,
+        status="draft",
+        meta_data={"source": "strategy-brief", "pending_video_task": "task-x"},
+    )
+    extra = _db(rows=[sp], get_map={sp.id: busy})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 0
+    assert busy.status == "draft"
+
+
+def test_dispatched_at_aware_recent_is_pending():
+    aware = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    p = _post(
+        meta_data={
+            "pending_video_task": "task-1",
+            "video_render_attempts": 2,
+            "video_render_dispatched_at": aware,
+        }
+    )
+    out = _task([p], res=_Res(ready=False))
+    assert out["pending"] == 1
