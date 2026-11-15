@@ -60,6 +60,17 @@ Failure sequence (observed 2026-11-13, ~3 recurrences in one evening):
   until the agent re-issues them. Never restart these units; they're
   agent-owned.
 
+
+## Auto-retire of transplant overrides (2026-11-15+)
+
+Flap #4 response transplanted six services onto named volumes via
+`docker-compose.override.yml` (gitignored). Once the bridge heals,
+`scripts/fsbridge-reconcile.sh` — called every 5 min from
+`social-stack-watchdog.sh` — probes a fresh mount (throttled 30 min),
+strips the transplant blocks preserving other overrides, recreates the
+services on native mounts with backup+rollback, removes the scratch
+volumes, and TG-alerts #ops. Log: `~/logs/fsbridge-reconcile.log`.
+
 ## What heals it
 
 Only a **full `wsl --shutdown`** — resets the whole hvs/vsock plane; on
