@@ -192,7 +192,7 @@ recreate_container() {
   svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
   case "$svc" in ""|*" "*) log "$c: no compose service label — cannot recreate"; return 1;; esac
   log "recreating $c (compose service $svc — mount-broken)"
-  docker compose up -d --no-deps --force-recreate "$svc" >/dev/null 2>&1
+  docker compose up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
 }
 # Tailnet-IP drift — compose binds ${INFISICAL_TAILNET_IP:-<stale-default>}
 # for the omv/GitHub-runner path; when tailscale re-registers the node the
