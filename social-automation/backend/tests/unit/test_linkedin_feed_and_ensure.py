@@ -1,10 +1,14 @@
 """Coverage for linkedin_feed service + engagement task + conversion ensure."""
 
+import hashlib as _hl
+import hmac as _hm
+import json as _json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from app.api import linkedin_lead_sync as LSYNC
 from app.services import linkedin_advanced as ADV
 from app.services import linkedin_feed as LF
 from app.worker.tasks import linkedin_conversion_ensure as ENS
@@ -451,12 +455,6 @@ async def test_engage_cap_blocks_writes(monkeypatch):
 
 
 # ── lead-sync webhook protocol ──────────────────────────────────────────
-
-import hashlib as _hl
-import hmac as _hm
-import json as _json
-
-from app.api import linkedin_lead_sync as LSYNC
 
 
 def _sig(secret: str, body: bytes) -> str:
