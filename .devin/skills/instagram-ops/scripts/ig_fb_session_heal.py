@@ -222,6 +222,20 @@ def bridge_approve() -> str:
     return result
 
 
+def totp_code(env: dict[str, str]) -> str | None:
+    """Current TOTP from META_TOTP_SECRET (authenticator app enrolled
+    2026-11-15). Preferred 2FA source — local, no phone/SMS dependency."""
+    secret = (env.get("META_TOTP_SECRET") or "").strip()
+    if not secret:
+        return None
+    try:
+        import pyotp
+        return pyotp.TOTP(secret).now()
+    except Exception as exc:  # noqa: BLE001
+        log(f"totp failed: {exc}")
+        return None
+
+
 def fb_code(timeout_s: int = 150) -> str | None:
     """Newest Meta 2FA code from the phone's notification shade (ADB)."""
     env = dict(os.environ, ADB=_adb_bin())
@@ -585,9 +599,14 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     was_2fa = False
     if r.get("two_factor_required"):
         was_2fa = True
-        code = fb_code()
+        # Authenticator-app TOTP first (unattended); SMS/email fallback.
+        code = totp_code(env)
+        src = "totp"
+        if not code:
+            code = fb_code()
+            src = "sms/email"
         if code:
-            log("2FA code retrieved — retrying login")
+            log(f"2FA code retrieved ({src}) — retrying login")
             r = sidecar(
                 "/login",
                 {"username": username, "password": password,
