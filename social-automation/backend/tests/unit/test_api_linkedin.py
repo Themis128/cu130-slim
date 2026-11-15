@@ -591,9 +591,9 @@ class TestLinkedInAdIntel:
     async def test_summary(self):
         db = _DBX(
             results=[
-                _Q(scalar=10),   # total
-                _Q(scalar=4),    # active
-                _Q(scalar=6),    # ended
+                _Q(scalar=10),  # total
+                _Q(scalar=4),  # active
+                _Q(scalar=6),  # ended
                 _Q(rows=[("AdvCo", 3), ("Other", 1)]),  # top advertisers
                 _Q(rows=[_ad_row()]),  # newest
             ]
