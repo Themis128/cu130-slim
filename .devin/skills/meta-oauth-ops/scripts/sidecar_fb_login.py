@@ -72,6 +72,15 @@ def click_last_continue():
     return ev(js)
 
 
+def dismiss_cookie_consent():
+    """Meta's cookie-consent dialog poisons the login flow — left up it
+    surfaces as 'Invalid request' on two_step_verification (2026-11-15)."""
+    for label in ("allow all cookies", "decline optional cookies"):
+        if click_label(label) == "clicked":
+            return label
+    return "none"
+
+
 def set_input(sel, val):
     js = ("(function(){var i=document.querySelector(%s);if(!i)return 'NOINPUT';"
           "var s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;"
@@ -104,6 +113,8 @@ def main():
     # 1. land on the login page fresh
     post("/debug/navigate", {"url": "https://www.facebook.com/login"}, 90)
     time.sleep(6)
+    dismiss_cookie_consent()
+    time.sleep(2)
     url, text = page_text()
     if logged_in(text):
         print("logged in after navigate"); return 0
@@ -134,6 +145,7 @@ def main():
         time.sleep(8)
 
     # 4. 2FA — authenticator app first (unattended), then device approval
+    dismiss_cookie_consent()
     if TOTP_SECRET:
         try:
             import pyotp
