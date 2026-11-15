@@ -445,6 +445,12 @@ asserts every live route appears here — regenerate this file when adding route
 ## `newsletter`
 
 - `/api/v1/newsletter/cover` — POST
+- `/api/v1/newsletter/issues/{issue_id}/cancel` — POST
+- `/api/v1/newsletter/issues/{issue_id}/dispatch` — POST
+- `/api/v1/newsletter/issues/{issue_id}/retry` — POST
+- `/api/v1/newsletter/issues/{issue_id}/verify` — POST
+- `/api/v1/newsletter/issues/{issue_id}` — GET
+- `/api/v1/newsletter/issues` — GET,POST
 - `/api/v1/newsletter/linkedin/issue` — POST
 
 ## `nextcloud`
