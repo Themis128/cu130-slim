@@ -409,15 +409,22 @@ def recording_url(mp4):
         pass
     with open(mp4, "rb") as f:
         blob = f.read()
-    _nc_req("PUT", f"{dav}/{urllib.parse.quote(name)}", user, pw,
-            data=blob,
-            headers={"Content-Type": "application/octet-stream"},
-            timeout=300)
-    ocs = (f"{base}/ocs/v2.php/apps/files_sharing/api/v1/shares"
-           f"?path=/cm-survey/{urllib.parse.quote(name)}"
-           "&shareType=3&publicUpload=false")
-    xml = _nc_req("POST", ocs, user, pw,
-                  headers={"OCS-APIRequest": "true"}, timeout=30).read()
+    try:
+        _nc_req("PUT", f"{dav}/{urllib.parse.quote(name)}", user, pw,
+                data=blob,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=300)
+        ocs = (f"{base}/ocs/v2.php/apps/files_sharing/api/v1/shares"
+               f"?path=/cm-survey/{urllib.parse.quote(name)}"
+               "&shareType=3&publicUpload=false")
+        xml = _nc_req("POST", ocs, user, pw,
+                      headers={"OCS-APIRequest": "true"}, timeout=30).read()
+    except Exception as e:
+        # transient infra failure (stack flap, tunnel down) — return None so
+        # the caller exits rc=2 and the watcher retries on a later run
+        # instead of crashing with rc=1.
+        print(f"nextcloud share failed: {type(e).__name__}: {e}")
+        return None
     m = re.search(rb"<url>(.*?)</url>", xml)
     if not m:
         return None
