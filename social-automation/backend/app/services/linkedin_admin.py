@@ -51,7 +51,7 @@ async def list_acls(role: str | None = None, state: str | None = None) -> dict[s
     if not ctx:
         return {"acls": [], "error": "no-linkedin-account"}
     token, org_urn = ctx
-    params: dict[str, str] = {"q": "organization", "organization": org_urn, "count": 100}
+    params: dict[str, str | int] = {"q": "organization", "organization": org_urn, "count": 100}
     if role:
         params["role"] = role
     if state:
