@@ -126,7 +126,10 @@ def linkedin_engagement_age_h(post: dict) -> float | None:
     ms = ts.get("time") if isinstance(ts, dict) else ts
     if not ms:
         return None
-    return (datetime.now(UTC).timestamp() * 1000 - float(ms)) / 3_600_000
+    try:
+        return (datetime.now(UTC).timestamp() * 1000 - float(ms)) / 3_600_000
+    except (TypeError, ValueError):
+        return None
 
 
 async def delete_comment(post_urn: str, comment_id: str) -> dict[str, Any]:
