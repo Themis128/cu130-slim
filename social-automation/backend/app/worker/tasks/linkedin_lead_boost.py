@@ -78,12 +78,13 @@ async def route_lead_response(resp: dict, form_id: str | None = None) -> bool:
     """
     from app.services import espocrm_client, linkedin_advanced
 
-    answers = _lead_answers(resp)
-    email = (answers.get("email") or answers.get("emailAddress") or "").strip()
+    answers = _lead_answers(resp, await _question_map(resp, form_id))
+    low = {str(k).lower(): v for k, v in answers.items()}
+    email = (low.get("email") or low.get("emailaddress") or "").strip()
     if not email:
         return False
-    first = (answers.get("firstName") or "").strip()
-    last = (answers.get("lastName") or "").strip()
+    first = (low.get("firstname") or "").strip()
+    last = (low.get("lastname") or "").strip()
     lead_id = await espocrm_client.upsert_lead(
         {
             "emailAddress": email,
@@ -115,16 +116,83 @@ async def route_lead_response(resp: dict, form_id: str | None = None) -> bool:
     return True
 
 
-def _lead_answers(resp: dict) -> dict[str, str]:
-    """Normalize LinkedIn leadFormResponses answer shapes to {field: value}."""
+async def _question_map(resp: dict, form_id: str | None) -> dict:
+    """questionId → {keys,label,options} via GET /rest/leadForms/{id}.
+
+    Form ref comes from the response's ``versionedLeadGenFormUrn`` or the
+    caller-supplied ``form_id``; failures degrade to id-keyed answers.
+    """
+    from app.services import linkedin_advanced
+
+    ref = resp.get("versionedLeadGenFormUrn") or form_id
+    if not ref:
+        return {}
+    form = await linkedin_advanced.get_lead_form(str(ref))
+    return linkedin_advanced.lead_form_question_map(form)
+
+
+def _lead_answers(resp: dict, qmap: dict | None = None) -> dict[str, str]:
+    """Normalize LinkedIn leadFormResponses to {field: value}.
+
+    Real API shape: ``formResponse.answers[]`` items carry ``questionId`` +
+    ``answerDetails`` (``textQuestionAnswer.answer`` /
+    ``multipleChoiceAnswer.options`` id list). ``qmap`` (from
+    ``lead_form_question_map``) resolves questionId → CRM-friendly keys
+    (``name``/``predefinedField`` like ``email``, ``firstName``) and
+    multiple-choice option ids → labels. Without a map, keys fall back to
+    ``question_{id}`` and raw option ids.
+    """
+    qmap = qmap or {}
     out: dict[str, str] = {}
-    for item in resp.get("formResponse") or resp.get("answers") or []:
-        q = str(item.get("question") or item.get("name") or "")
-        a = item.get("answer")
-        if isinstance(a, list):
-            a = "; ".join(str(x) for x in a)
-        out[q] = str(a or "")
-    # Also accept flat custom-question maps some payloads carry.
+
+    def _emit(qid, value: str) -> None:
+        meta = qmap.get(int(qid)) if str(qid).isdigit() else None
+        keys = (meta or {}).get("keys") or set()
+        label = (meta or {}).get("label") or f"question_{qid}"
+        for k in keys or {label.lower()}:
+            out.setdefault(k, value)
+        out.setdefault(label, value)
+
+    fr = resp.get("formResponse") or {}
+    for item in fr.get("answers") or resp.get("answers") or []:
+        if not isinstance(item, dict):
+            continue
+        qid = item.get("questionId", item.get("question"))
+        details = item.get("answerDetails") or {}
+        value = ""
+        if "textQuestionAnswer" in details:
+            value = str((details["textQuestionAnswer"] or {}).get("answer") or "")
+        elif "multipleChoiceAnswer" in details:
+            opts = (details["multipleChoiceAnswer"] or {}).get("options") or []
+            meta = qmap.get(int(qid)) if str(qid).isdigit() else None
+            labels = []
+            for o in opts:
+                hit = next((op["text"] for op in (meta or {}).get("options", []) if str(op.get("id")) == str(o)), None)
+                if hit is None and str(qid).isdigit():
+                    # 1-based positional fallback into the ordered options list
+                    try:
+                        hit = ((meta or {}).get("options") or [])[int(o) - 1]["text"]
+                    except (IndexError, KeyError, TypeError, ValueError):
+                        hit = None
+                labels.append(hit if hit is not None else str(o))
+            value = "; ".join(labels)
+        elif "answer" in item:
+            a = item["answer"]
+            value = "; ".join(str(x) for x in a) if isinstance(a, list) else str(a or "")
+        elif details:
+            # Unknown answerDetails shape — keep the raw payload readable.
+            value = str(details)[:300]
+        if value:
+            _emit(qid, value)
+
+    # Flat shapes (custom-question maps / legacy poller payloads).
+    for item in resp.get("answers") or []:
+        if isinstance(item, dict) and "question" in item:
+            q = str(item.get("question") or "")
+            a = item.get("answer")
+            if isinstance(a, list):
+                a = "; ".join(str(x) for x in a)
+            out[q] = str(a or "")
     for k, v in (resp.get("customQuestions") or {}).items():
         out.setdefault(str(k), str(v))
     return out

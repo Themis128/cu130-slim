@@ -66,6 +66,53 @@ async def lead_form_responses(form_urn: str) -> dict:
         return {"responses": r.json().get("elements") or [], "status": 200}
 
 
+async def get_lead_form(form_id: str) -> dict | None:
+    """``GET /rest/leadForms/{id}`` — form definition incl. question map.
+
+    ``form_id`` accepts a bare id, ``urn:li:leadGenForm:N`` or a
+    ``urn:li:versionedLeadGenForm:(urn:li:leadGenForm:N,V)`` URN.
+    """
+    import re
+
+    m = re.search(r"leadGenForm:(\d+)", str(form_id))
+    fid = m.group(1) if m else str(form_id)
+    ctx = await _ctx()
+    if not ctx:
+        return None
+    token, _ = ctx
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(f"{REST}/leadForms/{fid}")
+    if r.status_code != 200:
+        logger.info("lead form %s fetch → %s", fid, r.status_code)
+        return None
+    return r.json()
+
+
+def lead_form_question_map(form: dict | None) -> dict[int, dict]:
+    """``content.questions[]`` → ``{questionId: {keys, label, options}}``.
+
+    Each entry exposes ``keys`` (name + predefinedField, lowercased) for
+    answer lookup and ``options`` (ordered ``[{id, text}]``) for
+    multiple-choice resolution.
+    """
+    out: dict[int, dict] = {}
+    for q in ((form or {}).get("content") or {}).get("questions") or []:
+        qid = q.get("questionId")
+        if qid is None:
+            continue
+        loc = ((q.get("question") or {}).get("localized")) or {}
+        label = loc.get("en_US") or next(iter(loc.values()), "")
+        keys = {str(k).lower() for k in (q.get("name"), q.get("predefinedField")) if k}
+        options: list[dict] = []
+        mc = ((q.get("questionDetails") or {}).get("multipleChoiceQuestionDetails") or {}).get("options") or []
+        for opt in mc:
+            otext = (((opt.get("text") or {}).get("localized")) or {})
+            olabel = otext.get("en_US") or next(iter(otext.values()), "")
+            options.append({"id": opt.get("id"), "text": olabel})
+        out[int(qid)] = {"keys": keys, "label": label, "options": options}
+    return out
+
+
 async def list_lead_notifications(owner_urn: str, lead_type: str = "SPONSORED") -> dict:
     """Existing lead-notification subscriptions for an owner.
 

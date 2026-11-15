@@ -565,3 +565,59 @@ def test_response_ids_extracts():
     assert items[0]["id"] == "abc"
     assert items[0]["action"] == "CREATED"
     assert LSYNC._response_ids({"foo": "bar"}) == []
+
+
+def test_lead_answers_real_api_shape():
+    """formResponse.answers + questionId/answerDetails + qmap resolution."""
+    from app.worker.tasks.linkedin_lead_boost import _lead_answers
+
+    resp = {
+        "id": "r1",
+        "versionedLeadGenFormUrn": "urn:li:versionedLeadGenForm:(urn:li:leadGenForm:3162,1)",
+        "formResponse": {
+            "answers": [
+                {"questionId": 1, "answerDetails": {"textQuestionAnswer": {"answer": "Jane"}}},
+                {"questionId": 2, "answerDetails": {"textQuestionAnswer": {"answer": "Doe"}}},
+                {"questionId": 3, "answerDetails": {"textQuestionAnswer": {"answer": "jane@x.com"}}},
+                {"questionId": 4, "answerDetails": {"multipleChoiceAnswer": {"options": [1]}}},
+            ]
+        },
+    }
+    form = {
+        "content": {
+            "questions": [
+                {"questionId": 1, "name": "firstName", "predefinedField": "FIRST_NAME",
+                 "question": {"localized": {"en_US": "First name"}}},
+                {"questionId": 2, "name": "lastName", "predefinedField": "LAST_NAME",
+                 "question": {"localized": {"en_US": "Last name"}}},
+                {"questionId": 3, "name": "email", "predefinedField": "EMAIL",
+                 "question": {"localized": {"en_US": "Email"}}},
+                {"questionId": 4, "name": "interest", "predefinedField": None,
+                 "question": {"localized": {"en_US": "Interested?"}},
+                 "questionDetails": {"multipleChoiceQuestionDetails": {"options": [
+                     {"id": 0, "text": {"localized": {"en_US": "Yes"}}},
+                     {"id": 1, "text": {"localized": {"en_US": "No"}}},
+                 ]}}},
+            ]
+        }
+    }
+    from app.services import linkedin_advanced as ADV
+
+    qmap = ADV.lead_form_question_map(form)
+    a = _lead_answers(resp, qmap)
+    low = {k.lower(): v for k, v in a.items()}
+    assert low["email"] == "jane@x.com"
+    assert low["firstname"] == "Jane"
+    assert low["lastname"] == "Doe"
+    # option id 1 → "No" (id match wins over 1-based position)
+    assert a.get("interest") == "No" or low.get("interested?") == "No"
+
+
+def test_lead_answers_no_map_falls_back():
+    from app.worker.tasks.linkedin_lead_boost import _lead_answers
+
+    resp = {"formResponse": {"answers": [
+        {"questionId": 9, "answerDetails": {"textQuestionAnswer": {"answer": "x@y.z"}}},
+    ]}}
+    a = _lead_answers(resp)
+    assert a.get("question_9") == "x@y.z"
