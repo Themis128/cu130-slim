@@ -353,3 +353,191 @@ async def test_probe_object_minio_ok(monkeypatch):
     assert ok.status == "ok" and ok.size == 7
     head.assert_awaited_once_with("team/y.jpg")
 
+@pytest.mark.asyncio
+async def test_probe_object_local_path_escape_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(media_integrity, "UPLOAD_DIR", str(tmp_path))
+    out = await media_integrity.probe_object("local", "../escape.txt")
+    assert out.status == "missing"
+
+
+@pytest.mark.asyncio
+async def test_probe_object_local_public_url_relative_without_base(tmp_path, monkeypatch):
+    monkeypatch.setattr(media_integrity, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(media_integrity.settings, "MEDIA_PUBLIC_BASE_URL", "", raising=False)
+    (tmp_path / "b.txt").write_bytes(b"x")
+    out = await media_integrity.probe_object("local", "b.txt")
+    assert out.public_url == "/api/v1/media/view?path=b.txt"
+
+
+@pytest.mark.asyncio
+async def test_verify_uploaded_object_rejects_unsupported_declared_backend():
+    with pytest.raises(HTTPException) as exc:
+        await media_integrity.verify_uploaded_object("team/file.png", backend="bogus")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_inspect_backend_error_when_storage_unavailable(monkeypatch):
+    asset = _asset(storage_backend="r2")
+
+    async def probe(backend, key):
+        # declared r2 probe fails hard; minio also unavailable -> synthetic
+        # "unavailable" declared probe -> backend_error result branch.
+        return media_integrity.ObjectProbe(backend=backend, status="unavailable", error="down")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    out = await media_integrity.inspect_and_repair_asset(asset, referenced=False)
+    assert out["status"] == "backend_error"
+    assert out["newly_backend_error"] is True
+    assert out.get("error")
+
+
+@pytest.mark.asyncio
+async def test_inspect_backend_error_repeat_is_not_new(monkeypatch):
+    asset = _asset(
+        storage_backend="r2",
+        meta_data={
+            "storage_integrity": {
+                "status": "backend_error",
+                "alerted_at": "2026-01-01T00:00:00+00:00",
+            }
+        },
+    )
+
+    async def probe(backend, key):
+        return media_integrity.ObjectProbe(backend=backend, status="unavailable", error="down")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    out = await media_integrity.inspect_and_repair_asset(asset, referenced=False)
+    assert out["status"] == "backend_error"
+    assert out["newly_backend_error"] is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_counts_repaired_and_referenced_missing(monkeypatch):
+    team_id = uuid.uuid4()
+    repaired_asset = _asset(id=uuid.uuid4(), team_id=team_id, storage_backend="minio",
+                            public_url="https://old.example/object")
+    missing_asset = _asset(id=uuid.uuid4(), team_id=team_id, filename="gone.png",
+                           storage_path="team/2026/gone.png")
+    db = _DB([([missing_asset.id], None)], [repaired_asset, missing_asset])
+
+    async def probe(backend, key):
+        if key == missing_asset.storage_path:
+            return media_integrity.ObjectProbe(backend=backend, status="missing")
+        # repaired asset: declared minio misses, r2 has it -> repair label
+        if backend == "r2":
+            return media_integrity.ObjectProbe(backend=backend, status="ok", size=repaired_asset.size_bytes,
+                                               public_url="https://pub/x")
+        return media_integrity.ObjectProbe(backend=backend, status="missing")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    monkeypatch.setattr(media_integrity, "StorageBackend", media_integrity.StorageBackend)
+    summary = await media_integrity.run_integrity_sweep(db, team_id, notify=False)
+
+    assert summary["repaired"] == 1
+    assert summary["repaired_assets"] == [str(repaired_asset.id)]
+    assert summary["missing"] == 1
+    assert summary["referenced_unresolved"] == 1
+    assert summary["unresolved_assets"][0]["id"] == str(missing_asset.id)
+    assert missing_asset.is_archived is True
+
+@pytest.mark.asyncio
+async def test_probe_object_local_public_url_with_base(tmp_path, monkeypatch):
+    monkeypatch.setattr(media_integrity, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(media_integrity.settings, "MEDIA_PUBLIC_BASE_URL", "https://cdn.example", raising=False)
+    (tmp_path / "c.txt").write_bytes(b"x")
+    out = await media_integrity.probe_object("local", "c.txt")
+    assert out.public_url == "https://cdn.example/api/v1/media/view?path=c.txt"
+
+
+@pytest.mark.asyncio
+async def test_local_probe_generic_exception_is_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(media_integrity, "UPLOAD_DIR", str(tmp_path))
+
+    class _BadPath:
+        def is_file(self):
+            raise RuntimeError("io error")
+
+    monkeypatch.setattr(media_integrity, "safe_resolve", lambda *a, **k: _BadPath())
+    out = await media_integrity.probe_object("local", "x.bin")
+    assert out.status == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_inspect_unarchives_previously_quarantined_asset(monkeypatch):
+    asset = _asset(
+        is_archived=True,
+        meta_data={"storage_integrity": {"auto_archived": True, "status": "missing"}},
+    )
+
+    async def probe(backend, key):
+        return media_integrity.ObjectProbe(backend=backend, status="ok", size=asset.size_bytes,
+                                           public_url=asset.public_url)
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    out = await media_integrity.inspect_and_repair_asset(asset, referenced=False)
+    assert out["status"] == "ok"
+    assert out["unarchived"] is True
+    assert asset.is_archived is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_counts_backend_error_asset(monkeypatch):
+    team_id = uuid.uuid4()
+    asset = _asset(team_id=team_id, storage_backend="r2")
+    db = _DB([([], None)], [asset])
+
+    async def probe(backend, key):
+        return media_integrity.ObjectProbe(backend=backend, status="unavailable", error="down")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    summary = await media_integrity.run_integrity_sweep(db, team_id, notify=False)
+    assert summary["backend_errors"] == 1
+    assert summary["newly_backend_errors"] == 1
+    assert summary["backend_error_assets"][0]["id"] == str(asset.id)
+    assert summary["backend_error_assets"][0]["error"]
+
+
+@pytest.mark.asyncio
+async def test_sweep_alert_failure_is_swallowed(monkeypatch):
+    team_id = uuid.uuid4()
+    asset = _asset(team_id=team_id)
+    db = _DB([([], None)], [asset])
+
+    async def probe(backend, key):
+        return media_integrity.ObjectProbe(backend=backend, status="missing")
+
+    async def boom(*a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications",
+                        SimpleNamespace(post_alert_to_slack=boom))
+    summary = await media_integrity.run_integrity_sweep(db, team_id, notify=True)
+    assert summary["newly_unresolved"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sweep_alert_marks_alerted_at_only_for_unresolved(monkeypatch):
+    team_id = uuid.uuid4()
+    ok_asset = _asset(id=uuid.uuid4(), team_id=team_id, storage_path="team/ok.png")
+    bad_asset = _asset(id=uuid.uuid4(), team_id=team_id, storage_path="team/bad.png")
+    db = _DB([([], None)], [ok_asset, bad_asset])
+    alert = AsyncMock(return_value=True)
+
+    async def probe(backend, key):
+        if key == "team/bad.png":
+            return media_integrity.ObjectProbe(backend=backend, status="missing")
+        return media_integrity.ObjectProbe(backend=backend, status="ok", size=ok_asset.size_bytes,
+                                           public_url=ok_asset.public_url)
+
+    monkeypatch.setattr(media_integrity, "probe_object", probe)
+    monkeypatch.setitem(__import__("sys").modules, "app.services.slack_notifications",
+                        SimpleNamespace(post_alert_to_slack=alert))
+    summary = await media_integrity.run_integrity_sweep(db, team_id, notify=True)
+    assert summary["newly_unresolved"] == 1
+    bad_integrity = bad_asset.meta_data["storage_integrity"]
+    assert bad_integrity.get("alerted_at")
+    assert not ok_asset.meta_data["storage_integrity"].get("alerted_at")
+
