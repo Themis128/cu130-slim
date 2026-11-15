@@ -321,8 +321,22 @@ function tripRateLimit(reason) {
   return state;
 }
 
+const RATE_LIMIT_HISTORY_FILE = path.join(
+  path.dirname(process.env.SESSION_FILE || "/data/li-session.json"),
+  "rate-limit-history.json",
+);
+
 function clearRateLimit() {
   try {
+    const prev = readRateLimitState();
+    if (prev && prev.until) {
+      // Persist when the cooldown ended so callers can warm up gradually
+      // instead of jumping straight back to full volume.
+      fs.writeFileSync(
+        RATE_LIMIT_HISTORY_FILE,
+        JSON.stringify({ endedAt: Date.now(), until: prev.until, reason: prev.reason || "" }),
+      );
+    }
     fs.unlinkSync(RATE_LIMIT_FILE);
   } catch (_) {}
   agentLog("H-F", "clearRateLimit", "circuit closed", {});
@@ -343,6 +357,52 @@ function assertNotRateLimited(action) {
   err.until = state.until;
   throw err;
 }
+
+/**
+ * Early-recovery probe: LinkedIn temp restrictions often lift before our
+ * flat cooldown expires. Once >70% of the cooldown has elapsed we fire ONE
+ * gentle feed navigation; a healthy response closes the circuit early.
+ * A failed probe leaves `until` untouched (no re-trip, no extension) and
+ * sets probeSent so we never hammer a still-restricted account.
+ */
+let probeInFlight = false;
+function maybeProbeRateLimit() {
+  const state = readRateLimitState();
+  if (!state || !state.until || state.probeSent || probeInFlight) return;
+  const elapsed = Date.now() - (state.trippedAt || state.until - RATE_LIMIT_COOLDOWN_MS);
+  if (elapsed < RATE_LIMIT_COOLDOWN_MS * 0.7) return;
+  probeInFlight = true;
+  (async () => {
+    try {
+      fs.writeFileSync(RATE_LIMIT_FILE, JSON.stringify({ ...state, probeSent: true }));
+      await ensureBrowser();
+      const resp = await page.goto("https://www.linkedin.com/feed/", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      const status = resp ? resp.status() : 0;
+      const url = page.url();
+      const healthy =
+        status === 200 &&
+        isLinkedInPageUrl(url) &&
+        !url.includes("/login") &&
+        !url.includes("/checkpoint") &&
+        !url.includes("authwall") &&
+        (await page.evaluate(() => document.documentElement.outerHTML.length).catch(() => 0)) > 5000;
+      if (healthy) {
+        clearRateLimit();
+        agentLog("H-F", "rateLimitProbe", "circuit closed early — probe healthy", { status, url: url.slice(0, 120) });
+      } else {
+        agentLog("H-F", "rateLimitProbe", "probe unhealthy — cooldown continues", { status, url: url.slice(0, 120) });
+      }
+    } catch (err) {
+      agentLog("H-F", "rateLimitProbe", "probe error — cooldown continues", { error: String(err && err.message || err).slice(0, 200) });
+    } finally {
+      probeInFlight = false;
+    }
+  })();
+}
+setInterval(maybeProbeRateLimit, 5 * 60 * 1000).unref();
 
 /** True when the document is a blank/error shell (rate-limit / redirect failure). */
 function isBlankDocument() {
@@ -3656,6 +3716,13 @@ app.get("/health", (req, res) => {
     has_session: !!storageState || fs.existsSync(SESSION_FILE),
     rate_limited: cooling,
     rate_limit_until: cooling ? rl.until : null,
+    cooldown_ended_at: (() => {
+      try {
+        return JSON.parse(fs.readFileSync(RATE_LIMIT_HISTORY_FILE, "utf-8")).endedAt || null;
+      } catch (_) {
+        return null;
+      }
+    })(),
     proxy: !!(process.env.LINKEDIN_PROXY || process.env.PROXY_URL),
     browser_connected: !!(browser && browser.isConnected()),
     page_ok: !pageNeedsRecovery(page, crashTracker),

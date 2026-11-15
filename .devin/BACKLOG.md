@@ -2576,3 +2576,32 @@ human: GBP video verification — ONLY remaining gate. Google offers no
   on verified+linked GBP.
 - [ ] GBP business hours via web UI still unset (phone cover was closed);
   becomes moot once API access opens.
+
+## 2026-11-15 (late) — LinkedIn cooldown recovery automation
+
+State achieved:
+- PR #1972 `li-cooldown-recovery`: sidecar early-recovery probe (>70% of
+  6h cooldown → one gentle /feed/ nav; healthy 200 closes circuit early,
+  failed probe never repeats) + `cooldown_ended_at` in /health +
+  rate-limit-history.json; linkedin_engagement worker warm-up ramp
+  0.3→1.0 over 7 days post-cooldown, skips writes while cooling.
+- PR #1973 `deploy-watch-image-rebuild`: master-deploy-watch.sh now
+  rebuilds local-image services (all browser sidecars, stack-ops,
+  promtail, etc.) when files under their build context change — closes
+  the "server.js baked into image, never redeployed" gap. Watchtower
+  evaluated and rejected (registry-pull only).
+- Both auto-merge armed, zero check failures (image scans pending).
+
+Remaining / watch:
+- [ ] After BOTH #1972 and #1973 merge: watcher diff won't rebuild the
+  sidecar for server.js (it landed in an earlier sha) — run once:
+  `docker compose build linkedin-browser-sidecar && docker compose up -d linkedin-browser-sidecar`
+  then `git pull` already done by watcher + restart 4 workers happens
+  automatically (app_code path). Verify /health shows cooldown_ended_at.
+- [ ] LinkedIn browser cooldown until ~01:30 EET (rate-limit.json in
+  linkedin_browser_data volume survives rebuilds — do NOT clear manually).
+- [ ] External gates unchanged: rw_dmp_segments/Matched Audiences approval,
+  Member DP data population (LinkedIn-side), CM Standard-tier survey review,
+  IG/Threads/WhatsApp Meta re-auth (phone 2FA lane ready), GBP video verify.
+- [ ] cm-survey-watch: daily cap live, last_submit seeded 17:45 EET,
+  no pending mp4s — silent until next drop.
