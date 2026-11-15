@@ -41,25 +41,17 @@ class LinkedInReauthClient:
     """HTTP client for the sidecar's two-phase login endpoints."""
 
     def __init__(self, base_url: str | None = None, timeout: float = 300.0) -> None:
-        self.base_url = (
-            base_url
-            or os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL")
-            or "http://linkedin-browser-sidecar:9225"
-        )
+        self.base_url = base_url or os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL") or "http://linkedin-browser-sidecar:9225"
         self._timeout = timeout
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            base_url=self.base_url, timeout=self._timeout
-        ) as c:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=self._timeout) as c:
             r = await c.post(path, json=payload)
             if r.status_code >= 400:
                 raise LinkedInReauthError(r.status_code, r.text)
             return r.json()
 
-    async def start(
-        self, username: str, password: str, method: str = "sms"
-    ) -> dict[str, Any]:
+    async def start(self, username: str, password: str, method: str = "sms") -> dict[str, Any]:
         return await self._post(
             "/login/start",
             {"username": username, "password": password, "method": method},
@@ -72,9 +64,7 @@ class LinkedInReauthClient:
         return await self._post("/login/cancel", {})
 
     async def status(self) -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            base_url=self.base_url, timeout=60.0
-        ) as c:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=60.0) as c:
             r = await c.get("/session")
             if r.status_code >= 400:
                 raise LinkedInReauthError(r.status_code, r.text)
@@ -115,9 +105,7 @@ def _adb_key_dir() -> Path:
     return d
 
 
-def _sms_codes_blocking(
-    keys_dir: Path, since_ms: int | None
-) -> list[tuple[int, str]]:
+def _sms_codes_blocking(keys_dir: Path, since_ms: int | None) -> list[tuple[int, str]]:
     """Return [(epoch_ms, code)] for LinkedIn SMS, newest first."""
     from adb_shell.adb_device import AdbDeviceTcp  # lazy: optional dep
     from adb_shell.auth.sign_cryptography import CryptographySigner
@@ -131,10 +119,7 @@ def _sms_codes_blocking(
         device = AdbDeviceTcp(host, int(port or 5555))
         try:
             device.connect(rsa_keys=[signer])
-            out = device.shell(
-                "content query --uri content://sms/inbox "
-                "--projection address,date,body --sort \"date DESC\""
-            )
+            out = device.shell('content query --uri content://sms/inbox --projection address,date,body --sort "date DESC"')
             break
         except Exception:
             continue
@@ -163,9 +148,7 @@ def _sms_codes_blocking(
     return codes
 
 
-async def fetch_linkedin_sms_code(
-    since_ms: int | None = None, timeout_s: int = 240
-) -> str:
+async def fetch_linkedin_sms_code(since_ms: int | None = None, timeout_s: int = 240) -> str:
     """Poll the phone SMS inbox until a fresh LinkedIn code arrives."""
     import asyncio
 
@@ -174,19 +157,14 @@ async def fetch_linkedin_sms_code(
     last_err: Exception | None = None
     while time.time() < deadline:
         try:
-            codes = await asyncio.to_thread(
-                _sms_codes_blocking, keys_dir, since_ms
-            )
+            codes = await asyncio.to_thread(_sms_codes_blocking, keys_dir, since_ms)
             if codes:
                 return codes[0][1]
         except Exception as e:  # device offline, auth, transient
             last_err = e
             logger.warning("LinkedIn SMS poll failed: %s", e)
         await asyncio.sleep(8)
-    raise LinkedInReauthError(
-        504, f"no LinkedIn SMS code within {timeout_s}s"
-        + (f" (last error: {last_err})" if last_err else "")
-    )
+    raise LinkedInReauthError(504, f"no LinkedIn SMS code within {timeout_s}s" + (f" (last error: {last_err})" if last_err else ""))
 
 
 async def resolve_linkedin_credentials(
@@ -194,19 +172,12 @@ async def resolve_linkedin_credentials(
 ) -> tuple[str, str]:
     """Secret-store creds, per-account first then global (profile.py order)."""
     suffix = f"_{account_id}" if account_id else ""
-    username = (
-        await secret_store.get(f"LINKEDIN_USERNAME{suffix}")
-        or await secret_store.get("LINKEDIN_USERNAME")
-    )
-    password = (
-        await secret_store.get(f"LINKEDIN_PASSWORD{suffix}")
-        or await secret_store.get("LINKEDIN_PASSWORD")
-    )
+    username = await secret_store.get(f"LINKEDIN_USERNAME{suffix}") or await secret_store.get("LINKEDIN_USERNAME")
+    password = await secret_store.get(f"LINKEDIN_PASSWORD{suffix}") or await secret_store.get("LINKEDIN_PASSWORD")
     if not (username and password):
         raise LinkedInReauthError(
             401,
-            "LinkedIn credentials not in secret store "
-            "(LINKEDIN_USERNAME / LINKEDIN_PASSWORD or per-account variants).",
+            "LinkedIn credentials not in secret store (LINKEDIN_USERNAME / LINKEDIN_PASSWORD or per-account variants).",
         )
     return username, password
 

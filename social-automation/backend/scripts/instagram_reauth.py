@@ -417,9 +417,7 @@ def _dump_diagnostics(tag: str) -> None:
 # is an SMS to the office number (+**38 = Galaxy S22+, readable over WiFi
 # ADB via content://sms/inbox — same lane as linkedin_reauth.py).
 
-_IG_2FA_RE = re.compile(
-    r"check your (whatsapp|text) messages|enter the code we sent", re.I
-)
+_IG_2FA_RE = re.compile(r"check your (whatsapp|text) messages|enter the code we sent", re.I)
 _IG_CODE_INPUT_JS = """
 (() => {
   const inp = [...document.querySelectorAll('input')].find(i =>
@@ -566,12 +564,16 @@ def _fetch_ig_sms_code(since_ms: int, timeout_s: int = 180) -> str | None:
         return None
     # Wireless-debugging ports/IPs drift (mDNS random port, DHCP). Try the
     # env override first, then the known live endpoints.
-    addrs = [a for a in (
-        os.environ.get("LINKEDIN_SMS_ADB_ADDR"),
-        "100.84.31.85:5555",
-        "192.168.1.77:5555",
-        "192.168.1.235:5555",
-    ) if a]
+    addrs = [
+        a
+        for a in (
+            os.environ.get("LINKEDIN_SMS_ADB_ADDR"),
+            "100.84.31.85:5555",
+            "192.168.1.77:5555",
+            "192.168.1.235:5555",
+        )
+        if a
+    ]
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         for addr in addrs:
@@ -579,11 +581,8 @@ def _fetch_ig_sms_code(since_ms: int, timeout_s: int = 180) -> str | None:
             dev = None
             try:
                 dev = AdbDeviceTcp(host, int(port or 5555))
-                dev.connect(rsa_keys=[
-                    CryptographySigner(str(keys / "adbkey"))])
-                out = dev.shell(
-                    "content query --uri content://sms/inbox "
-                    '--projection address,date,body --sort "date DESC"')
+                dev.connect(rsa_keys=[CryptographySigner(str(keys / "adbkey"))])
+                out = dev.shell('content query --uri content://sms/inbox --projection address,date,body --sort "date DESC"')
             except Exception as e:
                 print(f"ig sms poll {addr}: {e}")
                 continue
@@ -686,7 +685,7 @@ _IG_SMS_REQUESTED = False
 def _drive_ig_2fa(snap: dict, sms_since_ms: int) -> str:
     """Advance the IG popup's 2FA wizard. Returns 'handled'|'waiting'|'none'."""
     global _IG_TXT_PICKED, _IG_SMS_REQUESTED
-    text = (snap.get("text") or "")
+    text = snap.get("text") or ""
     low = text.lower()
     if not _IG_2FA_RE.search(low) and "two-factor" not in low and "verification code" not in low:
         _IG_TXT_PICKED = False
@@ -855,8 +854,7 @@ def main() -> int:
             )
             if fb is not None:
                 try:
-                    _sidecar("/debug/activate",
-                             {"index": fb["index"]}, timeout=20)
+                    _sidecar("/debug/activate", {"index": fb["index"]}, timeout=20)
                 except Exception:
                     pass
             ig_page_active = False

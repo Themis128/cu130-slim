@@ -110,17 +110,11 @@ def _print_table(report: dict) -> None:
     print(f"{'platform':<11} {'account':<38} {'db':<9} {'probe':<17} verdict")
     print("-" * 95)
     for a in report["accounts"]:
-        print(
-            f"{a['platform']:<11} {str(a['account'])[:37]:<38} "
-            f"{str(a['db_status']):<9} {str(a['probe']):<17} {a['verdict']}"
-        )
+        print(f"{a['platform']:<11} {str(a['account'])[:37]:<38} {str(a['db_status']):<9} {str(a['probe']):<17} {a['verdict']}")
     print("-" * 95)
     print("counts:", json.dumps(report["counts"], sort_keys=True))
     for a in report["drift"]:
-        print(
-            f"DRIFT {a['platform']}/{a['account']}: db={a['db_status']} "
-            f"live={a['probe']} — heal lane wrote status without token validation"
-        )
+        print(f"DRIFT {a['platform']}/{a['account']}: db={a['db_status']} live={a['probe']} — heal lane wrote status without token validation")
 
 
 if __name__ == "__main__":
