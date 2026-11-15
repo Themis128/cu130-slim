@@ -168,7 +168,7 @@ def test_mount_broken_exited_container_is_recreated_not_restarted(env):
     run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS=mount_err, WD_NOW=1000)
     c = calls(tmp)
     assert "start social-api" not in c and "restart social-api" not in c
-    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c)
+    assert any("compose up -d --no-deps --pull never --force-recreate fake-svc" in x for x in c)
     assert "force-recreated" in log(repo)
 
 
@@ -209,7 +209,7 @@ def test_eacces_crashloop_chowns_mount_and_recreates(env, tmp_path):
         FAKE_UID="1000", FAKE_GID="1000")
     c = calls(tmp)
     assert any("chown" in x for x in c), c
-    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+    assert any("compose up -d --no-deps --pull never --force-recreate fake-svc" in x for x in c), c
     assert "eacces" in log(repo)
 
 
@@ -232,7 +232,7 @@ def test_dead_published_port_recreates_owner(env, tmp_path):
     repo, e, tmp = env
     run(repo, e, WD_PORT_PROBES="n8n:5678", FAKE_CURL_CODE="000")
     c = calls(tmp)
-    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+    assert any("compose up -d --no-deps --pull never --force-recreate fake-svc" in x for x in c), c
 
 
 def test_live_published_port_does_not_recreate(env, tmp_path):
@@ -307,7 +307,7 @@ def test_tailnet_ip_drift_updates_env_and_recreates(env, tmp_path):
         FAKE_STATE_ERROR=err, FAKE_TS_IP="100.100.186.88")
     assert "INFISICAL_TAILNET_IP=100.100.186.88" in (repo / ".env").read_text()
     c = calls(tmp)
-    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+    assert any("compose up -d --no-deps --pull never --force-recreate fake-svc" in x for x in c), c
     assert "tailnet-ip" in log(repo)
 
 
