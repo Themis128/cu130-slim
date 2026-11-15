@@ -172,6 +172,37 @@ WORKFORCE = [
         ],
     ),
     Worker(
+        "media-integrity",
+        "app.worker.tasks.media_integrity.run_media_integrity_sweep",
+        "default",
+        21600,
+        goal="Keep media_assets rows truthful to real objects in local, MinIO, and R2 storage",
+        guardrails=(
+            "verify object existence before recording an uploaded asset",
+            "repair only backend labels when the same storage path is verified",
+            "quarantine missing objects; never delete user media rows or objects",
+        ),
+        fallback="unresolved drift is quarantined and escalated to Slack",
+        evidence=[
+            (
+                "last media-integrity sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action = 'media-integrity-sweep'",
+            )
+        ],
+        escalations=[
+            (
+                "missing media objects",
+                "SELECT count(*) FROM media_assets WHERE meta_data->'storage_integrity'->>'status' IN ('missing', 'size_mismatch')",
+                "media bytes are gone or mismatched — restore the object or regenerate the asset",
+            ),
+            (
+                "media storage backend errors",
+                "SELECT count(*) FROM media_assets WHERE meta_data->'storage_integrity'->>'status' = 'backend_error'",
+                "an object store is unreachable — fix the backend before drift is misclassified",
+            ),
+        ],
+    ),
+    Worker(
         "analytics-sync",
         "app.worker.tasks.analytics.sync_all_analytics",
         "default",

@@ -214,8 +214,9 @@ class S3LiteClient:
         _, _, body = self.request("GET", bucket, key)
         return body
 
-    def head_object(self, bucket: str, key: str) -> None:
-        self.request("HEAD", bucket, key)
+    def head_object(self, bucket: str, key: str) -> dict[str, str]:
+        _, headers, _ = self.request("HEAD", bucket, key)
+        return headers
 
     def delete_object(self, bucket: str, key: str) -> None:
         self.request("DELETE", bucket, key)

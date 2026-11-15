@@ -115,6 +115,7 @@ celery_app = Celery(
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.media_heal",
+        "app.worker.tasks.media_integrity",
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.workforce_audit",
@@ -218,6 +219,10 @@ celery_app.conf.update(
         "app.worker.tasks.analytics.sync_team_analytics_task": {
             "soft_time_limit": 600,
             "time_limit": 900,
+        },
+        "app.worker.tasks.media_integrity.run_media_integrity_sweep": {
+            "soft_time_limit": 900,
+            "time_limit": 1200,
         },
         "app.worker.tasks.workflows.execute_workflow": {
             "soft_time_limit": 360,
@@ -391,6 +396,7 @@ celery_app.conf.update(
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.media_heal.run_media_heal_sweep": {"queue": "publishing"},
+        "app.worker.tasks.media_integrity.run_media_integrity_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -505,6 +511,13 @@ celery_app.conf.update(
         "media-heal-sweep": {
             "task": "app.worker.tasks.media_heal.run_media_heal_sweep",
             "schedule": crontab(minute=55, hour="*/6"),
+        },
+        # Media integrity sweep — verifies media_assets rows against local/
+        # MinIO/R2 objects, repairs backend-label drift, quarantines missing
+        # objects, and leaves an AuditLog artifact even when quiet.
+        "media-integrity-sweep": {
+            "task": "app.worker.tasks.media_integrity.run_media_integrity_sweep",
+            "schedule": crontab(minute=35, hour="*/6"),
         },
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
