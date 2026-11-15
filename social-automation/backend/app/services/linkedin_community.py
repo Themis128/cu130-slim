@@ -29,16 +29,12 @@ logger = logging.getLogger(__name__)
 
 COMMENT_HIDE_ENABLED = os.getenv("LINKEDIN_COMMENT_HIDE", "0") == "1"
 
-# Strong spam phrases are unambiguous enough to act on alone. A bare URL is
-# NOT — customers legitimately reference their own site — so links only count
-# toward spam when corroborated (multiple links or a link shortener).
 _SPAM_PATTERNS = [
+    re.compile(r"https?://", re.I),
     re.compile(r"\b(crypto|bitcoin|forex|binary options|casino|viagra|weight loss)\b", re.I),
     re.compile(r"(make money|earn \$|work from home|dm me for)", re.I),
     re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}.*(buy|sell|promo|discount)", re.I),
 ]
-_URL_RE = re.compile(r"https?://", re.I)
-_LINK_SHORTENER_RE = re.compile(r"\b(?:bit\.ly|tinyurl\.com|t\.me|wa\.me|rb\.gy|cutt\.ly|shorturl\w*\.\w+)\b", re.I)
 _LEAD_PATTERNS = [
     re.compile(r"\b(price|pricing|cost|quote|demo|trial|interested|how much|proposal)\b", re.I),
     re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I),
@@ -51,16 +47,13 @@ _PRAISE_PATTERNS = [re.compile(r"\b(great|awesome|love|amazing|congrats|well don
 def classify_comment(text: str) -> str:
     """Bucket a comment: spam | lead | question | praise | other.
 
-    Order matters — spam wins over everything, then buying signals, then
-    engagement types. Spam requires a strong phrase or corroborated links;
-    a single bare URL falls through so linked questions/leads reach a human.
+    Order matters — spam wins over everything (a "great offer!! https://…"
+    comment is still spam), then buying signals, then engagement types.
     """
     t = (text or "").strip()
     if not t:
         return "other"
-    strong_spam = any(p.search(t) for p in _SPAM_PATTERNS)
-    link_spam = len(_URL_RE.findall(t)) >= 2 or bool(_LINK_SHORTENER_RE.search(t))
-    if strong_spam or link_spam:
+    if any(p.search(t) for p in _SPAM_PATTERNS):
         return "spam"
     if any(p.search(t) for p in _LEAD_PATTERNS):
         return "lead"
@@ -82,8 +75,6 @@ async def org_post_comments(max_posts: int = 10, max_age_h: float = 168.0) -> di
         return {"comments": [], "error": "no-linkedin-account"}
     _, org_urn = ctx
     posts_res = await linkedin_feed.list_posts(org_urn, count=max_posts)
-    if posts_res.get("error"):
-        return {"comments": [], "error": posts_res["error"], "posts_scanned": 0}
     posts = posts_res.get("posts") or []
     out: list[dict[str, Any]] = []
     for post in posts:
@@ -126,10 +117,7 @@ def linkedin_engagement_age_h(post: dict) -> float | None:
     ms = ts.get("time") if isinstance(ts, dict) else ts
     if not ms:
         return None
-    try:
-        return (datetime.now(UTC).timestamp() * 1000 - float(ms)) / 3_600_000
-    except (TypeError, ValueError):
-        return None
+    return (datetime.now(UTC).timestamp() * 1000 - float(ms)) / 3_600_000
 
 
 async def delete_comment(post_urn: str, comment_id: str) -> dict[str, Any]:

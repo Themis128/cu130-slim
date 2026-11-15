@@ -2623,12 +2623,10 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
   events to the right social_accounts row, ops alert on pending-grant
   while the dedicated secret is set (~1yr TTL expiry is not silent),
   key documented in .env.example with annual re-auth note.
-- [x] decide: CONNECTIONS-domain member-DP PII retention — DECIDED
-  2026-11-15: keep indefinitely in own Postgres analytics_events + R2
-  lake snapshot (member's own DP export, volume bounded at
-  MAX_ELEMENTS_STORE/domain/day). Rationale + revisit trigger documented
-  in linkedin_portability_sync docstring. Reopen only if lake size or a
-  privacy review demands a purge/redaction lane.
+- [ ] decide: CONNECTIONS-domain member-DP snapshots carry third-party
+  LinkedIn member PII into analytics_events → datalake via
+  export-datalake; set a retention/redaction policy (flagged in
+  linkedin_portability_sync docstring, PR #1964 review).
 - [ ] watch: next annual Member DP re-auth (~2027-11) — app 265100977,
   scope r_dma_portability_self_serve; expiry now alerts via ops channel.
 
@@ -2691,25 +2689,19 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
   offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
 
-## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
+## 2026-11-16 — account-truth sweep + WhatsApp/IG repair
 
-- [x] Member DP changelog retention covered — LinkedIn keeps
-  `memberChangeLogs` for **28 days only**; the daily 09:30
-  `linkedin-portability-sync` beat + persisted cursor already captures
-  every event inside the window. No cadence change needed.
-- [x] DP token TTL confirmed — OAuth `expires_in=31535999` (~1yr, no
-  refresh token) on app 265100977. Re-auth needed ~Nov 2026 via the same
-  OAuth lane (sidecar session + SMS checkpoint, proven 2026-11-15).
-- [ ] decide: `MEMBER_DOMAINS` is a hardcoded 15-domain subset; LinkedIn
-  now exposes ~66 snapshot domains (new: `ADS_LAN`, `ACCOUNT_HISTORY`,
-  `INSTANT_REPOSTS`, `LEARNING_*`, `VOLUNTEERING_EXPERIENCES`). Adding
-  PII-bearing domains needs the retention decision first (per the
-  task's privacy note) — and all domains currently return LinkedIn 404
-  "no data" until their export pipeline populates, so expansion has zero
-  value today. Revisit when snapshot data flows.
-- [ ] watch: Matched Audiences (`rw_dmp_segments`) — private API, requires
-  Advertising API approval FIRST (already have `r_ads` live) then a
-  separate Matched Audiences application; LinkedIn responds within ~60
-  days of the interest form. Support case already filed on app 264925843
-  (linkedin-portal-gates-ops). Portal probe currently 429-blocked by the
-  LinkedIn cooldown — recheck case status after cooldown ends.
+- [x] WhatsApp re-auth END-TO-END: `/oauth/whatsapp/authorize` was missing
+  (500 on `WHATSAPP_REDIRECT_URI`) — added `whatsapp_authorize()` (Facebook
+  Login dialog + WA scopes + state `p="whatsapp"`), PR #1988. Drove consent
+  on :9229 → callback → new `facebook_user_long_lived` token (never
+  expires) → WABA 1717901383017723 phone 1432734783254091 VERIFIED,
+  TIER_250. Propagated token to both .env copies (WHATSAPP_ACCESS_TOKEN).
+- [ ] watch: IG API onboarding (`instagram-onboarding` flow) — IG login +
+  Meta TOTP 2FA PASSED on :9229; stuck at facebook_business_extension
+  "Temporarily Blocked" (Meta rate-limit). `ig_onboarding_resume.py`
+  (nohup pid in logs/ig_onboarding_resume.log) reloads every 10min and
+  clicks through remaining wizard steps when it clears. IG rows still
+  expired/revoked until callback lands.
+- [x] X @TBaltzakis — live `/2/users/me` probe OK; DB `active` confirmed.
+- [x] Instagram false-active row (d2215…, OAuth 190) → marked `expired`.
