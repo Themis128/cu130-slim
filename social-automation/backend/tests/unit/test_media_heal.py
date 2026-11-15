@@ -849,3 +849,74 @@ def test_rewrite_copy_label_prefix_stripped(monkeypatch):
     out = _drive(M._rewrite_copy_for_media(post))
     assert out == new.strip()
     assert not out.lower().startswith("rewritten")
+
+
+# ── residual branch arcs ───────────────────────────────────────────────
+
+
+def test_sweep_rewrite_exception_still_alerts(monkeypatch):
+    """_rewrite_copy_for_media raising → treated like no rewrite → alert."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    alert = AsyncMock()
+    monkeypatch.setattr(
+        M, "_rewrite_copy_for_media", AsyncMock(side_effect=RuntimeError("dmr down"))
+    )
+    _wire(monkeypatch, db, alert=alert)
+    out = M.run_media_heal_sweep()
+    assert out["exhausted"] == [str(pid)]
+    assert post.meta_data["media_heal_alerted"] is True
+    alert.assert_called_once()
+
+
+def test_sweep_converts_non_rgb_slide(monkeypatch):
+    """Branded slide in a non-RGB mode → convert('RGB') before JPEG save."""
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([(acct, "linkedin")]),
+        ]
+    )
+    _wire(monkeypatch, db)
+
+    class _P:
+        mode = "P"
+
+        def convert(self, mode):
+            assert mode == "RGB"
+            return _Img()
+
+    monkeypatch.setattr(M, "compose_branded_slide", Mock(return_value=_P()))
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 1
+
+
+def test_sweep_rollback_failure_isolated(monkeypatch):
+    """db.rollback raising inside the per-post handler → swallowed, sweep continues."""
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([(acct, "linkedin")]),
+        ]
+    )
+    _wire(monkeypatch, db)
+    db.rollback = AsyncMock(side_effect=RuntimeError("rollback dead"))
+    monkeypatch.setattr(
+        M, "persist_generated_image", AsyncMock(side_effect=RuntimeError("persist dead"))
+    )
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 0
