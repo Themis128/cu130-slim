@@ -2396,8 +2396,18 @@ services:
       # repo-local docker CLI — /mnt/wsl/docker-desktop/cli-tools binds get
       # poisoned by fsbridge flaps (materialize as dirs → exit 127).
       # .docker-bin/ is provisioned on both checkouts (gitignored).
-      - ./.docker-bin/docker:/usr/bin/docker:ro
-      - ./.docker-bin/cli-plugins/docker-compose:/root/.docker/cli-plugins/docker-compose:ro
+      # long syntax + create_host_path: false — a missing binary fails fast
+      # instead of being auto-created as an empty dir (the same exit 127).
+      - type: bind
+        source: ./.docker-bin/docker
+        target: /usr/bin/docker
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./.docker-bin/cli-plugins/docker-compose
+        target: /root/.docker/cli-plugins/docker-compose
+        read_only: true
+        bind: { create_host_path: false }
     networks:
       - backend
     healthcheck:
