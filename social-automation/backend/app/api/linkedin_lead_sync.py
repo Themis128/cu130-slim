@@ -24,6 +24,7 @@ import hmac
 import logging
 import os
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -68,10 +69,11 @@ def _response_ids(payload: Any) -> list[dict]:
         if it.get("type") not in (None, "LEAD_ACTION"):
             continue
         urn = it.get("leadGenFormResponse") or ""
-        if not isinstance(urn, str) or "leadGenFormResponse:" not in urn and "adFormResponse:" not in urn:
+        if not isinstance(urn, str) or ("leadGenFormResponse:" not in urn and "adFormResponse:" not in urn):
             continue
         rid = urn.rsplit(":", 1)[-1]
         occurred = it.get("occurredAt") or it.get("createdAt") or ""
+        owner = it.get("owner") or {}
         out.append(
             {
                 "id": rid,
@@ -80,6 +82,7 @@ def _response_ids(payload: Any) -> list[dict]:
                 "action": it.get("leadAction") or "CREATED",
                 "lead_type": it.get("leadType"),
                 "form": it.get("leadGenForm"),
+                "owner": owner.get("sponsoredAccount") or owner.get("organization") or "",
             }
         )
     return out
@@ -120,8 +123,12 @@ async def _mark_seen(db, key: str, meta: dict) -> None:
     await db.commit()
 
 
-async def _fetch_response(rid: str) -> dict | None:
-    """GET /rest/leadFormResponses/{id} — id, NOT the URN (per migration guide)."""
+async def _fetch_response(rid: str, owner_urn: str, lead_type: str) -> dict | None:
+    """Batch-get one lead response — ``ids=List("…")`` + owner + leadType.
+
+    Per the Lead Sync docs there is no ``/leadFormResponses/{id}`` path;
+    responses come back under ``results[id]``.
+    """
     import httpx
 
     from app.services import linkedin_advanced
@@ -130,12 +137,21 @@ async def _fetch_response(rid: str) -> dict | None:
     if not ctx:
         return None
     token, _ = ctx
+    owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
+    owner = quote(owner_urn, safe="")
+    params = {
+        "ids": f'List("{rid}")',
+        "owner": f"({owner_key}:{owner})",
+        "leadType": f"(leadType:{lead_type or 'SPONSORED'})",
+    }
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **linkedin_advanced.HDRS}) as c:
-        r = await c.get(f"{linkedin_advanced.REST}/leadFormResponses/{rid}")
+        r = await c.get(f"{linkedin_advanced.REST}/leadFormResponses", params=params)
     if r.status_code != 200:
         logger.warning("lead-sync fetch %s → %s", rid, r.status_code)
         return None
-    return r.json()
+    data = r.json()
+    results = data.get("results") or {}
+    return results.get(rid) or next(iter(results.values()), None)
 
 
 @router.post("")
@@ -171,7 +187,7 @@ async def lead_sync_webhook(request: Request) -> Any:
             await _mark_seen(db, it["key"], {"urn": it["urn"], "action": it["action"], "lead_type": it["lead_type"]})
             if it["action"] == "DELETED":
                 continue
-            resp = await _fetch_response(it["id"])
+            resp = await _fetch_response(it["id"], str(it.get("owner") or ""), str(it.get("lead_type") or ""))
             if resp is None:
                 errors.append(f"{it['urn']}: fetch failed")
                 continue
