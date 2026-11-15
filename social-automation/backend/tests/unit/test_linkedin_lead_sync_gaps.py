@@ -223,3 +223,13 @@ async def test_webhook_dedup_skips_seen(monkeypatch):
     out = await LSYNC.lead_sync_webhook(_Req(body))
     data = _json.loads(out.body)
     assert data["deduped"] == 1 and data["routed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_webhook_route_false_not_counted(monkeypatch):
+    monkeypatch.delenv("LINKEDIN_CLIENT_SECRET", raising=False)
+    _wire(monkeypatch, route=AsyncMock(return_value=False))
+    body = _json.dumps(_payload()).encode()
+    out = await LSYNC.lead_sync_webhook(_Req(body))
+    data = _json.loads(out.body)
+    assert data["received"] == 1 and data["routed"] == 0 and data["errors"] == []

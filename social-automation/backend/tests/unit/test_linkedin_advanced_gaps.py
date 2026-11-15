@@ -241,3 +241,11 @@ async def test_resolve_conversion_rule_all_paths(monkeypatch):
     monkeypatch.setenv("LINKEDIN_CONVERSION_RULE", "urn:from-env")
     out = await ADV.resolve_conversion_rule("audit_booked")
     assert out == "urn:from-env"
+
+
+@pytest.mark.asyncio
+async def test_create_lead_notification_no_restli_id(monkeypatch):
+    _patch_ctx(monkeypatch)
+    _patch_http(monkeypatch, [_Resp(200, {"ok": True})])
+    out = await ADV.create_lead_notification("https://x/hook", "urn:li:organization:1")
+    assert out["ok"] is True and "id" not in out

@@ -217,3 +217,63 @@ async def test_ensure_finds_rule_by_name_in_list(monkeypatch):
     out = await ENS._ensure()
     assert "evt_d" in out["found"]
     assert sets == [("ENV_D", "urn:lla:llaPartnerConversion:55")]
+
+
+@pytest.mark.asyncio
+async def test_ensure_named_rule_without_id_falls_to_create(monkeypatch):
+    adv = __import__("app.services.linkedin_advanced", fromlist=["x"])
+    monkeypatch.setattr(adv, "_ctx", AsyncMock(return_value=("tok", "urn")))
+    monkeypatch.setattr(adv, "CONVERSION_EVENTS", {"evt_e": ("ENV_E", "LEAD")})
+    monkeypatch.setattr(
+        adv,
+        "list_conversion_rules",
+        AsyncMock(return_value={"status": 200, "rules": [{"name": "evt_e"}]}),  # no id
+    )
+    monkeypatch.setattr(adv, "resolve_conversion_rule", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        adv,
+        "create_conversion_rule",
+        AsyncMock(return_value={"rule_urn": "urn:lla:llaPartnerConversion:99"}),
+    )
+    monkeypatch.setattr("app.services.secret_store.secret_store", SimpleNamespace(set=AsyncMock()))
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", AsyncMock())
+    out = await ENS._ensure()
+    assert out["created"] == [{"event": "evt_e", "rule": "urn:lla:llaPartnerConversion:99"}]
+
+
+@pytest.mark.asyncio
+async def test_boost_winners_empty_skips_alert(monkeypatch):
+    monkeypatch.setattr(LB, "ENABLED", True)
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))),
+        commit=AsyncMock(),
+    )
+    monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
+    import app.services.slack_notifications as SN
+
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+    out = await LB._boost_linkedin_winners()
+    assert out == {"boosted": 0}
+    alert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_route_leads_unrouted_skips_alert(monkeypatch):
+    monkeypatch.setattr(LB, "ENABLED", True)
+    acc = SimpleNamespace(team_id="t1")
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: acc))))
+    monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
+    import app.services.linkedin_ads as LADS
+
+    monkeypatch.setattr(LADS, "ad_accounts", AsyncMock(return_value=[{"id": "a1"}]))
+    monkeypatch.setattr(LADS, "lead_gen_forms", AsyncMock(return_value=[{"id": "f1"}]))
+    monkeypatch.setattr(LADS, "lead_form_responses", AsyncMock(return_value=[{"id": "r1"}]))
+    monkeypatch.setattr(LB, "route_lead_response", AsyncMock(return_value=False))
+    import app.services.slack_notifications as SN
+
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+    out = await LB._route_linkedin_leads()
+    assert out == {"routed": 0, "found": 1}
+    alert.assert_not_called()
