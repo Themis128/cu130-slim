@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+from typing import Any
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
@@ -148,7 +149,7 @@ async def _run() -> dict:
 
         reactions_today, comments_today = await _actions_today(db, team_id)
         templates = _comment_templates()
-        stats = {"scanned": 0, "reacted": 0, "commented": 0, "skipped_dedup": 0, "skipped_cap": 0, "skipped_age": 0, "errors": []}
+        stats: dict[str, Any] = {"scanned": 0, "reacted": 0, "commented": 0, "skipped_dedup": 0, "skipped_cap": 0, "skipped_age": 0, "errors": []}
 
         for author_urn in authors:
             listing = await linkedin_feed.list_posts(author_urn, count=POSTS_PER_AUTHOR)
