@@ -70,9 +70,7 @@ async def test_enqueue_issue_future_schedule_no_dispatch(monkeypatch):
     monkeypatch.setattr(api.newsletter_issue_queue, "enqueue_issue", fake_enqueue)
     with _patched_settings():
         out = await api.enqueue_newsletter_issue(
-            api.NewsletterIssueEnqueueRequest(
-                title="Queued Issue", html_body="<p>body</p>", scheduled_for=future
-            ),
+            api.NewsletterIssueEnqueueRequest(title="Queued Issue", html_body="<p>body</p>", scheduled_for=future),
             _request(),
             db=_FakeDB(),
         )
@@ -88,13 +86,9 @@ async def _async_ret(v):
 async def test_enqueue_issue_due_fires_dispatch_and_dedup(monkeypatch):
     issue = _issue(status=NewsletterIssueStatus.QUEUED)
     monkeypatch.setattr(api, "_resolve_issue_content", lambda *a, **k: _async_ret(_resolved()))
-    monkeypatch.setattr(
-        api.newsletter_issue_queue, "enqueue_issue", lambda *a, **k: _async_ret((issue, False))
-    )
+    monkeypatch.setattr(api.newsletter_issue_queue, "enqueue_issue", lambda *a, **k: _async_ret((issue, False)))
     fired = []
-    monkeypatch.setattr(
-        nl_tasks, "dispatch_newsletter_issues", SimpleNamespace(delay=lambda *a, **k: fired.append(1))
-    )
+    monkeypatch.setattr(nl_tasks, "dispatch_newsletter_issues", SimpleNamespace(delay=lambda *a, **k: fired.append(1)))
     with _patched_settings():
         out = await api.enqueue_newsletter_issue(
             api.NewsletterIssueEnqueueRequest(title="T", html_body="<p>b</p>"),
@@ -138,9 +132,7 @@ async def test_enqueue_issue_bad_schedule_422(monkeypatch):
     with _patched_settings():
         with pytest.raises(HTTPException) as e:
             await api.enqueue_newsletter_issue(
-                api.NewsletterIssueEnqueueRequest(
-                    title="T", html_body="<p>b</p>", scheduled_for="not-a-date"
-                ),
+                api.NewsletterIssueEnqueueRequest(title="T", html_body="<p>b</p>", scheduled_for="not-a-date"),
                 _request(),
                 db=_FakeDB(),
             )
@@ -153,9 +145,7 @@ async def test_enqueue_issue_bad_schedule_422(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_and_get_issue(monkeypatch):
     issue = _issue(status=NewsletterIssueStatus.PUBLISHED, article_url="https://x/pulse/a/")
-    monkeypatch.setattr(
-        api.newsletter_issue_queue, "list_issues", lambda *a, **k: _async_ret([issue])
-    )
+    monkeypatch.setattr(api.newsletter_issue_queue, "list_issues", lambda *a, **k: _async_ret([issue]))
     with _patched_settings():
         out = await api.list_newsletter_issues(_request(), status="published", limit=10, db=_FakeDB())
     assert out["issues"][0]["slug"] == issue.slug
@@ -240,9 +230,7 @@ async def test_dispatch_issue_now(monkeypatch):
 
     monkeypatch.setattr(api.newsletter_issue_queue, "mark_due_now", mark)
     fired = []
-    monkeypatch.setattr(
-        nl_tasks, "dispatch_newsletter_issues", SimpleNamespace(delay=lambda *a, **k: fired.append(1))
-    )
+    monkeypatch.setattr(nl_tasks, "dispatch_newsletter_issues", SimpleNamespace(delay=lambda *a, **k: fired.append(1)))
     with _patched_settings():
         out = await api.dispatch_newsletter_issue_now(str(issue.id), _request(), db=_FakeDB())
     assert out["dispatched"] is True and marked == [issue] and fired == [1]

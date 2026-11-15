@@ -106,7 +106,7 @@ def lead_form_question_map(form: dict | None) -> dict[int, dict]:
         options: list[dict] = []
         mc = ((q.get("questionDetails") or {}).get("multipleChoiceQuestionDetails") or {}).get("options") or []
         for opt in mc:
-            otext = (((opt.get("text") or {}).get("localized")) or {})
+            otext = ((opt.get("text") or {}).get("localized")) or {}
             olabel = otext.get("en_US") or next(iter(otext.values()), "")
             options.append({"id": opt.get("id"), "text": olabel})
         out[int(qid)] = {"keys": keys, "label": label, "options": options}
@@ -126,10 +126,7 @@ async def list_lead_notifications(owner_urn: str, lead_type: str = "SPONSORED") 
     # Rest.li union params must be pre-encoded in the URL — httpx params=
     # would double-encode the %XX sequences (verified live 2026-11-15).
     enc = quote(owner_urn, safe="")
-    url = (
-        f"{REST}/leadNotifications?q=criteria"
-        f"&owner=(value:({owner_key}:{enc}))&leadType=(leadType:{lead_type})"
-    )
+    url = f"{REST}/leadNotifications?q=criteria&owner=(value:({owner_key}:{enc}))&leadType=(leadType:{lead_type})"
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
         r = await c.get(url)
     if r.status_code != 200:

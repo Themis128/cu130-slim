@@ -302,8 +302,7 @@ async def test_send_optional_args_absent(client):
 def test_parse_webhook_residual_branches():
     contacts = [{"profile": {"name": "NoId"}}]  # contact without wa_id
     msgs = [
-        {"type": "interactive", "from": "1", "id": "m1", "timestamp": "1",
-         "interactive": {"type": "product_list_reply", "product_list_reply": {}}},
+        {"type": "interactive", "from": "1", "id": "m1", "timestamp": "1", "interactive": {"type": "product_list_reply", "product_list_reply": {}}},
         {"type": "order", "from": "1", "id": "m2", "timestamp": "1"},
     ]
     ev = W.parse_webhook_event(_hook(messages=msgs, contacts=contacts))

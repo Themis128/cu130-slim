@@ -69,10 +69,14 @@ class _Client:
 
 
 def test_room_token_purposes():
-    with patch.object(TALK, "get_settings", return_value=_settings(
-        NEXTCLOUD_TALK_ROOM_ALERTS="alertroom",
-        NEXTCLOUD_TALK_ROOM_CHANGELOG="logroom",
-    )):
+    with patch.object(
+        TALK,
+        "get_settings",
+        return_value=_settings(
+            NEXTCLOUD_TALK_ROOM_ALERTS="alertroom",
+            NEXTCLOUD_TALK_ROOM_CHANGELOG="logroom",
+        ),
+    ):
         assert TALK.room_token("alerts") == "alertroom"
         assert TALK.room_token("approvals") == "alertroom"
         assert TALK.room_token("changelog") == "logroom"
@@ -89,15 +93,24 @@ def test_room_token_purposes():
 def test_blocks_to_text_all_shapes():
     blocks = [
         {"type": "section", "text": {"text": "hello"}},
-        {"type": "section"},                                    # no text -> skip
-        {"type": "actions", "elements": [
-            {"text": {"text": "Open"}, "url": "https://x"},     # label+url
-            {"text": {"text": "Act"}, "action_id": "a1"},       # label only
-            {"url": "https://y"},                               # no label -> skip
-        ]},
-        {"type": "context", "elements": [
-            {"text": "ctx1"}, "notadict", {"text": ""}, {"text": "ctx2"},
-        ]},
+        {"type": "section"},  # no text -> skip
+        {
+            "type": "actions",
+            "elements": [
+                {"text": {"text": "Open"}, "url": "https://x"},  # label+url
+                {"text": {"text": "Act"}, "action_id": "a1"},  # label only
+                {"url": "https://y"},  # no label -> skip
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"text": "ctx1"},
+                "notadict",
+                {"text": ""},
+                {"text": "ctx2"},
+            ],
+        },
         {"type": "divider"},
         {"type": "actions", "elements": []},
     ]
@@ -118,30 +131,37 @@ async def test_post_to_talk_extra_and_no_token():
     with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_ROOM="")):
         assert await TALK.post_to_talk("hi") is False  # no token
     # base missing entirely
-    with patch.object(TALK, "get_settings", return_value=_settings(
-        NEXTCLOUD_DAV_URL="", NEXTCLOUD_BASE_URL="",
-    )):
+    with patch.object(
+        TALK,
+        "get_settings",
+        return_value=_settings(
+            NEXTCLOUD_DAV_URL="",
+            NEXTCLOUD_BASE_URL="",
+        ),
+    ):
         assert await TALK.post_to_talk("hi") is False
 
 
 @pytest.mark.asyncio
 async def test_post_to_talk_success_extra_and_http_fail():
     resp_ok = _Resp(201)
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[resp_ok])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[resp_ok])):
         assert await TALK.post_to_talk("hi", extra="more") is True
 
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
         assert await TALK.post_to_talk("hi") is False
 
     class _Boom:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): raise RuntimeError("down")
-        async def __aexit__(self, *a): return False
+        def __init__(self, *a, **k):
+            pass
 
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", _Boom):
+        async def __aenter__(self):
+            raise RuntimeError("down")
+
+        async def __aexit__(self, *a):
+            return False
+
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Boom):
         assert await TALK.post_to_talk("hi") is False
 
 
@@ -154,21 +174,28 @@ async def test_create_room_paths():
     with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)):
         assert await TALK.create_room("r") is None
     # http fail
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(400, {"e": 1})])):
+    with (
+        patch.object(TALK, "get_settings", return_value=_settings()),
+        patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(400, {"e": 1})])),
+    ):
         assert await TALK.create_room("r") is None
     # success with valid token
     ok = _Resp(201, {"ocs": {"data": {"token": "abc12345"}}})
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[ok])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[ok])):
         assert await TALK.create_room("My Room", description="d") == "abc12345"
+
     # exception
     class _Boom:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): raise RuntimeError("x")
-        async def __aexit__(self, *a): return False
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", _Boom):
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("x")
+
+        async def __aexit__(self, *a):
+            return False
+
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Boom):
         assert await TALK.create_room("r") is None
 
 
@@ -177,11 +204,9 @@ async def test_delete_room_paths():
     assert await TALK.delete_room("bad token!!") is False
     with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)):
         assert await TALK.delete_room("abc12345") is False
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(204)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(204)])):
         assert await TALK.delete_room("abc12345") is True
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
         assert await TALK.delete_room("abc12345") is False
 
 
@@ -200,39 +225,41 @@ async def test_post_to_room_and_list_and_ping():
         assert await TALK.list_room_messages("abc12345") == []
 
     # post_to_room success + http fail + exception
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(200)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(200)])):
         assert await TALK.post_to_room("abc12345", "yo") is True
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(500)])):
         assert await TALK.post_to_room("abc12345", "yo") is False
 
     # list messages: ok list, non-list data, http fail, exception
-    shared = _Client(responses=[
-        _Resp(200, {"ocs": {"data": [{"id": 1}]}}),
-        _Resp(200, {"ocs": {"data": "x"}}),
-        _Resp(500),
-    ])
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared):
+    shared = _Client(
+        responses=[
+            _Resp(200, {"ocs": {"data": [{"id": 1}]}}),
+            _Resp(200, {"ocs": {"data": "x"}}),
+            _Resp(500),
+        ]
+    )
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared):
         assert await TALK.list_room_messages("abc12345") == [{"id": 1}]
         assert await TALK.list_room_messages("abc12345", last_known_id=5) == []
         assert await TALK.list_room_messages("abc12345") == []
 
     # ping success/fail/exception
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(200)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(200)])):
         assert await TALK.ping() is True
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(503)])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[_Resp(503)])):
         assert await TALK.ping() is False
 
     class _Boom:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): raise RuntimeError("x")
-        async def __aexit__(self, *a): return False
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", _Boom):
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("x")
+
+        async def __aexit__(self, *a):
+            return False
+
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Boom):
         assert await TALK.ping() is False
         assert await TALK.list_room_messages("abc12345") == []
 
@@ -244,7 +271,7 @@ def test_find_recording_file_variants():
     msgs = [
         {"id": 1, "messageParameters": {"file": "notadict"}},
         {"id": 2, "messageParameters": {"file": {"id": "10", "name": "photo.jpg"}}},
-        {"id": 3, "messageParameters": {"file": {"id": "11"}}},                     # no name, no match
+        {"id": 3, "messageParameters": {"file": {"id": "11"}}},  # no name, no match
         {"id": 4, "messageParameters": {"file": {"id": "12", "name": "REC.MP4", "path": "Talk/rec.mp4"}}},
         {"id": 5, "messageParameters": {"file": {"id": "13", "name": "clip.webm"}}},
         {"id": 6, "messageParameters": {"type": "recording", "file": {"id": "14", "fileName": "x.bin"}}},
@@ -274,32 +301,34 @@ async def test_download_talk_file_paths():
 
     # dav path success (first url)
     file_resp = _Resp(200, content=b"BYTES", headers={"content-type": "video/mp4"})
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[file_resp])):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(responses=[file_resp])):
         out = await TALK.download_talk_file(5, path="/Talk/rec.mp4")
         assert out == (b"BYTES", "video/mp4")
 
     # html rejected on both urls -> None
     html_resp = _Resp(200, content=b"<html>", headers={"content-type": "text/html"})
     shared_html = _Client(responses=[html_resp, html_resp])
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared_html):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared_html):
         assert await TALK.download_talk_file(5, path="/Talk/rec.mp4") is None
 
     # non-200 then success on second url
     shared2 = _Client(responses=[_Resp(404), file_resp])
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared2):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: shared2):
         out = await TALK.download_talk_file(5, path="/Talk/rec.mp4")
         assert out is not None
 
     # exception
     class _Boom:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): raise RuntimeError("x")
-        async def __aexit__(self, *a): return False
-    with patch.object(TALK, "get_settings", return_value=_settings()), \
-         patch.object(TALK.httpx, "AsyncClient", _Boom):
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("x")
+
+        async def __aexit__(self, *a):
+            return False
+
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Boom):
         assert await TALK.download_talk_file(5) is None
 
 
@@ -325,19 +354,18 @@ class _BoomClient:
 async def test_room_ops_no_base_and_exceptions():
     no_base = _settings(NEXTCLOUD_DAV_URL="", NEXTCLOUD_BASE_URL="")
     with patch.object(TALK, "get_settings", return_value=no_base):
-        assert await TALK.create_room("r") is None       # 221
+        assert await TALK.create_room("r") is None  # 221
         assert await TALK.delete_room("abc12345") is False  # 251
         assert await TALK.post_to_room("abc12345", "x") is False  # 273
-        assert await TALK.list_room_messages("abc12345") == []    # ~298 no base
-        assert await TALK.ping() is False                 # ~328 no base
+        assert await TALK.list_room_messages("abc12345") == []  # ~298 no base
+        assert await TALK.ping() is False  # ~328 no base
 
     s = _settings()
-    with patch.object(TALK, "get_settings", return_value=s), \
-         patch.object(TALK.httpx, "AsyncClient", _BoomClient):
-        assert await TALK.delete_room("abc12345") is False   # 261-263
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", _BoomClient):
+        assert await TALK.delete_room("abc12345") is False  # 261-263
         assert await TALK.post_to_room("abc12345", "x") is False  # 287-289
-        assert await TALK.list_room_messages("abc12345") == []    # exception path
-        assert await TALK.ping() is False                        # exception path
+        assert await TALK.list_room_messages("abc12345") == []  # exception path
+        assert await TALK.ping() is False  # exception path
 
 
 def test_blocks_to_text_context_empty_parts():

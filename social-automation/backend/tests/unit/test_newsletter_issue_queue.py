@@ -147,9 +147,7 @@ async def test_claim_due_marks_publishing():
 async def test_record_publish_result_published():
     issue = _issue(status=NewsletterIssueStatus.PUBLISHING)
     db = _FakeDB(results=[_FakeResult(obj=issue)])
-    out = await q.record_publish_result(
-        db, issue.id, {"published": True, "article_url": "https://x/pulse/a/"}, "sidecar"
-    )
+    out = await q.record_publish_result(db, issue.id, {"published": True, "article_url": "https://x/pulse/a/"}, "sidecar")
     assert out.status == NewsletterIssueStatus.PUBLISHED
     assert out.article_url == "https://x/pulse/a/"
     assert out.published_at is not None and out.last_error == ""
@@ -223,9 +221,7 @@ async def test_verify_issue_article_match(monkeypatch):
         async def page_text(self):
             return {"url": issue.article_url, "text": "nav chrome The Day Email Went Dark body text"}
 
-    monkeypatch.setattr(
-        "app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Client()
-    )
+    monkeypatch.setattr("app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Client())
     monkeypatch.setattr(q.asyncio, "sleep", lambda *_: _noop())
     result = await q.verify_issue_article(db, issue)
     assert result["verified"] is True
@@ -252,9 +248,7 @@ async def test_verify_issue_article_miss_and_sidecar_error(monkeypatch):
         async def page_text(self):
             return {"url": url, "text": "unrelated page content"}
 
-    monkeypatch.setattr(
-        "app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Client()
-    )
+    monkeypatch.setattr("app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Client())
     monkeypatch.setattr(q.asyncio, "sleep", lambda *_: _noop())
     result = await q.verify_issue_article(db, issue)
     assert result["verified"] is False
@@ -264,9 +258,7 @@ async def test_verify_issue_article_miss_and_sidecar_error(monkeypatch):
         async def navigate(self, url):
             raise RuntimeError("sidecar down")
 
-    monkeypatch.setattr(
-        "app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Dead()
-    )
+    monkeypatch.setattr("app.services.linkedin_sidecar.LinkedInSidecarClient", lambda *a, **k: _Dead())
     result2 = await q.verify_issue_article(db, issue)
     assert result2["verified"] is False and "sidecar error" in result2["detail"]
     assert issue.verify_count == 2

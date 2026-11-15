@@ -581,9 +581,7 @@ async def test_generate_ai_dmr_empty_choices_returns_fallback(monkeypatch):
 
     class _C:
         def __init__(self, *a, **k):
-            self.post = AsyncMock(
-                return_value=SimpleNamespace(status_code=200, json=lambda: {"choices": []})
-            )
+            self.post = AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: {"choices": []}))
 
         async def __aenter__(self):
             return self
