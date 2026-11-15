@@ -2619,3 +2619,39 @@ Follow-up to the Docker wipe recovery above:
 - **Pending external**: Lead Sync webhook URL registration in Campaign
   Manager (polling fallback covers), Member DP + Matched Audiences grants,
   `SOCIALAUTO_CONVERSION_KEY` wrangler secret on cloudless.gr.
+
+## 2026-11-15 (later) — fsbridge flap #4: social.cloudless.gr P1 fixed via volume transplant
+
+- **Alert**: social-stack-watchdog public-outage recur=5 on
+  `https://social.cloudless.gr/` (+ `cloud.cloudless.gr/status.php` once).
+  Root cause = same fsbridge class as flap #3: dd-user-distro-proxy wedged
+  on vsock → 24/40 hashed `\\wsl.localhost` mounts EMPTY → every container
+  restart hit `not a directory`/empty mounts → mass Exited(127).
+- **Fixed live (no wsl --shutdown)**: named-volume transplant per
+  `wsl-fsbridge-ops`/`stack-rescue-ops` —
+  - `social-cloudflared`: entrypoint.sh seeded into external volume
+    `cf-entrypoint`, override mounts it at `/cfg` +
+    `entrypoint: [/bin/sh, /cfg/entrypoint.sh]` → tunnel Up(healthy),
+    `social.cloudless.gr` back to **200** (verified 3x), api-health 200.
+  - `api-gateway`, `social-metrics`, `n8n-metrics`: nginx conf.d/upstream
+    seeded into volumes `agw-conf`/`agw-upstream`/`metrics-conf`/`n8n-conf`,
+    mounted at `/etc/nginx/conf.d` + `/etc/nginx/upstream` (dir-level mount
+    shadows the poisoned per-file bind — works because nginx only needs
+    default.conf there). All Up(healthy); :9390/:9392 /metrics → 200.
+  - All changes live in **gitignored `docker-compose.override.yml`** —
+    REMOVE the cloudflared/api-gateway/social-metrics/n8n-metrics blocks +
+    volumes after the durable `wsl --shutdown` heal, then
+    `docker compose up -d` those services.
+- **Still dead (Exited 127, same root cause, not yet transplanted)**:
+  `promtail` (needs /var/lib/docker/containers — too big to transplant),
+  `stack-watchers` (whole-repo /app mount). Sleep-managed stops
+  (portainer, env-manager-*, airbyte-mcp, warp-proxy, instagram-private-api,
+  messenger-sidecar, n8n-sandbox) will ALSO crash on next wake until heal —
+  expect wake-time exit-127s; stack-ops may flap them.
+- **Backend force-recreate by parallel agent succeeded** — social-api +
+  4 workers + celery-beat all Up(healthy); their /app hashed mounts were
+  among the survivors.
+- **WSL vsock alert (01:43) still open**: durable fix remains full
+  `wsl --shutdown` — kills this WSL session + any in-flight agent work;
+  needs a quiet window + owner approval. Overnight healers did NOT clear
+  it (flap #4 proves vsock still wedged).
