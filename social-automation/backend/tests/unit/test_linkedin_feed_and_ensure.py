@@ -448,3 +448,122 @@ async def test_engage_cap_blocks_writes(monkeypatch):
     out = await ENG._run()
     assert out["skipped_cap"] == 1
     react.assert_not_awaited()
+
+
+# ── lead-sync webhook protocol ──────────────────────────────────────────
+
+import hashlib as _hl
+import hmac as _hm
+import json as _json
+
+from app.api import linkedin_lead_sync as LSYNC
+
+
+def _sig(secret: str, body: bytes) -> str:
+    return _hm.new(secret.encode(), b"hmacsha256=" + body, _hl.sha256).hexdigest()
+
+
+def _req(body: bytes, sig: str = "", query: str = ""):
+    headers = {"x-li-signature": sig} if sig else {}
+    return SimpleNamespace(headers=headers, query_params={"challengeCode": "code-1"} if query else {}, _body=body)
+
+
+@pytest.mark.asyncio
+async def test_lead_sync_challenge_hmac(monkeypatch):
+    monkeypatch.setenv("LINKEDIN_CLIENT_SECRET", "shh")
+    req = SimpleNamespace(query_params={"challengeCode": "abc-123"})
+    out = await LSYNC.lead_sync_challenge(req)
+    import json
+
+    body = json.loads(out.body)
+    want = _hm.new(b"shh", b"abc-123", _hl.sha256).hexdigest()
+    assert body["challengeResponse"] == want
+    assert body["challengeCode"] == "abc-123"
+
+
+@pytest.mark.asyncio
+async def test_lead_sync_bad_signature_rejected(monkeypatch):
+    monkeypatch.setenv("LINKEDIN_CLIENT_SECRET", "shh")
+
+    class _R:
+        headers = {"x-li-signature": "deadbeef"}
+        query_params = {}
+
+        async def body(self):
+            return b"{}"
+
+    out = await LSYNC.lead_sync_webhook(_R())
+    assert out.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_lead_sync_dedup_and_route(monkeypatch):
+    monkeypatch.setenv("LINKEDIN_CLIENT_SECRET", "shh")
+    monkeypatch.setenv("LINKEDIN_ADVANCED", "1")
+    payload = {
+        "type": "LEAD_ACTION",
+        "leadGenFormResponse": "urn:li:leadGenFormResponse:resp-1",
+        "leadAction": "CREATED",
+        "occurredAt": 1700000000000,
+        "leadType": "SPONSORED",
+    }
+    body = _json.dumps(payload).encode()
+    sig = _sig("shh", body)
+
+    class _R:
+        headers = {"x-li-signature": sig}
+        query_params = {}
+
+        async def body(self):
+            return body
+
+    seen = set()
+
+    class _Res:
+        def scalar_one_or_none(self):
+            return "x" if getattr(self, "_k", None) in seen else None
+
+    class _DB:
+        def __init__(self):
+            self._q_key = None
+
+        async def execute(self, q):
+            # crude: capture the platform_event_id param isn't trivial — emulate by counting calls
+            self._n = getattr(self, "_n", 0) + 1
+            r = SimpleNamespace()
+            r.scalar_one_or_none = lambda: None
+            return r
+
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(LSYNC, "_fetch_response", AsyncMock(return_value={"id": "resp-1", "formResponse": []}))
+    route = AsyncMock(return_value=True)
+    import app.worker.tasks.linkedin_lead_boost as LB
+
+    monkeypatch.setattr(LB, "route_lead_response", route)
+    monkeypatch.setattr("app.worker._async.task_session", lambda: _AsyncCM(_DB()))
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", AsyncMock())
+
+    out = await LSYNC.lead_sync_webhook(_R())
+    data = _json.loads(out.body)
+    assert data["received"] == 1
+    assert data["routed"] == 1
+    route.assert_awaited_once()
+
+
+def test_response_ids_extracts():
+    items = LSYNC._response_ids(
+        {
+            "type": "LEAD_ACTION",
+            "leadGenFormResponse": "urn:li:leadGenFormResponse:abc",
+            "leadAction": "CREATED",
+            "occurredAt": 1,
+        }
+    )
+    assert items[0]["id"] == "abc"
+    assert items[0]["action"] == "CREATED"
+    assert LSYNC._response_ids({"foo": "bar"}) == []

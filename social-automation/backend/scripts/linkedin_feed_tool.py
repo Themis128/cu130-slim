@@ -58,6 +58,15 @@ async def main() -> int:
     sub.add_parser("rules")
     sub.add_parser("ensure-rules")
 
+    p = sub.add_parser("lead-notifications")
+    p.add_argument("--owner", required=True, help="urn:li:sponsoredAccount:… or urn:li:organization:…")
+    p.add_argument("--type", default="SPONSORED", choices=["SPONSORED", "EVENT", "COMPANY", "ORGANIZATION_PRODUCT"])
+
+    p = sub.add_parser("register-lead-sync")
+    p.add_argument("--webhook", required=True, help="public HTTPS webhook URL")
+    p.add_argument("--owner", required=True)
+    p.add_argument("--type", default="SPONSORED", choices=["SPONSORED", "EVENT", "COMPANY", "ORGANIZATION_PRODUCT"])
+
     args = ap.parse_args()
 
     from app.services import linkedin_advanced, linkedin_feed
@@ -80,6 +89,10 @@ async def main() -> int:
     elif args.cmd == "ensure-rules":
         from app.worker.tasks.linkedin_conversion_ensure import _ensure
         _print(await _ensure())
+    elif args.cmd == "lead-notifications":
+        _print(await linkedin_advanced.list_lead_notifications(args.owner, args.type))
+    elif args.cmd == "register-lead-sync":
+        _print(await linkedin_advanced.create_lead_notification(args.webhook, args.owner, args.type))
     return 0
 
 

@@ -7,6 +7,7 @@ flagged off or token missing.
 
 import logging
 import os
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -63,6 +64,58 @@ async def lead_form_responses(form_urn: str) -> dict:
         if r.status_code != 200:
             return {"responses": [], "status": r.status_code}
         return {"responses": r.json().get("elements") or [], "status": 200}
+
+
+async def list_lead_notifications(owner_urn: str, lead_type: str = "SPONSORED") -> dict:
+    """Existing lead-notification subscriptions for an owner.
+
+    ``GET /rest/leadNotifications?q=criteria&owner=(value:…)&leadType=(leadType:…)``
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"notifications": [], "skip": "disabled-or-no-account"}
+    token, _ = ctx
+    owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
+    owner = quote(owner_urn, safe="")
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(
+            f"{REST}/leadNotifications",
+            params={
+                "q": "criteria",
+                "owner": f"(value:({owner_key}:{owner}))",
+                "leadType": f"(leadType:{lead_type})",
+            },
+        )
+    if r.status_code != 200:
+        return {"notifications": [], "status": r.status_code}
+    return {"notifications": r.json().get("elements") or [], "status": 200}
+
+
+async def create_lead_notification(webhook_url: str, owner_urn: str, lead_type: str = "SPONSORED") -> dict:
+    """Subscribe a webhook to lead notifications — ``POST /rest/leadNotifications``.
+
+    Owner level only (recommended by LinkedIn). ``owner_urn`` is a
+    ``urn:li:sponsoredAccount:`` or ``urn:li:organization:`` URN; the owner
+    key is derived from the URN prefix.
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"error": "disabled-or-no-account"}
+    token, _ = ctx
+    owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
+    payload = {
+        "webhook": webhook_url,
+        "owner": {owner_key: owner_urn},
+        "leadType": lead_type,
+    }
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.post(f"{REST}/leadNotifications", json=payload)
+    if r.status_code not in (200, 201):
+        return {"error": r.status_code, "body": r.text[:300]}
+    out: dict = {"ok": True, "status": r.status_code, "owner": owner_urn, "leadType": lead_type}
+    if r.headers.get("x-restli-id"):
+        out["id"] = r.headers["x-restli-id"]
+    return out
 
 
 # ── Conversions API ──────────────────────────────────────────────────────
