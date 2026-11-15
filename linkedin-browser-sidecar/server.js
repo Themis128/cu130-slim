@@ -3735,6 +3735,47 @@ app.post("/debug/click", async (req, res) => {
   }
 });
 
+// Debug: set files on an input[type=file] via base64 payload (trusted
+// file-chooser path — needed for LinkedIn dev-app creation logo upload).
+app.post("/debug/upload", async (req, res) => {
+  const { selector, base64, filename } = req.body || {};
+  if (!selector || !base64) {
+    return res.status(400).json({ error: "selector and base64 required" });
+  }
+  try {
+    await ensureBrowser();
+    const buffer = Buffer.from(base64, "base64");
+    const tmpPath = bufferToTempFile(buffer, filename || "upload.png");
+    await page.locator(selector).first().setInputFiles(tmpPath, { timeout: 8000 });
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: evaluate JS inside a child frame (iframe) matched by URL substring.
+// Needed for LinkedIn OAuth consent screens rendered inside iframes.
+app.post("/debug/frame-eval", async (req, res) => {
+  const { urlMatch, expr } = req.body || {};
+  if (!expr) return res.status(400).json({ error: "expr required" });
+  try {
+    await ensureBrowser();
+    const frame = page.frames().find(
+      (f) => f !== page.mainFrame() && (!urlMatch || f.url().includes(urlMatch))
+    );
+    if (!frame) {
+      return res.status(404).json({
+        error: "no matching frame",
+        frames: page.frames().map((f) => f.url()).slice(0, 20),
+      });
+    }
+    const value = await frame.evaluate(`(async () => { ${expr} })()`);
+    res.json({ status: "ok", frameUrl: frame.url(), value });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Debug: press a real key (Enter, Tab, Escape, ArrowDown, ...).
 app.post("/debug/press", async (req, res) => {
   const { key } = req.body || {};
