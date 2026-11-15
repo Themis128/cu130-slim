@@ -13,7 +13,7 @@ import sys
 import uuid
 from datetime import date, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -208,3 +208,206 @@ def test_report_spend_unavailable_note():
     out = R.build_report_text(m, None, None)
     assert "unavailable" in out.lower()
     assert "denied adAnalytics" in out
+
+
+def test_eur_int_unparseable_values():
+    # regex matches but float()/int() still reject the captured text
+    assert R._eur("x\n€1.2.3", r"€([\d.,]+)") == 0.0
+    assert R._int("Clicks\n,,,", r"Clicks\s*\n\s*([\d,]+)") == 0
+
+
+def test_report_engagement_rate_and_budget_reached():
+    out = R.build_report_text(_metrics(status="active", engagement_rate=2.5), None, None)
+    assert "ER 2.50%" in out
+    end = date.today() + timedelta(days=30)
+    m = _metrics(
+        status="active",
+        spend_eur=100.0,
+        budget_eur=100.0,
+        schedule_start=(date.today() - timedelta(days=1)).isoformat(),
+        schedule_end=end.isoformat(),
+    )
+    out2 = R.build_report_text(m, None, end)
+    assert "lifetime budget reached" in out2
+
+
+def test_report_pace_nan_spend_falls_through():
+    # NaN spend is truthy but fails every numeric comparison — no pace line
+    end = date.today() + timedelta(days=30)
+    m = _metrics(
+        status="active",
+        spend_eur=float("nan"),
+        budget_eur=100.0,
+        schedule_start=(date.today() - timedelta(days=1)).isoformat(),
+        schedule_end=end.isoformat(),
+    )
+    out = R.build_report_text(m, None, end)
+    assert "*Pace:*" not in out
+
+
+def test_report_credit_uncapped_and_capped_other_campaigns(monkeypatch):
+    end = date.today() + timedelta(days=30)
+    monkeypatch.setattr(R.get_settings(), "LINKEDIN_ADS_CREDIT_EUR", 500.0)
+    m = _metrics(
+        status="active",
+        spend_eur=10.0,
+        budget_eur=50.0,
+        account_spend_eur=60.0,
+        campaign_id="c1",
+        raw={
+            "campaigns": [
+                {"id": "c1", "status": "active", "budget": 50.0},
+                {"id": "c2", "status": "paused", "name": "NoCap"},
+                {"id": "c3", "status": "active", "budget": 30.0},
+            ],
+            "spend_by_campaign": {"c1": 10.0, "c3": 5.0},
+        },
+    )
+    out = R.build_report_text(m, None, end)
+    assert "unverified" in out and "NoCap" in out
+
+
+@pytest.mark.asyncio
+async def test_api_campaigns_list_http_error(monkeypatch):
+    campaign = {
+        "name": "B",
+        "status": "ACTIVE",
+        "runSchedule": {"start": 1_757_529_600_000},
+        "campaignGroup": "urn:li:adCampaignGroup:777",
+    }
+    bundle = SimpleNamespace(raw={"costLocal": "1"}, clicks=0, impressions=0, engagement=0)
+    ok, m, http = await _collect(
+        monkeypatch,
+        [_http_resp(200, campaign), _http_resp(200, {"runSchedule": {}}), _http_resp(503, {})],
+        bundle,
+    )
+    assert ok is True
+    assert "503" in m.raw["campaigns_note"]
+
+
+@pytest.mark.asyncio
+async def test_api_stats_error_with_campaign_raises(monkeypatch):
+    import app.services.analytics_sync as A
+
+    monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A, "_linkedin_headers", lambda t: {})
+    campaign = {
+        "name": "B",
+        "status": "ACTIVE",
+        "runSchedule": {"start": 1_757_529_600_000},
+        "campaignGroup": "urn:li:adCampaignGroup:777",
+    }
+    http = _Http(
+        [_http_resp(200, campaign), _http_resp(200, {"runSchedule": {}}), _http_resp(200, {"elements": []})]
+    )
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
+    err = SimpleNamespace(notes="403 denied")
+    monkeypatch.setattr(A, "_fetch_linkedin_ad_stats", AsyncMock(return_value={"_error": err}))
+    m = R.CampaignMetrics(account_id="a", campaign_id="c1")
+    with pytest.raises(RuntimeError, match="adAnalytics"):
+        await R._collect_api_metrics(_DB([]), m)
+
+
+@pytest.mark.asyncio
+async def test_api_rollup_skips_underscore_keys(monkeypatch):
+    import app.services.analytics_sync as A
+
+    monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A, "_linkedin_headers", lambda t: {})
+    campaigns_body = {
+        "elements": [
+            {"id": "c1", "name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}}
+        ]
+    }
+    http = _Http([_http_resp(200, campaigns_body)])
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
+    b1 = SimpleNamespace(raw={"costLocal": "7"}, clicks=2, impressions=70, engagement=3)
+    stats = {"_meta": {"note": "internal"}, "urn:li:sponsoredCampaign:c1": b1}
+    monkeypatch.setattr(A, "_fetch_linkedin_ad_stats", AsyncMock(return_value=stats))
+    m = R.CampaignMetrics(account_id="a", campaign_id=None)
+    ok = await R._collect_api_metrics(_DB([]), m)
+    assert ok is True
+    assert m.spend_eur == 7.0 and m.clicks == 2 and m.impressions == 70
+
+
+@pytest.mark.asyncio
+async def test_geo_names_request_failure_returns_empty(monkeypatch):
+    monkeypatch.setattr(R, "_linkedin_org_token", AsyncMock(return_value="tok"))
+
+    class _DeadClient:
+        def __init__(self, **kw):
+            raise RuntimeError("dns dead")
+
+    monkeypatch.setattr(R.httpx, "AsyncClient", _DeadClient)
+    assert await R._geo_names(_DB([]), ["12345"]) == {}
+
+
+class _SM:
+    def __init__(self, db):
+        self._db = db
+
+    async def __aenter__(self):
+        return self._db
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _patch_daily_run(monkeypatch, db):
+    settings = R.get_settings()
+    monkeypatch.setattr(settings, "LINKEDIN_ADS_CAMPAIGN_ID", "c1", raising=False)
+    monkeypatch.setattr(settings, "LINKEDIN_ADS_END_DATE", "", raising=False)
+    monkeypatch.setattr(settings, "LINKEDIN_ADS_EMAIL_TO", "", raising=False)
+    monkeypatch.setattr(settings, "DIGEST_EMAIL_TO", "ops@x.io", raising=False)
+    for k in (
+        "SLACK_ADS_WEBHOOK_URL",
+        "SLACK_WEBHOOK_URL",
+        "SLACK_BOT_TOKEN",
+        "SLACK_ACCESS_TOKEN",
+        "SLACK_ADS_CHANNEL_ID",
+        "SLACK_CHANNEL_ID",
+    ):
+        monkeypatch.setattr(settings, k, "", raising=False)
+    monkeypatch.setattr(R, "async_session_maker", lambda: _SM(db))
+    monkeypatch.setattr(R, "_get_team_id", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(R, "_final_sent", AsyncMock(return_value=False))
+    monkeypatch.setattr(R, "_latest_snapshot", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        R,
+        "collect_metrics",
+        AsyncMock(return_value=_metrics(status="active", spend_eur=1.0, clicks=1)),
+    )
+    monkeypatch.setattr(R, "_post_slack_text", AsyncMock(return_value=(True, None, None)))
+    return settings
+
+
+@pytest.mark.asyncio
+async def test_run_daily_report_notebook_render_and_email_failure(monkeypatch):
+    db = _DB([])
+    _patch_daily_run(monkeypatch, db)
+    monkeypatch.setattr(
+        R,
+        "_render_report_notebook",
+        AsyncMock(return_value=("nb report", "<p>nb</p>", [{"data": b"x", "cid": "c"}])),
+    )
+    email = Mock(side_effect=RuntimeError("smtp down"))
+    monkeypatch.setattr(R, "send_email_smtp", email)
+    out = await R.run_daily_report()
+    assert out["ok"] is True and out["final"] is False
+    assert out["email_error"] == "smtp down"
+    assert out["posted_to_slack"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_daily_report_code_path_org_failure_and_bad_end_date(monkeypatch):
+    db = _DB([])
+    settings = _patch_daily_run(monkeypatch, db)
+    monkeypatch.setattr(R, "_render_report_notebook", AsyncMock(return_value=None))
+    monkeypatch.setattr(R, "build_org_section", AsyncMock(side_effect=RuntimeError("org dead")))
+    monkeypatch.setattr(R, "send_email_smtp", Mock())
+    out = await R.run_daily_report()
+    assert out["ok"] is True and out["final"] is False
+    # malformed END_DATE → warning, treated as no end date, run still completes
+    monkeypatch.setattr(settings, "LINKEDIN_ADS_END_DATE", "not-a-date", raising=False)
+    out2 = await R.run_daily_report()
+    assert out2["ok"] is True

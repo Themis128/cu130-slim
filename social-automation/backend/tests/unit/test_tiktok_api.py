@@ -896,3 +896,70 @@ async def test_init_photo_post_kwargs(client):
         assert pi["description"] == "d"
         assert pi["disable_comment"] is True
         assert pi["is_aigc"] is False
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+def test_is_tiktok_publish_id():
+    assert api.is_tiktok_publish_id("v_inbox_file~v2.123") is True
+    assert api.is_tiktok_publish_id("p_pub_photo~v2.1") is True
+    assert api.is_tiktok_publish_id("v_abc") is True
+    assert api.is_tiktok_publish_id("p_x") is True
+    assert api.is_tiktok_publish_id("123456789") is False
+    assert api.is_tiktok_publish_id("") is False
+    assert api.is_tiktok_publish_id(None) is False
+    assert api.is_tiktok_publish_id("   ") is False
+
+
+def test_probe_no_duration_fields(monkeypatch, tmp_path):
+    import json as _j
+
+    f = tmp_path / "v.mp4"
+    f.write_bytes(b"x")
+    monkeypatch.setattr(api.shutil, "which", lambda x: "/usr/bin/ffprobe")
+    out = _j.dumps({"streams": [{"width": 1080, "height": 1920, "avg_frame_rate": "30/1"}], "format": {}})
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": out})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    info = api.probe_tiktok_video(str(f))
+    assert info["duration_sec"] is None
+
+
+def test_validate_constraints_missing_dims_and_fps(monkeypatch):
+    # width/height not ints → dimension checks skipped; fps None → fps check skipped
+    monkeypatch.setattr(
+        api,
+        "probe_tiktok_video",
+        lambda _p: {"width": None, "height": None, "fps": None, "duration_sec": 700.0},
+    )
+    err = api.validate_tiktok_video_constraints("/tmp/x.mp4")
+    assert err is not None and "duration" in err and "resolution" not in err and "FPS" not in err
+
+
+def test_log_api_error_4xx(client):
+    client._log_api_error("https://example/x", _FakeResponse(500, "boom"))
+    client._log_api_error("https://example/x", _FakeResponse(200, "ok"))  # no log, no raise
+
+
+@pytest.mark.asyncio
+async def test_upload_video_chunk_count_and_final_size_guards(client, monkeypatch):
+    url = "https://open-upload.tiktokapis.com/upload/"
+    # >1000 chunks when explicit chunk_size given
+    monkeypatch.setattr(api, "_expected_chunk_count", lambda s, c: 2001)
+    with pytest.raises(ValueError, match="more than 1000 chunks"):
+        await client.upload_video_file(url, b"x" * (10 * 1024 * 1024), chunk_size=5 * 1024 * 1024)
+
+    # final chunk > MAX_FINAL_CHUNK_SIZE
+    monkeypatch.setattr(api, "MAX_FINAL_CHUNK_SIZE", 1024)
+    with pytest.raises(ValueError, match="final TikTok upload chunk"):
+        await client.upload_video_file(url, b"x" * 2048)
+
+
+@pytest.mark.asyncio
+async def test_dm_list_and_messages_without_cursor(client):
+    fake = _FakeAsyncClient([_FakeResponse(200, {"data": {}}), _FakeResponse(200, {"data": {}})])
+    with _patch_client(fake):
+        await client.list_dm_conversations(page_size=10)
+        await client.get_dm_messages("c1", page_size=10)
+    assert "cursor" not in fake.calls[0]["params"]
+    assert "cursor" not in fake.calls[1]["params"]

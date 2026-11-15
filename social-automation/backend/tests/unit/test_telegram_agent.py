@@ -556,3 +556,42 @@ async def test_sweep_alerts_slack_on_errors(monkeypatch):
     assert out["results"][0]["error"].startswith("telegram send failed")
     alert.assert_awaited_once()
     assert "Telegram channel agent" in alert.call_args[0][0]
+
+
+# ── residual branch arc: pin skipped on non-int message_id ────────────
+
+
+@pytest.mark.asyncio
+async def test_offer_pin_skipped_when_message_id_not_int(monkeypatch):
+    class _StrIdClient(_FakeClient):
+        async def send_document(self, chat_id, document, **kw):
+            self.sent.append(("document", chat_id, document, kw))
+            return {"message_id": "not-an-int"}
+
+    holder = {}
+
+    def factory(token, *a, **kw):
+        client = _StrIdClient(token)
+        holder["client"] = client
+        return client
+
+    monkeypatch.setattr(TA, "TelegramAPIClient", factory)
+    monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
+    monkeypatch.setattr(TA, "_generate_copy", AsyncMock(return_value="grab the pdf"))
+    monkeypatch.setattr(TA, "_generate_image", AsyncMock())
+
+    target = None
+    for wk in range(1, 53):
+        if wk % 3 != 0:
+            continue
+        if (wk // 3) % len(TA.OFFERS) == 2:
+            target = wk
+            break
+    day = datetime.fromisocalendar(2026, target, 5).replace(tzinfo=UTC)
+    monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: day))
+
+    acct = _account(meta={"telegram_channel": _managed()})
+    out = await TA.run_channel_agent(acct, _DB())
+    assert out["published"]["pillar"] == "offer"
+    kinds = [s[0] for s in holder["client"].sent]
+    assert "pin" not in kinds  # non-int message_id → pin skipped, no crash

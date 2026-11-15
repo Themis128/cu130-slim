@@ -558,3 +558,41 @@ async def test_generate_ai_response_cf_exception_falls_back(monkeypatch):
     monkeypatch.setattr(_httpx, "AsyncClient", _C)
     out = await A._generate_ai_response("sys", "msg", "model", 50, "FB")
     assert out == "dmr out"
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_without_setup_meta_skips_commit(monkeypatch):
+    acct = _acct(meta_data={"page_token": "EAt"})
+    cli = _client(unsubscribe_page=AsyncMock(return_value={"u": 2}))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    db = _db_with(acct)
+    out = await A.unsubscribe_messenger(acct.id, db, _user())
+    assert out == {"u": 2}
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_ai_dmr_empty_choices_returns_fallback(monkeypatch):
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+
+    class _C:
+        def __init__(self, *a, **k):
+            self.post = AsyncMock(
+                return_value=SimpleNamespace(status_code=200, json=lambda: {"choices": []})
+            )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *e):
+            return False
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _C)
+    out = await A._generate_ai_response("sys", "msg", "model", 50, "FB")
+    assert out == "FB"

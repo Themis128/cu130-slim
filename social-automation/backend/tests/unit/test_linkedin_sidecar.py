@@ -99,6 +99,12 @@ async def test_session_and_health(monkeypatch):
     out = await c.refresh_session()
     assert out["cookies"] == {"a": "b"} and out["logged_in"] is True
 
+    # /session HTTP error → sidecar error with upstream status
+    c = _client(monkeypatch, _Http(routes={"/session": _resp(503, text="sidecar dead")}))
+    with pytest.raises(L.LinkedInSidecarError) as e2:
+        await c.refresh_session()
+    assert e2.value.status_code == 503
+
     # login — verification_code optional
     c = _client(monkeypatch)
     await c.login("u", "p")

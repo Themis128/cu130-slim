@@ -155,3 +155,47 @@ def test_extract_pdf_bytes():
     except Exception:
         out = None  # acceptable — real PDFs exercised in e2e
     assert out is None or isinstance(out, str)
+
+
+@pytest.mark.asyncio
+async def test_campaigns_non200_returns_empty(monkeypatch):
+    import app.services.linkedin_ads as L
+
+    _patch(monkeypatch, L, [_R(500)])
+    db = _db_with_account(MagicMock(access_token_enc="enc"))
+    assert await L.campaigns(db, "urn:li:sponsoredAccount:1") == []
+
+
+@pytest.mark.asyncio
+async def test_snapshot_team_scope_and_missing_account_row(monkeypatch):
+    import app.services.linkedin_ads as L
+
+    _patch(
+        monkeypatch,
+        L,
+        [
+            _R(200, {"elements": [{"id": 1, "urn": "urn:li:sponsoredAccount:1", "name": "Acct"}]}),
+            _R(200, {"elements": [{"id": 2, "name": "Camp", "status": "ACTIVE"}]}),
+        ],
+    )
+    acc = MagicMock(access_token_enc="enc", meta_data={})
+    tok_res = MagicMock()
+    tok_res.scalars.return_value.first.return_value = acc
+    none_res = MagicMock()
+    none_res.scalars.return_value.first.return_value = None
+    db = MagicMock()
+    # _token (ad_accounts) → _token (campaigns) → snapshot's SocialAccount lookup
+    db.execute = AsyncMock(side_effect=[tok_res, tok_res, none_res])
+    out = await L.snapshot(db, team_id="t1")
+    assert out["accounts"] == 1 and out["campaigns"][0]["name"] == "Camp"
+    # no SocialAccount row → meta_data stamping skipped
+    assert "ads" not in acc.meta_data
+
+
+@pytest.mark.asyncio
+async def test_lead_gen_forms_non200_returns_empty(monkeypatch):
+    import app.services.linkedin_ads as L
+
+    _patch(monkeypatch, L, [_R(500)])
+    db = _db_with_account(MagicMock(access_token_enc="enc"))
+    assert await L.lead_gen_forms(db, "urn:x") == []

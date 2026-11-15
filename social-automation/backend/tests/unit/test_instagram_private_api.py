@@ -362,3 +362,36 @@ async def test_login_non_error_non_200_returns_empty(monkeypatch):
     with _wire(resp)[0]:
         out = await c.login("u", "p")
     assert out == {}
+
+
+# ── residual gaps: optional-arg absent arcs ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_optional_args_absent(tmp_path):
+    c = _client()
+    w, fake = _wire(_Resp(200, {"ok": 1}))
+    with w:
+        # sessionid login without proxy
+        await c.login_by_sessionid("cookie")
+        assert "proxy" not in fake.calls[0]["data"]
+        # set_settings without proxy/locale/timezone
+        await c.set_settings("{}")
+        assert fake.calls[1]["data"] == {"settings": "{}"}
+
+        photo = tmp_path / "p.jpg"
+        photo.write_bytes(b"jpeg")
+        video = tmp_path / "v.mp4"
+        video.write_bytes(b"mp4")
+        # photo upload without location
+        await c.upload_photo("s", str(photo), "cap")
+        assert fake.calls[2]["data"] == {"caption": "cap"}
+        # video-by-url without thumbnail
+        await c.upload_video_by_url("s", "https://x/v.mp4", "cap")
+        assert fake.calls[3]["data"] == {"url": "https://x/v.mp4", "caption": "cap"}
+        # album without location
+        await c.upload_album("s", [str(photo), str(video)], "cap")
+        assert fake.calls[4]["data"] == {"caption": "cap"}
+        # story without caption/as_video
+        await c.upload_story("s", str(photo))
+        assert fake.calls[5]["data"] == {}

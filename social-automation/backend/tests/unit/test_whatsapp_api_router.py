@@ -1401,3 +1401,85 @@ async def test_process_inline_swallows_promotion_error(monkeypatch):
     await _process_inline(db, "pn", "+30", "A", "hi", "text", "m1")
     client.send_text.assert_awaited_once()
     assert db.committed == 2
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+def test_client_non_string_token_skips_decrypt(monkeypatch):
+    called = []
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: called.append(t) or t)
+    acc = _wa_account(meta_data={"access_token": b"raw-bytes", "phone_number_id": "123456789012345"})
+    client = _get_whatsapp_client(acc)
+    assert client.phone_number_id == "123456789012345"
+    assert called == []
+
+
+@pytest.mark.asyncio
+async def test_credentials_nondict_request_log_skips_pop(monkeypatch):
+    acc = _wa_account(
+        meta_data={
+            "access_token": "EAa",
+            "phone_number_id": "old-pn",
+            "whatsapp_code_request_log": "not-a-dict",
+        }
+    )
+    db = _DB([acc])
+    monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc")
+    _patch_client(monkeypatch)
+    body = WhatsAppCredentialsUpdate(access_token="EAAnew", phone_number_id="new-pn", subscribe_webhooks=False)
+    out = await update_whatsapp_credentials(acc.id, body, db, _user())
+    assert out["credentials_stored"] is True
+    assert acc.meta_data["whatsapp_code_request_log"] == "not-a-dict"
+
+
+@pytest.mark.asyncio
+async def test_setup_status_credentials_without_waba_skips_sub_check(monkeypatch):
+    acc = _wa_account(meta_data={"access_token": "EAa", "phone_number_id": "pn"})
+    client = _patch_client(monkeypatch)
+    out = await get_setup_status(acc.id, _DB([acc]), _user())
+    assert out["credentials_configured"] is True
+    assert out["webhook_subscribed"] is False
+    client.list_waba_subscriptions.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_receive_webhook_non_dispatchable_non_status_event(monkeypatch):
+    monkeypatch.setattr(whatsapp.settings, "FACEBOOK_APP_SECRET", "")
+    monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+    events = [
+        {"phone_number_id": "pn", "sender_phone": "+30", "message_text": "", "message_type": "image", "message_id": "m9"},
+    ]
+    monkeypatch.setattr(whatsapp, "parse_webhook_event", lambda b: events)
+    inline = AsyncMock()
+    monkeypatch.setattr(whatsapp, "_process_inline", inline)
+    out = await receive_webhook(_Req(b"{}"), _DB())
+    assert out["events_received"] == 1
+    assert out["auto_replies_sent"] == 0
+    inline.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_non_string_token_skips_decrypt(monkeypatch):
+    r = SimpleNamespace(get=AsyncMock(return_value=None), setex=AsyncMock())
+    sent = []
+    called = []
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: called.append(t) or t)
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    acc = _promo_account(access_token=b"raw-token")
+    await whatsapp._maybe_promote_flow(acc, "+30", "greeting")
+    assert called == []
+    assert sent[0]["init"]["access_token"] == b"raw-token"
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_undecryptable_token_keeps_plaintext(monkeypatch):
+    r = SimpleNamespace(get=AsyncMock(return_value=None), setex=AsyncMock())
+    sent = []
+    monkeypatch.setattr(whatsapp, "decrypt_field", lambda t: None)
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    acc = _promo_account(access_token="enc:bad")
+    await whatsapp._maybe_promote_flow(acc, "+30", "greeting")
+    assert sent[0]["init"]["access_token"] == "enc:bad"

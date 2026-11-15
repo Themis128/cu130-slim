@@ -578,3 +578,61 @@ async def test_webhook_auto_reply_error_flag(_admin, _crypto, monkeypatch):
     monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "message", "text": "hey", "user_id": "u9"})
     out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
     assert out["auto_reply"] is True and out["error"] is True
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_credentials_without_webhook(_admin, _crypto, monkeypatch):
+    acct = _account()
+    client = SimpleNamespace(
+        get_account_info=AsyncMock(return_value={"id": "bot-3", "name": "N", "uri": "u"}),
+    )
+    monkeypatch.setattr(V, "ViberAPIClient", lambda tok: client)
+    monkeypatch.setattr(V, "flag_modified", lambda *a: None)
+    db = _DB([_Res(acct)])
+    body = V.ViberCredentialsUpdate(auth_token="tok", set_webhook=False)
+    out = await V.update_viber_credentials(acct.id, body, db, _user())
+    assert out["credentials_stored"] is True
+    assert out["webhook"] is None
+
+
+@pytest.mark.asyncio
+async def test_auto_reply_disabled_skips_plan_check(_admin, monkeypatch):
+    acct = _account(meta_data={"viber_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(V, "flag_modified", lambda *a: None)
+    import app.api.deps as DEPS
+
+    cpf = AsyncMock()
+    monkeypatch.setattr(DEPS, "check_plan_feature", cpf)
+    body = V.AutoReplyConfig(enabled=False, fallback_text="fb")
+    out = await V.update_auto_reply_config(acct.id, body, _DB([_Res(acct)]), _user())
+    assert out.enabled is False
+    cpf.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_webhook_delivered_event_no_counter_change(_admin, _crypto, monkeypatch):
+    acct = _account(meta_data={"viber_auth_token_enc": "t", "subscribers_count": 4})
+    monkeypatch.setattr(V, "verify_signature", lambda b, s, t: True)
+    monkeypatch.setattr(V, "flag_modified", lambda *a: None)
+    monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "delivered"})
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["event"] == "delivered"
+    assert acct.meta_data["subscribers_count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_webhook_conversation_started_no_welcome(_admin, _crypto, monkeypatch):
+    acct = _account(meta_data={"viber_auth_token_enc": "t", "subscribers_count": 1})
+    monkeypatch.setattr(V, "verify_signature", lambda b, s, t: True)
+    monkeypatch.setattr(V, "flag_modified", lambda *a: None)
+    monkeypatch.setattr(
+        V,
+        "parse_webhook_event",
+        lambda p: {"event": "conversation_started", "user_id": "u1", "subscribed": False},
+    )
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["event"] == "conversation_started"
+    assert "welcome_sent" not in out and "welcome_error" not in out

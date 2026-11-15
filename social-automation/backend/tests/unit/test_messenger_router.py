@@ -1763,3 +1763,236 @@ async def test_ingest_unexpected_error_returns_false(monkeypatch):
     http, fake = _wire_ingest(monkeypatch, _page_account(), resp, espo=boom)
     ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112233", "page_id": "pg-1"})
     assert ok is False
+
+
+class TestCoverageTails3:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_setup_empty_page_url_skips_split(self):
+        _MsgClient.page_info = {"name": "P", "website": ""}
+        a = _page()
+        out = await messenger.setup_messenger(a.id, None, FakeDB(accounts=[a]), _admin())
+        assert out["status"] == "ok"
+        _MsgClient.page_info = {"name": "Cloudless", "website": "https://cloudless.gr"}
+
+    async def test_unsubscribe_without_setup_meta(self):
+        a = _page(meta_data={"page_token": "EA"})
+        out = await messenger.unsubscribe_messenger(a.id, FakeDB(accounts=[a]), _admin())
+        assert out["success"] is True
+
+    async def test_conversation_messages_value_error_400(self, monkeypatch):
+        class BadClient:
+            def __init__(self, **kw):
+                pass
+
+            async def get_conversation_messages(self, *a, **k):
+                raise ValueError("bad conv")
+
+        monkeypatch.setattr(messenger, "MessengerAPIClient", BadClient)
+        a = _page()
+        with pytest.raises(HTTPException) as e:
+            await messenger.get_conversation_messages(a.id, "t1", 20, FakeDB(accounts=[a]), _admin())
+        assert e.value.status_code == 400
+
+    async def test_user_profile_value_error_400(self, monkeypatch):
+        class BadClient:
+            def __init__(self, **kw):
+                pass
+
+            async def get_user_profile(self, *a, **k):
+                raise ValueError("bad psid")
+
+        monkeypatch.setattr(messenger, "MessengerAPIClient", BadClient)
+        a = _page()
+        with pytest.raises(HTTPException) as e:
+            await messenger.get_user_profile(a.id, "psid", FakeDB(accounts=[a]), _admin())
+        assert e.value.status_code == 400
+
+    async def test_webhook_non_dispatchable_event_skips_sidecar(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "", "message_type": "image", "postback_payload": "", "message_id": "m1", "timestamp": 1},
+            ],
+        )
+        monkeypatch.setenv("MESSENGER_SIDECAR_URL", "http://sidecar")
+        monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sidecar")
+        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert out["status"] == "ok"
+
+    async def test_meta_field_first_empty_value_continues(self):
+        fields = [
+            {"name": "email", "values": [""]},
+            {"name": "other", "values": ["x"]},
+        ]
+        assert messenger._meta_field_first(fields, "email") is None
+
+    async def test_generate_ai_cf_non200_falls_to_dmr(self, monkeypatch):
+        monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+        monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+        monkeypatch.delenv("DMR_BASE_URL", raising=False)
+
+        class CFResp:
+            status_code = 500
+
+            def json(self):
+                return {}
+
+        class DMRResp:
+            status_code = 200
+
+            def json(self):
+                return {"choices": [{"message": {"content": "dmr ok"}}]}
+
+        class FakeHTTP:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, **kw):
+                return CFResp() if "cloudflare" in url else DMRResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
+        assert out == "dmr ok"
+
+    async def test_generate_ai_cf_missing_result_falls_to_dmr(self, monkeypatch):
+        monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+        monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+
+        class CFResp:
+            status_code = 200
+
+            def json(self):
+                return {"result": {}}
+
+        class DMRResp:
+            status_code = 200
+
+            def json(self):
+                return {"choices": [{"message": {"content": "dmr ok2"}}]}
+
+        class FakeHTTP:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, **kw):
+                return CFResp() if "cloudflare" in url else DMRResp()
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
+        assert out == "dmr ok2"
+
+    async def test_generate_ai_dmr_non200_returns_fallback(self, monkeypatch):
+        monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+
+        class Resp:
+            status_code = 503
+
+            def json(self):
+                return {}
+
+        class FakeHTTP:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **kw):
+                return Resp()
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
+        assert out == "fb"
+
+    async def test_generate_ai_dmr_empty_choices_returns_fallback(self, monkeypatch):
+        monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+
+        class Resp:
+            status_code = 200
+
+            def json(self):
+                return {"choices": []}
+
+        class FakeHTTP:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **kw):
+                return Resp()
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
+        assert out == "fb"
+
+    async def test_user_account_member_authorized(self):
+        a = _fb_user()
+        u = _user()
+        m = TeamMember(team_id=a.team_id, user_id=u.id)
+        out = await messenger._get_facebook_user_account(
+            FakeDB(accounts=[a], memberships=[m]), a.id, u
+        )
+        assert out is a
+
+    async def test_personal_auto_reply_disabled_skips_plan_check(self):
+        a = _fb_user()
+        cfg = messenger.PersonalAutoReplyConfig(enabled=False)
+        out = await messenger.update_personal_auto_reply(a.id, cfg, _admin(), FakeDB(accounts=[a]))
+        assert out["status"] == "ok"
+
+    async def test_create_bot_page_empty_website(self, monkeypatch):
+        async def chk(*a, **k):
+            return None
+
+        monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge", lambda *a: _async(0))
+        _MsgClient.page_info = {"name": "P", "website": ""}
+        a = _page()
+        req = messenger.BotCreateRequest(name="B")
+        out = await messenger.create_bot(a.id, req, a.team_id, _admin(), FakeDB(accounts=[a]))
+        assert out["account_type"] == "page"
+        _MsgClient.page_info = {"name": "Cloudless", "website": "https://cloudless.gr"}
+
+    async def test_update_bot_page_skips_personal_sync(self):
+        a = _page(meta_data={"page_token": "EA"})
+        cfg = messenger.BotConfig(name="X", enabled=True)
+        out = await messenger.update_bot(a.id, cfg, a.team_id, _admin(), FakeDB(accounts=[a]))
+        assert out["status"] == "ok"
+        assert "personal_messenger_auto_reply" not in a.meta_data
+
+    async def test_bot_pause_already_paused_skips_commit(self, monkeypatch):
+        pauses = []
+
+        async def pause(acct, tid, reason):
+            pauses.append(tid)
+
+        monkeypatch.setattr("app.services.messenger_chatbot.pause_thread", pause)
+        a = _page(meta_data={"page_token": "EA", "messenger_bot": {"name": "B", "paused_threads": ["t1"]}})
+        db = FakeDB(accounts=[a])
+        out = await messenger.bot_pause_thread(a.id, "t1", a.team_id, _admin(), db)
+        assert out["paused"] is True and pauses == ["t1"]
+
+    async def test_bot_resume_not_paused_skips_commit(self, monkeypatch):
+        resumes = []
+
+        async def resume(acct, tid):
+            resumes.append(tid)
+
+        monkeypatch.setattr("app.services.messenger_chatbot.resume_thread", resume)
+        a = _page(meta_data={"page_token": "EA", "messenger_bot": {"name": "B"}})
+        out = await messenger.bot_resume_thread(a.id, "t9", a.team_id, _admin(), FakeDB(accounts=[a]))
+        assert out["paused"] is False and resumes == ["t9"]
