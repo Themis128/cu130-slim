@@ -40,6 +40,24 @@ docker exec -e SOCIAL_API_INTERNAL=http://localhost:8000 \
   `scripts/sidecar_fb_login.py` (this skill).
 - Exit codes: 0 ok / 2 lane-down / 3 human-gate / 4 flow-failed.
 
+### Fast path (default since 2026-11-15, PR #1949)
+
+`instagram_reauth.py` strips the `extras={"setup":{"channel":"IG_API_ONBOARDING"}}`
+param from the minted authorize URL before navigating. Meta's embedded
+"Connect to Instagram" wizard is a known-broken flow (Meta developer forum /
+SO) that strands automation at "Get started". Without extras the dialog is a
+plain FB consent; the signed state still carries `p=instagram-onboarding`, so
+the facebook callback runs identical IG discovery
+(`me/accounts` -> `instagram_business_account` / `page_backed_instagram_accounts`).
+
+- Verified live 2026-11-15: "Continue as" -> callback -> new `social_accounts`
+  instagram row `active` in ~15 s.
+- `IG_WIZARD=1` env restores the wizard path — needed only when the target IG
+  is NOT yet linked to a FB page the user admins (discovery then finds
+  nothing and the callback 400s).
+- Caveat: fast path binds whichever IG the page-backing resolves to — verify
+  `account_id`/`ig_id` is the intended brand account afterwards.
+
 ## 3. Sidecar FB login — `scripts/sidecar_fb_login.py`
 
 Drives `facebook-browser-sidecar:9226` `/debug/navigate` + `/debug/eval` +
