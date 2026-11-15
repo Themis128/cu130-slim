@@ -2536,3 +2536,53 @@ Follow-up to the Docker wipe recovery above:
   baked image while bind-mounts were poisoned; stack recovered on its
   own afterwards - all 4 celery nodes healthy, api /health ok, lock
   released, rescue containers removed.
+
+## 2026-11-15 - Host RAM flap loop: root cause + durable fixes (Devin)
+
+- **Root cause of repeated pri-5 Host Guard 1007 + phone alarms**:
+  `docker model unload` marks DMR models inactive but the Windows-side
+  `com.docker.llama-server` processes linger holding GBs; traffic
+  reloads them within minutes. Fleet is CPU-only (`--n-gpu-layers 0`
+  in canonical configs) so all ~7 models live in host RAM, not VRAM.
+- **Fixes applied (Windows host, D:\DevOptimizer)**:
+  - `scripts/dmr-ram-guard.ps1` stage-2: if free RAM still below
+    WarnMb after `docker model unload`, Stop-Process all stray
+    `com.docker.llama-server` procs (respawn on demand). Proven:
+    manual kill freed +4GB instantly vs unload-only dives to 298MB.
+  - Scheduled task `DevOptimizer-DMR-RAM-Guard` cadence PT5M -> PT2M.
+  - `docker model configure --keep-alive 0` persisted on `smollm2` +
+    `stable-diffusion` (unmanaged by watchdog - verified via
+    `configure show`). Canonical keep_alive values left untouched:
+    llama3.2 2m->0 rejected (carousel NLP makes sequential calls,
+    per-call cold-load too costly); 4B 30m kept (chatbot latency).
+- **Repo hygiene**: 15 files showed as modified = pure CRLF noise
+  (14623 ins = 14623 del, `git diff --ignore-cr-at-eol` empty).
+  `git checkout -- .` restored LF; tree clean. home-ops also clean.
+  NOTE: the CRLF noise REAPPEARED within the hour - something on the
+  Windows side rewrites these files; find the writer before it
+  dirties the tree again.
+- **PR status**: #1927 postgres-recovery-ops MERGED; #1930 closed but
+  the --pull never fix landed via #1929; #1931, #1932 merged.
+- **TikTok reauth rc=4 = correct behavior, not a bug**: OAuth
+  refreshed ab439e1e (@cloudless.gr, exp 2026-11-16) but target row
+  dcda73fb (-000lqpsmr..., DIFFERENT TikTok account, status=expired)
+  stays expired - needs that account logged into tiktok-browser-sidecar
+  (human gate). Known dupe: ab439e1e + 7c33ed15 share account_id
+  -0008cAv across two teams.
+- **Threads reauth rc=3 human gate**: browser-novnc:9223 threads.net
+  session logged out -> needs IG re-login on the bridge.
+- **instagram_reauth rc=4**: FB Login for Business consent returned
+  `error_reason=user_denied` (IG_API_ONBOARDING channel) - same
+  wizard-reset wall seen 2026-11-14.
+- **Account truth**: linkedin x2 ACTIVE (both rows), telegram/bluesky
+  active; facebook x2 expired, whatsapp/threads/instagram revoked,
+  twitter expired - all Meta + X lanes are human OAuth gates.
+- **Slack alert lane degraded**: `Slack API error: token_expired` on
+  every post_alert_to_slack call - needs bot-token re-issue (ntfy
+  remains the working alert path).
+- **DMR endpoint**: .env + container agree on :12435; /engines/v1/models
+  200/78ms. Models churn Loading<->evict under traffic - bounded by
+  keep_alive + guard; dmr-watchdog healthy, re-applies canonical
+  configs every ~60s (overwrites ad-hoc `docker model configure` on
+  managed models - edit compose Cmd + dmr.py _BEST_PRACTICE_CONFIGS
+  together for durable changes).
