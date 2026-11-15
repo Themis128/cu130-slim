@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-import types
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
