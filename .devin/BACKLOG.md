@@ -2623,10 +2623,12 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
   events to the right social_accounts row, ops alert on pending-grant
   while the dedicated secret is set (~1yr TTL expiry is not silent),
   key documented in .env.example with annual re-auth note.
-- [ ] decide: CONNECTIONS-domain member-DP snapshots carry third-party
-  LinkedIn member PII into analytics_events → datalake via
-  export-datalake; set a retention/redaction policy (flagged in
-  linkedin_portability_sync docstring, PR #1964 review).
+- [x] decide: CONNECTIONS-domain member-DP PII retention — DECIDED
+  2026-11-15: keep indefinitely in own Postgres analytics_events + R2
+  lake snapshot (member's own DP export, volume bounded at
+  MAX_ELEMENTS_STORE/domain/day). Rationale + revisit trigger documented
+  in linkedin_portability_sync docstring. Reopen only if lake size or a
+  privacy review demands a purge/redaction lane.
 - [ ] watch: next annual Member DP re-auth (~2027-11) — app 265100977,
   scope r_dma_portability_self_serve; expiry now alerts via ops channel.
 
