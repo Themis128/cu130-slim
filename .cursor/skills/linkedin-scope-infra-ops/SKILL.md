@@ -20,10 +20,29 @@ Everything below is live on the granted scope set (verified 2026-11-15 on app
 | Rule lifecycle | `linkedin_advanced.list/create_conversion_rule`, `resolve_conversion_rule` | — |
 | Rule auto-ensure | `linkedin_conversion_ensure` task, beat `linkedin-conversion-ensure` daily 05:10 | `LINKEDIN_ADVANCED=1` |
 | Generic ingest | `POST /api/v1/webhooks/linkedin-conversion` | `X-Conversion-Key` = `LINKEDIN_CONVERSION_INGEST_KEY` |
-| Lead Sync push | `POST /api/v1/webhooks/linkedin-lead-sync` | `X-Lead-Sync-Key` = `LINKEDIN_LEAD_SYNC_KEY` |
+| Lead Sync webhook | `GET+POST /api/v1/webhooks/linkedin-lead-sync` | LinkedIn `X-LI-Signature` HMAC (client secret) |
+| Lead subscription mgmt | `linkedin_advanced.create/list_lead_notification` | `r_marketing_leadgen_automation` |
+| Lead form question map | `linkedin_advanced.get_lead_form` + `lead_form_question_map` | resolves questionId→email/name |
 | Lead routing (shared) | `linkedin_lead_boost.route_lead_response()` | `LINKEDIN_ADVANCED=1` |
 | Ops endpoints | `/api/v1/linkedin/feed/{posts,metadata,comments,react,comment}` | admin JWT |
 | CLI | `backend/scripts/linkedin_feed_tool.py` | run in backend container |
+
+### Lead Sync webhook contract (verified vs Microsoft Learn 2026-11-15)
+
+- `GET ?challengeCode=…` → `{challengeCode, challengeResponse}` where
+  response = hex HMAC-SHA256(challengeCode, LINKEDIN_CLIENT_SECRET). Re-validated
+  ~every 2h; 3 consecutive failures → endpoint blocked.
+- `POST` body `{type:"LEAD_ACTION", leadGenFormResponse, owner, leadGenForm,
+  leadType, leadAction, occurredAt}`; verify `X-LI-Signature` =
+  hex HMAC-SHA256(`"hmacsha256="` + raw body, client secret), constant-time.
+- Dedup key = `leadGenFormResponse:occurredAt` (response URN is REUSED across
+  resubmissions). `leadAction=DELETED` → ack, don't route.
+- Full response via `GET /rest/leadFormResponses?ids=List("…")&owner=(…)
+  &leadType=(leadType:…)` → `results[id]` (no `/leadFormResponses/{id}` path).
+- Subscribe via `POST /rest/leadNotifications` `{webhook, owner:{sponsoredAccount|organization}, leadType}`;
+  CLI: `linkedin_feed_tool.py register-lead-sync --webhook https://social.cloudless.gr/api/v1/webhooks/linkedin-lead-sync --owner urn:li:sponsoredAccount:512642510`
+  (**run only after the API deploy is live** — LinkedIn validates the URL at
+  subscription time; a 404 endpoint fails validation).
 
 ## Conversion events
 
