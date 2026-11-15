@@ -74,11 +74,12 @@ async def _collect(rows, platform_filter):
 
 
 def _verdict(db_status: str, probe: str) -> str:
-    if probe in ("inconclusive", "unprobed", "no-token", "expired-by-clock"):
-        # expired-by-clock agrees with an expired/revoked DB row.
-        if probe == "expired-by-clock" and db_status in BAD | {"expired"}:
-            return "MATCH"
+    if probe in ("inconclusive", "unprobed", "no-token"):
         return "UNKNOWN"
+    if probe == "expired" or probe == "expired-by-clock":
+        # Clock-expired agrees with an already-bad DB row; an active row
+        # with a dead clock is drift reconcile will fix on its next tick.
+        return "MATCH" if db_status in BAD else "UNKNOWN"
     if db_status in GOOD and probe == "active":
         return "MATCH"
     if db_status in BAD and probe == "revoked":
@@ -110,11 +111,17 @@ def _print_table(report: dict) -> None:
     print(f"{'platform':<11} {'account':<38} {'db':<9} {'probe':<17} verdict")
     print("-" * 95)
     for a in report["accounts"]:
-        print(f"{a['platform']:<11} {str(a['account'])[:37]:<38} {str(a['db_status']):<9} {str(a['probe']):<17} {a['verdict']}")
+        print(
+            f"{a['platform']:<11} {str(a['account'])[:37]:<38} "
+            f"{str(a['db_status']):<9} {str(a['probe']):<17} {a['verdict']}"
+        )
     print("-" * 95)
     print("counts:", json.dumps(report["counts"], sort_keys=True))
     for a in report["drift"]:
-        print(f"DRIFT {a['platform']}/{a['account']}: db={a['db_status']} live={a['probe']} — heal lane wrote status without token validation")
+        print(
+            f"DRIFT {a['platform']}/{a['account']}: db={a['db_status']} "
+            f"live={a['probe']} — heal lane wrote status without token validation"
+        )
 
 
 if __name__ == "__main__":
