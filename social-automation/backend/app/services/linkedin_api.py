@@ -396,7 +396,7 @@ class LinkedInAPIClient:
         alt = _alt_urn(post_urn)
         if alt:
             alt_kind = _urn_kind(alt)
-            if alt_kind:
+            if alt_kind:  # pragma: no branch - _alt_urn always yields a known marker
                 attempts.append((alt_kind, alt))
 
         base = f"{LINKEDIN_REST_BASE}/organizationalEntityShareStatistics"
@@ -798,7 +798,7 @@ class LinkedInAPIClient:
 
             # Finalize is a mandatory step in the Videos API flow — LinkedIn
             # stays in WAITING_UPLOAD until uploadedPartIds are registered.
-            if instructions:
+            if instructions:  # pragma: no branch - guarded non-empty above
                 fin_url = f"{LINKEDIN_REST_BASE}/videos?action=finalizeUpload"
                 fin = await client.post(
                     fin_url,
