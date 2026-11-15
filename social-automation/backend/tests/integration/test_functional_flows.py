@@ -257,6 +257,7 @@ class TestPresignedUpload:
                 "filename": "ci-presign.png",
                 "mime_type": "image/png",
                 "size_bytes": len(TINY_PNG),
+                "storage_backend": presign.get("storage_backend"),
                 "alt_text": "ci presigned test",
             },
             timeout=30,
