@@ -618,7 +618,7 @@ async def _export_cloudflare_usage() -> dict:
             client,
             token,
             acct,
-            f'''
+            f"""
             workers: workersInvocationsAdaptive(limit:100,
                 filter:{{datetime_geq:"{dt_start}"}},
                 orderBy:[sum_requests_DESC]){{
@@ -643,7 +643,7 @@ async def _export_cloudflare_usage() -> dict:
                 filter:{{datetime_geq:"{dt_start}"}}, orderBy:[count_DESC]){{
               count sum{{ uncachedTokensIn uncachedTokensOut }}
               dimensions{{ gateway provider }} }}
-            ''',
+            """,
         )
         d1_names = {d["uuid"]: d["name"] for d in await _cf_rest(client, token, acct, "d1/database")}
         kv_names = {n["id"]: n["title"] for n in await _cf_rest(client, token, acct, "storage/kv/namespaces")}
@@ -1014,7 +1014,9 @@ async def _export_async() -> dict:
         if nextcloud_export.nextcloud_export_enabled():
             mirrored: dict[str, Any] = {}
             for key, rows in tables.items():
-                if not _NC_MIRROR_RE.match(key):
+                # tables only ever receives keys that already matched
+                # _NC_MIRROR_RE in put() — the negative arc is unreachable.
+                if not _NC_MIRROR_RE.match(key):  # pragma: no branch
                     continue
                 try:
                     remote = await nextcloud_export.upload_bytes(key, json.dumps(rows, default=str).encode(), "application/json")

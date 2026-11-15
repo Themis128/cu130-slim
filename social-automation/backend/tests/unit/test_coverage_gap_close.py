@@ -76,6 +76,56 @@ def test_nurture_sweep_skips_without_team(monkeypatch):
     assert out == {"skipped": "no public-lead team configured"}
 
 
+def test_nurture_sweep_runs_when_team_configured(monkeypatch):
+    import asyncio
+    import uuid
+    from contextlib import asynccontextmanager
+
+    from app.worker.tasks import nurture
+
+    team_id = uuid.uuid4()
+    s = MagicMock()
+    s.CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(team_id)
+    # app.db.session builds its engine from get_settings() at import — give
+    # the mock a parseable URL so the lazy import succeeds hermetically.
+    s.DATABASE_URL = "postgresql+asyncpg://u:p@localhost:5432/test"
+    s.DEBUG = False
+    monkeypatch.setattr("app.core.config.get_settings", lambda: s)
+
+    db = MagicMock()
+
+    @asynccontextmanager
+    async def _cm():
+        yield db
+
+    import app.db.session as dbs
+    import app.services.nurture_sequence as ns
+
+    monkeypatch.setattr(dbs, "async_session_maker", lambda: _cm())
+    seen = {}
+
+    async def _sweep(session, tid):
+        seen["tid"] = tid
+        return {"advanced": 3}
+
+    monkeypatch.setattr(ns, "nurture_sweep", _sweep)
+    monkeypatch.setattr(nurture, "run_async", lambda coro: asyncio.run(coro))
+    out = nurture.run_nurture_sweep()
+    assert out == {"advanced": 3}
+    assert seen["tid"] == team_id
+
+
+def test_nurture_sweep_exception_returns_none(monkeypatch):
+    from app.worker.tasks import nurture
+
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(nurture, "run_async", _boom)
+    assert nurture.run_nurture_sweep() is None
+
+
 @pytest.mark.asyncio
 async def test_publish_retry_resets_and_skips(monkeypatch):
     from datetime import UTC, datetime, timedelta

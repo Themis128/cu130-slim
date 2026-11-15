@@ -861,9 +861,7 @@ def test_sweep_rewrite_exception_still_alerts(monkeypatch):
     tgt = _target(pid)
     db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
     alert = AsyncMock()
-    monkeypatch.setattr(
-        M, "_rewrite_copy_for_media", AsyncMock(side_effect=RuntimeError("dmr down"))
-    )
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(side_effect=RuntimeError("dmr down")))
     _wire(monkeypatch, db, alert=alert)
     out = M.run_media_heal_sweep()
     assert out["exhausted"] == [str(pid)]
@@ -915,8 +913,102 @@ def test_sweep_rollback_failure_isolated(monkeypatch):
     )
     _wire(monkeypatch, db)
     db.rollback = AsyncMock(side_effect=RuntimeError("rollback dead"))
-    monkeypatch.setattr(
-        M, "persist_generated_image", AsyncMock(side_effect=RuntimeError("persist dead"))
-    )
+    monkeypatch.setattr(M, "persist_generated_image", AsyncMock(side_effect=RuntimeError("persist dead")))
     out = M.run_media_heal_sweep()
     assert out["healed"] == 0
+
+
+def test_sweep_single_image_post_passes_guard_to_attempts(monkeypatch):
+    """media_ids with exactly one image/* asset -> guard passes, post is
+    classified on heal attempts (arc 186->188)."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    post.media_ids = [uuid.uuid4()]
+    tgt = _target(pid)
+    asset = SimpleNamespace(mime_type="image/png")
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([asset]),  # single image asset -> not skipped
+        ]
+    )
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=M._REWRITE_DEFER))
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+
+    M.run_media_heal_sweep()
+
+    assert post.meta_data["media_heal_rewrite_defers"] == 1
+    publish.assert_not_called()
+
+
+def test_sweep_rewrite_defer_cap_already_alerted(monkeypatch):
+    """Defer-cap termination with media_heal_alerted already set -> no
+    duplicate exhausted_ids append (arc 234->237)."""
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={
+            "media_heal_attempts": M._MAX_HEAL_ATTEMPTS,
+            "media_heal_rewrite_defers": M._MAX_REWRITE_DEFERS - 1,
+            "media_heal_alerted": True,
+        },
+    )
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=M._REWRITE_DEFER))
+    alert = AsyncMock()
+    _wire(monkeypatch, db, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["exhausted"] == []
+    assert post.meta_data["media_heal_rewrite_failed"] is True
+    alert.assert_not_called()
+
+
+def test_sweep_rewrite_failed_already_alerted(monkeypatch):
+    """Rewrite returns no copy with media_heal_alerted preset -> skip the
+    exhausted_ids append (arc 249->252)."""
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS, "media_heal_alerted": True},
+    )
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=None))
+    alert = AsyncMock()
+    _wire(monkeypatch, db, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["exhausted"] == []
+    assert post.meta_data["media_heal_rewrite_failed"] is True
+    alert.assert_not_called()
+
+
+def test_sweep_publish_dispatch_success_false_continues(monkeypatch):
+    """publish_post_now returning success=False -> post not queued, sweep
+    continues (arc 361->358)."""
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([(acct, "linkedin")]),
+        ]
+    )
+    publish = Mock(return_value={"success": False, "results": []})
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["queued"] == []
+    publish.assert_called_once()
