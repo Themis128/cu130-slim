@@ -23,7 +23,8 @@ import base64
 import html as html_mod
 import re
 import secrets
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 from typing import Literal
 
 import httpx
@@ -33,14 +34,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.services import blog_articles
+from app.services import blog_articles, newsletter_issue_queue, newsletter_publisher
 from app.services.browser_bridge import BrowserBridgeError
 from app.services.linkedin_ai import generate_linkedin_article
 from app.services.linkedin_newsletter_bridge import (
-    LinkedInNewsletterBridge,
     LinkedInNewsletterBridgeError,
 )
-from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.linkedin_sidecar import LinkedInSidecarError
 from app.services.newsletter_cover import default_issue_date, render_newsletter_cover
 
 router = APIRouter(tags=["newsletter"])
@@ -129,12 +129,6 @@ def _article_html_from_generated(generated: dict) -> str:
     return "\n".join(out)
 
 
-def _text_to_html(text: str) -> str:
-    """Wrap plain text paragraphs in <p> tags for the ProseMirror paste path."""
-    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
-    return "\n".join(f"<p>{html_mod.escape(p, quote=False).replace(chr(10), '<br>')}</p>" for p in paras)
-
-
 class LinkedInIssueRequest(BaseModel):
     # Content sources — precedence: explicit > article_slug > topic
     article_slug: str | None = Field(default=None, max_length=200)
@@ -178,14 +172,24 @@ class LinkedInIssueResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-@router.post("/linkedin/issue", response_model=LinkedInIssueResponse)
-async def linkedin_issue(
-    body: LinkedInIssueRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> LinkedInIssueResponse:
-    _require_service_token(request)
+class _ResolvedIssue(BaseModel):
+    """Content resolved from explicit fields / article_slug / topic."""
 
+    title: str
+    html_body: str | None = None
+    text_body: str | None = None
+    seo_description: str | None = None
+    post_description: str | None = None
+    category: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    words: int = 0
+    source: str = "explicit"
+
+
+async def _resolve_issue_content(body: LinkedInIssueRequest, db: AsyncSession) -> _ResolvedIssue:
+    """Resolve title + body from the three content sources, in precedence
+    order: explicit > article_slug > topic. Shared by the synchronous
+    ``/linkedin/issue`` publish and the queued ``/issues`` enqueue."""
     warnings: list[str] = []
     title = (body.title or "").strip()
     html_body = (body.html_body or "").strip() or None
@@ -249,74 +253,265 @@ async def linkedin_issue(
     if words < 800:
         warnings.append(f"Body is only {words} words — newsletter best practice is 1200+ (≥6 min read)")
 
+    return _ResolvedIssue(
+        title=title,
+        html_body=html_body,
+        text_body=text_body,
+        seo_description=seo_description,
+        post_description=post_description,
+        category=category,
+        warnings=warnings,
+        words=words,
+        source=source,
+    )
+
+
+@router.post("/linkedin/issue", response_model=LinkedInIssueResponse)
+async def linkedin_issue(
+    body: LinkedInIssueRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> LinkedInIssueResponse:
+    _require_service_token(request)
+
+    resolved = await _resolve_issue_content(body, db)
+
     cover_b64 = body.cover_base64
     if not cover_b64 and body.render_cover:
-        png = render_newsletter_cover(title, issue_number=body.issue_number, category=category)
+        png = render_newsletter_cover(resolved.title, issue_number=body.issue_number, category=resolved.category)
         cover_b64 = base64.b64encode(png).decode()
 
-    result: dict | None = None
-    via = "sidecar"
-    sidecar_error: str | None = None
-    if body.browser != "bridge":
-        client = LinkedInSidecarClient()
-        try:
-            result = await client.publish_newsletter_issue(
-                title=title,
-                html_body=html_body,
-                text_body=None if html_body else text_body,
-                cover_base64=cover_b64,
-                cover_filename="cover.png",
-                newsletter_name=body.newsletter_name,
-                seo_title=body.seo_title or title,
-                seo_description=(seo_description or "")[:300] or None,
-                schedule_iso=body.schedule_iso,
-                post_description=post_description,
-                dry_run=body.dry_run,
-            )
-        except LinkedInSidecarError as exc:
-            sidecar_error = exc.detail
-        except httpx.HTTPError as exc:
-            # Transport failures (ReadTimeout, ConnectError) never become
-            # LinkedInSidecarError — the editor boot takes minutes and the
-            # 420s publish timeout is the common dead-editor signature.
-            sidecar_error = f"{type(exc).__name__}: {exc}"
-
-    if result is None:
-        if body.browser == "sidecar":
-            raise HTTPException(status_code=502, detail=sidecar_error)
-        via = "bridge"
-        bridge_html = html_body or _text_to_html(text_body or "")
-        try:
-            result = await LinkedInNewsletterBridge().publish_issue(
-                title=title,
-                html_body=bridge_html,
-                cover_base64=cover_b64,
-                seo_title=body.seo_title or title,
-                seo_description=(seo_description or "")[:300] or None,
-                post_description=post_description,
-                schedule_iso=body.schedule_iso,
-                dry_run=body.dry_run,
-            )
-        except (LinkedInNewsletterBridgeError, BrowserBridgeError, httpx.HTTPError) as exc:
-            detail = getattr(exc, "detail", str(exc))
-            raise HTTPException(
-                status_code=502,
-                detail=f"sidecar: {sidecar_error or 'skipped'}; bridge: {detail}",
-            ) from exc
-        warnings.append(
-            "linkedin sidecar failed — issue handled via browser-bridge fallback" if sidecar_error else "published via browser bridge (browser=bridge)"
+    try:
+        result, via, publish_warnings = await newsletter_publisher.publish_with_fallback(
+            title=resolved.title,
+            html_body=resolved.html_body,
+            text_body=resolved.text_body,
+            cover_base64=cover_b64,
+            cover_filename="cover.png",
+            newsletter_name=body.newsletter_name,
+            seo_title=body.seo_title or resolved.title,
+            seo_description=(resolved.seo_description or "")[:300] or None,
+            schedule_iso=body.schedule_iso,
+            post_description=resolved.post_description,
+            dry_run=body.dry_run,
+            browser=body.browser,
         )
+    except LinkedInSidecarError as exc:
+        raise HTTPException(status_code=502, detail=exc.detail) from exc
+    except (LinkedInNewsletterBridgeError, BrowserBridgeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return LinkedInIssueResponse(
         status="ok",
-        title=title,
-        word_count=words,
-        source=source,
+        title=resolved.title,
+        word_count=resolved.words,
+        source=resolved.source,
         dry_run=body.dry_run,
         browser=via,
         published=bool(result.get("published")),
         scheduled=bool(result.get("scheduled")),
         article_url=result.get("article_url"),
         steps=result.get("steps") or [],
-        warnings=warnings,
+        warnings=resolved.warnings + publish_warnings,
     )
+
+
+# ── queued issues (platform-owned newsletter scheduler) ──────────────────────
+
+
+class NewsletterIssueEnqueueRequest(LinkedInIssueRequest):
+    """``/linkedin/issue`` payload + scheduling/dedup fields."""
+
+    scheduled_for: str | None = Field(default=None, max_length=40)
+    slug: str | None = Field(default=None, max_length=220)
+    dispatch_now: bool = False
+
+
+class NewsletterIssueOut(BaseModel):
+    id: str
+    slug: str
+    title: str
+    status: str
+    scheduled_for: str | None = None
+    article_url: str | None = None
+    published_at: str | None = None
+    verified_at: str | None = None
+    attempts: int = 0
+    verify_count: int = 0
+    last_error: str = ""
+    dry_run: bool = False
+    result: dict = Field(default_factory=dict)
+
+
+def _issue_out(issue, *, created: bool | None = None) -> dict:
+    out = NewsletterIssueOut(
+        id=str(issue.id),
+        slug=issue.slug,
+        title=issue.title,
+        status=issue.status.value if hasattr(issue.status, "value") else str(issue.status),
+        scheduled_for=issue.scheduled_for.isoformat() if issue.scheduled_for else None,
+        article_url=issue.article_url,
+        published_at=issue.published_at.isoformat() if issue.published_at else None,
+        verified_at=issue.verified_at.isoformat() if issue.verified_at else None,
+        attempts=issue.attempts,
+        verify_count=issue.verify_count,
+        last_error=issue.last_error or "",
+        dry_run=issue.dry_run,
+        result=issue.result or {},
+    )
+    data = out.model_dump()
+    if created is not None:
+        data["created"] = created
+    return data
+
+
+def _parse_issue_uuid(issue_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(issue_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid issue id") from exc
+
+
+def _parse_scheduled_for(raw: str | None):
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid scheduled_for: {exc}") from exc
+
+
+@router.post("/issues")
+async def enqueue_newsletter_issue(
+    body: NewsletterIssueEnqueueRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Enqueue a LinkedIn newsletter issue for the dispatch sweep.
+
+    Content resolves exactly like ``/linkedin/issue`` (explicit >
+    article_slug > topic) but nothing is published here — the
+    ``newsletter-issue-dispatch`` beat claims the row when
+    ``scheduled_for`` arrives. Idempotent on ``slug``.
+    """
+    _require_service_token(request)
+    resolved = await _resolve_issue_content(body, db)
+
+    html_body = resolved.html_body or newsletter_publisher.text_to_html(resolved.text_body or "")
+    scheduled_for = _parse_scheduled_for(body.scheduled_for)
+
+    issue, created = await newsletter_issue_queue.enqueue_issue(
+        db,
+        title=resolved.title,
+        html_body=html_body,
+        slug=body.slug,
+        newsletter_name=body.newsletter_name,
+        seo_title=body.seo_title,
+        seo_description=(resolved.seo_description or "")[:500] or None,
+        post_description=resolved.post_description,
+        issue_number=body.issue_number,
+        category=resolved.category,
+        scheduled_for=scheduled_for,
+        dry_run=body.dry_run,
+        cover_base64=body.cover_base64,
+        render_cover=body.render_cover,
+    )
+
+    due = body.dispatch_now or (scheduled_for is None) or (
+        scheduled_for is not None and scheduled_for <= datetime.now(UTC)
+    )
+    if created and issue.status.value == "queued" and due:
+        try:
+            from app.worker.tasks.newsletter_issues import dispatch_newsletter_issues
+
+            dispatch_newsletter_issues.delay()
+        except Exception:  # noqa: BLE001 — enqueue must not fail on broker hiccups
+            pass
+
+    return _issue_out(issue, created=created) | {
+        "source": resolved.source,
+        "word_count": resolved.words,
+        "warnings": resolved.warnings,
+    }
+
+
+@router.get("/issues")
+async def list_newsletter_issues(
+    request: Request,
+    status: str | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    _require_service_token(request)
+    issues = await newsletter_issue_queue.list_issues(db, status=status, limit=limit)
+    return {"issues": [_issue_out(i) for i in issues]}
+
+
+@router.get("/issues/{issue_id}")
+async def get_newsletter_issue(issue_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    _require_service_token(request)
+    iid = _parse_issue_uuid(issue_id)
+    issue = await newsletter_issue_queue.get_issue(db, iid)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="issue not found")
+    return _issue_out(issue)
+
+
+@router.post("/issues/{issue_id}/cancel")
+async def cancel_newsletter_issue(issue_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    _require_service_token(request)
+    iid = _parse_issue_uuid(issue_id)
+    issue = await newsletter_issue_queue.get_issue(db, iid)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="issue not found")
+    if not await newsletter_issue_queue.cancel_issue(db, issue):
+        raise HTTPException(status_code=409, detail=f"cannot cancel issue in status {issue.status}")
+    return _issue_out(issue)
+
+
+@router.post("/issues/{issue_id}/retry")
+async def retry_newsletter_issue(issue_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    _require_service_token(request)
+    iid = _parse_issue_uuid(issue_id)
+    issue = await newsletter_issue_queue.get_issue(db, iid)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="issue not found")
+    if not await newsletter_issue_queue.retry_issue(db, issue):
+        raise HTTPException(status_code=409, detail=f"cannot retry issue in status {issue.status}")
+    return _issue_out(issue)
+
+
+@router.post("/issues/{issue_id}/dispatch")
+async def dispatch_newsletter_issue_now(issue_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Pull a queued issue to now and fire the dispatch task immediately."""
+    _require_service_token(request)
+    iid = _parse_issue_uuid(issue_id)
+    issue = await newsletter_issue_queue.get_issue(db, iid)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="issue not found")
+    await newsletter_issue_queue.mark_due_now(db, issue)
+    try:
+        from app.worker.tasks.newsletter_issues import dispatch_newsletter_issues
+
+        dispatch_newsletter_issues.delay()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"dispatch task unavailable: {exc}") from exc
+    return _issue_out(issue) | {"dispatched": True}
+
+
+@router.post("/issues/{issue_id}/verify")
+async def verify_newsletter_issue_now(issue_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Verify the published article_url live through the sidecar browser."""
+    _require_service_token(request)
+    iid = _parse_issue_uuid(issue_id)
+    issue = await newsletter_issue_queue.get_issue(db, iid)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="issue not found")
+    token = await newsletter_issue_queue.acquire_dispatch_lock()
+    if token is None:
+        raise HTTPException(status_code=409, detail="a newsletter publish/verify is already running")
+    try:
+        result = await newsletter_issue_queue.verify_issue_article(db, issue)
+    finally:
+        await newsletter_issue_queue.release_dispatch_lock(token)
+    return _issue_out(issue) | {"verify": result}

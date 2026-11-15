@@ -277,8 +277,10 @@ class _Bridge:
 
 
 def _stub_bridge(monkeypatch, bridge=None):
+    import app.services.newsletter_publisher as newsletter_publisher
+
     bridge = bridge or _Bridge()
-    monkeypatch.setattr(newsletter_api, "LinkedInNewsletterBridge", lambda *a, **k: bridge)
+    monkeypatch.setattr(newsletter_publisher, "LinkedInNewsletterBridge", lambda *a, **k: bridge)
     return bridge
 
 
