@@ -2538,3 +2538,41 @@ Remaining / watch:
 - [ ] After live verification, reassess TikTok candidate
   `day18-stop-starting-from-scratch.mp4` / asset `d8b7b589…` and publish
   only if the object verifies and account validation remains healthy.
+
+## 2026-11-15 — Cloudless GBP + Viber verification chain
+
+State achieved this session:
+- Viber Business Account LIVE: name Cloudless, category IT, description,
+  logo/cover, hours Mon-Sun 12:00AM-11:55PM (Viber 5-min increments),
+  phone +30 6977777838 with "customers can call" ON, address Koropi,
+  Greece (street-level rejected by Viber backend), profile 71%.
+- GBP "Cloudless.gr" created (service-area, Athens; category Software
+  company; phone +30 6977777838; site cloudless.gr). Saved through
+  Customize profile; verification pending.
+- GCP project credentials-462313 (252848180858): My Business
+  Information/Account Management/Verifications APIs enabled; OAuth
+  Desktop client + business.manage consent done for
+  baltzakis.themis@gmail.com; access+refresh tokens at
+  ~/.config/cloudless/gcp-tokens.json (0600), client at
+  gcp-oauth-client.json. API calls reach Google but quota_limit=0 —
+  Google requires verified profile + 60 days active before allowlisting.
+
+human: GBP video verification — ONLY remaining gate. Google offers no
+  alternative for this profile (verified 2026-11-15: "More options" =
+  "Having problems?" only; API verify methods exist but eligibility is
+  Google's choice; live video call only appears after failed attempts +
+  support). Must be live, unedited, >=30s, >=720p, shot on mobile AT the
+  business location (GPS-matched): street signs/neighbors + business name
+  on card/license/vehicle + management proof (equipment/booking/branded
+  vehicle). Phone is STAGED at the record step (progress 27%).
+  watch: ~/scripts/gbp-verify-watch.sh (cron */6h :37) probes state via
+  phone CDP and TG-alerts transitions: under-review / verified / rejected.
+  On 'verified': drive Viber "Connect to Google" (account already signed
+  in on phone — likely consent taps only), then start 60-day API clock.
+- [ ] After GBP verified + 60 days active: request GBP API allowlist,
+  verify quota, then automate business hours/profile edits via
+  locations.patch with stored refresh token.
+- [ ] Viber "Add your Google rating" — completes profile to 100%; gated
+  on verified+linked GBP.
+- [ ] GBP business hours via web UI still unset (phone cover was closed);
+  becomes moot once API access opens.
