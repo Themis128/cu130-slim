@@ -51,7 +51,7 @@ def main():
         verdict = "APPROVE" if approve else "COMMENT"
     if note:
         body += ["", f"Note: {note}"]
-    gh(["api", f"repos/{repo}/pulls/{pr}/reviews", "-f",
+    ghs(["api", f"repos/{repo}/pulls/{pr}/reviews", "-f",
         "body=" + "\n".join(body), "-f", f"event={verdict}"])
     print(verdict, "|", len(findings), "findings |", pr)
 
