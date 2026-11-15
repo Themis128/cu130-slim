@@ -22,7 +22,11 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 
 ## Surface
 
-- Account `dcda73fb-75b6-47af-b9d1-c1ba404d91a8` · `@cloudless.gr`.
+- Account `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88` · profile `@cloudless.gr`
+  (display: "Cloudless | Managed Cloud"). `dcda73fb-…` is the same
+  profile but its token is EXPIRED (401) — never target it; `7c33ed15-…`
+  shares ab439e1e's open_id (duplicate row). Verify live with
+  `tiktok_tool.py accounts` before publishing.
 
 ## Content rules
 
@@ -35,6 +39,8 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 <!-- PLATFORM-FIT:END -->
 
 - **Media required** — video or photo posts; no text-only.
+- **≥60s minimum for video** — hard owner rule (2026-11-15):
+  TikTok videos must be at least 60 seconds; shorter clips are ineligible.
 - Best content: short vertical clips — infra timelapses, automation runs,
   generated video (ComfyUI Wan2.2 TI2V-5B GGUF via `media_gpu_lock`),
   screen-capture walkthroughs.
@@ -47,6 +53,12 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 - Official **Content Posting API — DIRECT_POST** (in-feed publish, not the
   upload-only `MEDIA_UPLOAD` mode — check the console config drift via
   `tiktok-console-ops`).
+- **DIRECT_POST can be gated at publish time** — TikTok answers
+  `unaudited_client_can_only_post_to_private_accounts` despite the approved
+  app (audit lag); `_publish_tiktok` then falls back to `MEDIA_UPLOAD`
+  → `SEND_TO_USER_INBOX` + `v_inbox_file~` publish_id = draft in the
+  creator's app inbox needing a manual finish, NOT a live post.
+  Full publish runbook: `tiktok-video-publish-ops`.
 - `platform_specific.tiktok` options map to Direct Post fields:
   `brand_content_toggle`, `brand_organic_toggle`, `disable_duet`,
   `disable_stitch`, `disable_comment`, `video_cover_timestamp_ms`, `is_aigc`.
