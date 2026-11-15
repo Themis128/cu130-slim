@@ -64,11 +64,12 @@ on release builds so injection is the only no-root path.
 
 ## Unattended join + exit node — scripts/ts-authkey.sh, exit-node.sh
 - `ts-authkey.sh [host|local]` — mints a preauthorized `tskey-auth-*` via `POST /tailnet/-/keys` (1h expiry), runs `tailscale up --auth-key` locally or over SSH — skips the browser-approval loop entirely. Use for any new node.
-- `exit-node.sh <ssh-host>` — `tailscale set --advertise-exit-node` + `tailscale up`, waits 15s, approves the advertised `0.0.0.0/0 + ::/0` via API. tag:k8s nodes (omv-ha) are operator-managed — local `set` won't sync; use `github-omv` or another user-managed node.
+- `exit-node.sh <ssh-host>` — `tailscale set --advertise-exit-node` + `tailscale up`, waits 15s, approves the advertised `0.0.0.0/0 + ::/0` via API. tag:k8s nodes are operator-managed — local `set` won't sync; use `github-omv` or another user-managed node.
 
 
 ## Theft resilience — phone-lockdown + phone-kill
-- The phone shares your user identity — `*:*` gives a thief everything. The ACL now splits it: workstations keep `*:*` by IP, `galaxy-s22` (100.84.31.85) is scoped to service ports only (wsl ssh 22, omv web 443/30910, omv-ha 443) — no 22/6443/admin on servers.
+- The phone shares your user identity. Workstations keep `*:*` by IP; `galaxy-s22` (100.84.31.85) has a per-IP service-port rule (wsl ssh 22, omv web 443/30910, omv-ha 443) **but** the `autogroup:admin → tag:pi` grant also gives it every port on github-omv/omv-ha (incl. 22/6443). The owner chose to keep full phone access (2026-11-15) — so `phone-kill.sh` is the theft control. Phone has Always-on VPN enabled (no lockdown).
+- On-prem cameras are policy `hosts` aliases: `cam-nc220` (192.168.1.42, HTTP digest :8080 `/stream/video/h264`) and `cam-189` (192.168.1.189, HTTP digest :8088). Phone + both grokbot nodes get `:80,554,8080,8088`; workstations get `*:*`. 192.168.1.128/.200 are the Pi go2rtc relay (:1984/:8554), not cameras. ACL `tests` cover all of this — validate via `POST /tailnet/-/acl/validate` before applying.
 - `phone-kill.sh` — instant revoke via `DELETE /device/{id}`. One command = phone's tailnet access dies immediately. Run it the moment the phone is lost; re-add later with `ts-authkey.sh`.
 
 
@@ -76,10 +77,10 @@ on release builds so injection is the only no-root path.
 | node | ip | role |
 |---|---|---|
 | office-1-win-exitnode | 100.83.120.93 | Windows workstation — exit node |
-| wsl-ubuntu2404 | 100.86.188.43 | WSL2 dev env — sshd :22, /home/tbaltzakis share |
-| galaxy-s22 | 100.84.31.85 | phone — Termux :8022, service-scoped ACL |
+| wsl-ubuntu2404-1 | 100.100.186.88 | WSL2 dev env — sshd :22, /home/tbaltzakis share (re-registered 2026-11; was 100.86.188.43) |
+| galaxy-s22 | 100.84.31.85 | phone — Termux :8022; full access to tag:pi via admin grant (see Theft resilience) |
 | github-omv | 100.74.191.58 | OMV NAS RPi — k3s+authentik+cloudflared+app-connector (DO NOT rename: admin URL bound to it) |
-| omv-ha | 100.95.117.84 | OMV-HA box, tag:k8s operator-managed |
+| omv-ha | 100.95.117.84 | OMV-HA box, tag:pi — primary subnet router for 192.168.1.0/24 (office-1 is standby) |
 | tailscale-operator | 100.85.166.50 | k8s operator |
 | k3s-subnet-router-0 | 100.93.92.77 | k8s subnet router pod |
 | ingress-0 | 100.110.250.58 | k8s ingress pod |
