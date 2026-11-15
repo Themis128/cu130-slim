@@ -94,11 +94,21 @@ def _task(rows, res=None, get_map=None, extra_db=None):
 
 
 def test_no_pending_posts():
-    assert _task([]) == {"attached": 0, "failed": 0, "pending": 0, "scanned": 0}
+    assert _task([]) == {
+        "attached": 0,
+        "failed": 0,
+        "retried": 0,
+        "archived_stale_drafts": 0,
+        "pending": 0,
+        "scanned": 0,
+    }
 
 
 def test_stale_post_fails():
-    p = _post(created_at=datetime.now(UTC) - timedelta(hours=7))
+    p = _post(
+        created_at=datetime.now(UTC) - timedelta(hours=7),
+        meta_data={"pending_video_task": "task-1", "video_render_attempts": 2},
+    )
     out = _task([p])
     assert out["failed"] == 1
     assert p.status.name == "FAILED" or str(p.status) == "PostStatus.FAILED"
@@ -107,7 +117,10 @@ def test_stale_post_fails():
 
 
 def test_naive_created_at_still_checked():
-    p = _post(created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=7))
+    p = _post(
+        created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=7),
+        meta_data={"pending_video_task": "task-1", "video_render_attempts": 2},
+    )
     out = _task([p])
     assert out["failed"] == 1
 
@@ -119,16 +132,78 @@ def test_result_not_ready_is_pending():
 
 
 def test_failed_result_marks_failed():
-    p = _post()
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 2})
     out = _task([p], res=_Res(ready=True, ok=False, result="boom"))
     assert out["failed"] == 1
     assert "video render failed" in p.failure_reason
 
 
 def test_bad_uuid_result_marks_failed():
-    p = _post()
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 2})
     out = _task([p], res=_Res(ready=True, ok=True, result="not-a-uuid"))
     assert out["failed"] == 1
+
+
+def test_render_failure_retries_within_budget():
+    p = _post()
+    with patch.object(RV, "_redispatch_video", return_value="new-task-id") as rd:
+        # _task patches run_async/task_session/AsyncResult; wrap again for rd
+        shared = {p.id: p}
+        cm = _session(_db(rows=[p], get_map=shared), _db(get_map=shared))
+        with (
+            patch.object(RV, "run_async", _drain),
+            patch.object(RV, "task_session", cm),
+            patch("app.worker.celery_app.celery_app.AsyncResult", return_value=_Res(ready=True, ok=False, result="boom")),
+        ):
+            out = RV.materialize_report_videos()
+    assert out["retried"] == 1 and out["failed"] == 0
+    rd.assert_called_once()
+    assert p.meta_data["pending_video_task"] == "new-task-id"
+    assert p.meta_data["video_render_attempts"] == 1
+    assert "last_render_error" in p.meta_data
+
+
+def test_render_failure_fails_after_budget():
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 2})
+    out = _task([p], res=_Res(ready=True, ok=False, result="boom"))
+    assert out["failed"] == 1 and out["retried"] == 0
+
+
+def test_stale_machine_draft_archived():
+    sp = _post(
+        status="draft",
+        meta_data={"source": "strategy-brief"},
+        created_at=datetime.now(UTC) - timedelta(hours=80),
+    )
+    extra = _db(rows=[sp], get_map={sp.id: sp})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 1
+    assert sp.status == "archived"
+    assert "superseded" in (sp.failure_reason or "")
+
+
+def test_fresh_machine_draft_not_archived():
+    sp = _post(
+        status="draft",
+        meta_data={"source": "strategy-brief"},
+        created_at=datetime.now(UTC) - timedelta(hours=10),
+    )
+    extra = _db(rows=[sp], get_map={sp.id: sp})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 0
+    assert sp.status == "draft"
+
+
+def test_manual_draft_not_archived():
+    sp = _post(
+        status="draft",
+        meta_data={"source": "manual"},
+        created_at=datetime.now(UTC) - timedelta(hours=200),
+    )
+    extra = _db(rows=[sp], get_map={sp.id: sp})
+    out = _task([], extra_db=extra)
+    assert out["archived_stale_drafts"] == 0
+    assert sp.status == "draft"
 
 
 def test_missing_asset_fails():
