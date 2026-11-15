@@ -836,9 +836,7 @@ async def linkedin_reauth(
     )
 
     try:
-        username, password = await resolve_linkedin_credentials(
-            str(req.account_id) if req.account_id else None
-        )
+        username, password = await resolve_linkedin_credentials(str(req.account_id) if req.account_id else None)
         result = await run_reauth(
             username,
             password,
