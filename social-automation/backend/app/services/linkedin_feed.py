@@ -82,7 +82,7 @@ async def _client() -> httpx.AsyncClient:
 async def list_posts(author_urn: str, count: int = 10) -> dict[str, Any]:
     """Recent posts by an author URN (org page or person).
 
-    ``GET /rest/posts?q=author&author={urn}&count=N`` — requires
+    ``GET /rest/posts?author={urn}&count=N`` — requires
     ``r_organization_social``/``r_organization_social_feed`` for org authors
     and ``r_member_social``/``r_member_social_feed`` for person authors.
     The token must match the author kind — LinkedIn 400s a member-author
@@ -98,7 +98,7 @@ async def list_posts(author_urn: str, count: int = 10) -> dict[str, Any]:
     async with await _client() as c:
         r = await c.get(
             f"{REST}/posts",
-            params={"q": "author", "author": author_urn, "count": min(count, 50)},
+            params={"author": author_urn, "count": min(count, 50)},
             headers={"Authorization": f"Bearer {token}", **HDRS},
         )
     if r.status_code != 200:
