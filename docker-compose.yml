@@ -2393,8 +2393,22 @@ services:
     volumes:
       - .:/app:ro
       - /run/docker.sock:/var/run/docker.sock
-      - /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker:/usr/bin/docker:ro
-      - /mnt/wsl/docker-desktop/cli-tools/usr/local/lib/docker/cli-plugins/docker-compose:/root/.docker/cli-plugins/docker-compose:ro
+      # repo-local docker CLI — /mnt/wsl/docker-desktop/cli-tools binds get
+      # poisoned by fsbridge flaps (materialize as dirs → exit 127).
+      # .docker-bin/ is gitignored — provision it on each checkout with
+      # scripts/provision-docker-bin.sh (re-run after Docker Desktop upgrades).
+      # long syntax + create_host_path: false — a missing binary fails fast
+      # instead of being auto-created as an empty dir (the same exit 127).
+      - type: bind
+        source: ./.docker-bin/docker
+        target: /usr/bin/docker
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./.docker-bin/cli-plugins/docker-compose
+        target: /root/.docker/cli-plugins/docker-compose
+        read_only: true
+        bind: { create_host_path: false }
     networks:
       - backend
     healthcheck:

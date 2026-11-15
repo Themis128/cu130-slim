@@ -168,3 +168,4 @@ social-automation/backend/dbt/.user.yml
 
 # local E2E runner (reads .env secrets)
 run_pw_e2e.sh
+.docker-bin/
