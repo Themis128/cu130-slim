@@ -637,3 +637,72 @@ async def test_redis_factory():
         await r.aclose()
     except AttributeError:
         await r.close()
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+def test_upsert_watched_chat_nonmatching_items():
+    cfg = {"watched_chats": ["junk", {"chat_id": "-999", "title": "Other"}]}
+    cfg = gw.upsert_watched_chat(cfg, chat_id=-100, title="G")
+    ids = [c.get("chat_id") for c in cfg["watched_chats"] if isinstance(c, dict)]
+    assert "-100" in ids and len(cfg["watched_chats"]) == 3
+
+
+def test_bot_mentioned_entity_edge_arcs():
+    # "mention" entity whose fragment matches the bot username
+    text = "mybot hello"
+    ents = [{"type": "mention", "offset": 0, "length": 5}]
+    assert gw.bot_mentioned(text, ents, "mybot") is True
+    # text_mention entity with a different username → loop continues → False
+    ents2 = [{"type": "text_mention", "user": {"username": "someone_else"}}]
+    assert gw.bot_mentioned("hi", ents2, "mybot") is False
+
+
+@pytest.mark.asyncio
+async def test_list_buffered_messages_non_dict_json(monkeypatch):
+    store = {}
+
+    class _R:
+        async def lrange(self, k, a, b):
+            return store.get(k, [])
+
+    monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R()))
+    key = gw._BUF_KEY.format(account_id="acc", chat_id=-100)
+    store[key] = ['[1, 2]', '"just a string"', '{"ok": true}']
+    out = await gw.list_buffered_messages("acc", -100)
+    assert out == [{"ok": True}]
+
+
+@pytest.mark.asyncio
+async def test_send_digest_wrong_hour_second_check_and_dedup_created(monkeypatch):
+    client = SimpleNamespace(send_message=AsyncMock())
+    import datetime as dt
+
+    class _FixedDT(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 5, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr(gw, "datetime", _FixedDT)
+    cfg = {
+        "enabled": True,
+        "digest_enabled": True,
+        "owner_chat_id": "999",
+        "digest_hour": 10,  # now.hour=9 ≠ 10 → second wrong_hour guard
+        "watched_chats": [{"chat_id": -100, "title": "G"}],
+    }
+    # hour_filter=None → first guard skipped, second guard fires
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg)
+    assert out["skipped"] and out["reason"] == "wrong_hour"
+
+    # non-force, correct hour, redis set returns truthy → dedup passes → digest runs
+    class _R:
+        async def set(self, *a, **kw):
+            return "OK"
+
+    monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R()))
+    monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[]))
+    cfg["digest_hour"] = 9
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, hour_filter=9)
+    assert out["sent"] == 0 and out["chats"][0]["reason"] == "empty"

@@ -388,3 +388,7 @@ async def test_wait_for_container_ready_error_status(client, monkeypatch):
 async def test_wait_for_container_ready_finished(client, monkeypatch):
     monkeypatch.setattr(client, "check_container_status", AsyncMock(return_value="FINISHED"))
     await client.wait_for_container_ready("17890001", timeout=5, interval=0.01)
+
+
+def test_log_api_error_below_400(client):
+    client._log_api_error("https://example/x", _FakeResponse(200, {}))

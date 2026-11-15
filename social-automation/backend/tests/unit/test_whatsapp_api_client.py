@@ -279,3 +279,34 @@ async def test_template_components_and_validation(client):
     client._client.request = AsyncMock(side_effect=[Exception("a"), Exception("b"), {"success": True}])
     out = await client.request_verification_code("999")
     assert out == {"success": True}
+
+
+# ── residual gaps ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_optional_args_absent(client):
+    await client.send_image("+302101111111", "https://cdn/i.png")
+    body = client._calls[0]["json_body"]
+    assert "caption" not in body["image"]
+
+    await client.send_document("+302101111111", "https://cdn/d.pdf")
+    body = client._calls[1]["json_body"]
+    assert "filename" not in body["document"] and "caption" not in body["document"]
+
+    await client.send_location("+302101111111", 37.9, 23.7)
+    body = client._calls[2]["json_body"]
+    assert body["location"] == {"latitude": 37.9, "longitude": 23.7}
+
+
+def test_parse_webhook_residual_branches():
+    contacts = [{"profile": {"name": "NoId"}}]  # contact without wa_id
+    msgs = [
+        {"type": "interactive", "from": "1", "id": "m1", "timestamp": "1",
+         "interactive": {"type": "product_list_reply", "product_list_reply": {}}},
+        {"type": "order", "from": "1", "id": "m2", "timestamp": "1"},
+    ]
+    ev = W.parse_webhook_event(_hook(messages=msgs, contacts=contacts))
+    assert len(ev) == 2
+    assert "button_payload" not in ev[0]
+    assert "message_text" not in ev[1]

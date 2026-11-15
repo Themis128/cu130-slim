@@ -336,3 +336,14 @@ async def test_suggest_best_time_personal_account_extends_windows():
     windows = await linkedin_ai.suggest_best_time_to_post(account_type="person", timezone="UTC")
     assert any(w["day"] == "Monday" and w["time"] == "17:00" for w in windows)
     assert any(w["day"] == "Friday" and w["time"] == "08:00" for w in windows)
+
+
+@pytest.mark.asyncio
+async def test_suggest_best_time_unqualified_samples_fall_back():
+    from datetime import datetime
+
+    # samples present but too few to rank → static fallback windows
+    windows = await linkedin_ai.suggest_best_time_to_post(
+        timezone="UTC", samples=[(datetime(2026, 10, 6, 9, 0), 0.9)]
+    )
+    assert windows and windows[0]["day"] == "Tuesday"

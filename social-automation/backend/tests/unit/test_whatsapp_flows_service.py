@@ -365,3 +365,27 @@ def test_parse_flow_response_non_nfm_interactive():
         ],
     }
     assert S.parse_flow_response(body) == []
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_flow_minimal_body(client, monkeypatch):
+    http, calls, _ = _http_fake(body={"id": "f2"})
+    _patch(monkeypatch, http)
+    out = await client.create_flow("f", ["SIGN_UP"])
+    assert out == {"id": "f2"}
+    j = calls[0]["json"]
+    assert "endpoint_uri" not in j and "clone_flow_id" not in j
+
+
+@pytest.mark.asyncio
+async def test_send_flow_data_exchange_minimal(client, monkeypatch):
+    http, calls, _ = _http_fake(body={"messages": [{"id": "m2"}]})
+    _patch(monkeypatch, http)
+    out = await client.send_flow("+302101234567", "123", "tok", flow_action="data_exchange", messaging_type="")
+    assert out["messages"][0]["id"] == "m2"
+    params = calls[0]["json"]["interactive"]["action"]["parameters"]
+    assert "flow_action_payload" not in params
+    assert "messaging_type" not in calls[0]["json"]

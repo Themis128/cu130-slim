@@ -624,3 +624,193 @@ async def test_reply_greek_prompt_and_cf_failure(monkeypatch, redis):
     assert await M.has_disclosed("a1", "t2")
     cf_fail = [c for c in track.await_args_list if c.kwargs.get("provider") == "cloudflare"]
     assert cf_fail and cf_fail[0].kwargs["success"] is False
+
+
+# ── residual branch arcs ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_index_brand_knowledge_no_name(monkeypatch):
+    client = _ChromaClient()
+    _patch_chroma(monkeypatch, client)
+    # no "name" key → first optional-doc arc skipped; tagline still indexed
+    assert await M.index_brand_knowledge("t", {"tagline": "only tagline"}) == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_brand_context_empty_docs(monkeypatch):
+    _patch_chroma(monkeypatch, _ChromaClient(payload={"documents": [[]]}))
+    assert await M.retrieve_brand_context("q") == ""
+
+
+@pytest.mark.asyncio
+async def test_detect_intent_cf_unparseable_keyword_fallback(monkeypatch):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "dunno"}))
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {"result": {"response": "unclear"}}
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await M.detect_intent("what is the price", "tok", "acc", "u") == "business"
+
+
+@pytest.mark.asyncio
+async def test_brand_voice_block_auth_and_empty_variants(monkeypatch):
+    M._brand_voice_cache["block"] = ""
+    M._brand_voice_cache["ts"] = 0
+    monkeypatch.setenv("SOCIAL_ADMIN_EMAIL", "a@x.io")
+    monkeypatch.setenv("SOCIAL_ADMIN_PASSWORD", "p")
+
+    # auth non-200 → unauthenticated GET; empty data → no optional lines
+    class _ClientA:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 401
+            return r
+
+        async def get(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {}
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _ClientA())
+    block = await M._get_brand_voice_block()
+    assert "BRAND VOICE RULES" in block
+    assert "Never use" not in block and "Use:" not in block
+
+    # auth 200 but no access_token → still unauthenticated GET
+    M._brand_voice_cache["block"] = ""
+    M._brand_voice_cache["ts"] = 0
+
+    class _ClientB(_ClientA):
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {}
+            return r
+
+        async def get(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {"voice_signature": {"language": "el"}}
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _ClientB())
+    block = await M._get_brand_voice_block()
+    assert "match the user" in block
+    M._brand_voice_cache["block"] = ""
+    M._brand_voice_cache["ts"] = 0
+
+
+@pytest.mark.asyncio
+async def test_reply_pricing_already_disclosed(monkeypatch, redis):
+    monkeypatch.setattr(M, "track_bot_reply", AsyncMock())
+    await M.mark_disclosed("a1", "t1")
+    out = await M.generate_contextual_reply(**_kw(user_message="what is the price?"))
+    assert out.startswith(M._PRICING_RESPONSES["english"])
+
+
+@pytest.mark.asyncio
+async def test_reply_dmr_empty_text_cf_success_disclosed(monkeypatch, redis):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "  "}))
+    monkeypatch.setattr(M, "track_bot_reply", AsyncMock())
+    monkeypatch.setattr(M, "get_conversation_memory", AsyncMock(return_value=[]))
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+    await M.mark_disclosed("a1", "t1")
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {"result": {"response": "cf answer"}}
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client())
+    out = await M.generate_contextual_reply(**_kw(cf_token="t", cf_account="a"))
+    assert out.startswith("cf answer")  # disclosed → no prefix
+
+
+@pytest.mark.asyncio
+async def test_reply_cf_non200_empty_and_missing(monkeypatch, redis):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dead")))
+    monkeypatch.setattr(M, "track_bot_reply", AsyncMock())
+    monkeypatch.setattr(M, "get_conversation_memory", AsyncMock(return_value=[]))
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+
+    class _Client:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            return self._resp
+
+    # CF non-200 → static fallback
+    r = Mock()
+    r.status_code = 500
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client(r))
+    out = await M.generate_contextual_reply(**_kw(cf_token="t", cf_account="a", thread_id="t2"))
+    assert out == "🤖 Auto-reply: back soon"
+
+    # CF 200 but result missing → fallback
+    r2 = Mock()
+    r2.status_code = 200
+    r2.json = lambda: {}
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client(r2))
+    out = await M.generate_contextual_reply(**_kw(cf_token="t", cf_account="a", thread_id="t3"))
+    assert out == "🤖 Auto-reply: back soon"
+
+    # CF 200 result.response empty → fallback
+    r3 = Mock()
+    r3.status_code = 200
+    r3.json = lambda: {"result": {"response": "   "}}
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client(r3))
+    out = await M.generate_contextual_reply(**_kw(cf_token="t", cf_account="a", thread_id="t4"))
+    assert out == "🤖 Auto-reply: back soon"
+
+
+@pytest.mark.asyncio
+async def test_reply_dmr_text_already_disclosed(monkeypatch, redis):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "dmr says hi"}))
+    monkeypatch.setattr(M, "track_bot_reply", AsyncMock())
+    monkeypatch.setattr(M, "get_conversation_memory", AsyncMock(return_value=[]))
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+    await M.mark_disclosed("a1", "t1")
+    out = await M.generate_contextual_reply(**_kw())
+    assert out.startswith("dmr says hi") and not out.startswith("🤖")

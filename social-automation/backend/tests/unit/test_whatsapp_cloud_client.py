@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -363,3 +364,23 @@ def test_validate_wa_phone():
         wac.validate_wa_phone("abc123")
     with pytest.raises(ValueError):
         wac.validate_wa_phone("+" + "9" * 20)
+
+
+# ── residual branch arcs ──────────────────────────────────────────────
+
+
+def test_human_error_message_non_dict_error_data():
+    # error_data present but not a dict → falls through to user_title/message
+    assert wac._human_error_message({"error_data": "weird", "message": " plain "}, "fb") == "plain"
+    assert wac._human_error_message({"error_data": ["x"], "error_user_title": "T", "error_user_msg": "M"}, "fb") == "T: M"
+
+
+def test_extract_meta_error_non_dict_json_body():
+    # json() returns a non-dict (e.g. a JSON array) → None via isinstance guard
+    resp = SimpleNamespace(json=lambda: [1, 2])
+    assert wac._extract_meta_error(resp) is None
+
+
+def test_human_error_message_all_fields_unsuitable_returns_fallback():
+    err = {"error_data": {"details": 123}, "error_user_title": "T", "message": 42}
+    assert wac._human_error_message(err, "fb") == "fb"

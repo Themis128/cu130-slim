@@ -215,3 +215,13 @@ class TestRemainingMethods:
         await client.post_video(b"v", "v.mp4", "m", privacy="public")
         assert seen[0][1]["privacy"] == "friends"
         assert seen[1][1]["privacy"] == "public"
+
+    @pytest.mark.asyncio
+    async def test_stat_label_without_numeric_candidate(self, monkeypatch):
+        # "Views" preceded by a % line but the two lines above it are not
+        # bare numbers → inner candidate loop exhausts, key stays unset.
+        dash = "Home\nalpha\nbeta\n55%\nViews\nEnd"
+        _wire(monkeypatch, _handler(dash_text=dash))
+        client = F.FacebookSidecarClient("http://sc")
+        stats = await client.get_profile_stats()
+        assert "views_28d" not in stats

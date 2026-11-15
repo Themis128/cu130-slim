@@ -297,3 +297,14 @@ class TestWhatsApp:
 
         monkeypatch.setattr(INBOX, "async_session_maker", _BadMaker())
         assert await INBOX._fetch_whatsapp(_acc("whatsapp")) == []
+
+
+class TestResidualGather:
+    @pytest.mark.asyncio
+    async def test_non_list_non_exception_result(self, monkeypatch):
+        # a fetch returning neither list nor Exception is skipped silently
+        accounts = [_acc("instagram")]
+        monkeypatch.setattr(INBOX, "async_session_maker", _SessionMaker([_Result(scalars=accounts)]))
+        monkeypatch.setattr(INBOX, "_fetch_instagram_dms", AsyncMock(return_value=None))
+        out = await INBOX.get_unified_inbox(current_user=_user(), team_id=uuid.uuid4())
+        assert out.total == 0
