@@ -122,7 +122,8 @@ async def test_resolve_credentials_missing(monkeypatch):
 
 def test_sms_row_parsing():
     # Mirrors the content-provider row format seen on device.
-    line = "Row: 0 address=+3069, date=1794693498266, body=Your LinkedIn verification code is 531797."
+    line = ('Row: 0 address=+3069, date=1794693498266, '
+            'body=Your LinkedIn verification code is 531797.')
     m = R._ROW_RE.search(line)
     assert m and m.group(3).startswith("Your LinkedIn")
     assert R._LI_CODE_RE.search(m.group(3)).group(1) == "531797"
@@ -294,7 +295,10 @@ def test_sms_codes_blocking_addr_fallback(monkeypatch, tmp_path):
                 raise OSError("connection refused")
 
         def shell(self, cmd):
-            return "Row: 0 address=+3069, date=42, body=Your LinkedIn verification code is 777777."
+            return (
+                "Row: 0 address=+3069, date=42, "
+                "body=Your LinkedIn verification code is 777777."
+            )
 
         def close(self):
             pass
