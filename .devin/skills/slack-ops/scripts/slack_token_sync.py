@@ -86,7 +86,7 @@ def _slack_token_files() -> list[tuple[float, Path]]:
     out: list[tuple[float, Path]] = []
     for p in TOKEN_DIR.glob("*_tokens.json"):
         try:
-            d = json.loads(p.read_text())
+            d = json.loads(p.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
         if "chat:write" in (d.get("scope") or ""):
@@ -311,7 +311,7 @@ def _pending_services() -> list[str]:
     older runs (or an unreadable file) fails safe to the full consumer set.
     """
     try:
-        data = json.loads(PENDING_MARKER.read_text())
+        data = json.loads(PENDING_MARKER.read_text(encoding="utf-8-sig"))
         return [s for s in data if s in SERVICES]
     except Exception:
         return list(SERVICES) if PENDING_MARKER.exists() else []
@@ -350,7 +350,7 @@ def _env_token_candidates() -> list[tuple[float, Path, dict]]:
     now_ms = time.time() * 1000
     for expires_ms, path in _slack_token_files():
         os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
-        tok = json.loads(path.read_text())
+        tok = json.loads(path.read_text(encoding="utf-8-sig"))
         if expires_ms - now_ms < REFRESH_WINDOW_S * 1000:
             try:
                 resp = _refresh(tok)
@@ -410,7 +410,7 @@ def _pick_workspace_token(
 
 def _team_map() -> dict:
     try:
-        return json.loads((TOKEN_DIR / "_team_map.json").read_text())
+        return json.loads((TOKEN_DIR / "_team_map.json").read_text(encoding="utf-8-sig"))
     except Exception:  # noqa: BLE001
         return {}
 
