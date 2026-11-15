@@ -74,11 +74,12 @@ async def _collect(rows, platform_filter):
 
 
 def _verdict(db_status: str, probe: str) -> str:
-    if probe in ("inconclusive", "unprobed", "no-token", "expired-by-clock"):
-        # expired-by-clock agrees with an expired/revoked DB row.
-        if probe == "expired-by-clock" and db_status in BAD | {"expired"}:
-            return "MATCH"
+    if probe in ("inconclusive", "unprobed", "no-token"):
         return "UNKNOWN"
+    if probe == "expired" or probe == "expired-by-clock":
+        # Clock-expired agrees with an already-bad DB row; an active row
+        # with a dead clock is drift reconcile will fix on its next tick.
+        return "MATCH" if db_status in BAD else "UNKNOWN"
     if db_status in GOOD and probe == "active":
         return "MATCH"
     if db_status in BAD and probe == "revoked":
