@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 MAX_REACTIONS_DAY = int(os.getenv("LINKEDIN_ENGAGE_MAX_REACTIONS_DAY", "10"))
 MAX_COMMENTS_DAY = int(os.getenv("LINKEDIN_ENGAGE_MAX_COMMENTS_DAY", "3"))
+# Company-voice lane: the org page reacts (never comments) on the same
+# watchlist — w_organization_social_feed actor. Smaller cap: a brand
+# reacting to everything reads as bot behavior.
+ORG_MAX_REACTIONS_DAY = int(os.getenv("LINKEDIN_ENGAGE_ORG_MAX_REACTIONS_DAY", "3"))
 MAX_AGE_H = int(os.getenv("LINKEDIN_ENGAGE_MAX_AGE_H", "72"))
 POSTS_PER_AUTHOR = int(os.getenv("LINKEDIN_ENGAGE_POSTS_PER_AUTHOR", "5"))
 REACTION_TYPES = ["LIKE", "PRAISE", "INTEREST", "APPRECIATION"]
@@ -173,6 +177,7 @@ async def _run() -> dict:
 
         accounts = {a.account_type: a.id for a in ((await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().all())}
         member_account_id = accounts.get("person")
+        org_account_id = accounts.get("organization")
 
         reactions_today, comments_today = await _actions_today(db, team_id)
         warmup = _warmup_factor()
@@ -234,6 +239,48 @@ async def _run() -> dict:
                         stats["errors"].append(f"comment {urn}: HTTP {cres.get('status')} (scope?)")
                     else:
                         stats["errors"].append(f"comment {urn}: {cres.get('error') or cres.get('status')}")
+
+        # ── company-voice pass: org page reacts on the same fresh posts ──
+        # Reactions only — brand comments on third-party posts read as spam.
+        # Dedup key is actor-prefixed so member+org can both act on a post.
+        org_rows = (
+            (
+                await db.execute(
+                    select(AnalyticsEvent.meta_data).where(
+                        AnalyticsEvent.event_type == "linkedin_engagement",
+                        AnalyticsEvent.team_id == team_id,
+                        AnalyticsEvent.occurred_at >= datetime.now(UTC) - timedelta(hours=24),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        org_reactions_today = sum(1 for m in org_rows if (m or {}).get("action") == "org_reaction")
+        max_org = int(ORG_MAX_REACTIONS_DAY * warmup)
+        if org_account_id and max_org > 0:
+            for author_urn in authors:
+                listing = await linkedin_feed.list_posts(author_urn, count=POSTS_PER_AUTHOR)
+                for post in listing.get("posts") or []:
+                    urn = _post_urn(post)
+                    if not urn or org_reactions_today >= max_org:
+                        continue
+                    age = _post_age_h(post)
+                    if age is not None and age > MAX_AGE_H:
+                        continue
+                    dedup_id = f"org:{urn}"
+                    if await _already_acted(db, team_id, dedup_id):
+                        continue
+                    res = await linkedin_feed.react("organization", urn, random.choice(REACTION_TYPES))
+                    if res.get("ok") or res.get("dry_run"):
+                        org_reactions_today += 1
+                        stats["org_reacted"] = stats.get("org_reacted", 0) + 1
+                        await _record(db, team_id, org_account_id, dedup_id, "org_reaction", {"result": res})
+                    elif res.get("status") in (401, 403):
+                        stats["errors"].append(f"org react {urn}: HTTP {res.get('status')} (scope?)")
+                        break  # org feed-write scope missing — don't retry every post
+                    else:
+                        stats["errors"].append(f"org react {urn}: {res.get('error') or res.get('status')}")
 
     logger.info("linkedin-engage: %s", stats)
     return stats

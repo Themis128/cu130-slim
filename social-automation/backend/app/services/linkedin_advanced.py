@@ -230,6 +230,9 @@ CONVERSION_EVENTS: dict[str, tuple[str, str]] = {
     "consultation_booked": ("LINKEDIN_CONVERSION_RULE_CONSULT", "LEAD"),
     "signup": ("LINKEDIN_CONVERSION_RULE_SIGNUP", "SIGNUP"),
     "purchase": ("LINKEDIN_CONVERSION_RULE_PURCHASE", "PURCHASE"),
+    # Closed-loop: EspoCRM lead reached Converted — downstream optimization
+    # signal so LinkedIn bids toward leads that close, not just form fills.
+    "lead_won": ("LINKEDIN_CONVERSION_RULE_WON", "CUSTOM"),
 }
 
 

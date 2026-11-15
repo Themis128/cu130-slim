@@ -2648,3 +2648,41 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
   (Rakuten partner application). Any further in-app Business Account edits
   need the unlocked phone. Token-capture path (viber_phone_capture.py) is
   ready for when a bot exists.
+
+## 2026-11-15 (late) — LinkedIn scope-utilization build-out (ranked roadmap)
+
+All 8 ranked lanes implemented on master pending this PR's merge:
+
+- [x] #1 Closed-loop conversions — `linkedin_offline_conversions` beat
+  (daily 06:40): EspoCRM Converted/Won leads w/ LinkedIn lead-form
+  response URN → `lead_won` CONVERSIONS_API event w/ value+currency;
+  dedup sha256(email|responseUrn) in analytics_events; rule env
+  `LINKEDIN_CONVERSION_RULE_WON` auto-created by conversion-ensure.
+- [x] #2 Org comment moderation — `linkedin_community` beat (every 2h):
+  org post comments → classify spam|lead|question|praise; delete gated
+  `LINKEDIN_COMMENT_HIDE=1` (default dry-run); lead/question → TG ops;
+  org's own comments never targeted.
+- [x] #3 Company-voice engagement — org actor reactions on watchlist
+  posts via `w_organization_social_feed`, separate `org:` dedup ids,
+  persisted daily cap `LINKEDIN_ENGAGE_ORG_MAX_REACTIONS_DAY` (3),
+  comments intentionally disabled.
+- [x] #4 Member analytics — FIXED `memberCreatorPostAnalytics` entity
+  param (Rest.li complex key `(share:urn%3A…)`); IMPRESSION+DAILY 400s
+  → REACTION_DAILY instead; verified live (post metrics 200,
+  memberFollowersCount 857). `list_posts` now picks member/org token by
+  author URN kind. Member `r_member_social` read scope still absent →
+  member post URNs come from post_targets (by design).
+- [x] #5 LinkedIn Events — `linkedin_events` service CLI'd
+  (`events --action list|create|post`); publish requires Posts API
+  reference; EVENT-type lead notifications route registrants → EspoCRM.
+- [x] #6 Ads spend guard — `linkedin_ads_guard` beat (daily 08:00):
+  ACTIVE campaigns not on `LINKEDIN_ADS_ALLOWED_ACTIVE` → P2 alert +
+  analytics_events journal. Read-only (`r_ads`; no reporting scope).
+- [x] #7 Org admin ACL — `linkedin_admin` service + CLI
+  (`admins --action list|set|remove`): organizationAcls finder +
+  PUT/DELETE role keys; REQUESTED=invite, APPROVED=active.
+- [x] #8 Member DP diff alerts — per-domain sha256 in Redis
+  (`linkedin:dma:hash:*`); changed domains → TG ops alert on next sync.
+- [ ] watch: first live runs of the 3 new beats after deploy —
+  community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
+  offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
