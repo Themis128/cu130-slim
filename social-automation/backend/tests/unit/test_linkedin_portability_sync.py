@@ -75,12 +75,21 @@ class _FakeRedis:
 
 @pytest.fixture
 def wired(monkeypatch):
-    """Fake db/session/redis/decrypt; lp.* functions stay AsyncMock-able."""
+    """Fake db/session/redis/decrypt/secret-store; lp.* stay AsyncMock-able."""
     state = {"db": _DB([]), "redis": _FakeRedis()}
     monkeypatch.setattr(LPS, "task_session", lambda: state["db"])
     monkeypatch.setattr(LPS, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(LPS, "_redis", lambda: state["redis"])
+    from app.services import secret_store as _ss
+
+    monkeypatch.setattr(_ss.secret_store, "get", AsyncMock(return_value=None))
     return state
+
+
+def _stub_member_dp_secret(monkeypatch, value):
+    from app.services import secret_store as _ss
+
+    monkeypatch.setattr(_ss.secret_store, "get", AsyncMock(return_value=value))
 
 
 # ── _has_scope / _org_ids / _event helpers ────────────────────────────
@@ -149,6 +158,8 @@ async def test_run_scopes_not_granted_skips_both(wired, monkeypatch):
 async def test_run_member_dp_pending_grant(wired, monkeypatch):
     person = _account(scopes=[LPS.MEMBER_SCOPE], account_type="person")
     wired["db"] = _DB([person])
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.services.slack_notifications.send_telegram_alert", alert)
     monkeypatch.setattr(
         LPS.lp,
         "member_snapshot_domain",
@@ -158,6 +169,7 @@ async def test_run_member_dp_pending_grant(wired, monkeypatch):
     assert out["member_dp"] == {"pending-grant": "member-dp", "domains_done": 1}
     assert out["pages_dp"]["skip"] == "scope-not-granted"
     assert wired["db"].commits == 1
+    alert.assert_not_awaited()  # account-token pending grant = approval pending, not expiry
 
 
 @pytest.mark.asyncio
@@ -192,7 +204,7 @@ async def test_member_dp_happy_path_with_changelog_cursor(wired, monkeypatch):
         "member_changelog",
         AsyncMock(return_value={"ok": True, "data": {"elements": [{"processedAt": "2026-02-01T00:00:00Z"}, {"processedAt": "2026-03-01T00:00:00Z"}]}}),
     )
-    out = await LPS._member_dp(db, person, client=None)
+    out = await LPS._member_dp(db, person, client=None, token="tok")
     assert out["domains"] == len(LPS.lp.MEMBER_DOMAINS)
     assert out["truncated"]
     types = {e.event_type for e in db.added}
@@ -215,7 +227,7 @@ async def test_member_dp_domain_error_non_denied_continues(wired, monkeypatch):
 
     monkeypatch.setattr(LPS.lp, "member_snapshot_domain", _domain)
     monkeypatch.setattr(LPS.lp, "member_changelog", AsyncMock(return_value={"ok": False, "status": 500}))
-    out = await LPS._member_dp(db, person, client=None)
+    out = await LPS._member_dp(db, person, client=None, token="tok")
     assert out["domains"] == len(LPS.lp.MEMBER_DOMAINS)
     cl_event = next(e for e in db.added if e.event_type == "linkedin_portability_changelog")
     assert cl_event.meta_data["error"] == 500
@@ -234,9 +246,143 @@ async def test_member_dp_changelog_not_granted(wired, monkeypatch):
         "member_changelog",
         AsyncMock(return_value={"ok": False, "not_granted": True, "status": 403}),
     )
-    out = await LPS._member_dp(wired["db"], person, client=None)
+    out = await LPS._member_dp(wired["db"], person, client=None, token="tok")
     assert out == {"pending-grant": "member-dp"}
     assert wired["db"].added == []
+
+
+# ── LINKEDIN_MEMBER_DP_TOKEN secret handling ──────────────────────────
+
+
+def test_parse_member_dp_secret():
+    assert LPS._parse_member_dp_secret("bare-token") == ("bare-token", None)
+    assert LPS._parse_member_dp_secret('{"token": "t", "account_id": "42"}') == ("t", "42")
+    assert LPS._parse_member_dp_secret('{"token": "t"}') == ("t", None)
+    assert LPS._parse_member_dp_secret('{"no_token": 1}') == ('{"no_token": 1}', None)
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_secret_satisfies_scope_gate(wired, monkeypatch):
+    person = _account(scopes=["w_member_social"], account_type="person")
+    wired["db"] = _DB([person])
+    _stub_member_dp_secret(monkeypatch, "dedicated-tok")
+    seen = {}
+
+    async def _domain(client, token, domain):
+        seen["token"] = token
+        return {"ok": True, "elements": [], "total": 0, "pages": 1}
+
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", _domain)
+    monkeypatch.setattr(LPS.lp, "member_changelog", AsyncMock(return_value={"ok": True, "data": {"elements": []}}))
+    out = await LPS._run()
+    assert seen["token"] == "dedicated-tok"
+    assert out["member_dp"]["domains"] == len(LPS.lp.MEMBER_DOMAINS)
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_secret_store_error_falls_back_to_account_token(wired, monkeypatch):
+    person = _account(scopes=[LPS.MEMBER_SCOPE], account_type="person")
+    wired["db"] = _DB([person])
+    from app.services import secret_store as _ss
+
+    monkeypatch.setattr(_ss.secret_store, "get", AsyncMock(side_effect=RuntimeError("store down")))
+    seen = {}
+
+    async def _domain(client, token, domain):
+        seen["token"] = token
+        return {"ok": True, "elements": [], "total": 0, "pages": 1}
+
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", _domain)
+    monkeypatch.setattr(LPS.lp, "member_changelog", AsyncMock(return_value={"ok": True, "data": {"elements": []}}))
+    out = await LPS._run()
+    assert seen["token"] == "tok"  # decrypt_token mock — account token fallback
+    assert out["member_dp"]["domains"] == len(LPS.lp.MEMBER_DOMAINS)
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_secret_store_error_no_scope_skips(wired, monkeypatch):
+    person = _account(scopes=["w_member_social"], account_type="person")
+    wired["db"] = _DB([person])
+    from app.services import secret_store as _ss
+
+    monkeypatch.setattr(_ss.secret_store, "get", AsyncMock(side_effect=RuntimeError("store down")))
+    spy = AsyncMock()
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", spy)
+    out = await LPS._run()
+    assert out["member_dp"] == {"skip": "scope-not-granted"}
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_pinned_secret_selects_matching_person(wired, monkeypatch):
+    first = _account(account_id="111", scopes=[], account_type="person")
+    second = _account(account_id="222", scopes=[], account_type="person")
+    wired["db"] = _DB([first, second])
+    _stub_member_dp_secret(monkeypatch, '{"token": "pin-tok", "account_id": "222"}')
+    seen = {}
+
+    async def _domain(client, token, domain):
+        seen["token"] = token
+        return {"ok": True, "elements": [], "total": 0, "pages": 1}
+
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", _domain)
+    monkeypatch.setattr(LPS.lp, "member_changelog", AsyncMock(return_value={"ok": True, "data": {"elements": []}}))
+    out = await LPS._run()
+    assert seen["token"] == "pin-tok"
+    assert out["member_dp"]["domains"] == len(LPS.lp.MEMBER_DOMAINS)
+    member_ev = next(e for e in wired["db"].added if e.event_type == "linkedin_portability_member")
+    assert member_ev.social_account_id == second.id
+    assert member_ev.team_id == second.team_id
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_pinned_secret_unknown_account_uses_scope_path(wired, monkeypatch):
+    person = _account(account_id="111", scopes=[LPS.MEMBER_SCOPE], account_type="person")
+    wired["db"] = _DB([person])
+    _stub_member_dp_secret(monkeypatch, '{"token": "pin-tok", "account_id": "999"}')
+    seen = {}
+
+    async def _domain(client, token, domain):
+        seen["token"] = token
+        return {"ok": True, "elements": [], "total": 0, "pages": 1}
+
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", _domain)
+    monkeypatch.setattr(LPS.lp, "member_changelog", AsyncMock(return_value={"ok": True, "data": {"elements": []}}))
+    out = await LPS._run()
+    assert seen["token"] == "tok"  # pin unmatched → dedicated secret disabled, scope path wins
+    assert out["member_dp"]["domains"] == len(LPS.lp.MEMBER_DOMAINS)
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_pinned_secret_unknown_no_scope_skips(wired, monkeypatch):
+    person = _account(account_id="111", scopes=["w_member_social"], account_type="person")
+    wired["db"] = _DB([person])
+    _stub_member_dp_secret(monkeypatch, '{"token": "pin-tok", "account_id": "999"}')
+    spy = AsyncMock()
+    monkeypatch.setattr(LPS.lp, "member_snapshot_domain", spy)
+    out = await LPS._run()
+    assert out["member_dp"] == {"skip": "scope-not-granted"}
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_pending_grant_with_secret_alerts_expiry(wired, monkeypatch):
+    person = _account(scopes=["w_member_social"], account_type="person")
+    wired["db"] = _DB([person])
+    _stub_member_dp_secret(monkeypatch, "expired-tok")
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.services.slack_notifications.send_telegram_alert", alert)
+    monkeypatch.setattr(
+        LPS.lp,
+        "member_snapshot_domain",
+        AsyncMock(return_value={"ok": False, "not_granted": True, "status": 403}),
+    )
+    out = await LPS._run()
+    assert out["member_dp"]["pending-grant"] == "member-dp"
+    alert.assert_awaited_once()
+    sev, text = alert.await_args.args
+    assert sev == "ops"
+    assert "LINKEDIN_MEMBER_DP_TOKEN" in text
 
 
 # ── _pages_dp ─────────────────────────────────────────────────────────

@@ -2616,6 +2616,20 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
 - [ ] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch; awaiting owner merge.
 - go2rtc relay 192.168.1.200 serves on :80 (not :1984) — not a fault.
 
+## 2026-11-15 — member-dp token hardening (Devin, post-#1964 review)
+
+- [x] Dedicated LINKEDIN_MEMBER_DP_TOKEN path hardened: single secret
+  fetch per sweep, JSON {"token","account_id"} pin binds member-DP
+  events to the right social_accounts row, ops alert on pending-grant
+  while the dedicated secret is set (~1yr TTL expiry is not silent),
+  key documented in .env.example with annual re-auth note.
+- [ ] decide: CONNECTIONS-domain member-DP snapshots carry third-party
+  LinkedIn member PII into analytics_events → datalake via
+  export-datalake; set a retention/redaction policy (flagged in
+  linkedin_portability_sync docstring, PR #1964 review).
+- [ ] watch: next annual Member DP re-auth (~2027-11) — app 265100977,
+  scope r_dma_portability_self_serve; expiry now alerts via ops channel.
+
 ## 2026-11-15 (late) — remaining human gates (verified live)
 
 - [ ] human: WhatsApp Business verification in Meta Business Settings
