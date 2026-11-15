@@ -449,7 +449,7 @@ async def test_portability_member_dp_empty_changelog(monkeypatch):
     monkeypatch.setattr(LPS, "_redis", lambda: None)
 
     db = _DB()
-    out = await LPS._member_dp(db, person, client=None)
+    out = await LPS._member_dp(db, person, client=None, token="tok")
     assert out["domains"] == len(lp.MEMBER_DOMAINS)
     assert len(db.added) == 2
 
