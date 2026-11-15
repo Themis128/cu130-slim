@@ -499,6 +499,18 @@ def _credential_login(base):
 
 
 def cmd_heal(args):
+    # 429/http-error backoff: each consecutive error-page result doubles
+    # the probe interval (30m -> 1h -> 2h -> 4h cap) so we stop poking a
+    # throttled endpoint every cron tick. Resets on any non-error result.
+    prev = _state()
+    if prev.get("last_result") == "http-error":
+        streak = int(prev.get("http_error_streak") or 1)
+        backoff = min(1800 * (2 ** min(streak, 3)), 4 * 3600)
+        since = time.time() - prev.get("last_heal", 0)
+        if since < backoff:
+            print(f"http-error backoff: next probe in "
+                  f"{int(backoff - since)}s (streak={streak})")
+            return 0
     base = _cdp_base()
     if not base:
         print("no-cdp")
@@ -509,6 +521,8 @@ def cmd_heal(args):
     st = with_tab(base, PROBE_URL, check, settle=8)
     if st.get("loggedIn"):
         print("already logged in")
+        _save_state({**_state(), "last_result": "ok",
+                     "http_error_streak": 0})
         return 0
     if st.get("httpError"):
         # Chrome error page (HTTP 429 rate-limit, redirect loop, network
@@ -518,13 +532,15 @@ def cmd_heal(args):
               "rate-limit/network error, heal attempts skipped")
         prev = _state()
         _save_state({**prev, "last_heal": time.time(),
-                     "last_result": "http-error"})
+                     "last_result": "http-error",
+                     "http_error_streak":
+                         int(prev.get("http_error_streak") or 0) + 1})
         reason = "http-error-cooldown"
         if (prev.get("last_alert_reason") != reason
                 or time.time() - prev.get("last_alert_ts", 0) > 6 * 3600):
             _alert("LinkedIn :9229 returning an HTTP error page (likely "
-                   "429 rate-limit cooldown) — auto-heal paused, cron "
-                   "retries every 30min until it clears.")
+                   "429 rate-limit cooldown) — auto-heal in exponential "
+                   "backoff (30m→4h), cron retries until it clears.")
             _save_state({**_state(), "last_alert_reason": reason,
                          "last_alert_ts": time.time()})
         return 0
@@ -533,14 +549,16 @@ def cmd_heal(args):
     if res.get("ok"):
         print("cookie heal succeeded")
         _save_state({**_state(), "last_heal": time.time(),
-                     "last_result": "cookie-heal-ok"})
+                     "last_result": "cookie-heal-ok",
+                     "http_error_streak": 0})
         return 0
     print(f"cookie heal failed: {res.get('reason') or (res.get('state') or {}).get('url', '?')}")
     res2 = _credential_login(base)
     if res2.get("ok"):
         print(f"credential login succeeded ({res2.get('captured', 0)} cookies stored)")
         _save_state({**_state(), "last_heal": time.time(),
-                     "last_result": "credential-login-ok"})
+                     "last_result": "credential-login-ok",
+                     "http_error_streak": 0})
         return 0
     st = res2.get("state") or {}
     reason = (res2.get("reason")
@@ -549,7 +567,8 @@ def cmd_heal(args):
     print(f"credential login failed: {reason} — human login needed")
     prev = _state()
     _save_state({**prev, "last_heal": time.time(),
-                 "last_result": f"human-needed:{reason}"})
+                 "last_result": f"human-needed:{reason}",
+                 "http_error_streak": 0})
     # Dedup alerts: only re-alert when the reason changes or 6h passed.
     last_reason = prev.get("last_alert_reason", "")
     last_ts = prev.get("last_alert_ts", 0)
