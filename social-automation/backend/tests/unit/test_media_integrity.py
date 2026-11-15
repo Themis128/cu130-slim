@@ -296,3 +296,60 @@ async def test_r2_head_object_preserves_zero_byte_size(monkeypatch):
 
     assert out["size"] == 0
     assert out["etag"] == "empty"
+
+# ── probe_object / _local_probe / _public_url_for (real, unmocked) ──────
+
+
+@pytest.mark.asyncio
+async def test_probe_object_local_ok_and_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(media_integrity, "UPLOAD_DIR", str(tmp_path))
+    (tmp_path / "a.txt").write_bytes(b"12345")
+
+    ok = await media_integrity.probe_object("local", "a.txt")
+    assert ok.status == "ok" and ok.size == 5 and ok.backend == media_integrity.StorageBackend.local
+    assert ok.public_url and "a.txt" in ok.public_url
+
+    miss = await media_integrity.probe_object(media_integrity.StorageBackend.local, "nope.txt")
+    assert miss.status == "missing"
+
+
+@pytest.mark.asyncio
+async def test_probe_object_unsupported_backend():
+    out = await media_integrity.probe_object("bogus", "k")
+    assert out.status == "missing" and "unsupported backend" in (out.error or "")
+
+
+@pytest.mark.asyncio
+async def test_probe_object_r2_ok_and_http_errors(monkeypatch):
+    head = AsyncMock(return_value={"size": 42})
+    monkeypatch.setattr(r2_storage, "head_object", head)
+    monkeypatch.setattr(media_integrity.r2_presigned, "_public_url", lambda k: f"https://pub/{k}")
+
+    ok = await media_integrity.probe_object("r2", "team/x.png")
+    assert ok.status == "ok" and ok.size == 42
+    assert ok.public_url
+
+    head.side_effect = HTTPException(status_code=404, detail="gone")
+    miss = await media_integrity.probe_object("r2", "team/x.png")
+    assert miss.status == "missing"
+
+    head.side_effect = HTTPException(status_code=500, detail="boom")
+    unavail = await media_integrity.probe_object("r2", "team/x.png")
+    assert unavail.status == "unavailable"
+
+    head.side_effect = RuntimeError("net down")
+    err = await media_integrity.probe_object("r2", "team/x.png")
+    assert err.status == "unavailable" and "net down" in (err.error or "")
+
+
+@pytest.mark.asyncio
+async def test_probe_object_minio_ok(monkeypatch):
+    from app.services import minio_storage
+
+    head = AsyncMock(return_value={"size": 7})
+    monkeypatch.setattr(minio_storage, "head_object", head)
+
+    ok = await media_integrity.probe_object("minio", "team/y.jpg")
+    assert ok.status == "ok" and ok.size == 7
+    head.assert_awaited_once_with("team/y.jpg")
+
