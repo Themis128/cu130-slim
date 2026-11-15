@@ -23,6 +23,8 @@ MIN_BYTES = 100 * 1024  # screen recordings are MBs; 0-byte recorder aborts are 
 STATE = os.path.expanduser("~/.local/state/cm-survey-watch")
 DONE = os.path.join(STATE, "done.json")
 ATTEMPTS = os.path.join(STATE, "attempts.json")
+LAST_SUBMIT = os.path.join(STATE, "last_submit.json")
+SUBMIT_INTERVAL = 24 * 3600  # LinkedIn needs ONE recording — cap drives to 1/day
 BLOCKED = os.path.join(STATE, "blocked.json")
 MAX_ATTEMPTS = 3  # transient rc=1 failures (stack flaps, RemoteDisconnected) retry across cron runs
 BLOCKED_REMIND = 6 * 3600
@@ -83,6 +85,18 @@ def _clear_attempt(path):
     json.dump(a, open(ATTEMPTS, "w"), indent=0)
 
 
+def _last_submit():
+    try:
+        return json.load(open(LAST_SUBMIT)).get("ts", 0)
+    except Exception:
+        return 0
+
+
+def _mark_submit():
+    os.makedirs(STATE, exist_ok=True)
+    json.dump({"ts": time.time()}, open(LAST_SUBMIT, "w"))
+
+
 def _blocked():
     try:
         return json.load(open(BLOCKED))
@@ -117,7 +131,20 @@ def candidates():
 def main():
     dry = "--dry-run" in sys.argv
     done = done_set()
-    for mp4 in candidates():
+    pending = [p for p in candidates() if os.path.abspath(p) not in done]
+    # Daily cap: the form only needs one recording — surplus drops are
+    # superseded, consume them without driving (prevents submission spam
+    # when a recorder loop drops an mp4 every few minutes).
+    if pending and not dry and time.time() - _last_submit() < SUBMIT_INTERVAL:
+        for p in pending:
+            try:
+                os.rename(p, p + ".consumed")
+            except OSError:
+                pass
+        log(f"daily cap: consumed {len(pending)} superseded recording(s), "
+            "no drive (last submit <24h ago)")
+        return 0
+    for mp4 in pending:
         if os.path.abspath(mp4) in done:
             continue
         # skip files still being written
@@ -136,6 +163,7 @@ def main():
         if r.returncode == 0:
             mark(mp4)
             _clear_attempt(mp4)
+            _mark_submit()
             os.rename(mp4, mp4 + ".consumed")
             tg(f"📋 CM Standard-tier survey submitted — recording {os.path.basename(mp4)} "
                "consumed. LinkedIn review takes days; check the portal for status.")
