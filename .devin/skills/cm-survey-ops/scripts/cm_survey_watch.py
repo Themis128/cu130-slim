@@ -19,6 +19,7 @@ import time
 
 DROP_DIRS = ["/mnt/c/Users/tbaltzakis/Downloads", "/tmp"]
 SKIP = (".consumed", ".part", ".crdownload", ".tmp")
+MIN_BYTES = 100 * 1024  # screen recordings are MBs; 0-byte recorder aborts are junk
 STATE = os.path.expanduser("~/.local/state/cm-survey-watch")
 DONE = os.path.join(STATE, "done.json")
 BLOCKED = os.path.join(STATE, "blocked.json")
@@ -79,6 +80,11 @@ def candidates():
     for d in DROP_DIRS:
         for p in glob.glob(os.path.join(d, "*.mp4")):
             if any(p.endswith(s) for s in SKIP):
+                continue
+            try:
+                if os.path.getsize(p) < MIN_BYTES:
+                    continue
+            except OSError:
                 continue
             out.append((os.path.getmtime(p), p))
     return [p for _, p in sorted(out, reverse=True)]
