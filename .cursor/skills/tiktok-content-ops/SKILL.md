@@ -22,7 +22,11 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 
 ## Surface
 
-- Account `dcda73fb-75b6-47af-b9d1-c1ba404d91a8` · `@cloudless.gr`.
+- Account `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88` · profile `@cloudless.gr`
+  (display: "Cloudless | Managed Cloud"). `dcda73fb-…` is the same
+  profile but its token is EXPIRED (401) — never target it; `7c33ed15-…`
+  shares ab439e1e's open_id (duplicate row). Verify live with
+  `tiktok_tool.py accounts` before publishing.
 
 ## Content rules
 
@@ -35,6 +39,8 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 <!-- PLATFORM-FIT:END -->
 
 - **Media required** — video or photo posts; no text-only.
+- **≥60s minimum for video** — hard owner rule (2026-11-15):
+  TikTok videos must be at least 60 seconds; shorter clips are ineligible.
 - Best content: short vertical clips — infra timelapses, automation runs,
   generated video (ComfyUI Wan2.2 TI2V-5B GGUF via `media_gpu_lock`),
   screen-capture walkthroughs.
@@ -47,6 +53,12 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 - Official **Content Posting API — DIRECT_POST** (in-feed publish, not the
   upload-only `MEDIA_UPLOAD` mode — check the console config drift via
   `tiktok-console-ops`).
+- **DIRECT_POST can be gated at publish time** — TikTok answers
+  `unaudited_client_can_only_post_to_private_accounts` despite the approved
+  app (audit lag); `_publish_tiktok` then falls back to `MEDIA_UPLOAD`
+  → `SEND_TO_USER_INBOX` + `v_inbox_file~` publish_id = draft in the
+  creator's app inbox needing a manual finish, NOT a live post.
+  Full publish runbook: `tiktok-video-publish-ops`.
 - `platform_specific.tiktok` options map to Direct Post fields:
   `brand_content_toggle`, `brand_organic_toggle`, `disable_duet`,
   `disable_stitch`, `disable_comment`, `video_cover_timestamp_ms`, `is_aigc`.
@@ -75,22 +87,3 @@ Video-first channel — media REQUIRED. Full index: `media-pipelines`.
 | Video | 9:16 vertical (480x832 default), DIRECT_POST or MEDIA_UPLOAD | ComfyUI LTX/Wan (primary) / `branded-video-pipeline` shorts |
 | Photo slideshow | Photo-mode post | Brand slides |
 | `is_aigc` flag | Required for AI-generated video | — |
-
-
-## Publish-path rules (verified 2026-10-27, from upstream fixes)
-
-- **Photos**: `PULL_FROM_URL` only — FILE_UPLOAD photos fail. Must be
-  JPG/JPEG, never PNG (rejected). Verified-domain URL required.
-- **Videos**: `/video/init/` FILE_UPLOAD single-chunk <64MB, or
-  `PULL_FROM_URL` — no `media_type`/`post_mode` on video init.
-- **`unaudited_client_can_only_post_to_private_accounts`** — pre-audit
-  apps can only post to accounts set to **private**; flip the account
-  private for testing or finish the console audit (DIRECT_POST).
-- **Sticky IP** — `ttwid`/`msToken` cookies bind to the exit IP; the
-  warp-proxy must pin one IP per session, not rotate mid-session.
-- **`redirect_uri` must be the production URL**
-  `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` —
-  a localhost value in `.env` silently breaks OAuth callbacks.
-- **e2e green 2026-10-27**: scopes `video.publish`+`video.upload`,
-  `creator_info` ok, domain `cloudless.gr` verified, sidecar session live.
-  Console audit (needs `dev_email`/`dev_password`) unlocks DIRECT_POST.
