@@ -625,6 +625,14 @@ async function loadSavedSession() {
   return false;
 }
 
+// Periodic session persistence: saveSession() otherwise only fires on
+// explicit login/check flows, so a long-lived session never refreshes the
+// on-disk state — after a container recreate the sidecar restores a stale
+// login and every Meta flow falls back to credential+2FA re-auth.
+setInterval(() => {
+  if (context) saveSession().catch(() => {});
+}, 15 * 60 * 1000).unref();
+
 async function exportCookies() {
   if (!context) return {};
   const cookies = await context.cookies();
