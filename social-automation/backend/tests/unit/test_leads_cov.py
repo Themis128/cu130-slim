@@ -23,7 +23,7 @@ def _unwrap_rate_limiter(monkeypatch):
 
 
 def _audit_body(**kw):
-    d = {"email": "a@b.com", "website": "", "url": "https://x.gr", "consent": True}
+    d = {"email": "a@b.com", "website": "", "url": "https://x.gr", "consent": True, "name": None}
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -123,3 +123,104 @@ async def test_survey_full_meta_and_espo_fail(monkeypatch):
     )
     out = await L.create_survey_public(body, SimpleNamespace(), db)
     assert out["survey_delivery"] == "email"
+
+
+# ── residual gaps ───────────────────────────────────────────────────────
+
+
+def test_public_lead_meta_full_attribution():
+    body = L.PublicLeadRequest(
+        email="a@b.com",
+        site="cloudless",
+        form="playbook",
+        page_path="/en/audit",
+        locale="en-GR",
+        consent=True,
+        consent_at="2026-11-20T10:00:00Z",
+    )
+    meta = L.public_lead_meta(body)
+    assert meta["site"] == "cloudless" and meta["form_field"] if "form_field" in meta else meta["form"] == "playbook"
+    assert meta["path"] == "/en/audit" and meta["locale"] == "en-GR"
+    assert meta["consent"] is True and meta["consent_at"].startswith("2026-11-20")
+
+
+async def test_list_leads_without_source_filter():
+    from app.models.lead import LeadSource  # noqa
+
+    class _Res:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class _DB:
+        async def execute(self, stmt):
+            return _Res()
+
+    out = await L.list_leads(team_id=__import__("uuid").uuid4(), limit=10, offset=0, source=None, db=_DB(), _user=SimpleNamespace())
+    assert out == []
+
+
+async def test_audit_success_creates_lead_and_row(monkeypatch):
+    import uuid as _uuid
+
+    import app.services.site_audit as sa
+    import app.services.url_safety as us
+
+    monkeypatch.setattr(L, "get_settings", lambda: _settings())
+    monkeypatch.setattr(us, "validate_public_http_url", lambda u: u)
+    monkeypatch.setattr(
+        sa,
+        "run_site_audit",
+        AsyncMock(return_value={
+            "score": 82,
+            "url": "https://x.gr",
+            "findings": [{"k": "v"}],
+            "recommended_services": ["seo"],
+            "action_plan": {"step": 1},
+        }),
+    )
+    lead = SimpleNamespace(id=_uuid.uuid4())
+    monkeypatch.setattr(L, "create_lead", AsyncMock(return_value=lead))
+
+    class _DB:
+        def __init__(self):
+            self.rows = []
+
+        def add(self, obj):
+            self.rows.append(obj)
+
+        async def flush(self):
+            pass
+
+        async def commit(self):
+            pass
+
+    db = _DB()
+    out = await L.create_audit_public(_audit_body(), SimpleNamespace(), db)
+    assert out["ok"] is True and out["score"] == 82
+    assert len(db.rows) == 1  # AgencyAudit row
+
+
+async def test_survey_minimal_body_and_no_team(monkeypatch):
+    import app.services.espocrm_client as esp
+
+    monkeypatch.setattr(esp, "upsert_lead", AsyncMock())
+    monkeypatch.setattr(L, "get_settings", lambda: _settings())
+    monkeypatch.setattr(L, "playbook_url", lambda s: None)
+    monkeypatch.setattr(L, "create_lead", AsyncMock())
+
+    class _DB:
+        async def commit(self):
+            pass
+
+    # all optional fields absent -> every `if` False arc
+    out = await L.create_survey_public(_survey_body(), SimpleNamespace(), _DB())
+    assert out["ok"] is True
+
+    # no team configured -> 503
+    monkeypatch.setattr(L, "get_settings", lambda: SimpleNamespace(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=""))
+    with pytest.raises(HTTPException) as e:
+        await L.create_survey_public(_survey_body(), SimpleNamespace(), _DB())
+    assert e.value.status_code == 503

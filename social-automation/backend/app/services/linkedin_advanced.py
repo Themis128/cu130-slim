@@ -5,7 +5,9 @@ Behind ``LINKEDIN_ADVANCED=1`` until the access requests on 265077368 +
 flagged off or token missing.
 """
 
+import logging
 import os
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -19,6 +21,8 @@ V2 = "https://api.linkedin.com/v2"
 HDRS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
 
 ENABLED = os.getenv("LINKEDIN_ADVANCED", "0") == "1"
+
+logger = logging.getLogger(__name__)
 
 
 async def _ctx() -> tuple[str, str] | None:
@@ -62,6 +66,105 @@ async def lead_form_responses(form_urn: str) -> dict:
         return {"responses": r.json().get("elements") or [], "status": 200}
 
 
+async def get_lead_form(form_id: str) -> dict | None:
+    """``GET /rest/leadForms/{id}`` — form definition incl. question map.
+
+    ``form_id`` accepts a bare id, ``urn:li:leadGenForm:N`` or a
+    ``urn:li:versionedLeadGenForm:(urn:li:leadGenForm:N,V)`` URN.
+    """
+    import re
+
+    m = re.search(r"leadGenForm:(\d+)", str(form_id))
+    fid = m.group(1) if m else str(form_id)
+    ctx = await _ctx()
+    if not ctx:
+        return None
+    token, _ = ctx
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(f"{REST}/leadForms/{fid}")
+    if r.status_code != 200:
+        logger.info("lead form %s fetch → %s", fid, r.status_code)
+        return None
+    return r.json()
+
+
+def lead_form_question_map(form: dict | None) -> dict[int, dict]:
+    """``content.questions[]`` → ``{questionId: {keys, label, options}}``.
+
+    Each entry exposes ``keys`` (name + predefinedField, lowercased) for
+    answer lookup and ``options`` (ordered ``[{id, text}]``) for
+    multiple-choice resolution.
+    """
+    out: dict[int, dict] = {}
+    for q in ((form or {}).get("content") or {}).get("questions") or []:
+        qid = q.get("questionId")
+        if qid is None:
+            continue
+        loc = ((q.get("question") or {}).get("localized")) or {}
+        label = loc.get("en_US") or next(iter(loc.values()), "")
+        keys = {str(k).lower() for k in (q.get("name"), q.get("predefinedField")) if k}
+        options: list[dict] = []
+        mc = ((q.get("questionDetails") or {}).get("multipleChoiceQuestionDetails") or {}).get("options") or []
+        for opt in mc:
+            otext = (((opt.get("text") or {}).get("localized")) or {})
+            olabel = otext.get("en_US") or next(iter(otext.values()), "")
+            options.append({"id": opt.get("id"), "text": olabel})
+        out[int(qid)] = {"keys": keys, "label": label, "options": options}
+    return out
+
+
+async def list_lead_notifications(owner_urn: str, lead_type: str = "SPONSORED") -> dict:
+    """Existing lead-notification subscriptions for an owner.
+
+    ``GET /rest/leadNotifications?q=criteria&owner=(value:…)&leadType=(leadType:…)``
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"notifications": [], "skip": "disabled-or-no-account"}
+    token, _ = ctx
+    owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
+    owner = quote(owner_urn, safe="")
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(
+            f"{REST}/leadNotifications",
+            params={
+                "q": "criteria",
+                "owner": f"(value:({owner_key}:{owner}))",
+                "leadType": f"(leadType:{lead_type})",
+            },
+        )
+    if r.status_code != 200:
+        return {"notifications": [], "status": r.status_code}
+    return {"notifications": r.json().get("elements") or [], "status": 200}
+
+
+async def create_lead_notification(webhook_url: str, owner_urn: str, lead_type: str = "SPONSORED") -> dict:
+    """Subscribe a webhook to lead notifications — ``POST /rest/leadNotifications``.
+
+    Owner level only (recommended by LinkedIn). ``owner_urn`` is a
+    ``urn:li:sponsoredAccount:`` or ``urn:li:organization:`` URN; the owner
+    key is derived from the URN prefix.
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"error": "disabled-or-no-account"}
+    token, _ = ctx
+    owner_key = "sponsoredAccount" if "sponsoredAccount" in owner_urn else "organization"
+    payload = {
+        "webhook": webhook_url,
+        "owner": {owner_key: owner_urn},
+        "leadType": lead_type,
+    }
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.post(f"{REST}/leadNotifications", json=payload)
+    if r.status_code not in (200, 201):
+        return {"error": r.status_code, "body": r.text[:300]}
+    out: dict = {"ok": True, "status": r.status_code, "owner": owner_urn, "leadType": lead_type}
+    if r.headers.get("x-restli-id"):
+        out["id"] = r.headers["x-restli-id"]
+    return out
+
+
 # ── Conversions API ──────────────────────────────────────────────────────
 
 
@@ -71,6 +174,8 @@ async def stream_conversion(
     happened_at_ms: int,
     email_sha256: str | None = None,
     lead_id: str | None = None,
+    conversion_value: float | None = None,
+    currency_code: str | None = None,
 ) -> dict:
     """Stream a server-side conversion event (``audit_booked``, ``lead_created``).
 
@@ -88,15 +193,16 @@ async def stream_conversion(
         user["userIds"] = [{"idType": "SHA256_EMAIL", "idValue": email_sha256}]
     if lead_id:
         user["lead"] = lead_id if lead_id.startswith("urn:") else f"urn:li:leadGenFormResponse:{lead_id}"
-    payload = {
-        "elements": [
-            {
-                "conversion": conversion_rule,
-                "conversionHappenedAt": happened_at_ms,
-                "user": user,
-            }
-        ]
+    element: dict = {
+        "conversion": conversion_rule,
+        "conversionHappenedAt": happened_at_ms,
+        "user": user,
     }
+    if conversion_value is not None:
+        element["conversionValue"] = conversion_value
+    if currency_code:
+        element["currencyCode"] = currency_code
+    payload = {"elements": [element]}
     headers = {
         "Authorization": f"Bearer {token}",
         **HDRS,
@@ -113,6 +219,96 @@ async def stream_conversion(
         except ValueError:
             pass
         return out
+
+
+# ── Conversion rules (create/list/resolve) ───────────────────────────────
+
+# event name → (env var holding the rule URN, LinkedIn conversion `type`)
+# ``type`` is the Campaign Manager "key conversion behavior" — LEAD for
+# form/booking captures, SIGNUP for subscriptions, PURCHASE for checkout,
+# CUSTOM for everything else.
+CONVERSION_EVENTS: dict[str, tuple[str, str]] = {
+    "audit_booked": ("LINKEDIN_CONVERSION_RULE", "LEAD"),
+    "lead_created": ("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "LEAD"),
+    "contact_created": ("LINKEDIN_CONVERSION_RULE_CONTACT", "LEAD"),
+    "consultation_booked": ("LINKEDIN_CONVERSION_RULE_CONSULT", "LEAD"),
+    "signup": ("LINKEDIN_CONVERSION_RULE_SIGNUP", "SIGNUP"),
+    "purchase": ("LINKEDIN_CONVERSION_RULE_PURCHASE", "PURCHASE"),
+}
+
+
+async def list_conversion_rules() -> dict:
+    """All conversion rules on the ads account — ``GET /rest/conversions``."""
+    ctx = await _ctx()
+    if not ctx:
+        return {"rules": [], "skip": "disabled-or-no-account"}
+    token, _ = ctx
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.get(f"{REST}/conversions", params={"q": "account", "account": AD_ACCOUNT_URN, "count": 100})
+    if r.status_code != 200:
+        return {"rules": [], "status": r.status_code}
+    return {"rules": r.json().get("elements") or [], "status": 200}
+
+
+async def create_conversion_rule(name: str, conv_type: str = "LEAD") -> dict:
+    """Create a ``CONVERSIONS_API`` rule — ``POST /rest/conversions``.
+
+    Returns ``{"rule_urn": "urn:lla:llaPartnerConversion:{id}", "id": ...}``
+    on success (id from ``x-restli-id`` / body ``id``).
+    """
+    ctx = await _ctx()
+    if not ctx:
+        return {"error": "disabled-or-no-account"}
+    token, _ = ctx
+    payload = {
+        "name": name,
+        "account": AD_ACCOUNT_URN,
+        "conversionMethod": "CONVERSIONS_API",
+        "postClickAttributionWindowSize": 30,
+        "viewThroughAttributionWindowSize": 7,
+        "attributionType": "LAST_TOUCH_BY_CAMPAIGN",
+        "type": conv_type,
+    }
+    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+        r = await c.post(
+            f"{REST}/conversions",
+            params={"autoAssociationType": "ALL_CAMPAIGNS"},
+            json=payload,
+        )
+    if r.status_code not in (200, 201):
+        return {"error": r.status_code, "body": r.text[:300]}
+    rule_id = r.headers.get("x-restli-id")
+    if not rule_id:
+        try:
+            rule_id = r.json().get("id")
+        except ValueError:
+            rule_id = None
+    if not rule_id:
+        return {"error": "no-rule-id", "body": r.text[:300]}
+    return {"rule_urn": f"urn:lla:llaPartnerConversion:{rule_id}", "id": str(rule_id), "name": name}
+
+
+async def resolve_conversion_rule(event: str) -> str | None:
+    """Rule URN for *event*: env var first, then ``social_secrets`` fallback.
+
+    The ensure-task stores auto-created rules under the same env-var key in
+    the secret store, so resolution order stays env → secret → None.
+    """
+    spec = CONVERSION_EVENTS.get(event)
+    if not spec:
+        return None
+    env_key, _ = spec
+    urn = os.environ.get(env_key, "")
+    if urn:
+        return urn
+    try:
+        from app.services.secret_store import secret_store
+
+        val = await secret_store.get(env_key)
+        return str(val) if val else None
+    except Exception:  # noqa: BLE001 — resolution must never break the caller
+        logger.debug("conversion rule secret lookup failed for %s", env_key, exc_info=True)
+        return None
 
 
 # ── Matched Audiences ────────────────────────────────────────────────────

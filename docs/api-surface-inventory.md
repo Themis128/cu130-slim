@@ -318,6 +318,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/linkedin/best-time` — GET
 - `/api/v1/linkedin/comment` — POST
 - `/api/v1/linkedin/company-page-url` — GET
+- `/api/v1/linkedin/feed/comment` — POST
+- `/api/v1/linkedin/feed/comments` — GET
+- `/api/v1/linkedin/feed/metadata` — GET
+- `/api/v1/linkedin/feed/posts` — GET
+- `/api/v1/linkedin/feed/react` — POST
 - `/api/v1/linkedin/generate-article` — POST
 - `/api/v1/linkedin/generate-comment` — POST
 - `/api/v1/linkedin/generate-hashtags` — POST
@@ -645,6 +650,8 @@ asserts every live route appears here — regenerate this file when adding route
 ## `webhooks`
 
 - `/api/v1/webhooks/calcom` — POST
+- `/api/v1/webhooks/linkedin-conversion` — POST
+- `/api/v1/webhooks/linkedin-lead-sync` — GET,POST
 - `/api/v1/webhooks/twitter` — GET,POST
 
 ## `whatsapp`

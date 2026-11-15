@@ -452,3 +452,24 @@ async def test_tiktok_busy_like_comment(monkeypatch):
     assert out == {"error": "eval failed", "skip": False}
     out = await tiktok_actor.act(_action(action="save"), None)
     assert out == {"error": "tt: save unsupported", "skip": True}
+
+
+@pytest.mark.asyncio
+async def test_ig_repost_shared_to_story(monkeypatch):
+    import asyncio as _aio
+
+    _mock_http(monkeypatch, ig_actor, _bridge("shared-to-story"))
+    monkeypatch.setattr(_aio, "sleep", _nosleep)
+    out = await ig_actor.act(_action(action="repost", target_post_id="XYZ9"), None)
+    assert out == {"ok": True, "resp": {"via": "share-to-story"}}
+
+
+@pytest.mark.asyncio
+async def test_ig_repost_failure_and_empty(monkeypatch):
+    import asyncio as _aio
+
+    _mock_http(monkeypatch, ig_actor, _bridge("no-share-btn"))
+    monkeypatch.setattr(_aio, "sleep", _nosleep)
+    assert await ig_actor.act(_action(action="repost"), None) == {"error": "no-share-btn", "skip": True}
+    _mock_http(monkeypatch, ig_actor, _bridge(""))
+    assert await ig_actor.act(_action(action="repost"), None) == {"error": "share sheet failed", "skip": True}

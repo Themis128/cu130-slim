@@ -849,3 +849,172 @@ def test_ensure_funnel_cta_appends_plans_line():
     out = _ensure_funnel_cta("plain copy no link", "twitter")
     assert "See the plans + starter kits" in out
     assert "utm_source=twitter" in out
+
+
+# ── residual arcs: _generate_media + schedule_report_actions ────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_media_cf_returns_no_b64_falls_to_banner(monkeypatch):
+    # Workers AI result without image_base64 -> b64 falsy -> banner path
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
+    monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
+    monkeypatch.setattr(
+        "app.services.comfyui_image.generate_image",
+        AsyncMock(side_effect=RuntimeError("gpu down")),
+    )
+    monkeypatch.setattr(
+        "app.services.inference._call_workers_ai_image",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr("app.services.brand_assets.generate_og_image", lambda *a, **kw: b"banner")
+    asset = SimpleNamespace(id=uuid.uuid4())
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
+    assert out == asset.id
+
+
+@pytest.mark.asyncio
+async def test_generate_media_qa_fail_retry_raises_drops_to_banner(monkeypatch):
+    # AI image fails text QA -> no-text retry raises -> png None -> banner
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
+    monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
+    monkeypatch.setattr(
+        "app.services.comfyui_image.generate_image",
+        AsyncMock(side_effect=RuntimeError("gen down")),
+    )
+    monkeypatch.setattr(
+        "app.services.inference._call_workers_ai_image",
+        AsyncMock(return_value={"image_base64": base64.b64encode(b"cf-png").decode()}),
+    )
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": False, "garbled": False}),
+    )
+    monkeypatch.setattr("app.services.brand_assets.generate_og_image", lambda *a, **kw: b"banner")
+    asset = SimpleNamespace(id=uuid.uuid4())
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
+    assert out == asset.id
+
+
+@pytest.mark.asyncio
+async def test_generate_media_qa_retry_clean_and_overlay_success(monkeypatch):
+    # comfyui png -> QA clean -> retry not needed; infographic overlay succeeds
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
+    monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
+    monkeypatch.setattr(
+        "app.services.comfyui_image.generate_image",
+        AsyncMock(return_value=(b"png-bytes", {})),
+    )
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": True, "garbled": False}),
+    )
+    monkeypatch.setattr(
+        "app.services.infographic_renderer.generate_infographic_content",
+        AsyncMock(return_value={"title": "t"}),
+    )
+    monkeypatch.setattr(
+        "app.services.infographic_renderer.render_infographic",
+        lambda content, bg: b"final-png",
+    )
+    asset = SimpleNamespace(id=uuid.uuid4())
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
+    assert out == asset.id
+
+
+@pytest.mark.asyncio
+async def test_schedule_slot_always_taken_exhausts_hops(monkeypatch):
+    acc = _account("linkedin")
+    db = _Db(results=[_Rows([SimpleNamespace(id=uuid.uuid4())]), _Rows([acc])])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("c", [], 90)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(X, "_slot_taken", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    out = await X.schedule_report_actions(
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        [MonetizationAction("linkedin", "post", "23:00", "image")],
+        "2026-10-14",
+    )
+    assert out[0]["status"] == "scheduled"
+
+
+@pytest.mark.asyncio
+async def test_schedule_video_dispatch_and_platform_specific(monkeypatch):
+    acc = _account("facebook")
+    db = _Db(results=[_Rows([SimpleNamespace(id=uuid.uuid4())]), _Rows([acc])])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("c", [], 90)))
+    monkeypatch.setattr(X, "_slot_taken", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    monkeypatch.setattr(
+        "app.worker.tasks.media.generate_video_asset_task",
+        SimpleNamespace(delay=lambda *a, **k: SimpleNamespace(id="vt-1")),
+    )
+    out = await X.schedule_report_actions(
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        [MonetizationAction("facebook", "reel idea", "12:00", "reel")],
+        "2026-10-14",
+    )
+    assert out[0]["status"] == "drafted"
+    assert "video render dispatched" in out[0]["reason"]
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.meta_data["pending_video_task"] == "vt-1"
+    assert post.platform_specific == {"facebook": {"format": "reel"}}
+
+
+@pytest.mark.asyncio
+async def test_schedule_instagram_story_platform_specific(monkeypatch):
+    acc = _account("instagram")
+    db = _Db(results=[_Rows([SimpleNamespace(id=uuid.uuid4())]), _Rows([acc])])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("c", [], 90)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(X, "_slot_taken", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    out = await X.schedule_report_actions(
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        [MonetizationAction("instagram", "story idea", "12:00", "story")],
+        "2026-10-14",
+    )
+    assert out[0]["status"] == "scheduled"
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.platform_specific == {"instagram": {"format": "story"}}
+
+
+@pytest.mark.asyncio
+async def test_schedule_compliance_pass_stays_scheduled(monkeypatch):
+    acc = _account("linkedin")
+    db = _Db(results=[_Rows([SimpleNamespace(id=uuid.uuid4())]), _Rows([acc])])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("c", [], 90)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(X, "_slot_taken", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=({"name": "b"}, {"v": 1}, "ctx")),
+    )
+    monkeypatch.setattr(
+        "app.services.brand_compliance.score_brand_compliance",
+        AsyncMock(return_value={"score": 5.0}),
+    )
+    out = await X.schedule_report_actions(
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        [MonetizationAction("linkedin", "on-brand post", "23:00", "image")],
+        "2026-10-14",
+    )
+    assert out[0]["status"] == "scheduled"
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.status == PostStatus.SCHEDULED
