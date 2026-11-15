@@ -1,0 +1,3 @@
+# Normalize all text files to LF - prevents CRLF dirty-tree noise from
+# Windows-side editors/agents writing through \wsl.localhost UNC paths.
+* text=auto eol=lf
