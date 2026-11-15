@@ -15,10 +15,18 @@ Fully self-gating on two levels:
 
 Member DP is pinned to ``Linkedin-Version: 202312`` and Pages DP to
 ``202604`` inside ``app.services.linkedin_portability``.
+
+Privacy note: member snapshots include the ``CONNECTIONS`` domain, which
+carries third-party LinkedIn member PII (names/positions of the member's
+connections). Elements persist in ``analytics_events.meta_data`` and flow
+to the datalake via ``export-datalake`` — retention follows the
+``analytics_events`` policy. Do not add further PII-bearing domains
+without a retention decision.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -43,6 +51,7 @@ ORG_ANALYTICS_DAYS = 30
 
 MEMBER_SCOPE = "r_dma_portability_self_serve"
 PAGES_SCOPE = "r_dma_admin_pages_content"
+MEMBER_DP_SECRET_KEY = "LINKEDIN_MEMBER_DP_TOKEN"
 
 
 def _scopes(account: SocialAccount) -> set[str]:
@@ -93,30 +102,42 @@ def _event(
     )
 
 
-async def _has_member_dp_secret() -> bool:
+async def _member_dp_secret() -> str | None:
+    """Raw ``LINKEDIN_MEMBER_DP_TOKEN`` store value, fetched once per sweep."""
     try:
         from app.services.secret_store import secret_store
 
-        return bool(await secret_store.get("LINKEDIN_MEMBER_DP_TOKEN"))
-    except Exception:  # noqa: BLE001
-        return False
+        value = await secret_store.get(MEMBER_DP_SECRET_KEY)
+    except Exception as exc:  # noqa: BLE001 — secret store outage must not break the sweep
+        logger.warning("member-dp secret read failed (%s)", type(exc).__name__)
+        return None
+    return str(value) if value else None
 
 
-async def _member_dp_token(person: SocialAccount) -> str | None:
-    """Dedicated Member DP token (app 265100977) wins; account token is fallback."""
+def _parse_member_dp_secret(raw: str) -> tuple[str, str | None]:
+    """Split the secret value into ``(token, pinned account_id)``.
+
+    A bare token is unpinned — it applies to the selected person account
+    (single-tenant assumption). JSON ``{"token": ..., "account_id": ...}``
+    pins the grant to one ``social_accounts.account_id`` so member-DP data
+    is always attributed to the LinkedIn identity the token belongs to.
+    """
     try:
-        from app.services.secret_store import secret_store
+        data = json.loads(raw)
+    except ValueError:
+        return raw, None
+    if isinstance(data, dict) and data.get("token"):
+        pin = data.get("account_id")
+        return str(data["token"]), str(pin) if pin else None
+    return raw, None
 
-        dedicated = await secret_store.get("LINKEDIN_MEMBER_DP_TOKEN")
-        if dedicated:
-            return str(dedicated)
-    except Exception:  # noqa: BLE001 — secret store outage must not break the sweep
-        pass
-    return decrypt_token(bytes(person.access_token_enc))
 
-
-async def _member_dp(db, person: SocialAccount, client: httpx.AsyncClient) -> dict[str, Any]:
-    token = await _member_dp_token(person)
+async def _member_dp(
+    db,
+    person: SocialAccount,
+    client: httpx.AsyncClient,
+    token: str,
+) -> dict[str, Any]:
     summary: dict[str, Any] = {"domains": {}, "truncated_domains": []}
     denied = False
     for domain in lp.MEMBER_DOMAINS:
@@ -240,22 +261,57 @@ async def _run() -> dict[str, Any]:
             .scalars()
             .all()
         )
-        person = next((a for a in accounts if a.account_type == "person"), None)
+        persons = [a for a in accounts if a.account_type == "person"]
+        person = persons[0] if persons else None
         org = next((a for a in accounts if a.account_type == "organization"), None)
         if not person and not org:
             return {"skip": "no-linkedin-accounts"}
 
         result: dict[str, Any] = {}
         async with httpx.AsyncClient(timeout=60) as client:
-            # Member DP — member's own data, person token only. A dedicated
-            # LINKEDIN_MEMBER_DP_TOKEN secret (separate app grant) satisfies
-            # the scope gate even when the account token lacks the scope.
-            member_dp_ready = bool(person) and (_has_scope(person, MEMBER_SCOPE) or await _has_member_dp_secret())
-            if member_dp_ready:
+            # Member DP — member's own data. Token order: dedicated
+            # LINKEDIN_MEMBER_DP_TOKEN secret (app 265100977 grant; satisfies
+            # the scope gate even when the account token lacks the scope)
+            # → person.access_token_enc fallback.
+            member_secret_raw = await _member_dp_secret()
+            member_secret, member_pin = (
+                _parse_member_dp_secret(member_secret_raw) if member_secret_raw else (None, None)
+            )
+            member_person = person
+            if member_pin:
+                pinned = next((a for a in persons if a.account_id == member_pin), None)
+                if pinned is not None:
+                    member_person = pinned
+                else:
+                    logger.warning("member-dp secret pin matches no linkedin person account")
+                    member_secret = None
+            if member_person is not None and (
+                _has_scope(member_person, MEMBER_SCOPE) or member_secret is not None
+            ):
                 try:
-                    result["member_dp"] = await _member_dp(db, person, client)
+                    token = member_secret or decrypt_token(bytes(member_person.access_token_enc))
+                    result["member_dp"] = await _member_dp(db, member_person, client, token)
                 except Exception as exc:  # noqa: BLE001 — never abort the sweep
                     result["member_dp"] = {"error": f"{type(exc).__name__}: {exc}"}
+                # The dedicated token has ~1yr TTL and no refresh — a
+                # pending-grant while it is configured means EXPIRED, not
+                # awaiting approval. Alert (send_telegram_alert dedups 6h).
+                if (
+                    member_secret is not None
+                    and isinstance(result["member_dp"], dict)
+                    and "pending-grant" in result["member_dp"]
+                ):
+                    try:
+                        from app.services.slack_notifications import send_telegram_alert
+
+                        await send_telegram_alert(
+                            "ops",
+                            "LinkedIn Member DP rejected (401/403) — LINKEDIN_MEMBER_DP_TOKEN "
+                            "likely expired (~1yr TTL, no refresh). Re-auth app 265100977 with "
+                            "r_dma_portability_self_serve and update the secret.",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.debug("member-dp expiry alert failed", exc_info=True)
             else:
                 result["member_dp"] = {"skip": "scope-not-granted"}
 
