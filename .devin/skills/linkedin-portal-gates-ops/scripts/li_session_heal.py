@@ -63,8 +63,11 @@ EVAL_STATE = r"""
     .find(e => /^sign in$|^log in$/i.test((e.innerText||'').trim())));
   const captcha = !!document.querySelector('iframe[src*="captcha"], '
     + '#captcha, [class*="captcha"], [id*="captcha"]');
+  const bodyTxt = document.body ? document.body.innerText.slice(0, 500) : '';
+  const httpError = location.protocol === 'chrome-error:'
+    || /HTTP ERROR \d+|ERR_TOO_MANY_REDIRECTS/.test(bodyTxt);
   return JSON.stringify({url, loggedIn, authwall, signinBtn, captcha,
-    title: document.title});
+    httpError, title: document.title});
 })()
 """
 
@@ -506,6 +509,24 @@ def cmd_heal(args):
     st = with_tab(base, PROBE_URL, check, settle=8)
     if st.get("loggedIn"):
         print("already logged in")
+        return 0
+    if st.get("httpError"):
+        # Chrome error page (HTTP 429 rate-limit, redirect loop, network
+        # error) — NOT a logout. Cookie/credential attempts would just
+        # hammer the throttle; skip them and let the next cron pass retry.
+        print(f"linkedin error page ({(st.get('url') or '?')[:60]}) — "
+              "rate-limit/network error, heal attempts skipped")
+        prev = _state()
+        _save_state({**prev, "last_heal": time.time(),
+                     "last_result": "http-error"})
+        reason = "http-error-cooldown"
+        if (prev.get("last_alert_reason") != reason
+                or time.time() - prev.get("last_alert_ts", 0) > 6 * 3600):
+            _alert("LinkedIn :9229 returning an HTTP error page (likely "
+                   "429 rate-limit cooldown) — auto-heal paused, cron "
+                   "retries every 30min until it clears.")
+            _save_state({**_state(), "last_alert_reason": reason,
+                         "last_alert_ts": time.time()})
         return 0
     print(f"logged out ({st.get('url')}) — attempting cookie heal")
     res = _heal_with_cookies(base)
