@@ -2503,171 +2503,38 @@ Follow-up to the Docker wipe recovery above:
   nodes pong, beat firing, synigoros tasks registered, infisical
   healthy on :8090.
 
-## 2026-11-15 - Media integrity guard + TikTok invoice video (Devin)
+## 2026-11-14 — SocialAuto media storage integrity guard
 
-- **Media integrity platform fix**: branch `feat/media-integrity-guard`,
-  PR #1921 (open, auto-merge armed). Root cause: R2 bucket
-  `cloudless-pipeline-assets` was recreated 2026-11-03 orphaning ~635
-  media_assets rows; `/upload/complete` also created rows without
-  verifying the object existed and always labeled backend=r2. Fix:
-  object-presence verification on complete, correct backend persistence,
-  scheduled `media_integrity` sweep (6h, default queue) that classifies
-  healthy/repaired/quarantined/backend_error and writes audit evidence.
-  Live dry sweep: 893 checked, 254 healthy, 635 missing/quarantined, 0
-  backend errors. NOTE: PR `test` + `integration-test` checks FAILED on
-  CI (required validate/secret-scan green) - investigate before merge
-  if auto-merge blocks.
-- **TikTok video published via SocialAuto**: post
-  e9710b32-e426-4996-86fc-4780d56ae19a, media
-  ac4a404d-14fd-4338-9b0a-108fb7545dd4 (tiktok-invoice-60.mp4, 720x1280
-  9:16, 60.04s, h264/aac, quality gate 80/80). Account ab439e1e
-  (@cloudless.gr profile). TikTok result: publish_mode MEDIA_UPLOAD,
-  status SEND_TO_USER_INBOX, publish_id
-  v_inbox_file~v2.7708188531985975318 - video is in the creator TikTok
-  app inbox awaiting manual finish, NOT a direct post. dcda73fb row is
-  status=expired (token invalid, 401); ab439e1e/7c33ed15 both map to
-  @cloudless.gr with active tokens (dupe rows - cleanup candidate).
-- **Render env**: container ffmpeg 7.1.5 lacks the sawtooth filter so
-  `scripts/audio_bed.py` fails (exit 8) - video was rendered on Windows
-  host via imageio-ffmpeg 9.0.2 + sine-based bed instead. Fix
-  `audio_bed.py` pad preset to sine or document the ffmpeg dep.
-- **Stack**: fsbridge kept bouncing (mass exit 127/255, compose-healer
-  converge loops). Publishing was done via rescue containers from the
-  baked image while bind-mounts were poisoned; stack recovered on its
-  own afterwards - all 4 celery nodes healthy, api /health ok, lock
-  released, rescue containers removed.
+Root cause verified live:
+- Cloudflare R2 bucket `cloudless-pipeline-assets` was recreated on
+  2026-11-03. Existing `media_assets` rows still pointed to the old bucket,
+  so 634/882 R2 references became orphaned (41/50 videos unreachable).
+- `/api/v1/media/upload/complete` previously wrote `r2` rows without proving
+  the object existed and could mislabel MinIO fallback uploads as R2.
+- No recurring worker audited storage drift, so publishing discovered stale
+  references only at runtime.
 
-## 2026-11-15 - Host RAM flap loop: root cause + durable fixes (Devin)
+Implemented on `feat/media-integrity-guard`:
+- `/upload/prepare` returns the actual selected backend;
+  `/upload/complete` verifies the uploaded object (explicit backend honored,
+  legacy discovery preserved), records verified backend/size/public URL,
+  and rejects missing objects before creating `media_assets`.
+- `app/services/media_integrity.py` + Celery task
+  `run_media_integrity_sweep` classify assets as ok/repaired/missing/
+  size_mismatch/backend_error, quarantine unresolved missing objects, and
+  write auditable evidence; no rows/objects are deleted.
+- Celery beat runs the bounded sweep every 6h on the default queue; workforce
+  audit has goal/guardrails/fallback/evidence/escalation queries.
+- Tests: 161 focused media/storage/Slack tests + 248 adjacent tests passed
+  locally; ruff/mypy clean. Live deploy/sweep remains pending while app
+  containers are healed from bind-mount exit-127.
 
-- **Root cause of repeated pri-5 Host Guard 1007 + phone alarms**:
-  `docker model unload` marks DMR models inactive but the Windows-side
-  `com.docker.llama-server` processes linger holding GBs; traffic
-  reloads them within minutes. Fleet is CPU-only (`--n-gpu-layers 0`
-  in canonical configs) so all ~7 models live in host RAM, not VRAM.
-- **Fixes applied (Windows host, D:\DevOptimizer)**:
-  - `scripts/dmr-ram-guard.ps1` stage-2: if free RAM still below
-    WarnMb after `docker model unload`, Stop-Process all stray
-    `com.docker.llama-server` procs (respawn on demand). Proven:
-    manual kill freed +4GB instantly vs unload-only dives to 298MB.
-  - Scheduled task `DevOptimizer-DMR-RAM-Guard` cadence PT5M -> PT2M.
-  - `docker model configure --keep-alive 0` persisted on `smollm2` +
-    `stable-diffusion` (unmanaged by watchdog - verified via
-    `configure show`). Canonical keep_alive values left untouched:
-    llama3.2 2m->0 rejected (carousel NLP makes sequential calls,
-    per-call cold-load too costly); 4B 30m kept (chatbot latency).
-- **Repo hygiene**: 15 files showed as modified = pure CRLF noise
-  (14623 ins = 14623 del, `git diff --ignore-cr-at-eol` empty).
-  `git checkout -- .` restored LF; tree clean. home-ops also clean.
-  NOTE: the CRLF noise REAPPEARED within the hour - something on the
-  Windows side rewrites these files; find the writer before it
-  dirties the tree again.
-- **PR status**: #1927 postgres-recovery-ops MERGED; #1930 closed but
-  the --pull never fix landed via #1929; #1931, #1932 merged.
-- **TikTok reauth rc=4 = correct behavior, not a bug**: OAuth
-  refreshed ab439e1e (@cloudless.gr, exp 2026-11-16) but target row
-  dcda73fb (-000lqpsmr..., DIFFERENT TikTok account, status=expired)
-  stays expired - needs that account logged into tiktok-browser-sidecar
-  (human gate). Known dupe: ab439e1e + 7c33ed15 share account_id
-  -0008cAv across two teams.
-- **Threads reauth rc=3 human gate**: browser-novnc:9223 threads.net
-  session logged out -> needs IG re-login on the bridge.
-- **instagram_reauth rc=4**: FB Login for Business consent returned
-  `error_reason=user_denied` (IG_API_ONBOARDING channel) - same
-  wizard-reset wall seen 2026-11-14.
-- **Account truth**: linkedin x2 ACTIVE (both rows), telegram/bluesky
-  active; facebook x2 expired, whatsapp/threads/instagram revoked,
-  twitter expired - all Meta + X lanes are human OAuth gates.
-- **Slack alert lane degraded**: `Slack API error: token_expired` on
-  every post_alert_to_slack call - needs bot-token re-issue (ntfy
-  remains the working alert path).
-- **DMR endpoint**: .env + container agree on :12435; /engines/v1/models
-  200/78ms. Models churn Loading<->evict under traffic - bounded by
-  keep_alive + guard; dmr-watchdog healthy, re-applies canonical
-  configs every ~60s (overwrites ad-hoc `docker model configure` on
-  managed models - edit compose Cmd + dmr.py _BEST_PRACTICE_CONFIGS
-  together for durable changes).
-
-## 2026-11-15 — LinkedIn scope-infra build (PR #1942, auto-merge armed)
-
-- **New lanes** (cu130-slim `feat/linkedin-scope-infra`):
-  `linkedin_feed.py` CM-API service (posts/metadata/comments/reactions,
-  member+org actors, writes gated by LINKEDIN_FEED_WRITES), engagement
-  worker `linkedin-engage` */45m (watchlist LINKEDIN_ENGAGE_AUTHORS,
-  caps 10 react/3 comment/day, 72h freshness, analytics_events dedup),
-  Conversions API rule lifecycle (list/create/resolve env→social_secrets,
-  value+currency on stream_conversion), `linkedin-conversion-ensure`
-  daily beat auto-provisioning rules, `/webhooks/linkedin-conversion`
-  ingest (X-Conversion-Key), `/webhooks/linkedin-lead-sync` Lead Sync
-  push receiver → shared `route_lead_response` (EspoCRM + lead_created),
-  `r_1st_connections_size` via networkSizes FIRST_DEGREE, ops CLI
-  `scripts/linkedin_feed_tool.py`, 17 unit tests, route inventory 544.
-- **cloudless.gr PR #2429** (auto-merge): server-side fires via SocialAuto
-  ingest — contact→contact_created, subscribe→signup, Stripe paid→purchase.
-  Needs `SOCIALAUTO_CONVERSION_KEY` wrangler secret = SocialAuto
-  `LINKEDIN_CONVERSION_INGEST_KEY` (both already generated in .env).
-- **Env vars set** in .env (WSL+Windows): LINKEDIN_CONVERSION_INGEST_KEY,
-  LINKEDIN_LEAD_SYNC_KEY, LINKEDIN_FEED_WRITES=1,
-  LINKEDIN_ENGAGE_AUTHORS=urn:li:organization:108614163. Compose now
-  passes them (x-worker-env + social-api) — live only after #1942 merges
-  + containers recreate.
-- **Writes posture**: FEED_WRITES=1 but COMMENT_TEMPLATES empty →
-  reactions only until templates are set deliberately.
-- **fsbridge flap #3 today**: 39/40 hashed mounts empty, wsl.exe interop
-  timed out; `wsl.exe -t docker-desktop` + full compose force-recreate
-  recovered all containers (0 exited). Durable fix still full
-  `wsl --shutdown`.
-- **Pending external**: Lead Sync webhook URL registration in Campaign
-  Manager (polling fallback covers), Member DP + Matched Audiences grants,
-  `SOCIALAUTO_CONVERSION_KEY` wrangler secret on cloudless.gr.
-
-## 2026-11-15 (later) — fsbridge flap #4: social.cloudless.gr P1 fixed via volume transplant
-
-- **Alert**: social-stack-watchdog public-outage recur=5 on
-  `https://social.cloudless.gr/` (+ `cloud.cloudless.gr/status.php` once).
-  Root cause = same fsbridge class as flap #3: dd-user-distro-proxy wedged
-  on vsock → 24/40 hashed `\\wsl.localhost` mounts EMPTY → every container
-  restart hit `not a directory`/empty mounts → mass Exited(127).
-- **Fixed live (no wsl --shutdown)**: named-volume transplant per
-  `wsl-fsbridge-ops`/`stack-rescue-ops` —
-  - `social-cloudflared`: entrypoint.sh seeded into external volume
-    `cf-entrypoint`, override mounts it at `/cfg` +
-    `entrypoint: [/bin/sh, /cfg/entrypoint.sh]` → tunnel Up(healthy),
-    `social.cloudless.gr` back to **200** (verified 3x), api-health 200.
-  - `api-gateway`, `social-metrics`, `n8n-metrics`: nginx conf.d/upstream
-    seeded into volumes `agw-conf`/`agw-upstream`/`metrics-conf`/`n8n-conf`,
-    mounted at `/etc/nginx/conf.d` + `/etc/nginx/upstream` (dir-level mount
-    shadows the poisoned per-file bind — works because nginx only needs
-    default.conf there). All Up(healthy); :9390/:9392 /metrics → 200.
-  - All changes live in **gitignored `docker-compose.override.yml`** —
-    REMOVE the cloudflared/api-gateway/social-metrics/n8n-metrics blocks +
-    volumes after the durable `wsl --shutdown` heal, then
-    `docker compose up -d` those services.
-- **Still dead (Exited 127, same root cause, not yet transplanted)**:
-  `promtail` (needs /var/lib/docker/containers — too big to transplant),
-  `stack-watchers` (whole-repo /app mount). Sleep-managed stops
-  (portainer, env-manager-*, airbyte-mcp, warp-proxy, instagram-private-api,
-  messenger-sidecar, n8n-sandbox) will ALSO crash on next wake until heal —
-  expect wake-time exit-127s; stack-ops may flap them.
-- **Backend force-recreate by parallel agent succeeded** — social-api +
-  4 workers + celery-beat all Up(healthy); their /app hashed mounts were
-  among the survivors.
-- **WSL vsock alert (01:43) still open**: durable fix remains full
-  `wsl --shutdown` — kills this WSL session + any in-flight agent work;
-  needs a quiet window + owner approval. Overnight healers did NOT clear
-  it (flap #4 proves vsock still wedged).
-
-### fsbridge flap #4 follow-up — promtail + stack-watchers also transplanted
-
-- `promtail`: `promtail.yml` → volume `promtail-cfg` at `/etc/promtail`
-  (config.yml inside); `promtail-data` → volume `promtail-data-vol` seeded
-  via `docker cp promtail:/var/lib/promtail/positions.yaml` (docker cp still
-  reads the stopped container's surviving hashed mount — trick for
-  root-owned bind content). Up(healthy), docker_sd discovering targets.
-- `stack-watchers`: `.:/app:ro` → `/mnt/c/Users/tbaltzakis/cu130-slim:/app:ro`
-  (Windows-side synced mirror, NOT a git checkout — heals enough for
-  heal_supervisor.py; drift risk until wsl --shutdown). Up(healthy).
-- All override entries remain in gitignored docker-compose.override.yml —
-  revert the whole fsbridge block after the durable heal.
-- **Zero Exited(127) containers remain.** Remaining Exited are
-  stack-ops idle-sleep (clean 0/143) — expect wake-time 127s on any with
-  \\wsl.localhost mounts until wsl --shutdown.
+Remaining / watch:
+- [ ] Recreate affected social-api/worker/beat containers after deploy-lock
+  check (exit-127 stale bind mounts), restart media/default workers + beat,
+  run one live bounded sweep, inspect `audit_logs` and quarantined metadata.
+- [ ] Historical R2 objects lost in the old bucket cannot be recovered by the
+  sweep; rows remain quarantined for human review/re-upload.
+- [ ] After live verification, reassess TikTok candidate
+  `day18-stop-starting-from-scratch.mp4` / asset `d8b7b589…` and publish
+  only if the object verifies and account validation remains healthy.

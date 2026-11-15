@@ -128,8 +128,11 @@ async def _fanout_talk(text: str, purpose: str, blocks: list[dict] | None = None
         logger.debug("Talk fanout failed (non-fatal)", exc_info=True)
 
 
-async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> None:
+async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> bool:
     """Post an operational alert to #socialauto-alerts (best-effort, non-fatal).
+
+    Returns whether the Slack post succeeded so callers that persist alert
+    dedupe state do not treat a failed notification as delivered.
 
     Pass ``blocks`` for a Block Kit layout — interactive elements (buttons)
     dispatch to the Slack app that owns the webhook (the Cloudless app), whose
@@ -149,6 +152,7 @@ async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> No
         logger.warning("Slack alerts disabled or failed: %s", err)
     await _fanout_talk(text, "alerts", blocks)
     await _post_ntfy_alert("ops", text)
+    return ok
 
 
 # ---------------------------------------------------------------------------
