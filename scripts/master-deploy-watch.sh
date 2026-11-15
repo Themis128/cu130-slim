@@ -166,6 +166,48 @@ if [ "$app_code" = 1 ]; then
   docker compose restart $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "restart" ":rotating_light: master-deploy-watch: compose restart failed after $new"
 fi
 
+# ── local-image services: rebuild when files under their build context
+# changed. These services have no GHCR image — `compose up -d` alone would
+# keep running the stale baked image (e.g. linkedin-browser-sidecar/server.js).
+# Watchtower can't help here: it only pulls registry tags, never builds.
+# State (/data: session + rate-limit.json) lives on a named volume, so a
+# rebuild+recreate preserves the LinkedIn cooldown and login session.
+LOCAL_IMAGE_CTX=(
+  "linkedin-browser-sidecar/:linkedin-browser-sidecar"
+  "tiktok-browser-sidecar/:tiktok-browser-sidecar"
+  "messenger-sidecar/:messenger-sidecar"
+  "facebook-browser-sidecar/:facebook-browser-sidecar"
+  "browser-novnc/:browser-novnc engagement-browser"
+  "instagram-private-api/:instagram-private-api"
+  "airbyte-mcp-server/:airbyte-mcp-server"
+  "stack-ops/:stack-ops"
+  "monitoring/promtail/:promtail"
+)
+rebuild_svcs=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  for pair in "${LOCAL_IMAGE_CTX[@]}"; do
+    ctx="${pair%%:*}"; svcs="${pair#*:}"
+    case "$f" in
+      "$ctx"*)
+        for s in $svcs; do
+          case " $rebuild_svcs " in *" $s "*) ;; *) rebuild_svcs="$rebuild_svcs $s" ;; esac
+        done ;;
+    esac
+  done
+done <<< "$changed"
+rebuild_svcs="${rebuild_svcs# }"
+if [ -n "$rebuild_svcs" ]; then
+  log "build-context changed — rebuilding:$rebuild_svcs"
+  # shellcheck disable=SC2086
+  if docker compose build $rebuild_svcs >>"$DW_LOG" 2>&1 && \
+     docker compose up -d $rebuild_svcs >>"$DW_LOG" 2>&1; then
+    log "rebuilt+recreated:$rebuild_svcs"
+  else
+    ALERT "image-rebuild" ":rotating_light: master-deploy-watch: docker compose build/up failed for:$rebuild_svcs — check $DW_LOG"
+  fi
+fi
+
 # ── health gate: api + all 4 celery nodes ─────────────────────────────
 sleep 25
 fails_file="$DW_STATE_DIR/fails-$new"
