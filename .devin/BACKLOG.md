@@ -2655,3 +2655,19 @@ Follow-up to the Docker wipe recovery above:
   `wsl --shutdown` — kills this WSL session + any in-flight agent work;
   needs a quiet window + owner approval. Overnight healers did NOT clear
   it (flap #4 proves vsock still wedged).
+
+### fsbridge flap #4 follow-up — promtail + stack-watchers also transplanted
+
+- `promtail`: `promtail.yml` → volume `promtail-cfg` at `/etc/promtail`
+  (config.yml inside); `promtail-data` → volume `promtail-data-vol` seeded
+  via `docker cp promtail:/var/lib/promtail/positions.yaml` (docker cp still
+  reads the stopped container's surviving hashed mount — trick for
+  root-owned bind content). Up(healthy), docker_sd discovering targets.
+- `stack-watchers`: `.:/app:ro` → `/mnt/c/Users/tbaltzakis/cu130-slim:/app:ro`
+  (Windows-side synced mirror, NOT a git checkout — heals enough for
+  heal_supervisor.py; drift risk until wsl --shutdown). Up(healthy).
+- All override entries remain in gitignored docker-compose.override.yml —
+  revert the whole fsbridge block after the durable heal.
+- **Zero Exited(127) containers remain.** Remaining Exited are
+  stack-ops idle-sleep (clean 0/143) — expect wake-time 127s on any with
+  \\wsl.localhost mounts until wsl --shutdown.
