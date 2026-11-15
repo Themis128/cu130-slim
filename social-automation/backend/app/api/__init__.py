@@ -26,6 +26,7 @@ from app.api import (
     linkedin,
     linkedin_conversions,
     linkedin_feed,
+    linkedin_lead_sync,
     mcp,
     mcp_gateway,
     media,
@@ -86,6 +87,7 @@ router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 router.include_router(linkedin.router, prefix="/linkedin", tags=["linkedin"])
 router.include_router(linkedin_feed.router, tags=["linkedin-feed"])
 router.include_router(linkedin_conversions.router, tags=["webhooks"])
+router.include_router(linkedin_lead_sync.router, tags=["webhooks"])
 
 router.include_router(instagram.router, prefix="/instagram", tags=["instagram"])
 

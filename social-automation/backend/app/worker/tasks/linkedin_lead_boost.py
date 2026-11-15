@@ -30,7 +30,7 @@ async def _route_linkedin_leads() -> dict:
     from sqlalchemy import select
 
     from app.models.social_account import SocialAccount
-    from app.services import espocrm_client, linkedin_ads
+    from app.services import linkedin_ads
 
     async with task_session() as db:
         acc = (
@@ -63,43 +63,56 @@ async def _route_linkedin_leads() -> dict:
 
     routed = 0
     for lead in leads[:25]:
-        resp = lead.get("response") or {}
-        answers = _lead_answers(resp)
-        email = (answers.get("email") or answers.get("emailAddress") or "").strip()
-        if not email:
-            continue
-        first = (answers.get("firstName") or "").strip()
-        last = (answers.get("lastName") or "").strip()
-        lead_id = await espocrm_client.upsert_lead(
-            {
-                "emailAddress": email,
-                "firstName": first,
-                "lastName": last,
-                "source": "Social Media",
-                "description": f"LinkedIn lead-gen response {resp.get('id', '')} via {lead.get('form')}",
-            }
-        )
-        if lead_id:
+        if await route_lead_response(lead.get("response") or {}, lead.get("form")):
             routed += 1
-            try:
-                import hashlib
-
-                from app.services import linkedin_advanced
-
-                sha = hashlib.sha256(email.strip().lower().encode()).hexdigest()
-                conv = await linkedin_advanced.stream_conversion(
-                    conversion_rule=os.environ.get("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"),
-                    happened_at_ms=int(datetime.now(UTC).timestamp() * 1000),
-                    email_sha256=sha,
-                    lead_id=str(resp.get("id") or "") or None,
-                )
-                if not conv.get("ok") and conv.get("status") not in (None, 200, 201):
-                    logger.info("lead_created conversion not accepted: %s", conv)
-            except Exception as exc:  # noqa: BLE001 — conversion reporting never blocks routing
-                logger.warning("lead_created conversion failed: %s", exc)
     if routed:
         await post_alert_to_slack(f":new: LinkedIn lead sync: {routed} lead(s) routed to EspoCRM")
     return {"routed": routed, "found": len(leads)}
+
+
+async def route_lead_response(resp: dict, form_id: str | None = None) -> bool:
+    """Route ONE leadFormResponse → EspoCRM + lead_created conversion.
+
+    Shared by the polling task and the Lead Sync webhook receiver. Returns
+    True when a CRM lead was created/updated.
+    """
+    from app.services import espocrm_client, linkedin_advanced
+
+    answers = _lead_answers(resp)
+    email = (answers.get("email") or answers.get("emailAddress") or "").strip()
+    if not email:
+        return False
+    first = (answers.get("firstName") or "").strip()
+    last = (answers.get("lastName") or "").strip()
+    lead_id = await espocrm_client.upsert_lead(
+        {
+            "emailAddress": email,
+            "firstName": first,
+            "lastName": last,
+            "source": "Social Media",
+            "description": f"LinkedIn lead-gen response {resp.get('id', '')} via {form_id or 'unknown'}",
+        }
+    )
+    if not lead_id:
+        return False
+    try:
+        import hashlib
+
+        sha = hashlib.sha256(email.strip().lower().encode()).hexdigest()
+        rule = await linkedin_advanced.resolve_conversion_rule("lead_created") or os.environ.get(
+            "LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "lead_created"
+        )
+        conv = await linkedin_advanced.stream_conversion(
+            conversion_rule=rule,
+            happened_at_ms=int(datetime.now(UTC).timestamp() * 1000),
+            email_sha256=sha,
+            lead_id=str(resp.get("id") or "") or None,
+        )
+        if not conv.get("ok") and conv.get("status") not in (None, 200, 201):
+            logger.info("lead_created conversion not accepted: %s", conv)
+    except Exception as exc:  # noqa: BLE001 — conversion reporting never blocks routing
+        logger.warning("lead_created conversion failed: %s", exc)
+    return True
 
 
 def _lead_answers(resp: dict) -> dict[str, str]:

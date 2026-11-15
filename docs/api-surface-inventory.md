@@ -645,6 +645,7 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/webhooks/calcom` — POST
 - `/api/v1/webhooks/linkedin-conversion` — POST
+- `/api/v1/webhooks/linkedin-lead-sync` — POST
 - `/api/v1/webhooks/twitter` — GET,POST
 
 ## `whatsapp`
