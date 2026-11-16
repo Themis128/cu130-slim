@@ -3241,20 +3241,6 @@ Resolved this pass (details inline above):
       Note: `desktop stop`+immediate `start` races — if start says
       "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
 
-### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
-
-- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
-      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
-- [x] Server throttled tonight's requests: "WhatsApp is temporarily
-      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
-      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
-      stacked request_code attempts earlier.
-- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
-      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
-      Do NOT re-request before the timer — each request extends the cooldown.
-- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
-      meta_data + verify Cloud API/coexistence status (skill runbook).
-- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
+- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
+      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
