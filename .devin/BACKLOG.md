@@ -2758,3 +2758,19 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   at 08:40 same block). Phone route pending — flip cover closed.
 - [ ] watch: LinkedIn portal 429 cooldown; Meta business verification
   docs pending user input; PRs #1996/#1999/#2000/#2001 on merge treadmill.
+
+### automation closure — chrome-debug-profile launchers (post-battle-test)
+
+- [x] Battle-tested: launcher storm → all guards no-op; kill+restart →
+  watchdog recovered unattended via fixed powershell path; rogue
+  relative-path instance (PID 9292, :9222) found+reaped — the actual
+  dialog owner; bluesky createSession live OK via cloudless.gr;
+  whatsapp_tool status live.
+- [x] ALL chrome-debug-profile launchers unified — 6 entry points:
+  2 stale copies found (`startup-hidden/cdp-launch.bat` ← Startup VBS,
+  `startup-hidden/start-chrome-debug.bat`) now delegate to canonical
+  guarded scripts; legacy taskkill bat + C:\tmp copy → ps1; every path
+  goes through profile-held guard or healthy-check.
+- [x] cdp-debug-watch.py hardened (home-ops): powershell.exe absolute
+  resolution, extra-instance reaper (kills all but oldest profile proc),
+  'Failed To Create Data Directory' dialog auto-dismisser + TG alert.
