@@ -2820,3 +2820,24 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   the same failure can repeat — consider a lightweight probe beat that
   GETs `?challengeCode=` on our own webhook URL and TG-alerts on non-200
   (cheap insurance, ~10 lines in an existing beat).
+
+## 2026-11-16 — fsbridge flap #6: stack-ops-bridge interim proxy
+
+- [x] Flap poisoned hashed bind mounts again → stack-ops + 8 aux
+  containers Exited(127); workers' `LINKEDIN_BROWSER_SIDECAR_URL=
+  http://stack-ops:9225` (and ~15 other stack-ops routes) went dark.
+- [x] Interim fix: `stack-ops-bridge` container (python:3.12-slim, NO bind
+  mounts → immune to fsbridge) aliased `stack-ops` on cu130-backend,
+  asyncio TCP-relaying all 20 services.json proxy ports; host ports
+  9223–9230/8000/8010/8080/3000/5555/5900/6080/6081/8199/8888/9000/1080
+  published on 127.0.0.1 (8081 skipped — already bound). Verified:
+  localhost:9225/health + in-network routes all live.
+- [ ] REMOVE after `wsl --shutdown` heal: `docker rm -f stack-ops-bridge`
+  then `docker compose up -d stack-ops` — real stack-ops restores
+  wake/sleep + control API :8787 (bridge has no sleeper, services stay
+  awake — acceptable interim).
+- [x] Same flap dropped `MAUTIC_DB_PASSWORD`/`MAUTIC_DB_ROOT_PASSWORD`
+  from `.env` (Infisical pull regression — 05:30 backup still had them);
+  restored from `.env.bak-20261116053028`, mautic+mautic-cron healthy.
+  Watch: if the pull repeats, the keys vanish again — check the sync
+  script's key whitelist.
