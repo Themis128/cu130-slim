@@ -31,7 +31,7 @@ REST = "https://api.linkedin.com/rest"
 HDRS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
 PAGE_DELAY_S = 5.0
 MAX_PAGES = 10
-PAGE_SIZE = 50
+PAGE_SIZE = 25  # LinkedIn paging cap (was 50; API now 400s >25)
 # Ads absent from results this many consecutive runs flip to "ended".
 MISS_THRESHOLD = 2
 

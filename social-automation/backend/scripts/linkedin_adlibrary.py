@@ -175,7 +175,7 @@ def main() -> None:
     g.add_argument("--keyword", help="keyword search across ad copy")
     g.add_argument("--advertiser", help="advertiser name filter")
     s.add_argument("--start", type=int, default=0)
-    s.add_argument("--count", type=int, default=25, help="page size (max ~100)")
+    s.add_argument("--count", type=int, default=25, help="page size (LinkedIn caps at 25)")
     s.add_argument("--pages", type=int, default=1, help=f"pages to fetch (max {MAX_PAGES}, 5s apart)")
     s.set_defaults(fn=cmd_search)
 
