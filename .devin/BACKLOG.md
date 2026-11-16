@@ -3235,3 +3235,14 @@ Resolved this pass (details inline above):
 - [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
       engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
       clean through the wrapper.
+
+### battle-test addendum (same day, evening)
+
+- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
+      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
+      the PRE-EDIT config in memory (on-disk configs already clean).
+- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
+      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
+- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
+      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
+      with the old flash-prone command line.
