@@ -221,6 +221,7 @@ async def apply_media_quality(
                 platform=platform,
                 db=db,
                 team_id=team_id,
+                provider_name=provider_name,
             )
             result.seo_score = seo_result.get("score", {})
         except Exception as exc:
