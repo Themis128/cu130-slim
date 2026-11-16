@@ -25,15 +25,15 @@ Portal product states (member_dp_probe --json) are recorded for context but
 the API verdict is authoritative — a portal "Review in progress" label can
 lag the actual grant.
 
-Self-gating: portal probe is skipped when CDP is unreachable (cooldown) —
-the API probes still run since they don't touch the browser session.
+Self-gating: the portal probe (member_dp_probe --json, default --via
+auto) prefers the linkedin-browser-sidecar HTTP lane and only touches
+the Windows CDP :9229 session as fallback — it is skipped cleanly when
+both lanes are unreachable. The API probes don't touch any browser.
 """
 import json
-import os
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 REPO = Path("/home/tbaltzakis/cu130-slim")
