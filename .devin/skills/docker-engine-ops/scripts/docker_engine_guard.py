@@ -82,8 +82,26 @@ def check():
         findings.append(("FAIL", "proxy-dead",
                          "bare `docker info` unreachable — check dd-user-distro-proxy.service"))
 
-    name_exe = docker_name(DOCKER_EXE) if Path(DOCKER_EXE).exists() else ""
-    if name_exe == "docker-desktop":
+    # docker.exe interop spawns a console window on the Windows desktop —
+    # probe it at most hourly (stamp), not every */30 cron pass. Bare `docker`
+    # + systemd checks above still run every pass.
+    exe_stamp = STATE.parent / "exe-check.stamp"
+    exe_due = True
+    try:
+        exe_due = time.time() - exe_stamp.stat().st_mtime > 3600
+    except OSError:
+        pass
+    name_exe = ""
+    if exe_due and Path(DOCKER_EXE).exists():
+        name_exe = docker_name(DOCKER_EXE)
+        try:
+            STATE.parent.mkdir(parents=True, exist_ok=True)
+            exe_stamp.write_text(str(time.time()))
+        except Exception:
+            pass
+    if not exe_due:
+        findings.append(("ok", "docker-exe", "skipped (hourly cadence)"))
+    elif name_exe == "docker-desktop":
         findings.append(("ok", "docker-exe", "docker.exe -> docker-desktop"))
     else:
         findings.append(("FAIL", "engine-down",
