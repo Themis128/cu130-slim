@@ -95,6 +95,20 @@ async def test_score_actions_skips_unmeasurable_and_scored():
 
 
 @pytest.mark.asyncio
+async def test_score_actions_skips_malformed_post_id():
+    """Legacy events stored post_id='None' (string) must not crash the sweep."""
+    team = uuid.uuid4()
+    bad = _ev({"action_type": "content_topic", "result": {"post_id": "None"}})
+    db = _db_execute_seq(
+        _scalars([bad]),
+        _scalar(None),  # _already_scored -> False
+    )
+    out = await DR.score_actions(db, team)
+    assert out == {"scored": 0, "pending": 0, "skipped": 1}
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_score_actions_pending_without_snapshot():
     team = uuid.uuid4()
     action_ev = _ev({"action_type": "content_topic", "result": {"post_id": str(uuid.uuid4())}})
