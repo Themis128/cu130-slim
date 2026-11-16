@@ -3118,3 +3118,33 @@ Resolved this pass (details inline above):
   verification is pending, and expected timeline. Confirmation: "You've
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
+
+- [ ] **IG↔FB Page link blocked by 2021 ad restriction (root cause found 2026-11-16)**:
+  Page `116436681562585` Linked accounts shows "Instagram — Connected to
+  @cloudless.gr" but LIMITED features; Graph `instagram_business_account`/
+  `connected_instagram_account` both absent. The upgrade flow (Page
+  settings → Linked accounts → Instagram → Review connection → Confirm →
+  IG OIDC login) completes the IG auth then fails with **"Unable to
+  connect to Instagram — resolve some issues with your Facebook
+  account"** → Account Quality shows the ONLY issue: personal FB account
+  `Themistoklis Baltzakis` **"Account restricted" Feb 12, 2021** +
+  personal ad account `657781691826702` **Disabled Jan 24, 2021**
+  ("can't be reviewed — too much time passed"). Vera Symeonidou ad
+  account `2771400643144250` also restricted same date.
+  **Human gate**: needs Meta support escalation / business verification
+  (`business.facebook.com/business-support-home/1134463867/` → "Chat with
+  Meta AI" or new ad account in Business Settings). Business portfolio
+  `cloudless.gr` (1558125105019725) is clean. Chat history shows many
+  past failed appeals (Aug–Oct). IG-app "Edit profile → Page" is
+  mobile-only and phone was covered; likely hits the same FB-side gate.
+  Driver `ig_onboarding_drive.py` stays parked until restriction lifts —
+  retries only refresh Meta's rate bucket.
+- [ ] **Throwaway report containers carry stale env**: `strategy-report-run3`
+  Redis auth failed all run (`REDIS_URL` password predates the
+  2026-11-16 ~12:37 pgrotate) → GPU arbiter "DMR unserialized" + ComfyUI
+  "invalid username-password" (same stale-env class). social-api env is
+  fresh and works. Fix: always launch report containers with
+  `--env-file` pointed at the LIVE `.env`, or recreate on rotation.
+- [ ] **ComfyUI credentials**: invalid username-password inside the
+  throwaway container — verify `COMFYUI_*` env in live `.env` vs the
+  ComfyUI container's actual auth (may also be rotation drift).
