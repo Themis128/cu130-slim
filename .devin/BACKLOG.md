@@ -2979,3 +2979,25 @@ Resolved this pass (details inline above):
   scraper; message says "strip CRLF", contents don't). Not merged.
 - [x] pruned: ~60 remote branches belonged to CLOSED-unmerged PRs (mostly
   `*-rebuilt-rebuilt…` pr_rebuild leftovers) — safe to prune once confirmed.
+
+## 2026-11-16 — fsbridge flap #7 healed without WSL restart (Devin)
+
+- Second exit-127 wave (~13:2xZ): social-api, all 4 workers, celery-beat,
+  stack-watchers, compose-healer, dmr-watchdog, socket-proxy, autoheal,
+  chroma down; probe still MOUNT POISONED for fresh mounts.
+- Recovery path that worked: waited for a healthy `wsl.exe` exec window
+  (proxy respawn), then `docker compose up -d --force-recreate` — existing
+  hashed mounts re-materialized, containers came up healthy. Confirms the
+  skill note: force-recreate after a respawn heals without `wsl --shutdown`.
+- Brought back aux set exited in the same wave: metabase, portainer,
+  env-manager-frontend/backend, airbyte-mcp-server, linkedin-mcp-server,
+  warp-proxy, n8n-sandbox, flower, social-media-comfyui-gpu (53 up total).
+- publishing/messenger briefly exited 137 during the mass-restart memory
+  spike (8GB VM) — clean restart once memory settled; not OOMKilled.
+- Removed strays: social-api-rescue (never started — managed api reclaimed
+  :8083 first), 4 hash-prefixed duplicate containers, dead stack-ops
+  instance. stack-ops still covered by stack-ops-bridge on :1080.
+- Verified: social.cloudless.gr 200, cloud.cloudless.gr/status.php 200,
+  all workers+beat healthy.
+- Durable fix unchanged: `wsl --shutdown` at a quiet moment (owner gate);
+  fresh-mount probe still poisoned → named-volume transplants stay.

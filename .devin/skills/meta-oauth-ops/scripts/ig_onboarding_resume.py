@@ -47,7 +47,12 @@ def eval_on(tab_id, expr, mid=[0]):
 
 def main():
     for attempt in range(1, MAX_TRIES + 1):
-        ts = tabs()
+        try:
+            ts = tabs()
+        except Exception as e:
+            print(f"[{time.strftime('%H:%M:%S')}] attempt {attempt}: CDP probe failed: {e} — retrying next interval", flush=True)
+            time.sleep(INTERVAL)
+            continue
         ext = next((t for t in ts if "facebook_business_extension" in t.get("url", "")), None)
         if not ext:
             # chain finished or tab closed — check the oauth dialog tab
@@ -58,7 +63,12 @@ def main():
                 print(f"  dialog text: {txt[:200]}", flush=True)
             return
         url = ext["url"]
-        txt = eval_on(ext["id"], "location.href.slice(0,90)+' ||| '+document.body.innerText.slice(0,300)")
+        try:
+            txt = eval_on(ext["id"], "location.href.slice(0,90)+' ||| '+document.body.innerText.slice(0,300)")
+        except Exception as e:
+            print(f"  eval failed: {e} — retrying next interval", flush=True)
+            time.sleep(INTERVAL)
+            continue
         print(f"[{time.strftime('%H:%M:%S')}] attempt {attempt}: {str(txt)[:160]}", flush=True)
         if txt and "Temporarily Blocked" not in str(txt):
             # block cleared — click through wizard steps a few times
