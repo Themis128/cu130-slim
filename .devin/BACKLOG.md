@@ -3204,45 +3204,24 @@ Resolved this pass (details inline above):
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
 
-## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
+## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
 
-- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
-      the task layer was never the flash source.
-- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
-      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
-      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
-      `.bat` launchers, Chrome native hosts (inherent).
-- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
-      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
-      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
-      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
-      mcp-health-watch, mail-outbound-secret-heal (+ new
-      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
-- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
-      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
-      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
-      `npx`/`.cmd` shim chains are gone.
-- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
-- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
-      classes, the grandchild rule, and why `-WindowStyle Hidden` /
-      `conhost --headless` (for output capture) don't work.
-- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
-      `_popup-watch` captures in the loop if popups are reported again —
-      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
-      are already headless or need the same wrap.
-- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
-      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
-      clean through the wrapper.
-
-### battle-test addendum (same day, evening)
-
-- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
-      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
-      the PRE-EDIT config in memory (on-disk configs already clean).
-- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
-      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
-- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
-      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
-      with the old flash-prone command line.
+- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
+  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
+  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
+  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
+  hash-dupes removed, lock released. API healthy.
+- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
+  Fired `reconcile_account_status` manually — all Meta rows now honestly
+  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
+  tokens; heal lanes must re-auth before any Meta action.
+- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
+  failed). Ingest still runs but candidates are stale (IG max Nov 11,
+  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
+  sessions, NOT the brain/scoring layer — no model upgrade needed.
+- **FB :9229** still parked on expired two_step_verification checkpoint;
+  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
+  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
+- **strategy-report-run4** completed degraded (engine outage window):
+  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
+  (200 from container); next run uses live inference.
