@@ -63,6 +63,12 @@ DENY_MARKERS = ("ACCESS_DENIED", "Not enough permissions",
                 "INSUFFICIENT_PERMISSIONS", "Product not authorized",
                 "UNAUTHORIZED", "ACCESS_DENIED")
 
+# Throttle/infra responses are NOT authz passes — a 429 during a LinkedIn
+# cooldown previously produced a false "grant LIVE" + wasted sync dispatch
+# (observed 2026-11-16). Only 2xx or non-authz 4xx (400/404 = reached
+# validation/existence, i.e. permission check passed) count as authorized.
+INCONCLUSIVE = {408, 425, 429, 500, 502, 503, 504}
+
 async def token_for(db, account_type):
     acc = (await db.execute(select(SocialAccount).where(
         SocialAccount.platform == "linkedin",
@@ -82,8 +88,11 @@ async def probe(client, token, method, url, extra_headers=None, **kw):
         body = r.text[:300]
         denied = (r.status_code in (401, 403)
                   or any(m in body for m in DENY_MARKERS))
+        inconclusive = r.status_code in INCONCLUSIVE
+        authorized = (not denied) and (not inconclusive)
         return {"status": r.status_code, "denied": denied,
-                "authorized": not denied,
+                "inconclusive": inconclusive,
+                "authorized": authorized,
                 "granted": r.status_code in (200, 201, 204),
                 "detail": body[:160]}
     except Exception as e:
