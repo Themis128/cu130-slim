@@ -3235,3 +3235,10 @@ Resolved this pass (details inline above):
 - [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
       engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
       clean through the wrapper.
+
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
