@@ -35,6 +35,40 @@ working through a cooldown:
   still reachable during linkedin.com 429s; verify per-form)
 - Gmail/mail watchers (approval emails still arrive and auto-process)
 
+## 429 playbook (researched 2026-11-16 — MS Learn + anti-detection literature)
+
+Two DIFFERENT 429s exist — don't confuse them:
+
+| Surface | Mechanism | Reset |
+|---|---|---|
+| `api.linkedin.com` | Daily quota per endpoint, app-level + member-level counters | **midnight UTC** |
+| `linkedin.com` pages (sidecar/CDP/Edge) | Behavioral/IP throttling — no published quota | LinkedIn's schedule, typically minutes–hours; can escalate to 24–72h restriction if poked |
+
+Rules that follow from the research:
+
+- **429 → back off, checkpoint → STOP.** A security check (authwall,
+  checkpoint, CAPTCHA) is not a rate limit — never retry-loop it; it
+  needs a human (`phone-2fa-ops`).
+- **No retry storms.** Every probe is a hit on an already-throttled
+  surface. `li_lane_status.py --nav` is the only probe you need; run it
+  sparingly (the existing `li-portal-gate-watch.sh` 2h cron already
+  detects clearing).
+- **Detection is behavioral, not just volumetric.** Uniform delays,
+  machine cadence, and parallel lanes are the loudest signals. Keep
+  human jitter in any browser automation; never run the same action
+  from sidecar AND cdp AND Edge simultaneously.
+- **Cooldown state is shared.** `li_lane_status.py --nav` writes
+  `~/.local/state/li-429-cooldown.json` on 429 and clears it on ok;
+  `li_cdp.py status` prints the remaining window. The file keeps the
+  LONGEST outstanding window — repeated probes don't extend it.
+- **API quota 429s are different**: check Developer Portal → app →
+  Analytics/Usage & Limits for the endpoint's real counters; they
+  reset at midnight UTC. LinkedIn emails app admins at 75% usage.
+- Escalation path if web-429 persists >24h: it's likely a soft
+  restriction on the account/IP pair — stop ALL browser lanes, keep
+  API lanes, and let it decay. Do not rotate fingerprints/proxies to
+  evade (ToS + makes restrictions worse).
+
 ## Tools
 
 `scripts/li_cdp.py` — minimal CDP driver (websocket-client, no deps

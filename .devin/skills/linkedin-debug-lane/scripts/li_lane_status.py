@@ -23,6 +23,44 @@ import urllib.request
 SIDECAR = os.environ.get("LI_SIDECAR", "http://localhost:9225")
 CDP_HOSTS = ["http://172.22.144.1:9229", "http://localhost:9229"]
 STATE = os.path.expanduser("~/.local/state/li-lane-status.json")
+COOLDOWN_FILE = os.path.expanduser("~/.local/state/li-429-cooldown.json")
+
+
+def cooldown_minutes():
+    for i, a in enumerate(sys.argv):
+        if a == "--cooldown-min" and i + 1 < len(sys.argv):
+            return float(sys.argv[i + 1])
+    return 30.0
+
+
+def read_cooldown():
+    try:
+        return json.load(open(COOLDOWN_FILE))
+    except Exception:
+        return {}
+
+
+def write_cooldown(state_429, mins):
+    now = time.time()
+    if state_429 == "429":
+        prev = read_cooldown()
+        # keep the LONGEST outstanding window — repeated probes during a
+        # cooldown must not keep extending it (research: no retry-storm
+        # extension; LinkedIn lifts on its own schedule)
+        until = max(prev.get("until", 0), now + mins * 60)
+        json.dump({"until": until, "detected_at": prev.get(
+            "detected_at", now), "source": "li_lane_status"},
+            open(COOLDOWN_FILE, "w"))
+    elif state_429 == "ok":
+        try:
+            os.remove(COOLDOWN_FILE)
+        except OSError:
+            pass
+
+
+def cooldown_remaining():
+    cd = read_cooldown()
+    return max(0, int(cd.get("until", 0) - time.time()))
 
 
 def _get(url, timeout=6):
@@ -136,14 +174,21 @@ def main():
     if "--nav" in sys.argv:
         lanes.append(classify_nav())
     usable = [l["lane"] for l in lanes if l.get("ok")]
-    out = {"ts": int(time.time()), "lanes": lanes, "usable": usable}
+    nav_state = next((l.get("state") for l in lanes
+                      if l["lane"] == "cdp-nav"), None)
+    if nav_state in ("429", "ok"):
+        write_cooldown(nav_state, cooldown_minutes())
+    out = {"ts": int(time.time()), "lanes": lanes, "usable": usable,
+           "cooldown_remaining_s": cooldown_remaining()}
     if as_json:
         print(json.dumps(out))
     else:
         for l in lanes:
             print(f"{l['lane']:>9}  {'OK ' if l.get('ok') else 'DOWN'}  "
                   f"{l.get('state') or l.get('detail') or l.get('browser','')}")
-        print(f"usable: {', '.join(usable) or 'NONE'}")
+        rem = out["cooldown_remaining_s"]
+        print(f"usable: {', '.join(usable) or 'NONE'}"
+              + (f"  | 429-cooldown ~{rem//60}m{rem%60}s left" if rem else ""))
     if "--tg" in sys.argv:
         prev = {}
         try:

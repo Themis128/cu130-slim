@@ -200,6 +200,15 @@ def main():
         return 0
     li = Li(match=a[1] if cmd == "eval-tab" else None)
     if cmd == "status":
+        try:
+            cd = json.load(open(os.path.expanduser(
+                "~/.local/state/li-429-cooldown.json")))
+            rem = int(cd.get("until", 0) - time.time())
+            if rem > 0:
+                print(f"[cooldown] 429 window ~{rem//60}m{rem%60}s remaining "
+                      f"(detected {time.strftime('%H:%M', time.localtime(cd.get('detected_at', 0)))})")
+        except Exception:
+            pass
         li.nav("https://www.linkedin.com/feed/", 10)
         # navigation can drop the target ws — reconnect before evaluating
         try:
