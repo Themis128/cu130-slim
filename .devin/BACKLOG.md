@@ -3226,14 +3226,9 @@ Resolved this pass (details inline above):
 - [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
       classes, the grandchild rule, and why `-WindowStyle Hidden` /
       `conhost --headless` (for output capture) don't work.
-- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
-      logon 23:44 spawned both watcher instances under `conhost --headless`;
-      12min `popup-flash-watch` capture post-logon: 0 console-window events.
-      Full autostart surface audited: Run key (conheadless), Startup folder
-      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
-      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
-      not user-visible. Keep `_popup-watch` captures in the loop if popups
-      are reported again — stale watch logs mis-attribute sources.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
 - [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
       | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
       already run under `conhost.exe --headless` (docker-socket-watch,
@@ -3263,3 +3258,15 @@ Resolved this pass (details inline above):
 - [ ] on success: reconcile `phone_number_id` into the SocialAuto account
       meta_data + verify Cloud API/coexistence status (skill runbook).
 - [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
+
+### Gmail thread watchers — crash bug + transient-alert hardening (2026-11-17)
+
+- [x] `dypa-da2` + `SKC` TG alerts (`Remote end closed connection`) — one
+      shared Google-API drop ~00:13–00:15, both self-healed; verified clean live.
+- [x] Real bug: stray `watches/vodafone-career-state.json` crashed
+      `run-all-watches.py` (`KeyError: 'name'`) every sweep — glob now skips
+      `*-state.json`; stray moved aside.
+- [x] `api()` in `gmail-thread-watch.py` + `skc-watch.py` gains 3-try
+      backoff (5s/10s) so single API blips no longer fire the 24h-deduped
+      error alert. Both watches verified: `no new inbound` / `no new mail`.
+      (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
