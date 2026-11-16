@@ -84,7 +84,15 @@ async def list_all(
         if where:
             for i, clause in enumerate(where):
                 for k, v in clause.items():
-                    params[f"where[{i}][{k}]"] = json.dumps(v) if isinstance(v, list | dict) else v
+                    if isinstance(v, list):
+                        # EspoCRM flat params need indexed array values —
+                        # a JSON-encoded list scalar 400s on this version.
+                        for j, item in enumerate(v):
+                            params[f"where[{i}][{k}][{j}]"] = item
+                    elif isinstance(v, dict):
+                        params[f"where[{i}][{k}]"] = json.dumps(v)
+                    else:
+                        params[f"where[{i}][{k}]"] = v
         data = await espo_get(f"/{entity}", params=params)
         page = data.get("list") or []
         items.extend(page)
