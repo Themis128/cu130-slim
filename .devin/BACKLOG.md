@@ -35,17 +35,24 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
-  2026-11-16: script's hardcoded host sys.path broke in-container runs —
-  fixed to probe /app first; `--force --limit 500` reprocessing the
-  444 quality-meta-but-unflagged assets in background.
-- [x] Windows `sshd` on 192.168.1.23 — RESOLVED 2026-11-16: service is
-  Running/Automatic (sshd-ensure lane worked). `WSL-Permanent-Fix` task
-  also healthy — action now calls `D:\DevOptimizer\pwsh\pwsh.exe`
-  (local pwsh, not the Store stub), last run result 0.
-- [x] Playwright E2E `.env` quoting gotcha — STALE 2026-11-16:
-  `run_pw_e2e.sh` no longer exists in either checkout; item moot.
-- [x] comfyui image absent locally — RESOLVED 2026-11-16: image present,
-  `social-media-comfyui-gpu` Up healthy.
+- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
+  elevated (`sshd -t` clean, host keys present, "Failed to start service"
+  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
+  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
+  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
+  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
+  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
+  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
+  action calls pwsh.exe which resolves to a per-user Store stub
+  (0x80070002 every run). Repoint task action to conhost+powershell.exe
+  via the same elevated lane.
+- [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
+  (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
+  plain `playwright test` skips admin-login unless vars are set unquoted.
+  Documented gotcha, not a bug.
+- [ ] comfyui image absent locally — first wake via stack-ops:8199 will
+  pull the full image (multi-GB, may exceed the 120s wake timeout);
+  expect transient proxy failures until the first pull completes.
 
 
 ## 2026-11-10 — Meta console findings (FB sidecar drive, business 1558125105019725)
@@ -179,10 +186,14 @@ Remaining:
   request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
-- [x] LinkedIn sidecar :9225 — RESOLVED 2026-11-16: /health shows
-  has_session=true, browser_connected=true, page_ok=true,
-  rate_limited=false; li-session.json refreshed 2026-11-15. The debug-chrome
-  CDP `:9229` lane remains the fallback for portal flows.
+- [ ] LinkedIn sidecar :9225 browser session dead and stored
+  `LINKEDIN_COOKIE` li_at stale — BUT a working lane now exists:
+  debug-chrome CDP `:9229` (headless chrome:9330 + userspace relay,
+  `devin-scripts/cdp_relay.py` + `cdp-launch.bat`) has a LIVE LinkedIn
+  session (verified /feed loads logged-in, 2026-11-07). Point
+  li_devapp_ops/portal scripts at host:9229 to resume the
+  portal/DM/specialties flows. Sidecar :9225 itself still needs a
+  credential login or stored LINKEDIN_EMAIL/PASSWORD.
 - [ ] human: X OAuth approve — fresh auth_token in .env OR click the
   reauth_urls URL; bridge pin holds the session 600s.
 - [ ] human: FB OAuth reconnect — `gate_runner.py fb-token
@@ -252,8 +263,9 @@ Remaining:
 - [ ] watch: Email Routing verify mails land via the mail-ingest worker →
   webmail.cloudless.gr/ingest (not omv Maildir); recheck the origin if
   that gate is needed again.
-- [x] stack-watchers `/status` on :9099 — RESOLVED 2026-11-16: published
-  `127.0.0.1:9099:9099` in compose (PR #2009, localhost-only — not for LAN).
+- [ ] watch: stack-watchers `/status` on :9099 is not published to the
+  host — add `ports:` in compose if host access is wanted; degraded
+  CDP/docker.sock/ssh reports are tolerated by design.
 
 ## 2026-11-08 — web-researched automation solutions for the remaining human gates
 
@@ -574,12 +586,11 @@ Leftovers:
   Mautic 200, `social.cloudless.gr/pricing` 200 via cloudflared.
 - Synigoros monitor OTP gate fixed same day (PRs #1561/#1563/#1564) — see
   Synigoros section above.
-- [x] Fresh post-recovery NAS backup — ran 2026-11-16 04:30 (result 0,
-  40/45 files). Found+fixed a real gap: 5 scp-failed files were stranded
-  in dated staging that retention deletes — devoptimizer PR #50 adds a
-  `_carry/` queue so failed archives re-ship next run with their tier.
-- [x] `docker model`/DMR + GPU services — 2026-11-16: `social-media-comfyui-gpu`
-  recreated after the exit-127 wave, Up healthy; dmr-watchdog running.
+- [ ] Take a fresh post-recovery NAS backup once stack is confirmed stable
+  (nightly job should do it; verify tomorrow's run).
+- [ ] `docker model`/DMR + GPU services (`social-media-comfyui-gpu`,
+  `instagram-private-api`, sidecars) are stack-ops sleep-managed Exited —
+  expected idle state, not a fault. Wake on demand via stackctl.
 
 ## 2026-11-09 — Infisical secrets migration (DONE + leftovers)
 
@@ -595,18 +606,13 @@ Leftovers:
 - [x] API gotchas fixed in tooling: `secrets/raw` paginates (need `limit=1000`),
   4xx error bodies must not count as success. Documented in infisical-ops
   SKILL.md (PR #1548).
-- [x] `APPFLOWY_*` keys — RESOLVED 2026-11-16: all 30 keys verified live
-  in Infisical prod (UA API list, limit=1000).
+- [ ] `APPFLOWY_*` keys (pod env on omv k3s) still NOT in Infisical — pull via
+  cluster workflow when needed; do not export pod env as artifacts.
 - [ ] 61 placeholder/empty `.env` keys intentionally skipped — revisit if any
   become real (e.g. SLACK_*_WEBHOOK_URL family).
-- [x] `POSTGRES_PASSWORD` (metabase role) — ROTATED 2026-11-16: ALTER ROLE
-  + verified auth, `.env` (METABASE_DB_PASS + INFISICAL_DB_URI) updated,
-  both PATCHed into Infisical prod so the 05:30 pull can't revert, and
-  metabase+infisical recreated healthy. STILL OPEN: Infisical UA client
-  secret rotation — no API endpoint found for identity secret rotation;
-  needs the Infisical UI (Access Control → Identities → social-api →
-  regenerate) then update `~/.config/secrets/infisical` +
-  `/root/.config/secrets/infisical`.
+- [ ] Rotate `POSTGRES_PASSWORD` (metabase role) — value was printed in a tool
+  transcript 2026-11-09; also rotate Infisical UA client secret (same exposure
+  window earlier) per secret-safety policy.
 - [ ] Docker Desktop flapped repeatedly tonight (engine down ~02:30–02:40,
   Infisical wedged once — restarted). Watchdog covers social stack only;
   consider adding `infisical`+`postgres` to its critical-container list.
@@ -2524,12 +2530,9 @@ Implemented on `feat/media-integrity-guard`:
   containers are healed from bind-mount exit-127.
 
 Remaining / watch:
-- [x] Containers recreated + live sweep verified 2026-11-16: deploy-watch
-  shipped 363c23f2 at 09:11Z (all app containers recreated healthy); a
-  later fsbridge exit-127 wave was healed by `docker compose up -d
-  --force-recreate` on every casualty — 53 containers Up, both public
-  endpoints 200. `media-integrity-sweep` ran 1020 actions in audit_logs
-  on 2026-11-16.
+- [ ] Recreate affected social-api/worker/beat containers after deploy-lock
+  check (exit-127 stale bind mounts), restart media/default workers + beat,
+  run one live bounded sweep, inspect `audit_logs` and quarantined metadata.
 - [ ] Historical R2 objects lost in the old bucket cannot be recovered by the
   sweep; rows remain quarantined for human review/re-upload.
 - [ ] After live verification, reassess TikTok candidate
@@ -2590,12 +2593,13 @@ State achieved:
 - Both auto-merge armed, zero check failures (image scans pending).
 
 Remaining / watch:
-- [x] Sidecar rebuilt post-#1972/#1973 — image `cu130-slim-linkedin-
-  browser-sidecar:latest` built 2026-11-15 20:37Z (after both merges);
-  /health 2026-11-16: has_session, browser_connected, page_ok all true,
-  rate_limited=false, cooldown_ended_at set.
-- [x] LinkedIn browser cooldown — ENDED (rate-limit.json absent,
-  rate_limited=false on /health).
+- [ ] After BOTH #1972 and #1973 merge: watcher diff won't rebuild the
+  sidecar for server.js (it landed in an earlier sha) — run once:
+  `docker compose build linkedin-browser-sidecar && docker compose up -d linkedin-browser-sidecar`
+  then `git pull` already done by watcher + restart 4 workers happens
+  automatically (app_code path). Verify /health shows cooldown_ended_at.
+- [ ] LinkedIn browser cooldown until ~01:30 EET (rate-limit.json in
+  linkedin_browser_data volume survives rebuilds — do NOT clear manually).
 - [ ] External gates unchanged: rw_dmp_segments/Matched Audiences approval,
   Member DP data population (LinkedIn-side), CM Standard-tier survey review,
   IG/Threads/WhatsApp Meta re-auth (phone 2FA lane ready), GBP video verify.
@@ -2605,14 +2609,11 @@ Remaining / watch:
 ## 2026-11-15 — tailnet battle test (Devin)
 Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded tests validate; all infra peers ping (k8s nodes via DERP fra/nue); 192.168.1.0/24 primary omv-ha, 10.42/10.43 primary k3s-subnet-router-0; office LAN pinned local (/25 on Wi-Fi), k8s API 10.43.0.1:443 reachable; MagicDNS ok on office + WSL (WSL Tailscale health now clean); phone always-on (no lockdown), full tunnel, reaches github-omv + cam-189; tailnet-watch-status 0 bad.
 - [x] **WSL ssh on tailnet**: openssh-server not installed → enabled Tailscale SSH on WSL (`tailscale set --ssh`, existing ACL `ssh` rule covers autogroup:self). Verified `ssh tbaltzakis@wsl-ubuntu2404-1.tail4ecae1.ts.net` from office-1 (by IP + MagicDNS).
-- [x] **omv-ha :443** — VERIFIED 2026-11-16: nothing needs it. omv-ha
-  serves 22/80/587/993 (postfix+dovecot mail stack, implicit TLS on 993,
-  STARTTLS on 587; nginx :80 vhosts only). The ACL 443 grant is a harmless
-  no-op — left in place rather than churning the tailnet ACL.
+- [ ] **omv-ha :443 closed** (80 open) — ACL/phone rule grants 443; either nothing should listen there (drop 443 from docs/ACL) or the HTTPS frontend is down.
 - [ ] **cam-nc220 (192.168.1.42) offline** — no ports open; needs a power/DHCP check on site.
 - [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows.
 - [ ] grokbot-box-1 / grokbot-user-249203278 offline + client updates pending (1.104.4 / 1.102.5) — update when they next wake.
-- [x] tailnet-watch PR #3 (lan-pin ownership) — MERGED 2026-11-16.
+- [ ] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch; awaiting owner merge.
 - go2rtc relay 192.168.1.200 serves on :80 (not :1984) — not a fault.
 
 ## 2026-11-15 — member-dp token hardening (Devin, post-#1964 review)
@@ -2686,11 +2687,9 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   PUT/DELETE role keys; REQUESTED=invite, APPROVED=active.
 - [x] #8 Member DP diff alerts — per-domain sha256 in Redis
   (`linkedin:dma:hash:*`); changed domains → TG ops alert on next sync.
-- [x] first live runs of the new beats — VERIFIED 2026-11-16 ~11:25Z:
-  community-moderation scanned 10 posts/0 comments (dry-run safe),
-  ads-guard 1 account/0 campaigns, offline-conversions 0 won leads,
-  portability-sync member_dp 15 domains (pages_dp scope-not-granted,
-  expected). All `succeeded` in worker logs.
+- [ ] watch: first live runs of the 3 new beats after deploy —
+  community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
+  offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
 
 ## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
 
@@ -2843,28 +2842,29 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   Watch: if the pull repeats, the keys vanish again — check the sync
   script's key whitelist.
 
-## 2026-11-16 — leftovers sweep (Devin)
+## 2026-11-16 — Meta token estate re-auth + IG row findings
 
-Resolved this pass (details inline above):
-- First live runs of all new LinkedIn beats verified succeeded
-  (community dry-run 10 posts, ads-guard, offline-conversions,
-  portability member_dp 15 domains).
-- exit-127 fsbridge wave healed WITHOUT a full WSL restart:
-  `docker compose up -d --force-recreate` on every casualty — fresh
-  hashed mounts materialize correctly; 53 containers Up, endpoints 200.
-  NOTE: plain `docker start` on poisoned mounts still fails — always
-  force-recreate. stack-ops-bridge interim proxy still required until
-  the real stack-ops returns after a future WSL VM restart.
-- POSTGRES_PASSWORD (metabase role) rotated end-to-end; Infisical prod
-  updated so the 05:30 pull can't revert. UA client-secret rotation
-  remains a UI gate (no API endpoint).
-- APPFLOWY_* verified already in Infisical prod (30 keys).
-- NAS backup ran; carry-queue gap fixed in devoptimizer PR #50.
-- stack-watchers /status published on 127.0.0.1:9099 (cu130-slim #2009).
-- sshd, WSL-Permanent-Fix, comfyui, LinkedIn sidecar session, sidecar
-  rebuild+cooldown, omv-ha:443, tailnet-watch PR#3, playwright item —
-  all verified resolved/stale.
-- LinkedIn portal still HTTP 429 on :9229 — cooldown persisted past the
-  ~01:30 EET estimate; recheck member_dp_probe later.
-- backfill_media_quality.py host-path sys.path bug fixed; --force pass
-  running over the 444 unflagged assets.
+- [x] All stored Meta user tokens were dead (OAuthException 190/460 —
+  session invalidated). Re-authed via fb_reauth.py after fixing a real
+  bug: `_signed_state()` picked sqlalchemy log noise as the OAuth state
+  (PR #2001, merged+deployed). facebook user row now `active`.
+- [x] instagram-reauth fast path (fb_onboarding) completed — active row
+  `d2215106` ig `17841463022505300`. NOTE: this is the NEW
+  Facebook-Login IG id namespace, NOT proven to be @cloudless.gr.
+  `is_published=false` via page_backed_instagram_accounts; all content
+  endpoints return "Application does not have permission" (Standard
+  Access until App Review). Canonical brand row remains revoked
+  `38ddbd44` ig `28747382798219804` (legacy ig_id, 81 posts).
+- [ ] IG identity resolution: confirm whether 17841463022505300 ==
+  @cloudless.gr (new id) or a placeholder. If placeholder → real
+  @cloudless.gr needs instagram2/business_login lane → requires
+  INSTAGRAM2_CLIENT_ID/SECRET + redirect URI in Meta app console.
+- [ ] threads cloudless.gr revoked — threads_reauth.py blocked: bridge
+  threads.net session logged out → one IG login on browser-novnc unblocks.
+- [x] social-cloudless-rescue already gone (retired in recreate wave) —
+  only social-cloudflared remains.
+- [ ] Business portfolio 1558125105019725 verification_status=not_verified;
+  both ad accounts account_status=2 (disabled) — check Ads Manager.
+- [ ] FB personal account still shows "You're Temporarily Blocked" on
+  business_extension (ig_onboarding_resume2.log 08:50) — restriction
+  appeal still the upstream gate for Business Verification/App Review.
