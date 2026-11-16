@@ -76,3 +76,19 @@ the QR encodes a login URL — no camera needed:
 
 If the payload isn't an https URL the phone path can't open it — manual
 scan remains the fallback (`--decode-only` reports the payload).
+
+## Gmail OTP off the phone — `phone_gmail_otp.py`
+When a verification code arrives by **email** (e.g. the Meta
+"Unlock your Meta Account" device-verification lock — code mailed to
+baltzakis.themis@gmail.com), the phone's own Gmail app is a readable
+source with no root/OCR:
+
+- `dumpsys notification --noredact` — Gmail post extras carry
+  subject+snippet ("Use 16919622 to get back into...").
+- `monkey -p com.google.android.gm` + `uiautomator dump` — inbox rows are
+  text nodes containing the code.
+
+`phone_gmail_otp.py [--sender meta] [--timeout S] [--open]` polls both
+lanes, sender-scoped so other services' codes don't false-positive.
+Env: `PHONE_ADB`, `PHONE_ADB_SERIAL`, `PHONE_OTP_SENDERS`. Prints the
+code, exit 0/1. Same sender-whitelist discipline as `wa_verify.py`.
