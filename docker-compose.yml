@@ -1497,6 +1497,52 @@ services:
     memswap_limit: 2048m
     cpus: '4'
     restart: unless-stopped
+  social-worker-meta:
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: always
+    build:
+      context: ./social-automation/backend
+      dockerfile: Dockerfile
+      target: worker
+      additional_contexts:
+        browser: ./browser-novnc
+    container_name: social-worker-meta
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
+    networks:
+      - backend
+      - db
+    environment: *worker-env
+    volumes: *worker-volumes
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on: *worker-depends
+    <<: *public-dns
+    # Dedicated `meta` queue lane: facebook/instagram/threads publish sweep
+    # + Meta-only tasks (token check, IG reconcile). Blast-radius isolation —
+    # a wedged Meta call (sidecar checkpoint, Graph outage, session lock)
+    # cannot starve the other platforms' publishes, and vice versa.
+    # conc=2: Meta API calls are I/O-bound; one slot for the sweep, one for
+    # ad-hoc Meta tasks. max-tasks-per-child=200: light tasks.
+    command: celery -A app.worker.celery_app worker -Q meta --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=meta@%h
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.worker.celery_app inspect ping -d meta@$$HOSTNAME | grep -q pong || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # celery cold-boot is ~90-120s (mingle+fork+broker connect, slower
+      # under RAM pressure); 30s made autoheal kill workers right as they
+      # became ready -> restart amplification loop (2026-11-13 incident).
+      start_period: 180s
+    stop_grace_period: 90s
+    mem_limit: 1280m
+    memswap_limit: 3072m
+    cpus: '4'
+    restart: unless-stopped
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
