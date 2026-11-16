@@ -2716,12 +2716,26 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   task's privacy note) — and all domains currently return LinkedIn 404
   "no data" until their export pipeline populates, so expansion has zero
   value today. Revisit when snapshot data flows.
+- [x] 2026-11-16: Advertising API Development Tier access request
+  SUBMITTED via the LinkedIn Qualtrics form (driven through the
+  linkedin-browser-sidecar session — 100% completion, "we will review and
+  contact you via email"). Answers filed: Direct Advertiser, Europe,
+  N/A (Direct Customer), 75%+ B2B, Direct Customers, ad spend N/A,
+  use cases Campaign Management + Reporting and ROI, partnerships
+  Facebook + Instagram. On approval → `rw_ads` lands → upgrade
+  `linkedin_ads_control` from sidecar UI-scraping to Marketing API
+  calls. Watch for the decision email.
 - [ ] watch: Matched Audiences (`rw_dmp_segments`) — private API, requires
-  Advertising API approval FIRST (already have `r_ads` live) then a
-  separate Matched Audiences application; LinkedIn responds within ~60
-  days of the interest form. Support case already filed on app 264925843
-  (linkedin-portal-gates-ops). Portal probe currently 429-blocked by the
-  LinkedIn cooldown — recheck case status after cooldown ends.
+  Advertising API approval FIRST then a separate Matched Audiences
+  application; LinkedIn responds within ~60 days of the interest form.
+  Support case already filed on app 264925843 (linkedin-portal-gates-ops).
+  NOTE 2026-11-16: the portal's own hint confirms the dependency —
+  "Audiences API's is a Private product and requires an additional
+  approval, once you have been approved for the Advertising API Product."
+  `app/worker/tasks/linkedin_dmp_sync.py` is already built and
+  self-gates on the 403 — it fires automatically once `rw_dmp_segments`
+  is granted. Member DP data now flows (first real snapshot+changelog
+  landed 2026-11-16 07:31/09:25 UTC).
 
 ## 2026-11-16 — account-truth sweep + WhatsApp/IG repair
 
