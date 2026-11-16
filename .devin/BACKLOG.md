@@ -3118,3 +3118,49 @@ Resolved this pass (details inline above):
   verification is pending, and expected timeline. Confirmation: "You've
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
+
+## 2026-11-16 (evening) — leftovers sweep
+
+- [x] **Skills+tools update landed in PR #2070** — meta-oauth-ops gained the
+  REAL IG↔FB link surface (Page Settings → Linked accounts → Review
+  connection accordion → IG OIDC), the account-standing gate, Graph field
+  semantics, CDP mechanics + `ig_link_probe.py`; meta-account-lock-ops
+  gained the ad-restriction failure class + Account Quality URL map;
+  report-delivery-ops gained the stale-env throwaway gotcha; DMR skill
+  gained the unload-requeue loop + stale-env arbiter bypass.
+- [x] **Strategy report relaunched with FRESH env** — `strategy-report-run3`
+  wedged: baked-in stale `REDIS_URL` → Celery result-store retry loop
+  (20× reconnect forever). Root cause found: `.env` on disk is a
+  **placeholder file** (`REDIS_URL=redis://:redis_password@…`) — real
+  secrets live in Infisical/inject into managed containers. Relaunched
+  as `strategy-report-run4` with live `REDIS_URL` pulled from
+  `social-api`'s env + `COMFYUI_URL=http://stack-ops:8199` (the real
+  path — `.env`'s `http://comfyui:8000` resolves nowhere). Redis ping
+  now OK. **run-backend-once.sh caveat: `docker cp .env` alone is NOT
+  enough when `.env` holds placeholders — the env_file path must also
+  inject live values** (PR #2069 script updated for fsbridge but not
+  for placeholder-vs-live secrets; see below).
+- [x] **PR #2066 coverage fixed** — frontend-test failed on marginal
+  thresholds (lines 99.4/99.5, functions 99.28/99.5, statements
+  99.14/99.2). Added surface-table rows (blueskyApi.connect/status,
+  emailCampaignsApi.nudge) + `useConnectBluesky` mutation case →
+  pushed `a7908fd1` to `chore/dependabot-sweep`.
+- [x] **IG onboarding driver PARKED** (pid 293484 killed) — verified the
+  wizard is hard-blocked by the FB account restriction (not rate
+  limits); each attempt burns ~4 forced-auth IG logins against Meta's
+  rate bucket for zero progress. Re-arm only after Account Quality
+  restriction lifts.
+- [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
+  (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
+  (active coverage fix).
+- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
+  `run-backend-once.sh` copies the placeholder `.env`; for
+  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
+  container env (`docker exec social-api printenv`) as done for run4,
+  or extend the script with `--live-secrets` that diffs against
+  `social-api`'s env.
+- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
+  `Loading...` under the known thrash); inference already failed →
+  rule-based fallback active, still executing.
+- [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
+  push; auto-merge armed on all 13 open PRs, 0 other failures.
