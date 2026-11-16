@@ -637,3 +637,55 @@ After it exits, run `auto-verify.py` to complete the verify + register steps.
   → Continue) on a loop until Meta's 'temporarily blocked' clears, then
   stops so the OTP chain (`request_code` → ADB SMS → `verify_code` →
   `register`) runs via `whatsapp_tool.py`. Default: 6 tries × 15 min.
+
+## WhatsApp Business APP onboarding on the Galaxy S22+ (verified 2026-11-16)
+
+Registering `+30 697 777 7838` in `com.whatsapp.w4b` (distinct from the
+Cloud API registration this skill covers):
+
+### Input-injection reality
+
+- The `VerifyPhoneNumber` screen **filters all synthetic input** —
+  `input tap`, `swipe`, `stylus`, `mouse`, D-pad keys are silently
+  dropped; `sendevent` needs root. uiautomator still sees nodes as
+  `clickable=true` — don't trust it. `input keyevent` (HOME/BACK) works.
+- **Pre-verify screens DO accept injected input** — "Agree and continue",
+  notification-permission dialogs, phone-number entry all respond to
+  `input tap`. Only the verify screen is hardened.
+- `pm clear com.whatsapp.w4b` → fresh onboarding (re-requests the SMS,
+  useful after a fix — but counts toward Meta's send quota).
+- Samsung Pass **passkey gate**: if the number was registered on this
+  phone before, a `BiometricPrompt` offers passkey sign-in — fingerprint
+  is a human gate; `Cancel` falls back to the SMS flow.
+- Fallback: "Didn't receive code?" stays **inert until the wait timer
+  expires** (minutes→hours, extended per request — don't tap-spam it).
+  When live it opens Resend SMS / **Call me** (voice reads the code).
+
+### Code delivery channels (in order of likelihood)
+
+| Channel | Where to read it |
+|---|---|
+| SMS to the SIM | `content://sms/inbox` via `wa_verify.py` ADB lane |
+| WhatsApp in-app msg from "Facebook Business Account" | only for coexistence re-link of an already-active app |
+| **Cloud API webhook** | if the number is already registered on a WABA, Meta can deliver the OTP as a platform message — check `social-api` logs for `/api/v1/whatsapp/webhook` hits |
+| Voice call | user answers; reads code aloud |
+
+### Coexistence (app + Cloud API on one number)
+
+Officially supported (Meta `whatsapp_business_app_onboarding` Embedded
+Signup feature, app ≥2.24.17): the app must **already be registered**,
+then the API-side partner flow links it — the code arrives as an in-app
+message, not SMS. Reverse direction (API-registered number → install the
+app) is NOT supported by installing the app alone; either SMS-verify the
+app (migrates the number off the API) or leave it API-only.
+
+### Today's blockers found
+
+- Meta **device-verification account lock suppresses the verification
+  SMS** entirely — unlock the Facebook account first (see
+  `meta-account-lock-ops` phone-side runbook), then re-request.
+- The stacked `check_whatsapp_verification` beat does NOT request codes
+  for this account (`no phone_number_id in meta_data`) — it can't be the
+  rate-limit source; app-side requests are.
+- WABA token died with the lock (190/460) — re-auth via SocialAuto console
+  before trusting API-side status.
