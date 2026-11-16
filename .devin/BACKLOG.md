@@ -3243,3 +3243,25 @@ Resolved this pass (details inline above):
 
 - [x] `termux-first` rule committed (both mirrors) — standing directive to use
       Termux as the primary on-device lane for any phone-side task.
+
+## 2026-11-17 — Meta session-invalidation event + robots.txt publish block
+
+- [x] FB browser session restored via sidecar (profile-picker -> remembered-
+  device login); OAuth re-auth completed: facebook user + page rows -> active
+  at 22:12 UTC (page token exp 2027-01-28). instagram business -> active
+  21:55 via instagram-onboarding callback.
+- [x] Post c4dff316 (Wan2.2 reel) PUBLISHED manually —
+  facebook.com/reel/2579079235925469. Graph file_url fetch was blocked by
+  robots.txt (Disallow: /api/ covers /api/v1/media/view); bypassed with a
+  3-phase bytes upload (script: /tmp/manual_reel_upload.py).
+- [ ] watch: PR #2107 (robots.txt Allow: /api/v1/media/) must merge+deploy
+  before URL-fetched publishes work again — same block hits IG image_url,
+  Threads, TikTok PULL_FROM_URL.
+- [ ] human: `wsl --shutdown` still needed (workstation policy blocks me) —
+  4th fsbridge wave tonight killed 17 containers; manual heals only buy
+  ~20-30min windows.
+- [ ] consider: facebook_api.create_reel_post has no binary-upload lane —
+  add bytes fallback when file_url fetch fails (same pattern used in the
+  manual publish tonight).
+- [ ] minor: unknown .wslconfig key experimental.virtiofs warns on every
+  wsl.exe call.
