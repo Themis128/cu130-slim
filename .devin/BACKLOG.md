@@ -3024,74 +3024,24 @@ Resolved this pass (details inline above):
 - [x] pruned: ~60 remote branches belonged to CLOSED-unmerged PRs (mostly
   `*-rebuilt-rebuilt…` pr_rebuild leftovers) — safe to prune once confirmed.
 
+## 2026-11-16 — fsbridge flap #7 healed without WSL restart (Devin)
 
-## 2026-11-16 (pm) — DMR backend repair + fsbridge heal (Devin)
-
-- [x] DMR llama.cpp backend Error → Running: runtime payload under
-  `%USERPROFILE%\.docker\bin\inference\` lost `com.docker.nv-gpu-info.exe`
-  (and one DLL) — restored from
-  `DockerDesktop\resources\model-runner\bin`, then `docker desktop
-  disable/enable model-runner` re-ran the install check; smollm3 serves
-  real completions again. Old payload kept at `inference.stale` — safe to
-  delete.
-- [x] The enable toggle bounced the whole engine → 13 containers
-  Exited(127) on the stale `.env` file-mount (fsbridge class).
-  `wsl --terminate docker-desktop` (lighter heal; full WSL shutdown is
-  policy-blocked for agents) unstuck the vsock — `compose up` brought
-  everything back healthy.
-- [x] comfyui recreated without the `.env` file mount mid-flap; reverted
-  to the canonical compose container once mounts healed.
-- [x] Video post c4dff316 re-dispatched (task 6148d822, attempts=2/2 —
-  final shot; materialize loop attaches + schedules on success, marks
-  failed with reason otherwise).
-- [x] #2020 merged (watchdog covers stack-ops-bridge) + #2021 merged
-  (bridge auto-retires when fsbridge probe passes) + #2022 merged
-  (keep_warm run-in-progress + 60s recent-run locks — live-verified:
-  duplicate skipped in 16ms).
-- [ ] human: full WSL shutdown when convenient — durable fsbridge fix
-  (also disconnects WSL IDE session briefly).
-- [ ] human: TikTok `video.list` scope still needs console app revision;
-  Vercel MCP needs re-auth if used.
-
-## 2026-11-16 (pm2) — missing daily reports + Docker restart fallout (Devin)
-
-- [x] Missing Daily ops health → fixed + delivered: `username=None`
-  crashed the notebook f-string (`or "—"` guard applied); task
-  `f56be323` `emailed:1`, no error. `nbreport:done:ops_health` set.
-- [~] Missing Daily strategy brief → rerunning (task `33e90ab4`,
-  notebook executing at check time). Beat never fired either report —
-  celery-beat was down/recreated during the 09:00/09:15 Athens window.
-- [x] DMR wedge fixed: `/models` 200 but completions hung + every model
-  stuck `Loading...` → `docker.exe desktop restart` → llama.cpp backend
-  Running; container-side `host.docker.internal:12435` completion probe
-  200 in 3s. NOTE: WSL `localhost:12435` no longer forwards post-restart
-  (Windows-side 127.0.0.1:12435 is live; only WSL relay is broken —
-  app path unaffected). If the WSL-side port is needed, re-toggle
-  `EnableInferenceTCPPort` or restart WSL relay.
-- [x] `social-api` port-8083 collision after recreate: `social-api-rescue`
-  (no-bind-mount fallback) had claimed 8083 during the flap → stopped +
-  removed; managed `social-api` healthy again. Hash-ghost containers
-  (`<hash>_social-api` Created) removed on each recreate race.
-- [x] Zombie `nbreport:running:*` locks — REAL BUG: a worker killed
-  mid-run never releases the 3h lock, and `AsyncResult.state` leaves a
-  STARTED tombstone, so every rerun skipped `run-in-progress`. Fix on
-  PR #2039 (task-id ownership + active/reserved liveness + steal,
-  fenced release, `asyncio.wait_for(240)` on `_llm_actions` so a wedged
-  DMR degrades to rule-based instead of stalling the brief).
-- [x] ops-health notebook fix vanished mid-session: a branch-hop under
-  `architecture-sync.py`/`gh pr merge 2032` reverted the file with
-  preserved mtime (master-sync is clean-tree only, so this was the
-  pr-merge automation, not rsync). Re-applied; landed in the ops-health
-  run before it could be stomped again. Durable home: PR it if it
-  recurs.
-- [x] PR sweep: all 6 open PRs (#2024/#2028/#2032/#2035/#2036/#2039)
-  auto-merge armed, updated from BEHIND, 0 failures — CI treadmill only.
-  #2020 merged earlier. #2017 merged.
-- [ ] watch: report-delivery alert should clear once the strategy email
-  lands; if the notebook OOMs again (137, seen twice under WSL memory
-  pressure), the code fallback now has the 240s LLM bound.
-- [ ] IG↔Page link still blocked at `facebook_business_extension/oauth`
-  ("You're Temporarily Blocked") — full chain automated + proven through
-  TOTP; `ig_onboarding_drive.py` armed on 2h cooldown (PID 1084843 —
-  verify still alive after the flaps). Phone route still needs flip
-  cover open.
+- Second exit-127 wave (~13:2xZ): social-api, all 4 workers, celery-beat,
+  stack-watchers, compose-healer, dmr-watchdog, socket-proxy, autoheal,
+  chroma down; probe still MOUNT POISONED for fresh mounts.
+- Recovery path that worked: waited for a healthy `wsl.exe` exec window
+  (proxy respawn), then `docker compose up -d --force-recreate` — existing
+  hashed mounts re-materialized, containers came up healthy. Confirms the
+  skill note: force-recreate after a respawn heals without `wsl --shutdown`.
+- Brought back aux set exited in the same wave: metabase, portainer,
+  env-manager-frontend/backend, airbyte-mcp-server, linkedin-mcp-server,
+  warp-proxy, n8n-sandbox, flower, social-media-comfyui-gpu (53 up total).
+- publishing/messenger briefly exited 137 during the mass-restart memory
+  spike (8GB VM) — clean restart once memory settled; not OOMKilled.
+- Removed strays: social-api-rescue (never started — managed api reclaimed
+  :8083 first), 4 hash-prefixed duplicate containers, dead stack-ops
+  instance. stack-ops still covered by stack-ops-bridge on :1080.
+- Verified: social.cloudless.gr 200, cloud.cloudless.gr/status.php 200,
+  all workers+beat healthy.
+- Durable fix unchanged: `wsl --shutdown` at a quiet moment (owner gate);
+  fresh-mount probe still poisoned → named-volume transplants stay.
