@@ -2891,8 +2891,14 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   @cloudless.gr (new id) or a placeholder. If placeholder → real
   @cloudless.gr needs instagram2/business_login lane → requires
   INSTAGRAM2_CLIENT_ID/SECRET + redirect URI in Meta app console.
-- [ ] threads cloudless.gr revoked — threads_reauth.py blocked: bridge
-  threads.net session logged out → one IG login on browser-novnc unblocks.
+- [x] threads RESOLVED 2026-11-16: @cloudless.gr Threads profile no longer
+  exists (404). Brand IG cloudless.gr is linked to Threads @t_baltzakis =
+  row c0c6bf77 (account_id 38255289647418861) — re-authed live via
+  instagram.com/threads/sso on browser-novnc after clearing stale
+  .threads.com cookies; fresh token minted, row active. Old row 1071dcd5
+  correctly stays revoked. threads_reauth.py post-verify should target the
+  t_baltzakis row (script still checks 'cloudless.gr' username → false
+  still-dead; needs fix or manual verify). Identity map in AGENTS.md.
 - [x] social-cloudless-rescue already gone (retired in recreate wave) —
   only social-cloudflared remains.
 - [ ] Business portfolio 1558125105019725 verification_status=not_verified;
