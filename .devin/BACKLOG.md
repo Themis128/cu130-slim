@@ -3068,7 +3068,19 @@ Resolved this pass (details inline above):
 - [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
   (empty-elements POST; authz precedes validation → non-403 =
   authorized); `matched_audiences` grant now requires it.
-- [ ] On `rw_dmp_segments` grant: re-consent token (scope must appear
-  in authorize first), watcher auto-dispatches
-  `sync_linkedin_dmp_audiences` → uploads hashed EspoCRM emails into
-  segment 81778122.
+- [x] **SECOND Matched Audiences request SUBMITTED 2026-11-16 ~19:0x
+  EEST** — portal audit found the first form targeted app 227354605
+  while our OAuth tokens live on 264925843 (whose product row showed
+  "Access denied" from an older support-case denial, no self-serve
+  reapply). Resubmitted the same standard-tier Qualtrics form
+  (SV_8CUnOsYiyMj0Qd0) via sidecar naming client `77j8kzfi1a6jn8`
+  (Cloudless Analytics App) in the use-case details + noting the
+  parallel 227354605 request. Confirmation: "Thank you for submitting
+  the Matched Audiences API standard tier access form" — Microsoft
+  Vetting Services will email-verify the business email.
+- [ ] On `rw_dmp_segments` grant on EITHER app: if it lands on
+  227354605, a token from THAT client is needed for DMP calls (our
+  stored tokens are all 264925843-issued) — check client-secret
+  availability then. If on 264925843: re-consent so the scope joins
+  the token, watcher auto-dispatches `sync_linkedin_dmp_audiences` →
+  uploads hashed EspoCRM emails into segment 81778122.
