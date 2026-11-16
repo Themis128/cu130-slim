@@ -369,7 +369,7 @@ async def test_dmp_segment_urn_no_redis(monkeypatch):
     from app.worker.tasks import linkedin_dmp_sync as LD
 
     monkeypatch.setattr(LA, "create_dmp_segment", AsyncMock(return_value={"urn": "urn:li:seg:1"}))
-    assert await LD._segment_urn(None) == "urn:li:seg:1"
+    assert await LD._segment_urn(None) == ("urn:li:seg:1", True)
 
 
 # ── linkedin_messenger: capture_ack prepended to reply ──────────────────
