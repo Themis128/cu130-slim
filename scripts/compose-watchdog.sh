@@ -481,4 +481,43 @@ for pp in $PORT_PROBES; do
   echo "$pt" > "$pf"
   recreate_container "$pc" && ALERT "port-dead-$pc" ":warning: $pc published port :$pport unresponsive — force-recreated to rebind"
 done
+# 14. stack-ops-bridge — interim fsbridge-flap proxy (BACKLOG 2026-11-16).
+#     Plain container (`sleep infinity` + ad-hoc relay), NOT compose-managed
+#     and absent from CORE/EXTRA. Two failure modes seen live: container
+#     exited while restart policy was "no", and the in-container relay
+#     process dying while the container stayed "Up" — either way every
+#     stack-ops:* route (COMFYUI_URL, sidecars, LanguageTool) goes dark.
+#     Heal: start container, ensure the relay from stack-ops/bridge-relay.py
+#     is listening, relaunch when the :8199 probe stays dead. Throttled to
+#     one relaunch attempt per 15 min; ALERT covers a still-dead probe.
+BRIDGE="stack-ops-bridge"
+if docker inspect "$BRIDGE" >/dev/null 2>&1; then
+  bst=$(docker inspect -f '{{.State.Status}}' "$BRIDGE" 2>/dev/null || echo missing)
+  [ "$bst" != "running" ] && docker start "$BRIDGE" >/dev/null 2>&1 \
+    && log "stack-ops-bridge: was $bst — started"
+  bcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+    "http://localhost:8199/system_stats" 2>/dev/null || echo 000)
+  if [ "$bcode" != "200" ]; then
+    BF="$WD_STATE_DIR/bridge-fix"; bt=$(now)
+    if [ ! -f "$BF" ] || [ $(( bt - $(cat "$BF" 2>/dev/null || echo 0) )) -gt 900 ]; then
+      echo "$bt" > "$BF"
+      docker cp "$REPO_DIR/stack-ops/bridge-relay.py" "$BRIDGE:/tmp/relay.py" >/dev/null 2>&1 || true
+      docker exec "$BRIDGE" sh -c \
+        'python - <<PY
+import socket, sys
+s = socket.socket(); s.settimeout(3)
+sys.exit(0 if s.connect_ex(("127.0.0.1", 8199)) == 0 else 1)
+PY' >/dev/null 2>&1 || \
+      docker exec -d "$BRIDGE" python /tmp/relay.py >/dev/null 2>&1 || true
+      sleep 3
+      bcode2=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+        "http://localhost:8199/system_stats" 2>/dev/null || echo 000)
+      if [ "$bcode2" = "200" ]; then
+        log "stack-ops-bridge: relay ensured — :8199 healthy"
+      else
+        ALERT "bridge-relay" ":warning: stack-ops-bridge :8199 still dead after relay ensure (probe=$bcode2) — check bridge/upstream comfyui"
+      fi
+    fi
+  fi
+fi
 exit 0

@@ -2836,6 +2836,14 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   then `docker compose up -d stack-ops` — real stack-ops restores
   wake/sleep + control API :8787 (bridge has no sleeper, services stay
   awake — acceptable interim).
+- [x] Bridge died ~20min after creation (exit 137, restart policy was
+  `no`) → all stack-ops:* routes dark again; video renders failed
+  `[Errno -2] Name or service not known`. Restarted + relaunched relay
+  (ad-hoc process inside `sleep infinity` — dies with the container).
+  Hardened: `docker update --restart unless-stopped`, relay script now
+  versioned at `stack-ops/bridge-relay.py`, compose-watchdog section 14
+  auto-ensures container+relay (15min throttle, :8199 probe, Slack
+  alert).
 - [x] Same flap dropped `MAUTIC_DB_PASSWORD`/`MAUTIC_DB_ROOT_PASSWORD`
   from `.env` (Infisical pull regression — 05:30 backup still had them);
   restored from `.env.bak-20261116053028`, mautic+mautic-cron healthy.
