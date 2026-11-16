@@ -41,6 +41,7 @@ _DEDUPED_LIMIT_NOTES = (
     "member_stats_not_implemented",
     "member_account_no_org_stats",
     "HTTP 402",
+    "scope_not_authorized",
 )
 
 
@@ -2639,6 +2640,15 @@ async def _fetch_tiktok_video_stats(
         json={"filters": {"video_ids": [video_id]}},
     )
     if resp.status_code != 200:
+        # scope_not_authorized = the app lacks video.list (console enablement
+        # pending) — an external platform limit, not a token failure. Emit a
+        # stable note so reports classify it under platform limits.
+        try:
+            err_code = ((resp.json() or {}).get("error") or {}).get("code")
+        except Exception:  # noqa: BLE001
+            err_code = None
+        if err_code == "scope_not_authorized":
+            return MetricBundle(notes="tiktok stats scope_not_authorized")
         return MetricBundle(notes=f"tiktok stats HTTP {resp.status_code}")
     data = resp.json() or {}
     error = data.get("error") or {}

@@ -77,6 +77,39 @@ async def test_fetch_tiktok_video_stats_uses_post_query():
     assert "video/query/" in client.post.await_args.args[0]
 
 
+@pytest.mark.asyncio
+async def test_fetch_tiktok_video_stats_scope_not_authorized_is_platform_limit():
+    resp = MagicMock()
+    resp.status_code = 401
+    resp.json.return_value = {
+        "error": {
+            "code": "scope_not_authorized",
+            "message": "The user did not authorize the scope required for completing this request.",
+        },
+        "data": {},
+    }
+    client = AsyncMock()
+    client.post = AsyncMock(return_value=resp)
+
+    metrics = await sync._fetch_tiktok_video_stats(client, "tok", "7481122334455")
+
+    assert metrics.notes == "tiktok stats scope_not_authorized"
+    assert metrics.impressions == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_tiktok_video_stats_non_scope_401_keeps_http_note():
+    resp = MagicMock()
+    resp.status_code = 401
+    resp.json.return_value = {"error": {"code": "access_token_invalid", "message": "bad token"}}
+    client = AsyncMock()
+    client.post = AsyncMock(return_value=resp)
+
+    metrics = await sync._fetch_tiktok_video_stats(client, "tok", "7481122334455")
+
+    assert metrics.notes == "tiktok stats HTTP 401"
+
+
 def _tt_account(scopes: list[str]) -> SimpleNamespace:
     import uuid as _uuid
 

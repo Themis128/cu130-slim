@@ -177,6 +177,7 @@ _PLATFORM_LIMIT_NOTES = (
     "member_account_no_org_stats",
     "HTTP 402",
     "TABLE_MAX_PRIVACY_COST_EXCEEDED",
+    "scope_not_authorized",
 )
 
 # Minimum evidence before momentum recommendations fire (suppresses
