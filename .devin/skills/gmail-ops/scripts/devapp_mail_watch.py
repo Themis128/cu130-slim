@@ -21,7 +21,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GMAIL = os.path.join(HERE, "gmail.py")
 STATE = os.path.join(HERE, "..", "state", "devapp_seen.json")
 QUERY = ('from:(linkedin.com OR microsoft.com OR qualtrics.com) '
-         '(vetting OR "access request" OR "Community Management" OR '
+         '(vetting OR "access request" OR "matched audiences" OR '
+         '"API access" OR dmp OR "Community Management" OR '
          '"developer app" OR "approved" OR "review") newer_than:3d')
 CHAT = "-1004436942504"
 
