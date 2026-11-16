@@ -2841,3 +2841,30 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   restored from `.env.bak-20261116053028`, mautic+mautic-cron healthy.
   Watch: if the pull repeats, the keys vanish again — check the sync
   script's key whitelist.
+
+## 2026-11-16 — Meta token estate re-auth + IG row findings
+
+- [x] All stored Meta user tokens were dead (OAuthException 190/460 —
+  session invalidated). Re-authed via fb_reauth.py after fixing a real
+  bug: `_signed_state()` picked sqlalchemy log noise as the OAuth state
+  (PR #2001, merged+deployed). facebook user row now `active`.
+- [x] instagram-reauth fast path (fb_onboarding) completed — active row
+  `d2215106` ig `17841463022505300`. NOTE: this is the NEW
+  Facebook-Login IG id namespace, NOT proven to be @cloudless.gr.
+  `is_published=false` via page_backed_instagram_accounts; all content
+  endpoints return "Application does not have permission" (Standard
+  Access until App Review). Canonical brand row remains revoked
+  `38ddbd44` ig `28747382798219804` (legacy ig_id, 81 posts).
+- [ ] IG identity resolution: confirm whether 17841463022505300 ==
+  @cloudless.gr (new id) or a placeholder. If placeholder → real
+  @cloudless.gr needs instagram2/business_login lane → requires
+  INSTAGRAM2_CLIENT_ID/SECRET + redirect URI in Meta app console.
+- [ ] threads cloudless.gr revoked — threads_reauth.py blocked: bridge
+  threads.net session logged out → one IG login on browser-novnc unblocks.
+- [x] social-cloudless-rescue already gone (retired in recreate wave) —
+  only social-cloudflared remains.
+- [ ] Business portfolio 1558125105019725 verification_status=not_verified;
+  both ad accounts account_status=2 (disabled) — check Ads Manager.
+- [ ] FB personal account still shows "You're Temporarily Blocked" on
+  business_extension (ig_onboarding_resume2.log 08:50) — restriction
+  appeal still the upstream gate for Business Verification/App Review.
