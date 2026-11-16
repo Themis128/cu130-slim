@@ -332,3 +332,83 @@ StartTime; if backend is newer, probes the pipe, and restarts the gateway via
 the `DockerMcpGateway` logon task only when the pipe accepts connections.
 Also restarts the gateway if the process is simply gone. Log:
 `%USERPROFILE%\logs\docker-mcp-watchdog.log`.
+
+## Non-task popup sources — the 2026-11-17 remediation
+
+A clean `popup_task_audit.ps1` (178 tasks, risky=0) does NOT mean popups are
+gone. The remaining flash classes live outside the task layer:
+
+### 1. Bare WSL→Windows interop calls (the big one)
+
+Every `powershell.exe` / `cmd.exe` / `docker.exe` / `adb.exe` invoked from WSL
+allocates a conhost on the interactive desktop → empty-cmd flash. `-WindowStyle
+Hidden` does not help (console is allocated before the style applies).
+
+Fix — `~/scripts/win-hidden.sh`, sourced by every WSL cron/watch script:
+
+```bash
+winrun <exe> [args...]   # any Windows exe, /mnt/c or C:\ path — no console
+winps  [args...]         # powershell.exe via the same lane
+wincmd /c <args...>      # cmd.exe (e.g. `start "" app.exe`)
+```
+
+It spawns `pythonw.exe` (GUI subsystem → no console) running
+`C:\Users\tbaltzakis\devin-scripts\mcp-hide.pyw`, which creates the child with
+`CREATE_NO_WINDOW` and passes stdin/stdout/stderr/exit-code through — safe for
+output-capturing AND stdio-protocol (MCP) calls.
+
+Patched callers: `social-stack-watchdog.sh`, `wsl-vsock-autoheal.sh`,
+`c-drive-watch.sh` (vhdx-compact), `groqbot-device-check.sh`,
+`phone-adb-watch.sh` (adb.exe fallback), `mcp-toolkit-heal.sh` (all `docker mcp`
+calls + the generated `~/.local/bin/docker-mcp-gateway` wrapper),
+`mcp-health-watch.sh` (Windows-docker fallback probe),
+`mail-outbound-secret-heal.sh` (secrets via temp files + Windows-side
+`mail-outbound-secret-put.ps1` under `conhost --headless` — the inner
+`npx.cmd wrangler` grandchild would otherwise flash).
+
+### 2. conhost --headless is for fire-and-forget only
+
+`conhost.exe --headless <cmd>` suppresses the window but emits terminal escape
+sequences and eats stdout — NEVER wrap output-capturing calls in it. Use it for
+scheduled-task actions and detached children (`winrun conhost --headless
+powershell -File ...`); use `mcp-hide.pyw`/`winrun` for everything else.
+
+### 3. The grandchild rule
+
+Wrapping the outer process is not enough — a console-subsystem grandchild
+allocates its own console. Real offenders found 2026-11-17:
+`pythonw → pwsh -WindowStyle Hidden -Command 'npx …'` (the npx `.cmd` shim
+flashed), `node.exe → cmd.exe /d /s /c playwright-mcp`, and
+`pwsh -Command "… | npx.cmd …"`. Fixes: install the package globally and point
+the config at the resolved `.js` entrypoint (verified: `@playwright/mcp` →
+`cli.js`, `@softeria/ms-365-mcp-server` → `dist/index.js`, `firebase-tools` →
+`lib/bin/firebase.js`), or wrap the inner chain in `conhost --headless` /
+`Start-Process -NoNewWindow`.
+
+### 4. MCP client configs
+
+Both `C:\Users\tbaltzakis\AppData\Roaming\Devin\mcp_config.json` and
+`C:\Users\tbaltzakis\.zcode\mcp_servers.json` were rewritten 2026-11-17 to route
+every console-app spawn through `mcp-hide.pyw` (or direct `.js` entrypoints).
+Remote-URL MCP entries (context7, github, gitlab, linear, greptile) spawn
+nothing local — leave them. `bun`/`php` entries were dead weight (binaries not
+installed). Keep future entries wrapped; check new MCP installs against this.
+
+### 5. Inherent / won't-fix flashes
+
+- Devin's own exec channel (`wsl.exe`/`bash.exe`/`wslhost.exe` per command) —
+  platform behavior.
+- Chrome native-messaging hosts (`chrome.exe → cmd /c …NativeHost`) — spawned
+  by browser extensions; remove the extension to remove the flash.
+- `docker stats`-family backend polling — Docker Desktop internal.
+
+### Diagnostic loop
+
+```powershell
+# 1) tasks clean?  (source of truth for the task layer only)
+powershell -File popup_task_audit.ps1
+# 2) what's ACTUALLY spawning consoles — run from a Windows working dir,
+#    NOT a \\wsl UNC cwd (cmd prints the UNC warning and a flash itself)
+D:\DevOptimizer\scripts\_popup-watch.ps1   # logs parent→child cmdlines
+# 3) stale logs lie — always diff against a fresh capture before attributing
+```
