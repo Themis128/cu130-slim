@@ -18,9 +18,7 @@ class TestClassifyComment:
         assert classify_comment("Great offer!! check https://customer.example.com") != "spam"
 
     def test_linked_question_stays_lead(self):
-        assert (
-            classify_comment("Can you quote a migration for https://customer.example?") == "lead"
-        )
+        assert classify_comment("Can you quote a migration for https://customer.example?") == "lead"
 
     def test_corroborated_links_are_spam(self):
         assert classify_comment("promo https://a.example https://b.example") == "spam"

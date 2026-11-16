@@ -27,11 +27,7 @@ from app.worker._async import run_async, task_session
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ACTIVE = {
-    s.strip()
-    for s in os.getenv("LINKEDIN_ADS_ALLOWED_ACTIVE", "").split(",")
-    if s.strip()
-}
+ALLOWED_ACTIVE = {s.strip() for s in os.getenv("LINKEDIN_ADS_ALLOWED_ACTIVE", "").split(",") if s.strip()}
 
 
 @shared_task(
@@ -89,9 +85,7 @@ async def _run() -> dict[str, Any]:
     if unexpected:
         await send_telegram_alert(
             "ops",
-            "LinkedIn ads guard: unexpected ACTIVE campaign(s) — "
-            + "; ".join(unexpected[:10])
-            + "\nAllowlist via LINKEDIN_ADS_ALLOWED_ACTIVE if intentional.",
+            "LinkedIn ads guard: unexpected ACTIVE campaign(s) — " + "; ".join(unexpected[:10]) + "\nAllowlist via LINKEDIN_ADS_ALLOWED_ACTIVE if intentional.",
         )
         await _persist_snapshot(team_id, stats)
     logger.info("linkedin-ads-guard: %s", stats)

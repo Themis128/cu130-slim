@@ -60,8 +60,7 @@ async def _already_sent(db, team_id, dedup_key: str) -> bool:
     rows = (
         (
             await db.execute(
-                select(AnalyticsEvent.meta_data)
-                .where(
+                select(AnalyticsEvent.meta_data).where(
                     AnalyticsEvent.event_type == "linkedin_offline_conversion",
                     AnalyticsEvent.platform_event_id == dedup_key,
                     AnalyticsEvent.team_id == team_id,
@@ -153,10 +152,7 @@ async def _run() -> dict[str, Any]:
                 email_sha256=_sha256(email),
                 lead_id=_lead_response_ref(desc),
                 conversion_value=(
-                    float(amount)
-                    if isinstance(amount, int | float)
-                    or (isinstance(amount, str) and amount.replace(".", "", 1).isdigit())
-                    else None
+                    float(amount) if isinstance(amount, int | float) or (isinstance(amount, str) and amount.replace(".", "", 1).isdigit()) else None
                 ),
                 currency_code=lead.get("amountCurrency") or "EUR",
             )

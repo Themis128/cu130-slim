@@ -105,7 +105,7 @@ async def org_post_comments(max_posts: int = 10, max_age_h: float = 168.0) -> di
             actor = (actor_raw.get("sub") if isinstance(actor_raw, dict) else actor_raw) or ""
             if isinstance(actor, str) and actor.startswith("urn:li:organization:"):
                 continue  # our own replies aren't moderation targets
-            message = (((c.get("message") or {}).get("text")) or "")
+            message = ((c.get("message") or {}).get("text")) or ""
             out.append(
                 {
                     "post_urn": post_urn,
