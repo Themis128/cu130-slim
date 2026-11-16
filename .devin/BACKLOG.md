@@ -31,19 +31,15 @@ gone.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
   OS-click/patchright) — retest now that the 48h fresh-app window passed;
   if still inert it is a fresh-app artifact, not anti-bot.
-- [ ] Backfill verification: pass resumed 2026-11-07 inside social-api
-  (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
-  had spellcheck_applied at start). Confirm final counts +
-  `meta_data.quality.spellcheck_applied=true` when it completes.
-  2026-11-16 correction: `spellcheck_applied` is only true when
-  LanguageTool actually CHANGED text — clean assets legitimately stay
-  false, so it is NOT a completion metric. Real metric = `meta_data.
-  quality` key presence. State at check: 163/912 lacked `quality`
-  (101 in first limit-500 pass — arbitrary row order means a second
-  `--limit 1000` pass is needed for the rest); 749 have quality meta.
-  LanguageTool path verified healthy again (stack-ops:8010 → 400 on
-  bare GET = LT responding; earlier "Name or service not known" was
-  the flap window). Non-force `--limit 500` pass running in social-api.
+- [x] Backfill verification: COMPLETE 2026-11-16 ~19:49 UTC —
+  `backfill_media_quality.py --limit 1000 --provider cloudflare`
+  (provider flag from #2024) processed the final 110 unflagged assets:
+  110 updated / 0 skipped / 0 errors. Final count **913/913 media_assets
+  carry `meta_data.quality`**. Cloudflare provider bypassed the DMR/GPU
+  arbiter (~4s/asset vs ~8min/asset on DMR under ComfyUI contention).
+  Note: `spellcheck_applied` is only true when LanguageTool CHANGED text
+  — clean assets legitimately stay false, so it is NOT a completion
+  metric; `meta_data.quality` key presence is.
 - [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
   elevated (`sshd -t` clean, host keys present, "Failed to start service"
   logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
@@ -2997,6 +2993,22 @@ Resolved this pass (details inline above):
 - [x] **LinkedIn Ad Library verified live** post-#2006 — search_all
   keyword+advertiser both 200 inside social-worker-default; weekly watch
   will pass next run.
+- [x] **Media-quality backfill COMPLETE** — 913/913 assets carry
+  `meta_data.quality` (final 110 via `--provider cloudflare`, ~4s/asset).
+- [x] **Platform-fit brain gap closed** — `platform-fit-reference` doc
+  was MISSING from Chroma `team_*_brain` (surfaces were in sync but the
+  brain seed had never landed / been lost). Re-seeded via
+  `platform_fit_sync.py --brain` path: `memory: True note: True`,
+  verified PRESENT in collection + Nextcloud note written. Root cause of
+  earlier timeouts: `remember()` queues behind the GPU arbiter when DMR
+  is contended — needs >480s patience, not a hang.
+- [x] **fsbridge-reconcile exec bit** — watchdog invoked the script
+  directly but git mode was 100644 → Permission denied on every tick,
+  heal-retire path silently dead. Live chmod + PR #2036 (merged).
+- [x] **Docker Desktop engine restart** ~16:12 EET — full engine-down
+  event; `docker desktop restart` recovered, all 53 containers survived
+  (restart policies), only stack-ops Exited(127) as designed (bridge
+  covers it; fsbridge still poisoned).
 - [~] **IG↔Page link — nearest-yet pass, still blocked**: drove the whole
   wizard on :9229 — cleared the cookie-consent iframe (needed DOM click,
   coords are iframe-relative), logged `cloudless.gr` into IG (Meta shared
