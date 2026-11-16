@@ -175,9 +175,7 @@ async def _member_dp(
         for domain, info in summary["domains"].items():
             if "elements" not in info:
                 continue
-            digest = hashlib.sha256(
-                json.dumps(info["elements"], sort_keys=True, default=str).encode()
-            ).hexdigest()[:16]
+            digest = hashlib.sha256(json.dumps(info["elements"], sort_keys=True, default=str).encode()).hexdigest()[:16]
             key = f"linkedin:dma:hash:{domain}"
             prev = r.get(key)
             if prev is None:
@@ -307,9 +305,7 @@ async def _run() -> dict[str, Any]:
             # the scope gate even when the account token lacks the scope)
             # → person.access_token_enc fallback.
             member_secret_raw = await _member_dp_secret()
-            member_secret, member_pin = (
-                _parse_member_dp_secret(member_secret_raw) if member_secret_raw else (None, None)
-            )
+            member_secret, member_pin = _parse_member_dp_secret(member_secret_raw) if member_secret_raw else (None, None)
             member_person = person
             if member_pin:
                 pinned = next((a for a in persons if a.account_id == member_pin), None)
@@ -318,9 +314,7 @@ async def _run() -> dict[str, Any]:
                 else:
                     logger.warning("member-dp secret pin matches no linkedin person account")
                     member_secret = None
-            if member_person is not None and (
-                _has_scope(member_person, MEMBER_SCOPE) or member_secret is not None
-            ):
+            if member_person is not None and (_has_scope(member_person, MEMBER_SCOPE) or member_secret is not None):
                 try:
                     token = member_secret or decrypt_token(bytes(member_person.access_token_enc))
                     result["member_dp"] = await _member_dp(db, member_person, client, token)
@@ -329,11 +323,7 @@ async def _run() -> dict[str, Any]:
                 # The dedicated token has ~1yr TTL and no refresh — a
                 # pending-grant while it is configured means EXPIRED, not
                 # awaiting approval. Alert (send_telegram_alert dedups 6h).
-                if (
-                    member_secret is not None
-                    and isinstance(result["member_dp"], dict)
-                    and "pending-grant" in result["member_dp"]
-                ):
+                if member_secret is not None and isinstance(result["member_dp"], dict) and "pending-grant" in result["member_dp"]:
                     try:
                         from app.services.slack_notifications import send_telegram_alert
 

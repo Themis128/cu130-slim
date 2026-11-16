@@ -48,9 +48,7 @@ REACTION_TYPES = ["LIKE", "PRAISE", "INTEREST", "APPRECIATION"]
 # (LinkedIn flags "slide-then-spike" resumptions — phantomBuster/Waalaxy
 # recovery guidance: restart at ~30-50% for 5-7 days).
 WARMUP_DAYS = 7
-SIDECAR_HEALTH_URL = os.getenv(
-    "LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225"
-)
+SIDECAR_HEALTH_URL = os.getenv("LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedin-browser-sidecar:9225")
 
 
 def _warmup_factor() -> float:
@@ -185,8 +183,14 @@ async def _run() -> dict:
         max_comments = int(MAX_COMMENTS_DAY * warmup)
         templates = _comment_templates()
         stats: dict[str, Any] = {
-            "scanned": 0, "reacted": 0, "commented": 0, "skipped_dedup": 0,
-            "skipped_cap": 0, "skipped_age": 0, "warmup_factor": warmup, "errors": [],
+            "scanned": 0,
+            "reacted": 0,
+            "commented": 0,
+            "skipped_dedup": 0,
+            "skipped_cap": 0,
+            "skipped_age": 0,
+            "warmup_factor": warmup,
+            "errors": [],
         }
         if warmup <= 0:
             logger.info("linkedin-engage: sidecar cooling — skipping writes")
