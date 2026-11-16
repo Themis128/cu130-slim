@@ -3068,6 +3068,24 @@ Resolved this pass (details inline above):
 - [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
   (empty-elements POST; authz precedes validation → non-403 =
   authorized); `matched_audiences` grant now requires it.
+- [ ] **21-day request expiry (found via web research 2026-11-16)**:
+  LinkedIn API access requests EXPire after 21 days; the portal shows a
+  **Reapply** button for expired/insufficient-details requests (May 2026
+  release notes). Our two Matched Audiences forms were submitted
+  ~2026-11-15/16 → **expire ~2026-12-06/07**. Before then, check both
+  apps' Products pages; if a request shows expired/declined, re-submit
+  the same Qualtrics form (SV_8CUnOsYiyMj0Qd0). Zendesk support is
+  sunset (2026-06-30) — use the Developer Support Request Form for
+  escalation. `rw_dmp_segments` needs a MEMBER (3-legged) token —
+  confirmed; no 2-legged path exists.
+- [x] **cloudless.gr `Refresh LinkedIn marketing token` workflow was
+  failing** (invalid_grant since ~2026-11-09 — old 227354605 refresh
+  token dead). Fixed 2026-11-16: fresh OAuth consent on app 227354605
+  (no-leadgen scope set — `r_marketing_leadgen_automation` is NOT
+  authorized on that app), code captured via localhost:8083 redirect
+  trick, `linkedin-reauth-and-register.mjs --code --no-leadgen` → GH
+  secrets `LINKEDIN_ACCESS_TOKEN`/`LINKEDIN_REFRESH_TOKEN` updated +
+  Pi secrets sync dispatched. Workflow re-run: SUCCESS.
 - [ ] On `rw_dmp_segments` grant on EITHER app:
   - **264925843** (our OAuth client — `LINKEDIN_CLIENT_ID`/`SECRET`
     in `.env`): re-consent so the scope joins the token → watcher
