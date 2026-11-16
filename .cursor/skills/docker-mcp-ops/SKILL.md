@@ -78,3 +78,18 @@ docker mcp version               # v0.44.3 (2026-11-13)
 ```bash
 cd ~/.docker && rm mcp && mv mcp.bak-20261113 mcp   # restores the 4.9MB WSL-native db
 ```
+
+## The `mcp-docker` MCP server (71 tools)
+
+The toolkit also fronts an `mcp-docker` MCP server — use it before `gh`/raw
+Playwright (see `.devin/rules/docker-mcp-first.md`):
+
+- **GitHub**: full PR/issue/repo/commits/releases/search surface
+  (`list_pull_requests`, `pull_request_read`, `create_or_update_file`,
+  `push_files`, `merge_pull_request`, `update_pull_request_branch`,
+  `search_code`, ...). Repo tools take `owner`/`repo` args.
+- **Browser**: Playwright-grade lane (`browser_navigate`, `browser_snapshot`,
+  `browser_click`, `browser_evaluate`, `browser_run_code_unsafe`,
+  `browser_network_requests`, ...) — a self-contained browser (own auth, not
+  the user's session). Reach for it when the repo's CDP lanes (:9222/:9223,
+  sidecars) are down.
