@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -346,6 +347,93 @@ def test_notebook_report_run_in_progress_skip(monkeypatch):
     monkeypatch.setattr(NR, "_report_lock", lambda: _BusyRedis())
     out = NR.run_notebook_report("nb-busy", send=False)
     assert out["executed"] is False and out["skipped"] == "run-in-progress"
+
+
+class _LockRedis:
+    """Minimal lock-store for owner-validation tests."""
+
+    def __init__(self, owner=None):
+        self.kv = {}
+        if owner:
+            day = datetime.now(ZoneInfo("Europe/Athens")).date().isoformat()
+            self.kv[f"nbreport:running:nb-lock:{day}"] = owner
+
+    def get(self, k):
+        return self.kv.get(k)
+
+    def set(self, k, v, nx=False, ex=None):
+        if nx and k in self.kv:
+            return None
+        self.kv[k] = v
+        return True
+
+    def delete(self, k):
+        self.kv.pop(k, None)
+
+
+def test_notebook_report_live_owner_still_skips(monkeypatch):
+    """A lock owned by a task that is actually running must still skip."""
+
+    monkeypatch.setattr(NR, "_report_lock", lambda: _LockRedis(owner="task-alive"))
+    monkeypatch.setattr(NR, "_lock_owner_alive", lambda task, owner: True)
+    out = NR.run_notebook_report("nb-lock", send=False)
+    assert out["executed"] is False and out["skipped"] == "run-in-progress"
+
+
+def test_notebook_report_steals_dead_owner_lock(monkeypatch, tmp_path):
+    """A worker killed mid-run leaves a zombie running-lock; the next run
+    must steal it instead of skipping the day's report for 3h."""
+    import app.services.notebook_runner as runner
+
+    fake = _LockRedis(owner="task-killed-mid-run")
+    monkeypatch.setattr(NR, "_report_lock", lambda: fake)
+    monkeypatch.setattr(NR, "_lock_owner_alive", lambda task, owner: False)
+    man, _ = _manifest(tmp_path)
+    mp = tmp_path / "manifest.json"
+    mp.write_text("{}")
+    monkeypatch.setattr(
+        runner,
+        "run_report_notebook",
+        lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"},
+    )
+    out = NR.run_notebook_report("nb-lock", send=False)
+    assert out["executed"] is True
+
+
+def test_lock_owner_alive_helper(monkeypatch):
+    """STARTED tombstones are confirmed against worker active+reserved."""
+
+    class _Result:
+        def __init__(self, state):
+            self.state = state
+
+    def _task_with(state, active=None, reserved=None, boom=False):
+        class _Insp:
+            def active(self):
+                if boom:
+                    raise RuntimeError("no workers")
+                return {"w@h": [{"id": t} for t in (active or [])]}
+
+            def reserved(self):
+                if boom:
+                    raise RuntimeError("no workers")
+                return {"w@h": [{"id": t} for t in (reserved or [])]}
+
+        class _Control:
+            def inspect(self, timeout=0):
+                return _Insp()
+
+        return SimpleNamespace(app=SimpleNamespace(control=_Control()))
+
+    monkeypatch.setattr(NR, "AsyncResult", lambda owner, app=None: _Result("FAILURE"))
+    assert NR._lock_owner_alive(_task_with("FAILURE"), "t1") is False
+
+    monkeypatch.setattr(NR, "AsyncResult", lambda owner, app=None: _Result("STARTED"))
+    assert NR._lock_owner_alive(_task_with("STARTED", active=["t1"]), "t1") is True
+    assert NR._lock_owner_alive(_task_with("STARTED", reserved=["t1"]), "t1") is True
+    assert NR._lock_owner_alive(_task_with("STARTED", active=["other"]), "t1") is False
+    # Unverifiable liveness → assume alive, never steal blind.
+    assert NR._lock_owner_alive(_task_with("STARTED", boom=True), "t1") is True
 
 
 def test_notebook_report_lock_check_failure_proceeds(monkeypatch, tmp_path):

@@ -14,6 +14,7 @@ email always goes out.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import logging
 import re
@@ -1264,13 +1265,20 @@ async def _llm_actions(
         "No preamble, no closing remarks — only the numbered list."
     )
     try:
-        resp = await call_inference(
-            prompt,
-            provider_name="dmr",
-            db=db,
-            team_id=team_id,
-            max_tokens=600,
-            allow_fallback=True,
+        # Hard bound: a wedged DMR backend accepts the request but never
+        # answers — the shared client's 300s timeout plus heal/retry passes
+        # can stall the report far past the daily window. Give the LLM a
+        # bounded slice; on timeout the report ships rule-based actions.
+        resp = await asyncio.wait_for(
+            call_inference(
+                prompt,
+                provider_name="dmr",
+                db=db,
+                team_id=team_id,
+                max_tokens=600,
+                allow_fallback=True,
+            ),
+            timeout=240,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Strategy report inference failed: %s", exc)
