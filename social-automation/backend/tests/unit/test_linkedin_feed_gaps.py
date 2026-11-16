@@ -156,6 +156,32 @@ async def test_list_comments_ok_and_error(monkeypatch):
     assert out["error"] == "no-linkedin-account"
 
 
+@pytest.mark.asyncio
+async def test_list_posts_member_author_uses_member_ctx(monkeypatch):
+    """Non-org author URN → member_ctx() (member token), q=author param."""
+    member = AsyncMock(return_value=("mtok", "urn:li:person:1"))
+    org = AsyncMock(return_value=None)
+    monkeypatch.setattr(LF, "member_ctx", member)
+    monkeypatch.setattr(LF, "org_ctx", org)
+    calls = _patch_http(monkeypatch, [_Resp(200, {"elements": [{"id": "urn:li:share:1"}]})])
+    out = await LF.list_posts("urn:li:person:123", count=5)
+    assert out["status"] == 200
+    assert out["posts"] == [{"id": "urn:li:share:1"}]
+    member.assert_awaited_once()
+    org.assert_not_awaited()
+    assert calls[0][2]["params"]["q"] == "author"
+    assert calls[0][2]["params"]["author"] == "urn:li:person:123"
+    assert calls[0][2]["params"]["count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_list_posts_member_no_ctx(monkeypatch):
+    monkeypatch.setattr(LF, "member_ctx", AsyncMock(return_value=None))
+    monkeypatch.setattr(LF, "org_ctx", AsyncMock(return_value=None))
+    out = await LF.list_posts("urn:li:person:123")
+    assert out == {"posts": [], "error": "no-linkedin-account"}
+
+
 # ── writes: react/comment/delete_reaction enabled paths ─────────────────
 
 
