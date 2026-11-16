@@ -3203,3 +3203,35 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+
+## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
+
+- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
+      the task layer was never the flash source.
+- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
+      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
+      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
+      `.bat` launchers, Chrome native hosts (inherent).
+- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
+      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
+      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
+      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
+      mcp-health-watch, mail-outbound-secret-heal (+ new
+      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
+- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
+      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
+      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
+      `npx`/`.cmd` shim chains are gone.
+- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
+- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
+      classes, the grandchild rule, and why `-WindowStyle Hidden` /
+      `conhost --headless` (for output capture) don't work.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
