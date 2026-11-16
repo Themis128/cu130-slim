@@ -47,7 +47,7 @@ def threads_account(token: str, active_only: bool = False) -> dict | None:
 def bridge(path: str, data: dict) -> dict:
     req = urllib.request.Request(
         f"{BRIDGE}{path}", data=json.dumps(data).encode(),
-        headers={"Content-Type": "application/json"}, method="POST")
+        headers={"Content-Type": "application/json", "X-Platform": "threads"}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.loads(r.read().decode())
