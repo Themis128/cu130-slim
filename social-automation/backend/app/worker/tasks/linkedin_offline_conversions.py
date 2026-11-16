@@ -51,18 +51,31 @@ def _lead_response_ref(description: str) -> str | None:
 
 
 async def _already_sent(db, team_id, dedup_key: str) -> bool:
-    row = (
-        await db.execute(
-            select(AnalyticsEvent.id)
-            .where(
-                AnalyticsEvent.event_type == "linkedin_offline_conversion",
-                AnalyticsEvent.platform_event_id == dedup_key,
-                AnalyticsEvent.team_id == team_id,
+    """True only when a previous attempt was ACCEPTED by LinkedIn.
+
+    Failed/skipped attempts also write ledger rows (for audit), so dedup must
+    inspect the stored result — otherwise one HTTP 503 permanently blocks the
+    lead from ever being retried.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(AnalyticsEvent.meta_data)
+                .where(
+                    AnalyticsEvent.event_type == "linkedin_offline_conversion",
+                    AnalyticsEvent.platform_event_id == dedup_key,
+                    AnalyticsEvent.team_id == team_id,
+                )
             )
-            .limit(1)
         )
-    ).first()
-    return row is not None
+        .scalars()
+        .all()
+    )
+    for md in rows:
+        result = (md or {}).get("result") or {}
+        if result.get("ok") or result.get("status") in (200, 201):
+            return True
+    return False
 
 
 async def _espo_won_leads() -> list[dict[str, Any]]:
@@ -71,7 +84,7 @@ async def _espo_won_leads() -> list[dict[str, Any]]:
     statuses = [s.strip() for s in ESPO_STATUSES.split(",") if s.strip()]
     where = [
         {"type": "in", "attribute": "status", "value": statuses},
-        {"type": "=", "attribute": "source", "value": "Social Media"},
+        {"type": "equals", "attribute": "source", "value": "Social Media"},
     ]
     return await espocrm_client.list_all(
         "Lead",
