@@ -671,15 +671,18 @@ app/worker/tasks/
 ├── instagram_token_refresh.py — refresh_instagram_tokens
 ├── linkedin_session_check.py  — check_linkedin_sessions
 ├── linkedin_session_refresh.py — refresh_linkedin_sessions
-├── linkedin_portability_sync.py — sync_linkedin_portability (daily):
+├── linkedin_portability_sync.py — sync_linkedin_portability (daily 09:30):
 │                             Member DP + Pages DP exports →
 │                             AnalyticsEvents → datalake. Member token =
 │                             LINKEDIN_MEMBER_DP_TOKEN secret (app
 │                             265100977; JSON {"token","account_id"} pins
 │                             the grant to one social_accounts row) →
-│                             person token fallback; pending-grant while
-│                             the dedicated secret is set alerts ops
-│                             (~1yr TTL, no refresh = expiry, not approval)
+│                             person token fallback. Member DP data is
+│                             LIVE since 2026-11-16 (LinkedIn populated
+│                             the export; real snapshot + changelog rows
+│                             land daily, per-domain sha256 diff alerts
+│                             fire on changes); Pages DP still self-gates
+│                             on its product grant.
 ├── session_healer.py       — heal_sessions: hourly self-heal sweep —
 │                             LinkedIn sidecar (429-circuit clear →
 │                             credential login → app-push 2FA wait),
@@ -792,6 +795,32 @@ Beat Schedule:
 │                          │  slack_digest                   │          │
 │ linkedin-ads-daily-report│ linkedin_ads_report             │ 10:00    │
 │ send-linkedin-invites    │ linkedin_invites                │ 10:30    │
+│ linkedin-conversion-     │ linkedin_conversion_ensure      │ daily    │
+│  ensure                  │                                 │ 05:10    │
+│ linkedin-offline-        │ linkedin_offline_conversions    │ daily    │
+│  conversions             │                                 │ 06:40    │
+│ linkedin-conversion-     │ linkedin_conversion_audit       │ daily    │
+│  audit                   │                                 │ 07:45    │
+│ linkedin-ads-guard       │ linkedin_ads_guard              │ daily    │
+│                          │                                 │ 08:00    │
+│ linkedin-dmp-sync        │ linkedin_dmp_sync               │ daily    │
+│                          │                                 │ 08:30    │
+│ linkedin-portability-    │ linkedin_portability_sync       │ daily    │
+│  sync                    │                                 │ 09:30    │
+│ linkedin-community-      │ linkedin_community.             │ every 2h │
+│  moderation              │  moderate_linkedin_community    │ :07      │
+│ linkedin-ad-library-     │ linkedin_intel.                 │ Mon 09:00│
+│  watch                   │  run_linkedin_ad_library_watch   │          │
+│ linkedin-engage          │ linkedin_engagement.            │ */45m    │
+│                          │  engage_linkedin_watchlist      │          │
+│ linkedin-lead-routing    │ linkedin_lead_boost.            │ 30m      │
+│                          │  route_linkedin_leads            │          │
+│ linkedin-boost-winner    │ linkedin_lead_boost.            │ hourly   │
+│                          │  boost_linkedin_winners          │          │
+│ linkedin-engagement-     │ linkedin_engagement_score.     │ hourly   │
+│  score                   │  score_linkedin_posts           │          │
+│ engagement-ingest-li-    │ engagement_ingest_li.           │ hourly   │
+│  feed                    │  ingest_linkedin_feed            │ :20      │
 │ reconcile-tiktok-inbox   │ tiktok_inbox_reconcile          │ 6h :20   │
 │ poll-personal-messenger  │ personal_messenger.poll         │ 120s     │
 │                         │  (bot: memory+RAG+intent+cooldown)│          │
@@ -889,21 +918,19 @@ Beat Schedule:
 | Threads | ✓ | ✓ (text, image, video, carousel) | ✓ | ✓ (API) | — | Instagram-based, v1.0 |
 | WhatsApp | ✓ | — | — | ✓ (Cloud API) | ✓ Cloud API | WABA, phone verification |
 
-> **LinkedIn analytics — two developer apps.** The main "Cloudless API App"
-> (227354605) carries Share on LinkedIn + Advertising API and provisions
-> org/company-page analytics (`r_organization_social`). **Member post
-> analytics** (`memberCreatorPostAnalytics`, `r_member_postAnalytics`) is a
-> Community Management API member permission — CMA must be the only product
-> on its app, so a dedicated "Cloudless Analytics App" (264925843) holds the
-> request, submitted 2026-09-25 and **pending LinkedIn review**. Until
-> approved, `sync_linkedin_account` marks member posts
-> `member_postAnalytics_scope_missing` — checked proactively against the
-> recorded OAuth scope list (`_member_post_analytics_scope_missing`), so no
-> doomed API calls are made — and the daily brief renders
-> `— (member metrics scope missing)`. The browser sidecar's activity-page
-> scrape covers impressions/reactions/comments in the meantime. Never add
-> the scope to `LINKEDIN_EXTRA_SCOPES` on the main app — OAuth rejects it
-> with `unauthorized_scope_error`. Runbook: `.devin/skills/developer-apps-ops/linkedin-api-upgrade/`.
+> **LinkedIn analytics — dedicated apps per product family.** Member post
+> analytics (`memberCreatorPostAnalytics`, `r_member_postAnalytics`) is a
+> Community Management API member permission, so the dedicated "Cloudless
+> Analytics App" (264925843) — now carrying CM Standard Tier, Events,
+> Conversions API, Lead Sync, Ad Library, Share and OIDC — is the PRIMARY
+> OAuth client (`.env` `LINKEDIN_CLIENT_ID`) and consents the full
+> member+org scope union. `sync_linkedin_account` still guards member
+> posts via `_member_post_analytics_scope_missing` so no doomed API calls
+> are made if a token ever lacks the scope. The browser sidecar's
+> activity-page scrape remains the fallback for anything the API can't
+> reach. Never add product-gated scopes to `LINKEDIN_EXTRA_SCOPES` —
+> OAuth rejects them with `unauthorized_scope_error`. Runbook:
+> `.devin/skills/developer-apps-ops/linkedin-api-upgrade/`.
 
 ### API Versions (as of September 2026)
 
@@ -2131,15 +2158,22 @@ Five workers live at `<name>.baltzakis-themis.workers.dev` (cloudless.gr repo, `
 Consumer wiring (env-gated, fire-and-forget via `_cf_shadow_call`): `nurture_sequence` enrolls quiet-lane leads in `lead-scheduler` and emits `quiet.sent`/`nurture.sent`; `leads/public` emits `lead.created`; `quiet_lead_followup.py unenroll` posts DO unsubscribe. Env lives in `.env` + compose `x-worker-env` + api anchor: `MAIL_OUTBOUND_/LEAD_SCHEDULER_/FUNNEL_EVENTS_{URL,TOKEN}`, `TOOLS_TOKEN`, `AGENT_SANDBOX_TOKEN`. Doctor: `backend/scripts/cf_workers_doctor.py` (exit 0 = whole surface green).
 
 
-## LinkedIn integration topology (verified live 2026-11-05)
+## LinkedIn integration topology (verified live 2026-11-16)
 
-Three developer applications, one Page (`cloudless.gr`, urn:li:organization:108614163):
+Five developer applications, one Page (`cloudless.gr`, urn:li:organization:108614163):
 
 | Portal app | Client ID | Products / grants | Role |
 |---|---|---|---|
-| `264925843` "Cloudless Analytics App" | `77j8kzfi1a6jn8` | CM Standard Tier + Events Standard + Share + OIDC — consents the FULL union (member analytics, `*_social_feed`, `r_organization_followers`, `r_1st_connections_size`, `r_events`, `rw_organization_admin`) | **PRIMARY OAuth client** (`.env` `LINKEDIN_CLIENT_ID`) |
-| `265077368` "cloudless-gr-member" | `77fd3pui3m2jwm` | Sign In OIDC Standard + Share Default + company-verified + business-email verified; Member/Pages Data Portability requests submitted | member-side lane |
-| `227354605` "Cloudless API App" | `77tf4oysp8u3fz` | Advertising API + Share + org scopes (legacy primary) | ads lane |
+| `264925843` "Cloudless Analytics App" | `77j8kzfi1a6jn8` | CM Standard Tier + Events + Share + OIDC + Ad Library + Conversions API + Lead Sync — consents the FULL union (member analytics, `*_social_feed`, `r_organization_followers`, `r_1st_connections_size`, `r_events`, `rw_organization_admin`, `rw_conversions`, `r_marketing_leadgen_automation`, `r_ads`, `r_member_postAnalytics`, `r_member_profileAnalytics`); **Advertising API access request in review** (submitted 2026-11-16) | **PRIMARY OAuth client** (`.env` `LINKEDIN_CLIENT_ID`) |
+| `227354605` "Cloudless API App" | `77tf4oysp8u3fz` | Share + OIDC + Events + Ad Library added; **Matched Audiences standard-tier access request in review** (submitted 2026-11-16); Lead Sync/Community Management denied on this app | ads/marketing lane |
+| `265077368` "cloudless-gr-member" | `77fd3pui3m2jwm` | Sign In OIDC Standard + Share Default + company-verified + business-email verified; Advertising API review in progress; Matched Audiences requestable | member-side lane |
+| `265081467` "cloudless-gr-live" | — | Share review in progress; Advertising API, Lead Sync, Matched Audiences, OIDC, Events, Community Management requestable | reserve/live lane |
+| `265077464` "cloudless-gr-dma" | — | Member DP 3rd Party denied; Share, Advertising, Lead Sync, Matched Audiences, Live Events, OIDC requestable | DMA reserve |
+| `265100977` "Member DP (Member-Only)" | — | Member Data Portability (Member) — dedicated app required by LinkedIn; **LIVE** — token in `LINKEDIN_MEMBER_DP_TOKEN`, real snapshot+changelog data flowing since 2026-11-16 | portability lane |
+
+Scope-infra lanes built on the granted scopes (all beat-scheduled, see Beat Schedule): Conversions API rules + offline `lead_won` uploads (`linkedin_conversion_ensure`/`audit`/`offline_conversions`), Lead Sync webhook + 30-min routing to EspoCRM (`linkedin-lead-routing`), Company Page comment moderation + @mention alerts (`linkedin-community-moderation`, delete gated `LINKEDIN_COMMENT_HIDE`), org-actor feed engagement + member watchlist (`linkedin-engage`, `LINKEDIN_FEED_WRITES`-gated), per-post/member analytics into `analytics_events` (`linkedin-engagement-score`), Events create/publish (`rw_events`), page-admin ACL (`linkedin_admin`), ads spend guard (`linkedin-ads-guard`), Ad Library intel watch (`linkedin-ad-library-watch`), Member DP export + diff alerts (`linkedin-portability-sync`), and Matched Audiences DMP sync (`linkedin-dmp-sync` — self-gates on 403 until `rw_dmp_segments` is granted).
+
+Pending LinkedIn-side approvals (both requests submitted 2026-11-16, Microsoft Vetting Services email-verifies the business): **Advertising API** on 264925843 → unlocks `rw_ads` Marketing API calls (upgrade `linkedin_ads_control` off sidecar UI-scraping) and is the stated prerequisite for **Matched Audiences** (`rw_dmp_segments`) on 227354605 → activates `linkedin-dmp-sync` automatically. Member DP (3rd Party), Pages DP, Live Events deliberately not requested — no use case.
 
 OAuth model: LinkedIn grants REPLACE the scope set on every consent (never union) — the authorize URL must carry the full intended union. Tokens are 60-day member tokens; programmatic refresh is partner-only, so re-auth = re-run the authorize URL. Scope rejections come in two classes: authorize-load (probe-able) and consent-submit (only visible after clicking Allow — `li_consent_trim.py` strips them iteratively). Current live token on account `8f406a9d-…` carries all 16 grantable scopes (verified via /v2/userinfo + organizationAcls 200).
 
