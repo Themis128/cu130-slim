@@ -155,6 +155,62 @@ class TestGenerateVideo:
         assert "Avoid: wrong subject" in retry_prompt
         assert asset.meta_data["semantic_qa"]["match"] is True
 
+    def test_asset_saved_before_qa(self, monkeypatch):
+        """Regression: a finished render must be durable even if QA dies."""
+        order = []
+        gen, segs, asset = _wire_video(monkeypatch)
+
+        async def _qa_track(*a, **k):
+            order.append("qa")
+            return {"match": True, "caption": "c", "reason": "ok"}
+
+        async def _save_track(*a, **k):
+            order.append("save")
+            return asset
+
+        monkeypatch.setattr(M.media_ai, "verify_media_semantics", _qa_track)
+        monkeypatch.setattr(M, "save_uploaded_media", _save_track)
+        out = M.generate_video_asset_task(_TEAM, _USER, "a dog")
+        assert out == str(asset.id)
+        assert order[:2] == ["save", "qa"]
+
+    def test_qa_timeout_preserves_asset(self, monkeypatch):
+        """A hanging DMR vision call must not consume the task budget."""
+        monkeypatch.setattr(M, "_SEMANTIC_QA_TIMEOUT_S", 0.05)
+
+        async def _hang(*a, **k):
+            await asyncio.sleep(60)
+
+        qa = AsyncMock(side_effect=_hang)
+        gen, segs, asset = _wire_video(monkeypatch, qa=qa)
+        out = M.generate_video_asset_task(_TEAM, _USER, "a dog")
+        assert out == str(asset.id)
+        assert asset.meta_data["semantic_qa"]["reason"] == "qa timeout"
+        assert asset.meta_data["semantic_qa"]["match"] is True
+
+    def test_qa_mismatch_retry_skipped_on_budget(self, monkeypatch):
+        """No second render when it can't fit the task soft limit."""
+        monkeypatch.setattr(M, "_TASK_SOFT_LIMIT_S", 100)
+        qa = AsyncMock(return_value={"match": False, "reason": "wrong subject", "vision": "dmr"})
+        gen, segs, asset = _wire_video(monkeypatch, qa=qa)
+        out = M.generate_video_asset_task(_TEAM, _USER, "a dog")
+        assert out == str(asset.id)
+        gen.assert_awaited_once()
+        assert asset.meta_data["semantic_qa"]["retry"].startswith("skipped")
+
+    def test_qa_retry_supersedes_original(self, monkeypatch):
+        """A successful retry returns the new asset; the original is kept
+        and marked superseded — never destroyed."""
+        qa = AsyncMock(side_effect=[{"match": False, "reason": "wrong subject", "vision": "dmr"}, {"match": True, "caption": "c2", "reason": "ok"}])
+        gen, segs, _ = _wire_video(monkeypatch, qa=qa)
+        first = SimpleNamespace(id=uuid.uuid4(), source=None, generation_prompt=None, duration_seconds=None, meta_data={})
+        second = SimpleNamespace(id=uuid.uuid4(), source=None, generation_prompt=None, duration_seconds=None, meta_data={})
+        monkeypatch.setattr(M, "save_uploaded_media", AsyncMock(side_effect=[first, second]))
+        out = M.generate_video_asset_task(_TEAM, _USER, "a dog")
+        assert out == str(second.id)
+        assert first.meta_data["superseded_by"] == str(second.id)
+        assert second.meta_data["semantic_qa"]["match"] is True
+
     def test_ffmpeg_failure_skips_qa(self, monkeypatch):
         gen, segs, asset = _wire_video(monkeypatch)
 
