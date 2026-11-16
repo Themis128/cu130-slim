@@ -3118,3 +3118,25 @@ Resolved this pass (details inline above):
   verification is pending, and expected timeline. Confirmation: "You've
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
+
+- [x] **Throwaway report containers stale-env class — FIXED 2026-11-16**:
+  `strategy-report-run3` baked a pre-rotation `REDIS_URL` into
+  Config.Env; pydantic env vars beat the mounted `/app/.env`, so the
+  whole report ran degraded (Redis auth fails → GPU arbiter
+  unserialized; the "comfyui invalid username-password" error is the
+  same stale-Redis class, NOT ComfyUI auth — ComfyUI has no credential
+  env and prompt submission succeeded). New launcher
+  `scripts/run-backend-once.sh <name> '<cmd>'` always injects the LIVE
+  `.env` (baked-image + docker-cp path works even while the fsbridge is
+  poisoned; `--mounted` refuses when the probe fails). Verified: env
+  hash inside container == host `.env`.
+- [ ] **IG↔FB Page link — Meta escalation path (researched 2026-11-16)**:
+  Account Quality (`business.facebook.com/accountquality`) is the only
+  review surface; admin-only, ~3 review attempts max, reviews take
+  ~24–72h for minor cases and a completed review is FINAL. Check the
+  PERSONAL profile's restrictions there (the 2021 ad-account + profile
+  restrictions contaminate the portfolio), have identity/business
+  verification ready before requesting, and file ONE well-prepared
+  review — past failed appeals (Aug–Oct) likely lacked it. Business
+  portfolio `cloudless.gr` is clean; the personal profile is the
+  restricted asset. `ig_onboarding_drive.py` stays parked until then.
