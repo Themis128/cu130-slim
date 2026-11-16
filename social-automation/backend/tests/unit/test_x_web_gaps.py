@@ -206,3 +206,220 @@ async def test_read_with_twscrape_edges():
 
     out2 = await X._read_with_twscrape(_ApiIds(), "u", "42", ["9"], 1)
     assert out2.tweets == {}
+
+
+# ── residual publish/analytics arcs ──────────────────────────────────────
+
+
+def _x_settings(**over):
+    base = dict(
+        X_WEB_FALLBACK_ENABLED=True,
+        X_WEB_AUTH_TOKEN="tok",
+        X_WEB_CT0="csrf",
+        X_WEB_COOKIES_JSON="",
+        X_WEB_PROXY="",
+        X_WEB_MAX_POSTS_PER_DAY=5,
+        X_WEB_MIN_GAP_MINUTES=10,
+        X_WEB_MAX_GAP_MINUTES=30,
+        X_WEB_BREAKER_HOURS=6.0,
+        X_WEB_ANALYTICS_MIN_INTERVAL_HOURS=6.0,
+        X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS=10,
+        X_WEB_STATE_FILE="/tmp/x_web_state_gaps.json",
+        REDIS_URL="redis://invalid:1/0",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _guard():
+    return X.XWebGuard(X.MemoryGuardStore())
+
+
+def _factory(client):
+    async def make():
+        return client
+
+    return make
+
+
+def test_prepare_media_reraises_xweb_media_error(tmp_path, monkeypatch):
+    src = _img(tmp_path / "a.png", "PNG")
+    plan = X.plan_media([src])
+
+    def _boom(*a, **k):
+        raise X.XWebMediaError("direct media error")
+
+    monkeypatch.setattr(X, "_to_jpeg", _boom)
+    with pytest.raises(X.XWebMediaError, match="direct media error"):
+        X.prepare_media(plan, str(tmp_path / "out"))
+
+
+class _NoIdTweety:
+    """create_tweet returns an object without .id on chosen call indexes."""
+
+    def __init__(self, no_id_calls=(), username="TBaltzakis"):
+        self.user = SimpleNamespace(username=username)
+        self._no_id = set(no_id_calls)
+        self.created: list[str] = []
+
+    async def create_tweet(self, text, files=None, reply_to=None):
+        idx = len(self.created)
+        self.created.append(text)
+        if idx in self._no_id:
+            return SimpleNamespace()
+        return SimpleNamespace(id=str(1000 + idx))
+
+    async def get_tweets(self, ident, pages=1):
+        return SimpleNamespace(tweets=[])
+
+
+async def test_publish_first_tweet_no_id_is_ambiguous(monkeypatch):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+    fake = _NoIdTweety(no_id_calls={0})
+    out = await X.publish_via_x_web(
+        expected_username="TBaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
+    )
+    assert out.status == "ambiguous" and "may or may not be live" in (out.error or "")
+
+
+async def test_publish_thread_reply_no_id_is_partial(monkeypatch):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+    fake = _NoIdTweety(no_id_calls={1})
+    from unittest.mock import AsyncMock
+
+    out = await X.publish_via_x_web(
+        expected_username="TBaltzakis",
+        chunks=["a", "b"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
+        sleep=AsyncMock(),
+    )
+    assert out.status == "ok" and out.partial and out.tweet_ids == ["1000"]
+
+
+async def test_publish_media_stage_generic_error_is_media_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+
+    class _UploadBoom:
+        user = SimpleNamespace(username="TBaltzakis")
+
+        async def upload_media(self, files):
+            raise RuntimeError("upload connection reset")
+
+    img = _img(tmp_path / "a.jpg", "JPEG")
+    out = await X.publish_via_x_web(
+        expected_username="TBaltzakis",
+        chunks=["hi"],
+        media_paths=[img],
+        guard=_guard(),
+        client_factory=_factory(_UploadBoom()),
+    )
+    assert out.status == "media_error" and "not posting without media" in (out.error or "")
+
+
+async def test_publish_upload_failed_type_name_is_media_error(monkeypatch):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+    UploadFailed = type("UploadFailed", (Exception,), {})
+
+    async def _upload_failed_factory():
+        raise UploadFailed("tus upload failed")
+
+    out = await X.publish_via_x_web(
+        expected_username="TBaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_upload_failed_factory,
+    )
+    assert out.status == "media_error"
+
+
+async def test_publish_login_stage_generic_error(monkeypatch):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+
+    async def _boom_factory():
+        raise RuntimeError("session bootstrap failed")
+
+    out = await X.publish_via_x_web(
+        expected_username="TBaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_boom_factory,
+    )
+    assert out.status == "error" and "session bootstrap failed" in (out.error or "")
+
+
+class _HTTP401(Exception):
+    status_code = 401
+
+
+async def test_fetch_analytics_twscrape_trip_and_workdir_cleanup(monkeypatch, tmp_path):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+
+    async def _tweety_fail():
+        raise RuntimeError("graphql shape changed")
+
+    workdir = tmp_path / "tws_work"
+    workdir.mkdir()
+
+    class _TwsTrip:
+        _x_web_workdir = str(workdir)
+
+        async def user_by_login(self, u):
+            raise _HTTP401("status 401")
+
+    async def _tws_trip(h):
+        return _TwsTrip()
+
+    web, reason = await X.fetch_x_web_analytics(
+        username="TBaltzakis",
+        user_id="42",
+        guard=_guard(),
+        tweety_factory=_tweety_fail,
+        twscrape_factory=_tws_trip,
+    )
+    assert web is None and "tripped breaker" in (reason or "")
+    assert not workdir.exists()  # finally: rmtree cleaned _x_web_workdir
+
+
+async def test_fetch_analytics_twscrape_success_cleans_workdir(monkeypatch, tmp_path):
+    monkeypatch.setattr(X, "get_settings", lambda: _x_settings())
+
+    async def _tweety_fail():
+        raise RuntimeError("graphql shape changed")
+
+    workdir = tmp_path / "tws_work2"
+    workdir.mkdir()
+
+    class _TwsOk:
+        _x_web_workdir = str(workdir)
+
+        async def user_by_login(self, u):
+            return SimpleNamespace(id=7, followersCount=9, friendsCount=1, statusesCount=1, listedCount=0)
+
+        async def user_tweets(self, uid, limit=-1):
+            if False:
+                yield None
+
+        async def tweet_details(self, tid):
+            return None
+
+    async def _tws_ok(h):
+        return _TwsOk()
+
+    web, reason = await X.fetch_x_web_analytics(
+        username="TBaltzakis",
+        user_id="42",
+        guard=_guard(),
+        tweety_factory=_tweety_fail,
+        twscrape_factory=_tws_ok,
+    )
+    assert reason is None and web is not None and web.source == "x_web_twscrape"
+    assert web.followers == 9
+    assert not workdir.exists()
