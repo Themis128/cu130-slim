@@ -2457,7 +2457,7 @@ services:
   # Never restarts the whole stack — scripts/compose-watchdog.sh owns that.
   # Image pinned by digest (bump deliberately, not via :latest drift).
   autoheal:
-    image: willfarrell/autoheal:latest@sha256:53320121f32db551b8e19cdd5ff28eb1e5cece62845cc46683d4479b6a58b77e
+    image: willfarrell/autoheal:latest@sha256:a7ecfb0f179d50c2b5c008726fedf8c939eace5bd5faa95b48f20976f869e17a
     container_name: autoheal
     restart: unless-stopped
     environment:
