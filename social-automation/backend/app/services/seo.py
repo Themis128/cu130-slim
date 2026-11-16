@@ -319,7 +319,7 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
     return report
 
 
-async def suggest_meta(title: str | None, body: str, platform: str = "linkedin") -> dict[str, str]:
+async def suggest_meta(title: str | None, body: str, platform: str = "linkedin", provider_name: str = "dmr") -> dict[str, str]:
     """Suggest meta title and description for a LinkedIn article or blog post."""
     if platform in ("twitter", "threads", "instagram", "tiktok"):
         return {"title": "", "description": ""}
@@ -354,7 +354,7 @@ Return JSON with:
     }
 
     try:
-        result = await call_inference(prompt, provider_name="dmr", schema=schema)
+        result = await call_inference(prompt, provider_name=provider_name, schema=schema)
         return {
             "title": str(result.get("title", "")).strip(),
             "description": str(result.get("description", "")).strip(),
@@ -370,10 +370,11 @@ async def analyze_seo(
     title: str | None = None,
     db: AsyncSession | None = None,
     team_id: Any | None = None,
+    provider_name: str = "dmr",
 ) -> dict[str, Any]:
     """Full SEO analysis: keywords, score, meta, and recommendations."""
     score = score_content(text, platform)
-    meta = await suggest_meta(title, text, platform)
+    meta = await suggest_meta(title, text, platform, provider_name=provider_name)
     keywords = extract_keywords(text)
     og = generate_open_graph(meta.get("title", "") or title or "", text, meta.get("description", ""))
     return {
