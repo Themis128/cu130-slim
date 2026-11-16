@@ -412,3 +412,30 @@ powershell -File popup_task_audit.ps1
 D:\DevOptimizer\scripts\_popup-watch.ps1   # logs parent→child cmdlines
 # 3) stale logs lie — always diff against a fresh capture before attributing
 ```
+
+### Battle-test results (2026-11-17 evening)
+
+Fresh `_popup-watch` capture after remediation, exercising every lane:
+
+- `winrun`/`winps`/`wincmd` verified: `docker.exe version`, `docker mcp
+  profile list`, `docker mcp secret ls`, `adb.exe devices`, powershell and
+  `cmd /c` all return output with `CREATE_NO_WINDOW` — their `conhost 0x4`
+  children are the hidden WSL-pty console, not desktop flashes.
+- A fresh `conhost 0x4` IS still a flash when its parent chain is
+  `pwsh/powershell -WindowStyle Hidden → npx/.cmd` — the wrapper shields the
+  outer process but a console-app grandchild allocates a visible console.
+- **MCP clients cache their config** — after rewriting `mcp_config.json` /
+  `mcp_servers.json`, running Devin/Windsurf/ZCode processes keep respawning
+  MCP servers with the OLD `pwsh -Command 'npx -y …'` argv until the client
+  is restarted. The 23:20 capture proved this (`npx -y @playwright/mcp`
+  respawns while the on-disk config already pointed at `cli.js`).
+- Additional WSL-side flash callers found and patched: `cdp-debug-watch.py`
+  (cron */10 — `_winps()` helper now wraps all 4 powershell call sites),
+  `phone_fb_approve.py` (cron */2), `phone_exitnode.py`, `phone_net_diag.py`
+  (`_a()` helper wraps the `adb.exe` fallback only — Linux adb is preferred).
+- `startup-hidden/*.vbs` launchers (`WScript.Shell.Run ...,0,`) spawn
+  `cmd /c *.bat` — conhost exists but the window is hidden; NOT a flash.
+- `node.exe → cmd` vitest-extension workers and `chrome → cmd NativeHost`
+  spawns are client-internal; out of scope.
+- `wsl-vsock-autoheal` live-diagnosed `proxy-dead` during the battle test —
+  3-consecutive-check escalation auto-respawns the proxy; healthy behavior.
