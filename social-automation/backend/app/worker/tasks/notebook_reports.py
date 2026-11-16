@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from celery import shared_task
+from celery.result import AsyncResult
 
 from app.worker._async import run_async
 
@@ -64,8 +65,32 @@ def _report_lock() -> Any:
         return None
 
 
-@shared_task(name="app.worker.tasks.notebook_reports.run_notebook_report")
+def _lock_owner_alive(task: Any, owner: str) -> bool:
+    """True while the lock-owning task is plausibly still running.
+
+    ``AsyncResult.state`` is a tombstone, not liveness — a worker killed
+    mid-run leaves ``STARTED`` until result expiry — so a started-looking
+    owner is confirmed against the workers' active+reserved sets. When
+    liveness can't be verified, assume alive (never steal blind).
+    """
+    if AsyncResult(owner, app=task.app).state not in {"STARTED", "RETRY"}:
+        return False
+    try:
+        insp = task.app.control.inspect(timeout=3)
+        active = {
+            t["id"]
+            for reply in (insp.active() or {}, insp.reserved() or {})
+            for tasks in reply.values()
+            for t in tasks
+        }
+    except Exception:  # noqa: BLE001
+        return True
+    return owner in active
+
+
+@shared_task(bind=True, name="app.worker.tasks.notebook_reports.run_notebook_report")
 def run_notebook_report(
+    self,
     notebook: str,
     parameters: dict[str, Any] | None = None,
     *,
@@ -83,12 +108,20 @@ def run_notebook_report(
     (notebook, Athens date): ``running`` blocks concurrent duplicates for
     3h, ``done`` (set only after ≥1 email actually sent) blocks same-day
     reruns for 20h. Failures release ``running`` so retries stay possible.
+
+    The ``running`` value is the owning task id. A worker killed mid-run
+    (deploy, Docker restart, OOM) can never reach the ``finally`` that
+    releases it, so a new run validates the owner through the result
+    backend first: an owner whose task is no longer STARTED/RETRY is dead
+    and the lock is stolen instead of blocking the day's report for 3h.
     """
     from datetime import datetime
+    from uuid import uuid4
     from zoneinfo import ZoneInfo
 
     from app.services.notebook_runner import run_report_notebook
 
+    task_id = self.request.id or f"eager-{uuid4()}"
     r = _report_lock()
     day = datetime.now(ZoneInfo("Europe/Athens")).date().isoformat()
     done_key = f"nbreport:done:{notebook}:{day}"
@@ -97,7 +130,17 @@ def run_notebook_report(
         try:
             if r.get(done_key):
                 return {"notebook": notebook, "executed": False, "skipped": "already-delivered-today"}
-            if not r.set(running_key, "1", nx=True, ex=3 * 3600):
+            owner = r.get(running_key)
+            if owner == task_id:
+                # Celery redelivery (acks_late) reuses the task id — *this*
+                # run already holds the lock; refresh it and proceed.
+                r.set(running_key, task_id, ex=3 * 3600)
+            elif owner:
+                if _lock_owner_alive(self, owner):
+                    return {"notebook": notebook, "executed": False, "skipped": "run-in-progress"}
+                logger.warning("report lock %s held by dead task %s — stealing", running_key, owner)
+                r.delete(running_key)
+            if owner != task_id and not r.set(running_key, task_id, nx=True, ex=3 * 3600):
                 return {"notebook": notebook, "executed": False, "skipped": "run-in-progress"}
         except Exception:  # noqa: BLE001
             logger.warning("report dedupe lock check failed — proceeding")
@@ -148,7 +191,10 @@ def run_notebook_report(
             try:
                 if delivered:
                     r.set(done_key, "1", ex=20 * 3600)
-                r.delete(running_key)
+                # Only release the lock if it is still ours — a presumed-dead
+                # run that resumes must not delete a new owner's lock.
+                if r.get(running_key) == task_id:
+                    r.delete(running_key)
             except Exception:  # noqa: BLE001
                 pass
 
