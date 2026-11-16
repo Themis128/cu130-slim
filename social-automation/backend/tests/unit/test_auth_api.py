@@ -1184,6 +1184,51 @@ class TestInstagramFlows:
 
 
 # ---------------------------------------------------------------------------
+# WhatsApp OAuth authorize (Facebook Login + WABA discovery on callback)
+# ---------------------------------------------------------------------------
+
+
+class TestWhatsAppAuthorize:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_whatsapp_authorize_not_configured(self, monkeypatch):
+        monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "")
+        with pytest.raises(HTTPException) as e:
+            await auth.whatsapp_authorize(uuid.uuid4(), _user())
+        assert e.value.status_code == 400
+        assert "FACEBOOK_CLIENT_ID" in e.value.detail
+
+    async def test_whatsapp_authorize_url_and_signed_state(self, monkeypatch):
+        from urllib.parse import parse_qs, urlparse
+
+        from app.core.security import verify_oauth_state
+
+        monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "fbid")
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb?a=b")
+        team_id = uuid.uuid4()
+        out = await auth.whatsapp_authorize(team_id, _user())
+        url = out["authorization_url"]
+        assert url.startswith("https://www.facebook.com/dialog/oauth")
+        assert "client_id=fbid" in url
+        # redirect_uri is percent-encoded (safe='')
+        assert "redirect_uri=https%3A%2F%2Fx%2Fcb%3Fa%3Db" in url
+        assert "response_type=code" in url
+        assert "whatsapp_business_management" in url
+        assert "whatsapp_business_messaging" in url
+        assert "business_management" in url
+        assert "pages_show_list" in url
+        assert "display=page" in url
+        state = parse_qs(urlparse(url).query)["state"][0]
+        assert verify_oauth_state(state) == {"t": str(team_id), "p": "whatsapp"}
+
+    async def test_oauth_authorize_dispatches_whatsapp(self, monkeypatch):
+        monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "fbid")
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        out = await auth.oauth_authorize("whatsapp", uuid.uuid4(), _user())
+        assert "whatsapp_business_management" in out["authorization_url"]
+
+
+# ---------------------------------------------------------------------------
 # LinkedIn org sync
 # ---------------------------------------------------------------------------
 

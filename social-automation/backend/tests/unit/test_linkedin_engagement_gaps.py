@@ -298,3 +298,163 @@ def test_task_wrapper_calls_run_async(monkeypatch):
 
     monkeypatch.setattr(ENG, "run_async", fake_run_async)
     assert ENG.engage_linkedin_watchlist.run() is sentinel
+
+
+# ── _warmup_factor health-probe branches ────────────────────────────────
+
+
+def _health(monkeypatch, payload):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: SimpleNamespace(json=lambda: payload))
+
+
+def test_warmup_factor_cooldown_and_ramp(monkeypatch):
+    now_ms = datetime.now(UTC).timestamp() * 1000
+    # still cooling → 0.0 (writes halted)
+    _health(monkeypatch, {"rate_limit_until": now_ms + 60_000})
+    assert ENG._warmup_factor() == 0.0
+    # no cooldown recorded → 1.0
+    _health(monkeypatch, {})
+    assert ENG._warmup_factor() == 1.0
+    # cooldown ended long ago → fully warm
+    _health(monkeypatch, {"cooldown_ended_at": now_ms - (ENG.WARMUP_DAYS + 1) * 86_400_000})
+    assert ENG._warmup_factor() == 1.0
+    # cooldown ended 1 day ago → ramp ~0.9
+    _health(monkeypatch, {"cooldown_ended_at": now_ms - 86_400_000})
+    factor = ENG._warmup_factor()
+    assert 0.3 <= factor < 1.0
+    # probe failure → fail-open 1.0
+    import httpx
+
+    def _boom(*a, **k):
+        raise RuntimeError("sidecar down")
+
+    monkeypatch.setattr(httpx, "get", _boom)
+    assert ENG._warmup_factor() == 1.0
+
+
+# ── _run: warmup<=0 early return + org-page reaction pass ───────────────
+
+
+@pytest.mark.asyncio
+async def test_run_warmup_zero_skips_writes(monkeypatch):
+    monkeypatch.setenv("LINKEDIN_ENGAGE_AUTHORS", "urn:li:org:1")
+    team = SimpleNamespace(id="team-1")
+    call_n = {"n": 0}
+
+    class _CM:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, q):
+            call_n["n"] += 1
+            if call_n["n"] == 1:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: team))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(ENG, "task_session", lambda: _CM())
+    monkeypatch.setattr(ENG, "_warmup_factor", lambda: 0.0)
+    monkeypatch.setattr(ENG, "_actions_today", AsyncMock(return_value=(0, 0)))
+    out = await ENG._run()
+    assert out["warmup_factor"] == 0.0
+    assert out["scanned"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_org_reaction_pass(monkeypatch):
+    """Company-voice lane: org account reacts (never comments) on watchlist
+    posts — ok / generic-error / 403-break / dedup-cap / no-urn arcs."""
+    monkeypatch.setenv("LINKEDIN_ENGAGE_AUTHORS", "urn:li:org:1,urn:li:org:2")
+    monkeypatch.setenv("LINKEDIN_ENGAGE_COMMENT_TEMPLATES", "")
+
+    team = SimpleNamespace(id="team-1")
+    person = SimpleNamespace(account_type="person", id="acc-p")
+    org_acc = SimpleNamespace(account_type="organization", id="acc-o")
+    fresh = {"time": datetime.now(UTC).timestamp() * 1000}
+
+    class _CM:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, q):
+            call_n["n"] += 1
+            if call_n["n"] == 1:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: team))
+            if call_n["n"] == 2:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [person, org_acc]))
+            # org_rows journal query → no prior org reactions
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+    call_n = {"n": 0}
+    posts_a = [
+        {"id": "urn:li:share:a-ok", "publishedAt": fresh},
+        {"id": "urn:li:share:a-gen", "publishedAt": fresh},
+        {"id": "urn:li:share:a-403", "publishedAt": fresh},
+    ]
+    posts_b = [
+        {"id": "bogus-no-urn"},  # _post_urn None → skip
+        {"id": "urn:li:share:b-old", "publishedAt": {"time": 1}},  # too old → age skip
+        {"id": "urn:li:share:b-ok1", "publishedAt": fresh},
+        {"id": "urn:li:share:b-ok2", "publishedAt": fresh},  # org-deduped
+        {"id": "urn:li:share:b-ok3", "publishedAt": fresh},
+        {"id": "urn:li:share:b-cap", "publishedAt": fresh},
+    ]
+
+    async def fake_list(author, count=5):
+        return {"status": 200, "posts": posts_a if author == "urn:li:org:1" else posts_b}
+
+    org_results = {
+        "urn:li:share:a-ok": {"ok": True},
+        "urn:li:share:a-gen": {"status": 500, "error": "org-boom"},
+        "urn:li:share:a-403": {"status": 403},
+        "urn:li:share:b-ok1": {"ok": True},
+        "urn:li:share:b-ok2": {"ok": True},
+        "urn:li:share:b-ok3": {"ok": True},
+        "urn:li:share:b-cap": {"ok": True},
+    }
+
+    async def fake_react(kind, urn, rtype):
+        if kind == "member":
+            return {"ok": True}
+        return org_results[urn]
+
+    async def fake_acted(db, team_id, event_id):
+        # only the org-pass dedup key for b-ok2 is already journaled
+        return event_id == "org:urn:li:share:b-ok2"
+
+    monkeypatch.setattr(ENG, "task_session", lambda: _CM())
+    monkeypatch.setattr(ENG, "_warmup_factor", lambda: 1.0)
+    monkeypatch.setattr(ENG, "_actions_today", AsyncMock(return_value=(0, 0)))
+    monkeypatch.setattr(ENG, "_already_acted", fake_acted)
+    monkeypatch.setattr(ENG.linkedin_feed, "list_posts", fake_list)
+    monkeypatch.setattr(ENG.linkedin_feed, "react", fake_react)
+    monkeypatch.setattr(ENG, "ORG_MAX_REACTIONS_DAY", 3)
+
+    out = await ENG._run()
+    # org pass: a-ok ok(1), a-gen error, a-403 error+break; b: bogus skip,
+    # b-old age skip, b-ok1 ok(2), b-ok2 org-dedup skip, b-ok3 ok(3)=cap,
+    # b-cap skipped by cap guard
+    assert out["org_reacted"] == 3
+    assert any("org react urn:li:share:a-gen: org-boom" in e for e in out["errors"])
+    assert any("org react urn:li:share:a-403: HTTP 403" in e for e in out["errors"])
+    # member lane also ran on all fresh posts (a×3 + b-ok1/2/3/cap = 7)
+    assert out["reacted"] == 7

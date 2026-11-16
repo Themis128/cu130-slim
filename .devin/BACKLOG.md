@@ -2774,3 +2774,33 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 - [x] cdp-debug-watch.py hardened (home-ops): powershell.exe absolute
   resolution, extra-instance reaper (kills all but oldest profile proc),
   'Failed To Create Data Directory' dialog auto-dismisser + TG alert.
+
+### test coverage — new infra 100% (2026-11-16)
+
+- [x] LinkedIn scope-infra modules at literal 100% line+branch
+  (--cov-branch, scoped -k linkedin run): linkedin_admin,
+  linkedin_community (svc), linkedin_feed, linkedin_advanced,
+  worker linkedin_community / linkedin_offline_conversions /
+  linkedin_ads_guard / linkedin_engagement / linkedin_portability_sync
+  — 1041 stmts / 358 branches, zero missing.
+- [x] Gaps closed: admin remove_role urn-norm + error text + digit-urn
+  arcs; community svc old-post age skip + comment-id or-fallbacks;
+  worker community delete ok/error arms + celery wrapper; ads-guard
+  journal-failure swallow + wrapper; offline-conversions non-LinkedIn
+  desc skip + amount arcs + wrapper; engagement _warmup_factor
+  cooldown/ramp/fail-open + warmup<=0 early return + full org-reaction
+  pass (ok/generic/403-break/no-urn/age/dedup/cap); portability
+  member-dp diff alert (changed/unchanged/alert-failure) + redis-None
+  arc + member-dp expiry-alert failure; feed list_posts member_ctx +
+  q=author.
+- [x] whatsapp_authorize (PR #1992): not-configured 400, FB dialog URL
+  (client_id, quoted redirect_uri, WA scopes, display=page), signed
+  state {t,p=whatsapp} round-trip via verify_oauth_state, and generic
+  /oauth/{platform}/authorize dispatch — in test_auth_api.py
+  TestWhatsAppAuthorize.
+- [x] docker-compose env contract: tests/unit/test_compose_linkedin_env.py
+  asserts all 21 LINKEDIN_* scope-infra knobs reach BOTH x-worker-env
+  anchor and social-api env, plus a drift guard (any LINKEDIN_* in the
+  anchor must exist in social-api).
+- [ ] note: scripts/linkedin_feed_tool.py (new CLI in #1986) is outside
+  app/ coverage scope — ops-verified via linkedin-cm-ops skill instead.

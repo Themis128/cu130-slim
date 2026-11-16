@@ -308,3 +308,118 @@ async def test_pages_batch_get_skips_non_dict_data():
     )
     out = await lp.pages_batch_get(client, "tok", "/dmaPosts", ["urn:li:share:1", "urn:li:share:2"], chunk=1)
     assert out == [{"id": "z"}]
+
+
+# ── _member_dp diff-alert + redis-absent arcs ──────────────────────────
+
+
+class _FakeRedis:
+    def __init__(self, store=None):
+        self.store = store if store is not None else {}
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def set(self, key, value):
+        self.store[key] = value
+
+
+class _AddDB:
+    def __init__(self):
+        self.added = []
+
+    def add(self, obj):
+        self.added.append(obj)
+
+
+def _member_dp_mocks(monkeypatch, t, redis_obj):
+    monkeypatch.setattr(t, "_redis", lambda: redis_obj)
+    monkeypatch.setattr(
+        lp,
+        "member_snapshot_domain",
+        AsyncMock(return_value={"ok": True, "elements": [{"n": 1}], "total": 1, "pages": 1}),
+    )
+    monkeypatch.setattr(lp, "member_changelog", AsyncMock(return_value={"ok": True, "data": {"elements": []}}))
+
+
+@pytest.mark.asyncio
+async def test_member_dp_diff_alert_changed_and_failure(monkeypatch):
+    """prev hash != new digest → changed_domains → Telegram alert; alert
+    failure is swallowed (best-effort)."""
+    import app.services.slack_notifications as SN
+    from app.worker.tasks import linkedin_portability_sync as t
+
+    person = _account(["r_dma_portability_self_serve"])
+    # PROFILE seeded stale → changed-domain alert; SKILLS seeded with the
+    # correct digest → unchanged arc (prev == digest → next domain)
+    import hashlib
+    import json
+
+    digest = hashlib.sha256(json.dumps([{"n": 1}], sort_keys=True, default=str).encode()).hexdigest()[:16]
+    store = {"linkedin:dma:hash:PROFILE": "stale", "linkedin:dma:hash:SKILLS": digest}
+    _member_dp_mocks(monkeypatch, t, _FakeRedis(store))
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "send_telegram_alert", alert)
+
+    out = await t._member_dp(_AddDB(), person, SimpleNamespace(), "tok")
+    assert out["domains"] == len(lp.MEMBER_DOMAINS)
+    alert.assert_awaited()
+    assert "PROFILE" in alert.await_args.args[1]
+
+    # alert raising → logged, not propagated (fresh stale seed so the
+    # domain diffs again and the alert path re-executes)
+    monkeypatch.setattr(t, "_redis", lambda: _FakeRedis({"linkedin:dma:hash:PROFILE": "stale"}))
+    alert.side_effect = RuntimeError("tg down")
+    out = await t._member_dp(_AddDB(), person, SimpleNamespace(), "tok")
+    assert out["domains"] == len(lp.MEMBER_DOMAINS)
+
+
+@pytest.mark.asyncio
+async def test_member_dp_without_redis_skips_diff_block(monkeypatch):
+    from app.worker.tasks import linkedin_portability_sync as t
+
+    person = _account(["r_dma_portability_self_serve"])
+    _member_dp_mocks(monkeypatch, t, None)
+    out = await t._member_dp(_AddDB(), person, SimpleNamespace(), "tok")
+    assert out["domains"] == len(lp.MEMBER_DOMAINS)
+
+
+# ── _run: member-dp expiry alert failure swallowed ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_member_dp_expiry_alert_failure(monkeypatch):
+    import app.services.slack_notifications as SN
+    from app.worker.tasks import linkedin_portability_sync as t
+
+    person = _account(["r_dma_portability_self_serve"])
+
+    class _Res:
+        def scalars(self):
+            return SimpleNamespace(all=lambda: [person])
+
+    class _DB:
+        async def execute(self, q):
+            return _Res()
+
+        def add(self, *a, **k):
+            pass
+
+        async def commit(self):
+            pass
+
+    class _Session:
+        async def __aenter__(self):
+            return _DB()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(t, "task_session", lambda: _Session())
+    monkeypatch.setattr(t, "_member_dp_secret", AsyncMock(return_value="raw-dp-token"))
+    monkeypatch.setattr(t, "_member_dp", AsyncMock(return_value={"pending-grant": "member-dp"}))
+    monkeypatch.setattr(SN, "send_telegram_alert", AsyncMock(side_effect=RuntimeError("tg down")))
+
+    out = await t._run()
+    assert out["member_dp"] == {"pending-grant": "member-dp"}
+    assert out["pages_dp"] == {"skip": "scope-not-granted"}
