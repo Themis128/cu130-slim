@@ -63,7 +63,20 @@ def _kill_debug_chrome():
           "-ErrorAction SilentlyContinue }")
     subprocess.run(["powershell", "-NoProfile", "-Command", ps],
                    timeout=30, capture_output=True)
-    time.sleep(2)
+    # Wait for full teardown: process exit + profile file-handle release.
+    # 2s raced chrome teardown before and the relaunched instance hit a
+    # locked profile -> 'cannot read and write to data directory' dialog.
+    import subprocess as _sp
+    probe = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+             "Where-Object { $_.CommandLine -like '*chrome-debug-profile*' } | "
+             "Measure-Object | Select-Object -ExpandProperty Count")
+    for _ in range(40):
+        r = _sp.run(["powershell", "-NoProfile", "-Command", probe],
+                    timeout=15, capture_output=True, text=True)
+        if (r.stdout or "").strip() == "0":
+            break
+        time.sleep(0.5)
+    time.sleep(2)  # settle: handles release just after process exit
 
 
 def ensure_browser():
