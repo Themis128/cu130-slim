@@ -49,6 +49,7 @@ async def backfill_media_quality(
     dry_run: bool = False,
     skip_nlp: bool = False,
     force: bool = False,
+    provider_name: str = "dmr",
 ) -> dict:
     """
     Backfill quality metadata for media assets.
@@ -62,6 +63,9 @@ async def backfill_media_quality(
         force: If True, reprocess assets that already have quality metadata
             (use to overwrite scores written during a degraded run where
             external services — LanguageTool/DMR — were unavailable)
+        provider_name: Inference provider for the NLP step — "dmr" (default,
+            serialized through the cluster GPU slot) or "cloudflare" (free
+            Workers AI, bypasses DMR contention for bulk runs)
 
     Returns:
         Dict with stats: processed, updated, skipped, errors
@@ -128,7 +132,7 @@ async def backfill_media_quality(
                 platform=platform,
                 db=db,
                 team_id=asset.team_id,
-                provider_name="dmr",
+                provider_name=provider_name,
                 run_nlp=not skip_nlp,
                 run_spellcheck=True,
                 run_seo=True,
@@ -174,6 +178,7 @@ async def main():
     parser.add_argument("--db-url", type=str, help="Database URL (defaults to env)")
     parser.add_argument("--skip-nlp", action="store_true", help="Skip NLP checks (no LLM calls)")
     parser.add_argument("--force", action="store_true", help="Reprocess assets that already have quality metadata")
+    parser.add_argument("--provider", default="dmr", choices=["dmr", "cloudflare"], help="NLP provider (cloudflare bypasses DMR slot contention)")
 
     args = parser.parse_args()
 
@@ -195,6 +200,7 @@ async def main():
             dry_run=args.dry_run,
             skip_nlp=args.skip_nlp,
             force=args.force,
+            provider_name=args.provider,
         )
 
         logger.info("Backfill complete!")
