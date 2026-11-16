@@ -141,3 +141,32 @@ Map (drive on the debug Chrome / sidecar):
   the recovery path.
 - The unlock email's link is just `facebook.com/login` — there is no
   tokenized one-click unlock; completion requires the on-screen flow.
+
+## Phone-side unlock (proven 2026-11-16)
+
+The "log in with another device to unlock your Meta Account" gate unlocks
+cleanly on the **Galaxy S22+** — it IS a previously-used device (FB app
+installed since Sept, Messenger + Pages too):
+
+1. `monkey -p com.facebook.katana` — app shows the email-code screen
+   ("Check baltzakis.themis@gmail.com").
+2. The code arrives in **the phone's own Gmail app** — visible as an inbox
+   snippet "Use <code> to get back into your..." and in the notification
+   extras (`dumpsys notification`, pkg `com.google.android.gm`). Read it
+   with `human-gate-bridges/scripts/phone_gmail_otp.py --sender meta`
+   (no root, no OCR — inbox rows are uiautomator text nodes).
+3. Enter code → "Create a new password" is **mandatory** (old passwords
+   die). The stored `.env` `FACEBOOK_PASSWORD` was accepted as the new
+   value — reusing it keeps every heal lane credential-synchronized.
+4. "Session expired" → log back in with the same creds. Feed loads;
+   account unlocked server-side.
+
+Corollaries proven this incident:
+
+- The lock **suppresses unrelated Meta-surface sends** — WhatsApp
+  Business verification SMS to +30 697 777 7838 never arrived while the
+  account was locked (Instagram/LinkedIn SMS flowed normally). Re-request
+  AFTER unlock, not during.
+- The WABA/Graph token dies with the lock (190/460 session-invalidated) —
+  re-auth via SocialAuto console after unlock, don't trust DB status
+  until `account_truth.py` confirms.
