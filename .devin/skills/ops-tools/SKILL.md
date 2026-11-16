@@ -1,6 +1,6 @@
 ---
 name: ops-tools
-description: Infra workarounds — gh_api_push (API-based commit+branch+PR when WSL git push auth is broken), WSL quoting pitfalls, root-owned file rm+replace trick.
+description: Infra workarounds — gh_api_push (API-based commit+branch+PR when WSL git push auth is broken), gh_pr_safe (backtick-safe PR bodies + GraphQL auto-merge fallback), merge-queue ops, WSL quoting pitfalls, root-owned file rm+replace trick.
 ---
 
 # Ops tools
@@ -11,6 +11,20 @@ commit -> ref -> gh pr create --auto). Use when `git push` from WSL fails on
 auth while `gh api` works. Staging dir mirrors repo-relative paths.
 
   GH_REPO=owner/repo gh_api_push.py <staging-dir> <branch> "<msg>" ["<title>"]
+
+## gh_pr_safe.py
+Backtick-safe PR create/edit/automerge — bodies go through REST/GraphQL
+JSON payloads, never through nested-shell `--body` strings (which eat
+backticks). `automerge` uses the enablePullRequestAutoMerge mutation,
+immune to the `gh pr merge --auto` Projects-classic GraphQL bug.
+
+  gh_pr_safe.py create --title T --body-file F --head BRANCH [--auto]
+  gh_pr_safe.py edit PR --body-file F
+  gh_pr_safe.py automerge PR [--method SQUASH]
+
+## merge-queue-ops
+Separate skill (`.devin/skills/merge-queue-ops/`) — enables/verifies/
+rolls back the master merge queue. See its SKILL.md.
 
 ## WSL gotchas codified
 - git-over-HTTPS from WSL: no cred helper -> hung push; gh token rejected for
