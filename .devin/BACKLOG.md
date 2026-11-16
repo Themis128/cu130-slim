@@ -2621,7 +2621,7 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
 - [x] **WSL ssh on tailnet**: openssh-server not installed → enabled Tailscale SSH on WSL (`tailscale set --ssh`, existing ACL `ssh` rule covers autogroup:self). Verified `ssh tbaltzakis@wsl-ubuntu2404-1.tail4ecae1.ts.net` from office-1 (by IP + MagicDNS).
 - [x] **omv-ha :443 closed** — not a fault (rechecked 2026-11-16 over ssh): omv-ha only listens on :80, nothing is meant to serve 443; the ACL 443 grant is just unused.
 - [x] **cam-nc220 (192.168.1.42) offline** — back online 2026-11-16 (TP-Link MAC 60-e3-27-80-05-71, same IP): :80 200, :8080 401, :554 + :2020 open.
-- [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows. Still 1.104.6 on 2026-11-16 (upstream 1.104.7, Check+Apply true) — if it doesn't self-apply, run `tailscale update --yes` from an elevated shell.
+- [x] **office-1 Tailscale 1.104.6 → 1.104.7** — done 2026-11-16: auto-update had not self-applied, so ran `tailscale update --yes` elevated (UAC approved by owner). Verified after: `tailscale version` 1.104.7, direct pings to github-omv / k3s-subnet-router-0 (2 ms), cam-189:8088 open via Wi-Fi (LAN pin intact). Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows.
 - [x] grokbot-box-1 / grokbot-user-249203278 offline + client updates pending (1.104.4 / 1.102.5) — no manual step: tailnet setting `devicesAutoUpdatesOn: true` (verified via API 2026-11-16) self-updates them when they next come online.
 - [x] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch — merged.
 - go2rtc relay 192.168.1.200 serves on :80 (not :1984) — not a fault.
@@ -3068,7 +3068,14 @@ Resolved this pass (details inline above):
 - [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
   (empty-elements POST; authz precedes validation → non-403 =
   authorized); `matched_audiences` grant now requires it.
-- [ ] On `rw_dmp_segments` grant: re-consent token (scope must appear
-  in authorize first), watcher auto-dispatches
-  `sync_linkedin_dmp_audiences` → uploads hashed EspoCRM emails into
-  segment 81778122.
+- [ ] On `rw_dmp_segments` grant on EITHER app:
+  - **264925843** (our OAuth client — `LINKEDIN_CLIENT_ID`/`SECRET`
+    in `.env`): re-consent so the scope joins the token → watcher
+    auto-dispatches `sync_linkedin_dmp_audiences` → uploads hashed
+    EspoCRM emails into segment 81778122.
+  - **227354605**: client creds captured 2026-11-16 from dev-portal
+    Auth tab → `.env` `LINKEDIN_API_APP_CLIENT_ID` /
+    `LINKEDIN_API_APP_CLIENT_SECRET`. Token path = 3-legged OAuth
+    authorize under that client_id → exchange code → store token;
+    then point `linkedin_dmp_sync` at it. NOT client_credentials —
+    LinkedIn member tokens need user consent.
