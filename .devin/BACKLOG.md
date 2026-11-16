@@ -2618,9 +2618,9 @@ Remaining / watch:
 ## 2026-11-15 — tailnet battle test (Devin)
 Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded tests validate; all infra peers ping (k8s nodes via DERP fra/nue); 192.168.1.0/24 primary omv-ha, 10.42/10.43 primary k3s-subnet-router-0; office LAN pinned local (/25 on Wi-Fi), k8s API 10.43.0.1:443 reachable; MagicDNS ok on office + WSL (WSL Tailscale health now clean); phone always-on (no lockdown), full tunnel, reaches github-omv + cam-189; tailnet-watch-status 0 bad.
 - [x] **WSL ssh on tailnet**: openssh-server not installed → enabled Tailscale SSH on WSL (`tailscale set --ssh`, existing ACL `ssh` rule covers autogroup:self). Verified `ssh tbaltzakis@wsl-ubuntu2404-1.tail4ecae1.ts.net` from office-1 (by IP + MagicDNS).
-- [ ] **omv-ha :443 closed** (80 open) — ACL/phone rule grants 443; either nothing should listen there (drop 443 from docs/ACL) or the HTTPS frontend is down.
-- [ ] **cam-nc220 (192.168.1.42) offline** — no ports open; needs a power/DHCP check on site.
-- [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows.
+- [x] **omv-ha :443 closed** — not a fault (rechecked 2026-11-16 over ssh): omv-ha only listens on :80, nothing is meant to serve 443; the ACL 443 grant is just unused.
+- [x] **cam-nc220 (192.168.1.42) offline** — back online 2026-11-16 (TP-Link MAC 60-e3-27-80-05-71, same IP): :80 200, :8080 401, :554 + :2020 open.
+- [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows. Still 1.104.6 on 2026-11-16 (upstream 1.104.7, Check+Apply true) — if it doesn't self-apply, run `tailscale update --yes` from an elevated shell.
 - [ ] grokbot-box-1 / grokbot-user-249203278 offline + client updates pending (1.104.4 / 1.102.5) — update when they next wake.
 - [ ] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch; awaiting owner merge.
 - go2rtc relay 192.168.1.200 serves on :80 (not :1984) — not a fault.
@@ -2716,12 +2716,26 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   task's privacy note) — and all domains currently return LinkedIn 404
   "no data" until their export pipeline populates, so expansion has zero
   value today. Revisit when snapshot data flows.
+- [x] 2026-11-16: Advertising API Development Tier access request
+  SUBMITTED via the LinkedIn Qualtrics form (driven through the
+  linkedin-browser-sidecar session — 100% completion, "we will review and
+  contact you via email"). Answers filed: Direct Advertiser, Europe,
+  N/A (Direct Customer), 75%+ B2B, Direct Customers, ad spend N/A,
+  use cases Campaign Management + Reporting and ROI, partnerships
+  Facebook + Instagram. On approval → `rw_ads` lands → upgrade
+  `linkedin_ads_control` from sidecar UI-scraping to Marketing API
+  calls. Watch for the decision email.
 - [ ] watch: Matched Audiences (`rw_dmp_segments`) — private API, requires
-  Advertising API approval FIRST (already have `r_ads` live) then a
-  separate Matched Audiences application; LinkedIn responds within ~60
-  days of the interest form. Support case already filed on app 264925843
-  (linkedin-portal-gates-ops). Portal probe currently 429-blocked by the
-  LinkedIn cooldown — recheck case status after cooldown ends.
+  Advertising API approval FIRST then a separate Matched Audiences
+  application; LinkedIn responds within ~60 days of the interest form.
+  Support case already filed on app 264925843 (linkedin-portal-gates-ops).
+  NOTE 2026-11-16: the portal's own hint confirms the dependency —
+  "Audiences API's is a Private product and requires an additional
+  approval, once you have been approved for the Advertising API Product."
+  `app/worker/tasks/linkedin_dmp_sync.py` is already built and
+  self-gates on the 403 — it fires automatically once `rw_dmp_segments`
+  is granted. Member DP data now flows (first real snapshot+changelog
+  landed 2026-11-16 07:31/09:25 UTC).
 
 ## 2026-11-16 — account-truth sweep + WhatsApp/IG repair
 
