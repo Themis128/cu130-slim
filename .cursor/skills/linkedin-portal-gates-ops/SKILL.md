@@ -28,7 +28,17 @@ driven through the debug Chrome CDP session (`:9229` relay → Windows
 python3 scripts/member_dp_probe.py            # session + portal state
 python3 scripts/member_dp_probe.py --json     # machine-readable
 python3 scripts/member_dp_probe.py --drive    # best-effort modal attempt
+python3 scripts/member_dp_probe.py --via sidecar   # force the :9225 lane
 ```
+
+**Lanes (2026-11-17):** default `--via auto` probes through the
+linkedin-browser-sidecar HTTP surface first (durable session, wakes the
+sleep-managed container via stackctl, respects its rate-limit circuit)
+and falls back to CDP :9229 only on sidecar transport failure or a
+logged-out sidecar session. `--via cdp` forces the Windows debug Chrome;
+`--via sidecar` forces the sidecar. The CDP lane is the fragile one —
+LinkedIn 429s the debug profile under repeated automated hits; prefer
+the sidecar for anything read-only.
 
 The probe navigates the LinkedIn tab to the app page, dumps every
 "Request access"/product row it can see, and reports per-product state.
