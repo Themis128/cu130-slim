@@ -928,7 +928,16 @@ async def _export_ops_health(db: AsyncSession) -> dict:
     }
 
 
-@shared_task
+@shared_task(
+    # Snapshot overwrite of lake/* JSON is fully idempotent — safe to retry
+    # transient R2/DB failures. Bounded: 2 retries, exp backoff + jitter so a
+    # struggling dependency isn't hammered (Celery best practice).
+    autoretry_for=(httpx.HTTPError, ConnectionError, TimeoutError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
     return run_async(_export_async())
