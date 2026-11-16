@@ -1,11 +1,10 @@
 """Daily Matched Audiences sync — EspoCRM leads → LinkedIn DMP segment.
 
 Builds/maintains the ``espo-crm-leads`` USER segment with SHA256-hashed
-lead emails so Campaign Manager can retarget warm audiences. Fully
-self-gating: until the Matched Audiences product grants ``rw_dmp_segments``
-the create/upload calls return 403 and the task logs ``pending-grant``
-once per run — no alert spam. Segment URN is cached in Redis; a 404 on
-upload triggers one recreate.
+lead emails so Campaign Manager can retarget warm audiences. Matched
+Audiences is LIVE (granted 2026-11-16); a 403 still logs
+``pending-grant`` once per run — no alert spam. Segment URN is cached in
+Redis; a 404 on upload triggers one recreate.
 
 Privacy: only SHA256(lower(trim(email))) leaves this system — no raw PII.
 """
@@ -41,19 +40,19 @@ def _sha256(email: str) -> str | None:
     return hashlib.sha256(e.encode()).hexdigest()
 
 
-async def _segment_urn(r) -> str | None:
+async def _segment_urn(r) -> tuple[str | None, bool]:
     urn = r.get(SEGMENT_REDIS_KEY) if r else None
     if urn:
-        return urn
+        return urn, False
     from app.services import linkedin_advanced
 
     created = await linkedin_advanced.create_dmp_segment(SEGMENT_NAME, "EspoCRM leads + clients — Matched Audiences retargeting")
     if created.get("urn"):
         if r:
             r.set(SEGMENT_REDIS_KEY, created["urn"])
-        return created["urn"]
+        return created["urn"], True
     logger.info("dmp segment create: %s (pending grant?)", created)
-    return None
+    return None, False
 
 
 async def _sync() -> dict:
@@ -65,9 +64,14 @@ async def _sync() -> dict:
         return {"skip": "linkedin-advanced-disabled"}
 
     r = _redis()
-    urn = await _segment_urn(r)
+    urn, fresh = await _segment_urn(r)
     if not urn:
         return {"skip": "matched-audiences-not-granted"}
+    if fresh:
+        # LinkedIn requires ~5s before a new segment accepts user uploads
+        import asyncio
+
+        await asyncio.sleep(5)
 
     leads = await espocrm_client.list_leads_for_campaign()
     ids = [{"idType": "SHA256_EMAIL", "idValue": h} for h in (_sha256(str(lead.get("emailAddress") or "")) for lead in leads) if h]

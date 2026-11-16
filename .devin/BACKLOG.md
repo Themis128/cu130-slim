@@ -3080,7 +3080,14 @@ Resolved this pass (details inline above):
 - [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
   (empty-elements POST; authz precedes validation → non-403 =
   authorized); `matched_audiences` grant now requires it.
-- [ ] On `rw_dmp_segments` grant: re-consent token (scope must appear
-  in authorize first), watcher auto-dispatches
-  `sync_linkedin_dmp_audiences` → uploads hashed EspoCRM emails into
-  segment 81778122.
+- [ ] On `rw_dmp_segments` grant on EITHER app:
+  - **264925843** (our OAuth client — `LINKEDIN_CLIENT_ID`/`SECRET`
+    in `.env`): re-consent so the scope joins the token → watcher
+    auto-dispatches `sync_linkedin_dmp_audiences` → uploads hashed
+    EspoCRM emails into segment 81778122.
+  - **227354605**: client creds captured 2026-11-16 from dev-portal
+    Auth tab → `.env` `LINKEDIN_API_APP_CLIENT_ID` /
+    `LINKEDIN_API_APP_CLIENT_SECRET`. Token path = 3-legged OAuth
+    authorize under that client_id → exchange code → store token;
+    then point `linkedin_dmp_sync` at it. NOT client_credentials —
+    LinkedIn member tokens need user consent.

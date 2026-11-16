@@ -330,6 +330,7 @@ async def create_dmp_segment(name: str, description: str = "") -> dict:
         "account": AD_ACCOUNT_URN,
         "type": "USER",
         "sourcePlatform": "DIRECT_API",
+        "destinations": [{"destination": "LINKEDIN"}],
     }
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
         r = await c.post(f"{REST}/dmpSegments", json=payload)
@@ -352,6 +353,13 @@ async def upload_dmp_users(segment_urn: str, users: list[dict | list[dict]]) -> 
         ids = u if isinstance(u, list) else [u]
         elements.append({"action": "ADD", "userIds": ids})
     payload = {"elements": elements}
-    async with httpx.AsyncClient(timeout=60, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+    async with httpx.AsyncClient(
+        timeout=60,
+        headers={
+            "Authorization": f"Bearer {token}",
+            **HDRS,
+            "X-RestLi-Method": "BATCH_CREATE",
+        },
+    ) as c:
         r = await c.post(f"{REST}/dmpSegments/{segment_urn.split(':')[-1]}/users", json=payload)
         return {"status": r.status_code, "ok": r.status_code in (200, 201, 204)}
