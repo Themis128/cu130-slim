@@ -3203,3 +3203,25 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+
+## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
+
+- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
+  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
+  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
+  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
+  hash-dupes removed, lock released. API healthy.
+- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
+  Fired `reconcile_account_status` manually — all Meta rows now honestly
+  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
+  tokens; heal lanes must re-auth before any Meta action.
+- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
+  failed). Ingest still runs but candidates are stale (IG max Nov 11,
+  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
+  sessions, NOT the brain/scoring layer — no model upgrade needed.
+- **FB :9229** still parked on expired two_step_verification checkpoint;
+  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
+  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
+- **strategy-report-run4** completed degraded (engine outage window):
+  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
+  (200 from container); next run uses live inference.
