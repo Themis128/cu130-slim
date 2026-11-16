@@ -3756,13 +3756,24 @@ app.post("/profile/education", handleAddEducation);
 app.post("/profile/skills", handleAddSkill);
 
 // Debug: evaluate JS in the live page (internal only, unauthenticated bridge).
+// Accepts both calling conventions used across the stack:
+//   {expr}   — statement body wrapped as `(async () => { <expr> })()`
+//              (li_portal_sidecar, engagement ingest, member_dp_probe, …)
+//   {script} — a raw expression/string passed straight to page.evaluate
+//              (linkedin_ads_control, linkedin_ads_report, sync script, …)
+// Responds with BOTH `value` and `result` keys carrying the same payload
+// so either caller shape keeps working.
 app.post("/debug/eval", async (req, res) => {
-  const { expr } = req.body || {};
-  if (!expr) return res.status(400).json({ error: "expr is required" });
+  const { expr, script } = req.body || {};
+  if (expr === undefined && script === undefined) {
+    return res.status(400).json({ error: "expr or script is required" });
+  }
   try {
     await ensureBrowser();
-    const value = await page.evaluate(`(async () => { ${expr} })()`);
-    res.json({ status: "ok", url: page.url(), value });
+    const value = expr !== undefined
+      ? await page.evaluate(`(async () => { ${expr} })()`)
+      : await page.evaluate(script);
+    res.json({ status: "ok", url: page.url(), value, result: value });
   } catch (err) {
     res.status(500).json({ error: err.message, url: page ? page.url() : null });
   }
@@ -4521,18 +4532,6 @@ app.post("/debug/navigate", async (req, res) => {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(2000);
     res.json({ status: "ok", url: page.url() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/debug/eval", async (req, res) => {
-  try {
-    const { script } = req.body;
-    if (!script) return res.status(400).json({ error: "script is required" });
-    await ensureBrowser();
-    const result = await page.evaluate(script);
-    res.json({ status: "ok", result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
