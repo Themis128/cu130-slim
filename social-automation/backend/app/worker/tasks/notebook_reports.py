@@ -77,12 +77,7 @@ def _lock_owner_alive(task: Any, owner: str) -> bool:
         return False
     try:
         insp = task.app.control.inspect(timeout=3)
-        active = {
-            t["id"]
-            for reply in (insp.active() or {}, insp.reserved() or {})
-            for tasks in reply.values()
-            for t in tasks
-        }
+        active = {t["id"] for reply in (insp.active() or {}, insp.reserved() or {}) for tasks in reply.values() for t in tasks}
     except Exception:  # noqa: BLE001
         return True
     return owner in active
