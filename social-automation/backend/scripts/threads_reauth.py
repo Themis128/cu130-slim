@@ -103,9 +103,16 @@ _CLICK_JS = """
 """
 
 
+_BRIDGE_HEADERS = {"X-Platform": "threads"}
+
+
 def _req(url, data=None, headers=None, timeout=30, method=None):
     body = json.dumps(data).encode() if data is not None else None
-    r = urllib.request.Request(url, data=body, method=method, headers={"Content-Type": "application/json", **(headers or {})})
+    merged = {"Content-Type": "application/json"}
+    if "/session/" in url:
+        merged.update(_BRIDGE_HEADERS)
+    merged.update(headers or {})
+    r = urllib.request.Request(url, data=body, method=method, headers=merged)
     with urllib.request.urlopen(r, timeout=timeout) as f:
         raw = f.read()
         return json.loads(raw) if raw else {}
@@ -165,6 +172,7 @@ def _targets():
     rows = _pg_fetchall(
         """SELECT id, account_id, username, status FROM social_accounts
            WHERE platform='threads'
+             AND (meta_data->>'retired_at') IS NULL
              AND (status IN ('expired','revoked')
                   OR (status='active'
                       AND token_expires_at < now() + interval '1 hour'))"""
