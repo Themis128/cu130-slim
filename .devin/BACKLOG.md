@@ -3203,3 +3203,16 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+- [x] **Video render task: persist-before-QA + bounded vision calls**
+  (2026-11-16). `generate_video_asset_task` saved the MediaAsset only
+  AFTER semantic QA — a DMR vision cold-load ate the 2700s soft limit and
+  a finished Wan2.2 render (`socialauto_00015.mp4`, post c4dff316) was
+  discarded (SoftTimeLimitExceeded; asset recovered manually as
+  37d483f0). Fix: asset persists immediately post-render; QA wrapped in
+  `asyncio.wait_for` (180s) so timeout/unavailability is metadata
+  (`reason: "qa timeout"`), never a task kill; the QA-mismatch re-render
+  now runs only when elapsed + render cost + QA + margin < soft limit
+  (a second Wan2.2 render never fit anyway — flagged `retry: skipped`),
+  and its output saves as a NEW asset with the original marked
+  `superseded_by` (non-destructive). CF vision clients got per-phase
+  `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.
