@@ -34,9 +34,10 @@ python3 .devin/skills/merge-queue-ops/scripts/merge_queue.py verify   # enqueue 
 2. PATCHes classic branch protection `required_status_checks.strict` → `false`
    (queue handles freshness; strict would defeat the purpose).
 3. Creates ruleset `master-merge-queue` (target `refs/heads/master`,
-   enforcement `active`): `merge_queue` rule (squash, build_concurrency 5,
-   grouping_strategy ALLGREEN) + `required_status_checks` rule with the
-   same 5 contexts.
+   enforcement `active`): `merge_queue` rule (squash, ALLGREEN,
+   max_entries_to_build/merge 5, min_entries_to_merge_wait 5min,
+   check_response_timeout 60min — exact REST schema per GitHub rulesets
+   docs) + `required_status_checks` rule with the same 5 contexts.
 
 `disable` deletes the ruleset and restores `strict: true`.
 

@@ -121,9 +121,8 @@ def cmd_enable() -> None:
                     "max_entries_to_build": 5,
                     "max_entries_to_merge": 5,
                     "min_entries_to_merge": 1,
-                    "max_entries_to_merge_wait_minutes": 60,
+                    "min_entries_to_merge_wait_minutes": 5,
                     "check_response_timeout_minutes": 60,
-                    "build_concurrency": 5,
                 },
             },
             {
