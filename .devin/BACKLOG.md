@@ -2725,17 +2725,26 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   Facebook + Instagram. On approval → `rw_ads` lands → upgrade
   `linkedin_ads_control` from sidecar UI-scraping to Marketing API
   calls. Watch for the decision email.
-- [ ] watch: Matched Audiences (`rw_dmp_segments`) — private API, requires
-  Advertising API approval FIRST then a separate Matched Audiences
-  application; LinkedIn responds within ~60 days of the interest form.
-  Support case already filed on app 264925843 (linkedin-portal-gates-ops).
-  NOTE 2026-11-16: the portal's own hint confirms the dependency —
-  "Audiences API's is a Private product and requires an additional
-  approval, once you have been approved for the Advertising API Product."
+- [x] Matched Audiences (`rw_dmp_segments`) access request SUBMITTED
+  2026-11-16 via the standard-tier Qualtrics form linked from app
+  227354605 (primary org/ads app — consistent with the "already
+  integrated app, same use case" answer). Filed truthfully: legal name
+  Themistoklis Baltzakis (sole prop, ΑΦΜ 115307716), website
+  cloudless.gr, registered address from the AADE fiscal cert
+  (Οδός Ιωάννη 15, Koropi 19400, Attica, Greece), Direct Advertiser,
+  use cases = email-identity contact reach + re-engage + exclude +
+  lookalike seeds from first-party EspoCRM contacts, partnerships
+  FB/IG + Google + TikTok, integrations = all six built lanes
+  (Campaign Mgmt, Ad Analytics, Leads Sync, Conversions, Community
+  Mgmt, Events). Confirmation: "Thank you for submitting the Matched
+  Audiences API standard tier access form" — Microsoft Vetting
+  Services will email-verify the business and may request documents.
   `app/worker/tasks/linkedin_dmp_sync.py` is already built and
   self-gates on the 403 — it fires automatically once `rw_dmp_segments`
-  is granted. Member DP data now flows (first real snapshot+changelog
-  landed 2026-11-16 07:31/09:25 UTC).
+  is granted on whichever app carries it. Member DP data now flows
+  (first real snapshot+changelog landed 2026-11-16 07:31/09:25 UTC).
+  NOTE: LinkedIn also stated Matched Audiences requires Advertising
+  API approval first — both requests are now in review.
 
 ## 2026-11-16 — account-truth sweep + WhatsApp/IG repair
 
