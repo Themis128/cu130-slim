@@ -77,8 +77,8 @@ def eval_js(expr: str) -> dict:
     return _req("POST", "/debug/eval", {"expr": expr}, timeout=45)
 
 
-def probe(url: str) -> dict:
-    nav = navigate(url)
+def probe(url: str, force: bool = False) -> dict:
+    nav = navigate(url, force=force)
     if "error" in nav:
         return {"stage": "navigate", **nav}
     time.sleep(6)
@@ -130,7 +130,7 @@ def main() -> int:
     if "--url" in args:
         url = args[args.index("--url") + 1]
 
-    out = probe(url)
+    out = probe(url, force=force)
     if drive and not out.get("error"):
         out["drive"] = drive_member_dp()
     print(json.dumps(out, indent=2) if js else
