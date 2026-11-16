@@ -3229,17 +3229,16 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
