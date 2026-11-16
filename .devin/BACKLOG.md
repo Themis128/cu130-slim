@@ -2868,3 +2868,13 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 - [ ] FB personal account still shows "You're Temporarily Blocked" on
   business_extension (ig_onboarding_resume2.log 08:50) — restriction
   appeal still the upstream gate for Business Verification/App Review.
+
+## 2026-11-16 — PR sweep: all branches merged to master (Devin)
+
+- [x] #1975, #1978, #1982, #1984, #1985 merged; #1982 BACKLOG conflict
+  resolved (kept both sections). #2017 BACKLOG conflict resolved likewise.
+- [ ] decide: `origin/fix/sh-crlf` has no PR — its one commit only adds an
+  ad-hoc `scripts/newsletter-ops-dump-editions.sh` (sidecar :9225 debug
+  scraper; message says "strip CRLF", contents don't). Not merged.
+- [ ] cleanup: ~60 remote branches belong to CLOSED-unmerged PRs (mostly
+  `*-rebuilt-rebuilt…` pr_rebuild leftovers) — safe to prune once confirmed.
