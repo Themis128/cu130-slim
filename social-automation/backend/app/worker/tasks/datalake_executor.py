@@ -33,19 +33,51 @@ SIGNALS_TYPE = "datalake_signals"
 ACTIONS_TYPE = "datalake_actions"
 
 
-async def _latest_signals(db) -> dict:
-    ev = (
-        await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.event_type == SIGNALS_TYPE).order_by(AnalyticsEvent.occurred_at.desc()).limit(1))
-    ).scalar_one_or_none()
-    return (ev.meta_data or {}) if ev else {}
+async def _pending_signals(db) -> list[tuple]:
+    """Latest ``datalake_signals`` event per team within the dedup window.
+
+    The insights sweep persists one event per team per run; executing only
+    the single newest event starves every other team's actions."""
+    since = datetime.now(UTC) - timedelta(hours=24)
+    rows = (
+        (
+            await db.execute(
+                select(AnalyticsEvent)
+                .where(AnalyticsEvent.event_type == SIGNALS_TYPE, AnalyticsEvent.occurred_at >= since)
+                .order_by(AnalyticsEvent.occurred_at.desc())
+                .limit(200)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    seen: set = set()
+    out = []
+    for ev in rows:
+        meta = ev.meta_data or {}
+        tid = meta.get("team_id")
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        out.append((tid, meta))
+    return out
 
 
-async def _already_executed(db, action_type: str, key: str) -> bool:
-    """Dedup — skip if the same action key ran in the last 24h."""
+async def _already_executed(db, team_id, action_type: str, key: str) -> bool:
+    """Dedup — skip if the same action key succeeded in the last 24h.
+
+    Rows whose result carries an ``error`` do NOT dedup: a transient
+    Telegram/Slack/DB failure must retry on the next sweep, not suppress
+    the action for a day."""
     row = (
         await db.execute(
-            text("SELECT 1 FROM analytics_events WHERE event_type=:t AND meta_data->>'action_type'=:a AND meta_data->>'key'=:k AND occurred_at >= :s LIMIT 1"),
-            {"t": ACTIONS_TYPE, "a": action_type, "k": key, "s": datetime.now(UTC) - timedelta(hours=24)},
+            text(
+                "SELECT 1 FROM analytics_events WHERE event_type=:t AND team_id=:team "
+                "AND meta_data->>'action_type'=:a AND meta_data->>'key'=:k "
+                "AND meta_data->'result'->>'error' IS NULL "
+                "AND occurred_at >= :s LIMIT 1"
+            ),
+            {"t": ACTIONS_TYPE, "team": team_id, "a": action_type, "k": key, "s": datetime.now(UTC) - timedelta(hours=24)},
         )
     ).scalar_one_or_none()
     return row is not None
@@ -54,7 +86,7 @@ async def _already_executed(db, action_type: str, key: str) -> bool:
 async def _exec_content_topic(db, team_id, action) -> dict:
     """content_topic → a draft Post tagged for the feedback join."""
     topic = action["topic"]
-    if await _already_executed(db, "content_topic", topic):
+    if await _already_executed(db, team_id, "content_topic", topic):
         return {"skipped": "already drafted <24h"}
     platform = action.get("platform") or "linkedin"
     user_id = (await db.execute(text("SELECT user_id FROM posts WHERE team_id=:t AND user_id IS NOT NULL LIMIT 1"), {"t": team_id})).scalar_one_or_none()
@@ -76,21 +108,11 @@ async def _exec_content_topic(db, team_id, action) -> dict:
     return {"post_id": str(post.id), "platform": platform}
 
 
-def _factory(custom=None):
-    """Email-sender factory — returns the injected sender or the shared
-    dispatcher (provider-aware, suppress-filtered) as default."""
-    if custom is not None:
-        return custom
-    from app.services.email_digest import send_email
-
-    return send_email
-
-
 async def _exec_audit_escalation(db, team_id, action) -> dict:
     """audit_escalation → Telegram booking ping with the emails."""
     emails = action.get("emails") or []
     key = ",".join(sorted(emails))[:200]
-    if await _already_executed(db, "audit_escalation", key):
+    if await _already_executed(db, team_id, "audit_escalation", key):
         return {"skipped": "already pinged <24h"}
     acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))).scalar_one()
     enc = acc.meta_data.get("bot_token_enc")
@@ -113,7 +135,7 @@ async def _exec_devapp_health(db, team_id, action) -> dict:
     from app.services.slack_notifications import post_alert_to_slack
 
     key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
-    if await _already_executed(db, "devapp_health", key):
+    if await _already_executed(db, team_id, "devapp_health", key):
         return {"skipped": "already alerted <24h"}
     label = f"{action.get('platform')}/@{action.get('username')}" if action.get("username") else str(action.get("platform"))
     await post_alert_to_slack(f"⚠️ devapp health — {label}: {action.get('reason', 'unknown')}")
@@ -135,33 +157,38 @@ def execute_actions() -> dict:
 
 async def _run() -> dict:
     async with task_session() as db:
-        signals = await _latest_signals(db)
-        actions = signals.get("actions") or []
-        if not signals or not actions:
-            return {"skipped": "no signals"}
-        team_id = uuid.UUID(signals["team_id"]) if isinstance(signals.get("team_id"), str) else signals["team_id"]
+        pending = await _pending_signals(db)
         results = []
-        for action in actions:
-            fn: Any = _EXECUTORS.get(action.get("type"))
-            if not fn:
+        teams_done = 0
+        for tid_raw, signals in pending:
+            actions = signals.get("actions") or []
+            if not actions:
                 continue
-            key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
-            if action.get("type") == "devapp_health":
-                # match the dedup key _exec_devapp_health checks against
-                key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
-            try:
-                out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
-            except Exception as e:
-                out = {"error": str(e)[:120]}
-            db.add(
-                AnalyticsEvent(
-                    team_id=team_id,
-                    event_type=ACTIONS_TYPE,
-                    platform="datalake",
-                    occurred_at=datetime.now(UTC),
-                    meta_data={"action_type": action["type"], "key": key, "reason": action.get("reason", ""), "result": out},
+            teams_done += 1
+            team_id = uuid.UUID(tid_raw) if isinstance(tid_raw, str) else tid_raw
+            for action in actions:
+                fn: Any = _EXECUTORS.get(action.get("type"))
+                if not fn:
+                    continue
+                key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
+                if action.get("type") == "devapp_health":
+                    # match the dedup key _exec_devapp_health checks against
+                    key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
+                try:
+                    out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
+                except Exception as e:
+                    out = {"error": str(e)[:120]}
+                db.add(
+                    AnalyticsEvent(
+                        team_id=team_id,
+                        event_type=ACTIONS_TYPE,
+                        platform="datalake",
+                        occurred_at=datetime.now(UTC),
+                        meta_data={"action_type": action["type"], "key": key, "reason": action.get("reason", ""), "result": out},
+                    )
                 )
-            )
-            results.append({"type": action["type"], **out})
+                results.append({"type": action["type"], "team": str(team_id), **out})
+        if not results:
+            return {"skipped": "no signals"}
         await db.commit()
-        return {"executed": len(results), "results": results}
+        return {"executed": len(results), "teams": teams_done, "results": results}

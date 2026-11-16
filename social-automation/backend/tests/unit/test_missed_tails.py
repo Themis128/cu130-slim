@@ -102,18 +102,23 @@ def _db(res):
 
 
 @pytest.mark.asyncio
-async def test_latest_signals(monkeypatch):
+async def test_pending_signals(monkeypatch):
     from app.worker.tasks import datalake_executor as M
 
-    ev = MagicMock(meta_data={"a": 1})
-    assert (await M._latest_signals(_db(ev))) == {"a": 1}
+    ev = MagicMock(meta_data={"team_id": "t1", "a": 1})
+    db = _db(ev)
+    db.execute.return_value.scalars.return_value.all.return_value = [ev]
+    out = await M._pending_signals(db)
+    assert out == [("t1", {"team_id": "t1", "a": 1})]
 
 
 @pytest.mark.asyncio
-async def test_latest_signals_empty(monkeypatch):
+async def test_pending_signals_empty(monkeypatch):
     from app.worker.tasks import datalake_executor as M
 
-    assert await M._latest_signals(_db(None)) == {}
+    db = _db(None)
+    db.execute.return_value.scalars.return_value.all.return_value = []
+    assert await M._pending_signals(db) == []
 
 
 @pytest.mark.asyncio
@@ -126,4 +131,4 @@ async def test_already_executed(monkeypatch):
     db.execute = AsyncMock(return_value=r)
     db.__aenter__ = AsyncMock(return_value=db)
     db.__aexit__ = AsyncMock(return_value=False)
-    assert await M._already_executed(db, "t", "k") is True
+    assert await M._already_executed(db, "team", "t", "k") is True
