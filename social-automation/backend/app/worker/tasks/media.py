@@ -219,7 +219,12 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                                 image_bytes=image_bytes,
                                 i2v_strength=float(options.get("i2v_strength") or 1.0),
                             )
-                        qa = await _qa_frame(data)
+                        retry_qa = await _qa_frame(data)
+                        # Keep the first verdict when the retry's QA couldn't
+                        # produce one — a fake "not run" pass would erase a
+                        # real mismatch.
+                        if retry_qa.get("reason") not in ("not run", "qa timeout"):
+                            qa = retry_qa
                         previous = asset
                         asset = await _persist(data, meta)
                         prev_meta = dict(previous.meta_data or {})
