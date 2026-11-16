@@ -26,7 +26,32 @@ Login: `POST /api/v1/auth/universal-auth/login {clientId,clientSecret}` -> `acce
 
 ## Tools
 
-`scripts/push-secret.sh <NAME> <value-file|->` — logs in via universal-auth (creds from `/root/.config/secrets/infisical` — note: root's home, not `/home/tbaltzakis`), pushes to `cloudless-infra`/prod, masks value in output.
+`scripts/infisical_secret.py` — **canonical non-root CLI** (added
+2026-11-16). Subcommands: `login`, `list`, `get`, `set NAME FILE|-`,
+`status ENVFILE`, `diag`. Cred chain: env → `cu130-slim/.env` →
+`~/.config/secrets/infisical` (all three currently hold the same
+`social-api` UA identity `5347427b-…`). API base chain: `INFISICAL_API_BASE`
+→ `127.0.0.1:8090` published port → `127.0.0.1:8080` (in-container). Values
+never printed except `get`. `list`/`status` emit names only.
+
+`scripts/push-secret.sh <NAME> <value-file|->` — older bash helper, same
+UA creds from `~/.config/secrets/infisical` (tbaltzakis's home — NOT root's;
+the SKILL.md text here previously said root, that was wrong). POST-then-PATCH
+upsert, masks value. Prefer `infisical_secret.py` for anything beyond a
+one-off push.
+
+Lessons from 2026-11-16 Meta-password rotation:
+- A `404 No identity with specified client ID` during an engine flap is
+  usually TRANSIENT (infisical crash-looping / restarting) — retry after
+  `docker ps` shows `(healthy)`, don't assume creds are stale. Verify the
+  identity row exists: `docker exec postgres psql "$INFISICAL_DB_URI"
+  -c 'SELECT i.name FROM identities i JOIN identity_universal_auths u
+  ON u."identityId"=i.id'`.
+- The `POST /api/v3/secrets/raw/{name}` endpoint returns 400
+  "Secret already exist" for existing keys — PATCH the same path to update.
+- Root's `/root/.config/secrets/infisical` + `/root/.local/bin/
+  infisical-api.sh` exist but are NOT needed — the tbaltzakis-side creds
+  and the published port cover everything.
 
 ## Bulk sync (added 2026-11-09)
 
