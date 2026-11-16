@@ -311,7 +311,7 @@ Remaining:
   inbound sshd needed at all.
 - [x] Issues #793 + #795 answered (`approve` / `done` posted).
 - [x] Registered business address saved to .env as
-  REGISTERED_BUSINESS_ADDRESS (Thermopilon 15, Koropi 19441) — ready
+  REGISTERED_BUSINESS_ADDRESS in .env (on file) — ready
   for the LinkedIn CM access form + narrated recording.
 - [ ] myAADE doc download — needs Taxisnet creds (gov.gr SSO, none
   stored anywhere). Add TAXISNET_USER/TAXISNET_PASS to .env and I'll
@@ -1403,7 +1403,7 @@ Leftovers:
 - **Real unblock paths for #789** (pick one):
   1. Fix business verification doc TYPE (skill notes: pick tax-registration/
      sole-trader type or sole-trader business type, use ΑΑΔΕ ενημερότητα with
-     ΑΦΜ 115307716) → Registered Business Account → Links field appears.
+     ΑΦΜ on file) → Registered Business Account → Links field appears.
   2. Solve the BC login CAPTCHA once (noVNC :6085) → complete verification
      in Business Center web.
   3. Grow to 1000 followers (slow).
@@ -1620,7 +1620,7 @@ Leftovers:
 - **#789 business verify**: root cause was NOT the theorized ΓΕΜΗ doc-type —
   it was **company-name script mismatch**. Form had Latin
   "Baltzakis Themistoklis"; the AADE cert (`Downloads/cert.png/.pdf` —
-  «ΑΠΟΔΕΙΚΤΙΚΟ ΕΝΗΜΕΡΩΤΗΚΟ ΓΙΑ ΧΡΕΗ», ΑΦΜ 115307716) prints
+  «ΑΠΟΔΕΙΚΤΙΚΟ ΕΝΗΜΕΡΩΤΗΚΟ ΓΙΑ ΧΡΕΗ», ΑΦΜ on file) prints
   **ΜΠΑΛΤΖΑΚΗΣ ΘΕΜΙΣΤΟΚΛΗΣ**. Fixed → resubmitted via
   `tiktok-verification/scripts/tt_verify_resubmit.py` (full web flow:
   policy gate → DataTransfer cert injection → Edit expand → Greek name +
@@ -1631,8 +1631,8 @@ Leftovers:
 - **PR #1730** (auto-merge armed): scripts + SKILL.md with the Windows
   `Windows.Media.Ocr` el+en-US path (`C:\Users\tbaltzakis\ocr.ps1`) for
   the vector-scanned cert.
-- **Watch**: cert fiscal address (Οδός Ιωάννη 15, 19400) ≠ form business
-  address (Thermopilon 15, Koropi 19441) — if next rejection cites
+- **Watch**: cert fiscal address (AADE on file) ≠ form business
+  address (operating address on file) — if next rejection cites
   address, reconcile fiscal-vs-operating before resubmitting.
 - Website link still gated on verify approval (or 1k followers).
 
@@ -2414,7 +2414,7 @@ Done:
 - **Viber Business Account profile ~43%** on Galaxy S22+ (`192.168.1.235:5555`,
   Windows adb.exe — WSL adb auth-fails). Saved this session: business
   **address = "Koropi, Greece"** (Google-places pick). Street-level
-  "Thermopylon 15, Koropi, Greece" fails 3x with Viber's own
+  "Koropi, Greece (street on file)" fails 3x with Viber's own
   "Something went wrong" — backend rejects that place_id, not a UI issue;
   retry later or enter manually via Manage profile → location.
 - Remaining prompt on Business tools: **"Add your Google rating"** —
@@ -2438,7 +2438,7 @@ Open / watch:
 - **Phone has a SECOND ADB driver** — parallel session typing sshd/ntfy
   setup into Termux/ntfy apps; concurrent UI automation corrupts both.
   Coordinate before driving Viber again.
-- Viber street address (Thermopylon 15 Koropi 19441) + Google rating
+- Viber street address (Koropi (street on file)) + Google rating
   remain the only profile gaps.
 
 ## 2026-11-14 — Docker Desktop wipe → full stack rebuild + PG restore
@@ -2729,9 +2729,8 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   2026-11-16 via the standard-tier Qualtrics form linked from app
   227354605 (primary org/ads app — consistent with the "already
   integrated app, same use case" answer). Filed truthfully: legal name
-  Themistoklis Baltzakis (sole prop, ΑΦΜ 115307716), website
-  cloudless.gr, registered address from the AADE fiscal cert
-  (Οδός Ιωάννη 15, Koropi 19400, Attica, Greece), Direct Advertiser,
+  sole prop (legal name + AADE registered address as on file),
+  website cloudless.gr, Direct Advertiser,
   use cases = email-identity contact reach + re-engage + exclude +
   lookalike seeds from first-party EspoCRM contacts, partnerships
   FB/IG + Google + TikTok, integrations = all six built lanes
