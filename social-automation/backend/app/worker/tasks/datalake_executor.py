@@ -168,16 +168,19 @@ async def _run() -> dict:
             team_id = uuid.UUID(tid_raw) if isinstance(tid_raw, str) else tid_raw
             for action in actions:
                 fn: Any = _EXECUTORS.get(action.get("type"))
-                if not fn:
-                    continue
                 key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
                 if action.get("type") == "devapp_health":
                     # match the dedup key _exec_devapp_health checks against
                     key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
-                try:
-                    out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
-                except Exception as e:
-                    out = {"error": str(e)[:120]}
+                if not fn:
+                    # unknown type (e.g. lead_source, ad_efficiency) — record
+                    # the skip so dropped actions stay auditable in the lake
+                    out = {"skipped": "no executor"}
+                else:
+                    try:
+                        out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
+                    except Exception as e:
+                        out = {"error": str(e)[:120]}
                 db.add(
                     AnalyticsEvent(
                         team_id=team_id,

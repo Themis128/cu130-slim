@@ -250,14 +250,16 @@ async def test_run_dispatches_actions(monkeypatch):
     monkeypatch.setitem(DX._EXECUTORS, "audit_escalation", DX._exec_audit_escalation)
 
     out = await DX._run()
-    assert out["executed"] == 3
+    assert out["executed"] == 4
     assert out["teams"] == 1
     assert out["results"][0] == {"type": "content_topic", "team": str(team), "drafted": 1}
     assert out["results"][1]["type"] == "audit_escalation" and len(out["results"][1]["error"]) == 120
     assert out["results"][2]["type"] == "platform_focus"
+    # unknown action types are recorded as skipped, not silently dropped
+    assert out["results"][3] == {"type": "unknown", "team": str(team), "skipped": "no executor"}
     assert topic.await_args.args[1] == team
     events = [c.args[0] for c in db.add.call_args_list]
-    assert [e.meta_data["key"] for e in events] == ["AI", "audit_escalation", "x"]
+    assert [e.meta_data["key"] for e in events] == ["AI", "audit_escalation", "x", "unknown"]
     assert events[0].meta_data["reason"] == "trend"
     assert all(e.team_id == team for e in events)
     db.commit.assert_awaited_once()

@@ -996,3 +996,56 @@ def test_export_survey_responses():
     # outer-join miss → null email/status tolerated
     rows2 = _run(de._export_survey_responses(_OneExecDB(_Scalars([(resp, None, None)]))))
     assert rows2[0]["email_hash"] is None and rows2[0]["recipient_status"] is None
+
+
+# ── _export_monetization ────────────────────────────────────────────────
+
+
+def _crit(name, current, target, met):
+    return SimpleNamespace(name=name, current=current, target=target, met=met)
+
+
+def test_export_monetization_rows(monkeypatch):
+    import app.services.monetization as mon
+
+    acct_ok = _acct(platform="tiktok", username="cloudless")
+    acct_fail = _acct(platform="x", username="tb")
+    db = _OneExecDB(_Scalars([acct_ok, acct_fail]))
+
+    async def _metrics(db_, a):
+        if a is acct_fail:
+            raise RuntimeError("metrics boom")
+        return {"followers": 12000, "gain_per_day": 3.5}
+
+    report = SimpleNamespace(
+        program="TikTok Creator Rewards",
+        criteria=[_crit("followers", 12000, 10000, True)],
+    )
+    monkeypatch.setattr(mon, "gather_account_metrics", _metrics)
+    monkeypatch.setattr(mon, "evaluate_program", lambda p, m, account_type=None: report if p == "tiktok" else None)
+
+    rows = _run(de._export_monetization(db))
+    assert len(rows) == 2
+    ok, err = rows
+    assert ok["platform"] == "tiktok" and ok["program"] == "TikTok Creator Rewards"
+    assert ok["criteria"] == [{"name": "followers", "current": 12000, "target": 10000, "met": True}]
+    assert ok["evaluated_at"]
+    assert err["platform"] == "x" and "metrics boom" in err["error"] and "program" not in err
+
+
+def test_export_monetization_funnel_only(monkeypatch):
+    import app.services.monetization as mon
+
+    acct = _acct(platform="linkedin", username="page")
+    db = _OneExecDB(_Scalars([acct]))
+
+    async def _metrics(db_, a):
+        return {"followers": 500}
+
+    monkeypatch.setattr(mon, "gather_account_metrics", _metrics)
+    monkeypatch.setattr(mon, "evaluate_program", lambda *a, **k: None)
+
+    rows = _run(de._export_monetization(db))
+    assert rows[0]["program"] is None
+    assert rows[0]["role"] == mon.FUNNEL_ONLY["linkedin"]
+    assert rows[0]["criteria"] == []
