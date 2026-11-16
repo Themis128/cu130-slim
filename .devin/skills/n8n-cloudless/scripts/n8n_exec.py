@@ -12,10 +12,7 @@ Usage:
 import argparse
 import json
 import subprocess
-<<<<<<< HEAD
 import sys
-=======
->>>>>>> origin/master
 import urllib.parse
 import urllib.request
 
