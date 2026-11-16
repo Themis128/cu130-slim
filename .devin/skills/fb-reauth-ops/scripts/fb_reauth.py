@@ -46,15 +46,15 @@ def _signed_state() -> str:
         "async def go():\n"
         "  async for db in get_db():\n"
         "    r=await db.execute(text('SELECT id FROM teams LIMIT 1'))\n"
-        "    print(sign_oauth_state({'t':str(r.scalar())}))\n"
+        "    print('OAUTH_STATE='+sign_oauth_state({'t':str(r.scalar())}))\n"
         "asyncio.run(go())"
     )
     out = subprocess.run(
         [docker, "exec", "social-api", "python", "-c", inner],
         capture_output=True, text=True, timeout=30, check=False)
     for line in out.stdout.splitlines():
-        if line.strip() and not line.startswith(("TEAM", "ERR")):
-            return line.strip()
+        if line.startswith("OAUTH_STATE="):
+            return line.split("=", 1)[1].strip()
     raise RuntimeError(f"signed state failed: {out.stdout} {out.stderr}")
 
 
