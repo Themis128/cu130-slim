@@ -167,7 +167,7 @@ services:
       - "mail.cloudless.gr:192.168.1.130"
 
   collabora:
-    image: collabora/code:26.04.4.2.1
+    image: collabora/code:26.04.6.1.1
     container_name: collabora
     restart: unless-stopped
     ports:
