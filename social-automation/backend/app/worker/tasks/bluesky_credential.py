@@ -58,7 +58,7 @@ async def _stored_password_dead(account, db=None) -> bool | None:
     except Exception:  # noqa: BLE001
         return None
     pds = (account.meta_data or {}).get("pds_url") or BSKY_PDS_DEFAULT
-    client = BlueskyClient(account.username or "", password, pds_url=pds)
+    client = BlueskyClient(getattr(account, "account_id", None) or account.username or "", password, pds_url=pds)
     try:
         await client.create_session()
         return False
