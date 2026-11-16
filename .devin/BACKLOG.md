@@ -3047,3 +3047,28 @@ Resolved this pass (details inline above):
   all workers+beat healthy.
 - Durable fix unchanged: `wsl --shutdown` at a quiet moment (owner gate);
   fresh-mount probe still poisoned → named-volume transplants stay.
+
+## 2026-11-16 (late pm) — Matched Audiences: partial live + schema fixes
+
+- [x] **DMP segment CRUD is LIVE** under the current org token —
+  `GET /rest/dmpSegments` → 200, `POST /rest/dmpSegments` → **201**
+  (created `espo-crm-leads`, segment id **81778122**, Redis-seeded at
+  `linkedin:dmp:espo-crm-leads-urn`). This is rw_ads-level access, NOT
+  the full product grant.
+- [ ] **User streaming still gated**: `POST /dmpSegments/{id}/users` →
+  403 `partnerApiDmpSegments.BATCH_CREATE`; `rw_dmp_segments` still
+  `unauthorized_scope_error` at authorize on both client ids. Full
+  Matched Audiences approval (standard-tier form submitted 2026-11-16,
+  app 227354605) still pending — watcher now probes the WRITE path so
+  it won't false-fire again.
+- [x] PR #2043 — `create_dmp_segment` now sends required
+  `destinations: [{"destination":"LINKEDIN"}]` (was 400
+  INVALID_VALUE_FOR_FIELD), `upload_dmp_users` sends required
+  `X-RestLi-Method: BATCH_CREATE`, task sleeps 5s after fresh create.
+- [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
+  (empty-elements POST; authz precedes validation → non-403 =
+  authorized); `matched_audiences` grant now requires it.
+- [ ] On `rw_dmp_segments` grant: re-consent token (scope must appear
+  in authorize first), watcher auto-dispatches
+  `sync_linkedin_dmp_audiences` → uploads hashed EspoCRM emails into
+  segment 81778122.
