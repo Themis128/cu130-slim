@@ -3054,3 +3054,46 @@ Resolved this pass (details inline above):
   (also disconnects WSL IDE session briefly).
 - [ ] human: TikTok `video.list` scope still needs console app revision;
   Vercel MCP needs re-auth if used.
+
+## 2026-11-16 (pm2) — missing daily reports + Docker restart fallout (Devin)
+
+- [x] Missing Daily ops health → fixed + delivered: `username=None`
+  crashed the notebook f-string (`or "—"` guard applied); task
+  `f56be323` `emailed:1`, no error. `nbreport:done:ops_health` set.
+- [~] Missing Daily strategy brief → rerunning (task `33e90ab4`,
+  notebook executing at check time). Beat never fired either report —
+  celery-beat was down/recreated during the 09:00/09:15 Athens window.
+- [x] DMR wedge fixed: `/models` 200 but completions hung + every model
+  stuck `Loading...` → `docker.exe desktop restart` → llama.cpp backend
+  Running; container-side `host.docker.internal:12435` completion probe
+  200 in 3s. NOTE: WSL `localhost:12435` no longer forwards post-restart
+  (Windows-side 127.0.0.1:12435 is live; only WSL relay is broken —
+  app path unaffected). If the WSL-side port is needed, re-toggle
+  `EnableInferenceTCPPort` or restart WSL relay.
+- [x] `social-api` port-8083 collision after recreate: `social-api-rescue`
+  (no-bind-mount fallback) had claimed 8083 during the flap → stopped +
+  removed; managed `social-api` healthy again. Hash-ghost containers
+  (`<hash>_social-api` Created) removed on each recreate race.
+- [x] Zombie `nbreport:running:*` locks — REAL BUG: a worker killed
+  mid-run never releases the 3h lock, and `AsyncResult.state` leaves a
+  STARTED tombstone, so every rerun skipped `run-in-progress`. Fix on
+  PR #2039 (task-id ownership + active/reserved liveness + steal,
+  fenced release, `asyncio.wait_for(240)` on `_llm_actions` so a wedged
+  DMR degrades to rule-based instead of stalling the brief).
+- [x] ops-health notebook fix vanished mid-session: a branch-hop under
+  `architecture-sync.py`/`gh pr merge 2032` reverted the file with
+  preserved mtime (master-sync is clean-tree only, so this was the
+  pr-merge automation, not rsync). Re-applied; landed in the ops-health
+  run before it could be stomped again. Durable home: PR it if it
+  recurs.
+- [x] PR sweep: all 6 open PRs (#2024/#2028/#2032/#2035/#2036/#2039)
+  auto-merge armed, updated from BEHIND, 0 failures — CI treadmill only.
+  #2020 merged earlier. #2017 merged.
+- [ ] watch: report-delivery alert should clear once the strategy email
+  lands; if the notebook OOMs again (137, seen twice under WSL memory
+  pressure), the code fallback now has the 240s LLM bound.
+- [ ] IG↔Page link still blocked at `facebook_business_extension/oauth`
+  ("You're Temporarily Blocked") — full chain automated + proven through
+  TOTP; `ig_onboarding_drive.py` armed on 2h cooldown (PID 1084843 —
+  verify still alive after the flaps). Phone route still needs flip
+  cover open.
