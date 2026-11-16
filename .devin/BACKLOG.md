@@ -3203,3 +3203,25 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+
+## 2026-11-16 (night) — recovery tooling + ops codification
+
+- [x] **`scripts/recover_rendered_video.py`** — orphaned-render rescue
+  (render succeeded, task died pre-save_uploaded_media): `--check` a
+  post's pending_video_task state, `--file --post` persists the bytes via
+  save_uploaded_media + attaches with the report_videos materialize
+  recipe. Proven need: post c4dff316 / asset 37d483f0 recovered manually.
+- [x] **New skills**: `video-render-recovery` (orphan signature + tool
+  runbook), `external-call-budget` (per-call timeout < soft limit,
+  persist-before-analyze, advisory fail-soft, budget-gated retries).
+- [x] **Skill updates**: `meta-account-lock-ops` gained the Meta-wide
+  session-invalidation event class (token sweep `session invalidated` +
+  sidecar `handleProfilePicker` click loop + publish stalls);
+  `publish-ops` gained the stuck-`publishing` triage ladder.
+- [ ] **FB/IG sessions invalidated (Meta security event)** —
+  `facebook-browser-sidecar` wedged at the profile-picker re-auth wall;
+  `instagram/cloudless.gr` token invalid. Post c4dff316 publishing-blocked
+  (asset is safe, retries land once auth heals). Needs interactive
+  re-login: picker → "Use another profile" → creds → 2FA on phone.
+- [ ] **watch: PR #2087** — video QA fix (4th rebuild) rebased + force-pushed
+  past the BACKLOG treadmill, auto-merge armed.
