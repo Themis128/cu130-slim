@@ -35,6 +35,15 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
+  2026-11-16 correction: `spellcheck_applied` is only true when
+  LanguageTool actually CHANGED text — clean assets legitimately stay
+  false, so it is NOT a completion metric. Real metric = `meta_data.
+  quality` key presence. State at check: 163/912 lacked `quality`
+  (101 in first limit-500 pass — arbitrary row order means a second
+  `--limit 1000` pass is needed for the rest); 749 have quality meta.
+  LanguageTool path verified healthy again (stack-ops:8010 → 400 on
+  bare GET = LT responding; earlier "Name or service not known" was
+  the flap window). Non-force `--limit 500` pass running in social-api.
 - [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
   elevated (`sshd -t` clean, host keys present, "Failed to start service"
   logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
@@ -2816,10 +2825,13 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   (`/debug/navigate` + `/debug/eval` on the Webhooks page → row "Webhook
   Actions" dropdown → "Revalidate URL") — row now reads **Validated**
   (Nov 16 11:36). Lead Sync event delivery restored.
-- [ ] watch: if flap windows recur near LinkedIn's re-validation cadence,
-  the same failure can repeat — consider a lightweight probe beat that
-  GETs `?challengeCode=` on our own webhook URL and TG-alerts on non-200
-  (cheap insurance, ~10 lines in an existing beat).
+- [x] watch: if flap windows recur near LinkedIn's re-validation cadence,
+  the same failure can repeat — SHIPPED 2026-11-16 via PR #2010:
+  `_webhook_selfcheck()` in `linkedin_lead_boost.route_linkedin_leads`
+  (30m beat `linkedin-lead-routing`) GETs
+  `/webhooks/linkedin-lead-sync?challengeCode=selfcheck-…` on the public
+  URL and TG-alerts P2 on non-200/missing echo — catches flap-window
+  unreachable BEFORE LinkedIn's ~2h re-validation does.
 
 ## 2026-11-16 — fsbridge flap #6: stack-ops-bridge interim proxy
 
@@ -2832,23 +2844,35 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   9223–9230/8000/8010/8080/3000/5555/5900/6080/6081/8199/8888/9000/1080
   published on 127.0.0.1 (8081 skipped — already bound). Verified:
   localhost:9225/health + in-network routes all live.
-- [ ] REMOVE after `wsl --shutdown` heal: `docker rm -f stack-ops-bridge`
-  then `docker compose up -d stack-ops` — real stack-ops restores
-  wake/sleep + control API :8787 (bridge has no sleeper, services stay
-  awake — acceptable interim).
 - [x] Bridge died ~20min after creation (exit 137, restart policy was
   `no`) → all stack-ops:* routes dark again; video renders failed
   `[Errno -2] Name or service not known`. Restarted + relaunched relay
   (ad-hoc process inside `sleep infinity` — dies with the container).
   Hardened: `docker update --restart unless-stopped`, relay script now
-  versioned at `stack-ops/bridge-relay.py`, compose-watchdog section 14
-  auto-ensures container+relay (15min throttle, :8199 probe, Slack
-  alert).
+  versioned at `stack-ops/bridge-relay.py` (#2020), compose-watchdog
+  section 14 auto-ensures container+relay (15min throttle, :8199
+  probe, Slack alert).
+- [x] REMOVE after `wsl --shutdown` heal — AUTOMATED (#2021):
+  `fsbridge-reconcile.sh` retires the bridge on heal detection
+  (`docker rm -f stack-ops-bridge` → `compose up -d stack-ops` — the
+  bridge holds real stack-ops' host ports so it MUST go first → verify
+  running → TG alert; auto-restores bridge via
+  `scripts/stack-ops-bridge.sh up` if the recreate fails). Manual
+  lifecycle: `scripts/stack-ops-bridge.sh {up|down|status}` (`down`
+  refuses while real stack-ops isn't running). Real stack-ops restores
+  wake/sleep + control API :8787.
 - [x] Same flap dropped `MAUTIC_DB_PASSWORD`/`MAUTIC_DB_ROOT_PASSWORD`
   from `.env` (Infisical pull regression — 05:30 backup still had them);
   restored from `.env.bak-20261116053028`, mautic+mautic-cron healthy.
-  Watch: if the pull repeats, the keys vanish again — check the sync
-  script's key whitelist.
+  RESOLVED 2026-11-16: root cause was .env regeneration from an empty/
+  truncated file during the flap — merge-mode pull preserves local-only
+  keys but can't invent them. Audited Infisical prod directly (UA
+  client-credentials → /api/v3/secrets/raw): pushed all 8 local-only
+  keys — MAUTIC_DB_PASSWORD, MAUTIC_DB_ROOT_PASSWORD,
+  LINKEDIN_CONVERSION_INGEST_KEY, LINKEDIN_ENGAGE_AUTHORS,
+  LINKEDIN_FEED_WRITES, LINKEDIN_LEAD_SYNC_KEY, META_BACKUP_CODES,
+  META_TOTP_SECRET. Remote now 612 keys, only-local=0 — any future
+  .env regen is complete.
 
 ## 2026-11-16 — Meta token estate re-auth + IG row findings
 
