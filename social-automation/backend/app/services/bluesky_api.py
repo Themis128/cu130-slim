@@ -433,7 +433,7 @@ async def rotate_app_password(account: Any, main_password: str, db: Any) -> dict
     from app.core.security import encrypt_token
 
     pds = (account.meta_data or {}).get("pds_url") or BSKY_PDS_DEFAULT
-    handle = account.username or ""
+    handle = getattr(account, "account_id", None) or account.username or ""
 
     admin = BlueskyClient(handle, main_password, pds_url=pds)
     await admin.create_session()

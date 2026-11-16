@@ -3715,7 +3715,7 @@ async def _publish_bluesky(
 
     pds = (account.meta_data or {}).get("pds_url") or None
     client = BlueskyClient(
-        account.username or "",
+        getattr(account, "account_id", None) or account.username or "",
         access_token,
         pds_url=pds or "https://bsky.social",
     )
