@@ -77,7 +77,7 @@ def _beat_tier():
     """Report the celery-beat heals' last-run state via the API."""
     while True:
         try:
-            r = urllib.request.urlopen("http://localhost:8083/health", timeout=6)
+            r = urllib.request.urlopen("http://social-api:8000/health", timeout=6)
             BEAT_STATE["api"] = "up" if r.status == 200 else f"{r.status}"
         except Exception:
             BEAT_STATE["api"] = "down"
