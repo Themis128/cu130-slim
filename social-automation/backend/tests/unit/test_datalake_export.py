@@ -996,3 +996,83 @@ def test_export_survey_responses():
     # outer-join miss → null email/status tolerated
     rows2 = _run(de._export_survey_responses(_OneExecDB(_Scalars([(resp, None, None)]))))
     assert rows2[0]["email_hash"] is None and rows2[0]["recipient_status"] is None
+
+
+class _SeqDB:
+    """execute() pops the next queued result — for multi-query exporters."""
+
+    def __init__(self, results):
+        self._results = list(results)
+
+    async def execute(self, _q):
+        return self._results.pop(0)
+
+
+def test_export_email_campaigns():
+    from app.worker.tasks import datalake_export as de
+
+    camp = SimpleNamespace(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Survey Q1",
+        kind="survey",
+        status="sent",
+        survey_url="https://x/s/tok",
+        sent_at=datetime(2026, 1, 3, tzinfo=UTC),
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    lead_id = uuid.uuid4()
+    rec = SimpleNamespace(
+        email="Person@Example.com",
+        lead_id=lead_id,
+        status="delivered",
+        sent_at=datetime(2026, 1, 3, 1, tzinfo=UTC),
+    )
+    resp = SimpleNamespace(
+        lead_id=None,
+        answers={"q1": "yes"},
+        espocrm_noted=True,
+        submitted_at=datetime(2026, 1, 4, tzinfo=UTC),
+    )
+    db = _SeqDB(
+        [
+            _Scalars([camp]),  # campaigns
+            _Scalars([rec]),  # recipients
+            _Scalars([(resp, "person@example.com")]),  # responses join
+        ]
+    )
+    rows = _run(de._export_email_campaigns(db))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["campaign_id"] == str(camp.id)
+    assert r["survey_url"] is True
+    assert r["recipients"] == [
+        {
+            "email_hash": _email_hash("person@example.com"),
+            "lead_id": str(lead_id),
+            "status": "delivered",
+            "sent_at": de._iso(rec.sent_at),
+        }
+    ]
+    assert r["responses"] == [
+        {
+            "email_hash": _email_hash("person@example.com"),
+            "lead_id": None,
+            "answers": {"q1": "yes"},
+            "espocrm_noted": True,
+            "submitted_at": de._iso(resp.submitted_at),
+        }
+    ]
+    # outer-join miss → null email tolerated; recipient without lead_id
+    db2 = _SeqDB(
+        [
+            _Scalars([camp]),
+            _Scalars([SimpleNamespace(email="x@y.z", lead_id=None, status="pending", sent_at=None)]),
+            _Scalars([(resp, None)]),
+        ]
+    )
+    rows2 = _run(de._export_email_campaigns(db2))
+    assert rows2[0]["recipients"][0]["lead_id"] is None
+    assert rows2[0]["responses"][0]["email_hash"] is None
+    # no campaigns → empty
+    assert _run(de._export_email_campaigns(_SeqDB([_Scalars([])]))) == []
