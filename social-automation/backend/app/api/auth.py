@@ -1213,6 +1213,11 @@ async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User 
         # Facebook Login for Business with IG API Onboarding uses a custom flow
         return await instagram_onboarding_authorize(team_id, current_user)
 
+    if platform == "whatsapp":
+        # WhatsApp reuses the Facebook OAuth client + callback; the signed
+        # state's "p"="whatsapp" alias triggers WABA discovery on callback.
+        return await whatsapp_authorize(team_id, current_user)
+
     redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
     client = globals()[f"{platform}_client"]
 
@@ -2025,6 +2030,41 @@ async def oauth_callback(
 #      {"setup":{"channel":"IG_API_ONBOARDING"}} triggers an Instagram-first
 #      onboarding flow that creates/links a Facebook Page automatically,
 #      solving the error #10 (Page-Instagram linkage) problem.
+
+
+async def whatsapp_authorize(
+    team_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """Initiate WhatsApp Business re-auth via Facebook Login.
+
+    WhatsApp uses the Facebook OAuth client: the callback resolves
+    oauth_platform="facebook" and the signed state's "p"="whatsapp" alias
+    triggers WABA/phone-number discovery and platform="whatsapp" storage.
+    This endpoint was missing — /oauth/whatsapp/authorize 500'd on the
+    generic getattr(settings, "WHATSAPP_REDIRECT_URI") path.
+    """
+    if not settings.FACEBOOK_CLIENT_ID:
+        raise HTTPException(status_code=400, detail="Facebook OAuth not configured (FACEBOOK_CLIENT_ID missing)")
+
+    from urllib.parse import quote
+
+    from app.core.security import sign_oauth_state
+
+    state_b64 = sign_oauth_state({"t": str(team_id), "p": "whatsapp"})
+    scope = "whatsapp_business_management,whatsapp_business_messaging,business_management,pages_show_list"
+    redirect_uri = settings.FACEBOOK_REDIRECT_URI
+
+    auth_url = (
+        f"https://www.facebook.com/dialog/oauth"
+        f"?client_id={settings.FACEBOOK_CLIENT_ID}"
+        f"&redirect_uri={quote(redirect_uri, safe='')}"
+        f"&response_type=code"
+        f"&scope={scope}"
+        f"&state={state_b64}"
+        f"&display=page"
+    )
+    return {"authorization_url": auth_url}
 
 
 @router.get("/oauth/instagram-onboarding/authorize")

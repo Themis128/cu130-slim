@@ -2713,3 +2713,20 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   days of the interest form. Support case already filed on app 264925843
   (linkedin-portal-gates-ops). Portal probe currently 429-blocked by the
   LinkedIn cooldown — recheck case status after cooldown ends.
+
+## 2026-11-16 — account-truth sweep + WhatsApp/IG repair
+
+- [x] WhatsApp re-auth END-TO-END: `/oauth/whatsapp/authorize` was missing
+  (500 on `WHATSAPP_REDIRECT_URI`) — added `whatsapp_authorize()` (Facebook
+  Login dialog + WA scopes + state `p="whatsapp"`), PR #1988. Drove consent
+  on :9229 → callback → new `facebook_user_long_lived` token (never
+  expires) → WABA 1717901383017723 phone 1432734783254091 VERIFIED,
+  TIER_250. Propagated token to both .env copies (WHATSAPP_ACCESS_TOKEN).
+- [ ] watch: IG API onboarding (`instagram-onboarding` flow) — IG login +
+  Meta TOTP 2FA PASSED on :9229; stuck at facebook_business_extension
+  "Temporarily Blocked" (Meta rate-limit). `ig_onboarding_resume.py`
+  (nohup pid in logs/ig_onboarding_resume.log) reloads every 10min and
+  clicks through remaining wizard steps when it clears. IG rows still
+  expired/revoked until callback lands.
+- [x] X @TBaltzakis — live `/2/users/me` probe OK; DB `active` confirmed.
+- [x] Instagram false-active row (d2215…, OAuth 190) → marked `expired`.
