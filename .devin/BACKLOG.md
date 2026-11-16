@@ -3236,13 +3236,9 @@ Resolved this pass (details inline above):
       engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
       clean through the wrapper.
 
-### battle-test addendum (same day, evening)
-
-- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
-      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
-      the PRE-EDIT config in memory (on-disk configs already clean).
-- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
-      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
-- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
-      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
-      with the old flash-prone command line.
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
