@@ -434,6 +434,12 @@ const CASES: Case[] = [
   ['email.addSuppression', (m) => m.emailCampaignsApi.addSuppression('a@b.c', 'manual'), 'post', '/email-campaigns/suppressions/list'],
   ['email.crmSummary', (m) => m.emailCampaignsApi.crmSummary(), 'get', '/email-campaigns/crm/summary'],
   ['email.crmClients', (m) => m.emailCampaignsApi.crmClients(), 'get', '/email-campaigns/crm/clients'],
+  ['email.nudge', (m) => m.emailCampaignsApi.nudge(ID), 'post', `/email-campaigns/${ID}/nudge`],
+
+  // --- bluesky ---
+  ['bluesky.connect', (m) => m.blueskyApi.connect('h.bsky.social', 'pw'), 'post', '/bluesky/connect'],
+  ['bluesky.connect+pds', (m) => m.blueskyApi.connect('h.bsky.social', 'pw', 'https://pds.example'), 'post', '/bluesky/connect'],
+  ['bluesky.status', (m) => m.blueskyApi.status(ID), 'get', `/bluesky/${ID}/status`],
 ]
 
 describe('API endpoint surface', () => {

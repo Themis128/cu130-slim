@@ -28,6 +28,7 @@ const hoisted = vi.hoisted(() => {
     brandApi: group(),
     auditApi: group(),
     inboxApi: group(),
+    blueskyApi: group(),
     toast: { success: vi.fn(), error: vi.fn() },
   }
 })
@@ -47,6 +48,7 @@ vi.mock('@/services/api', () => ({
   brandApi: hoisted.brandApi,
   auditApi: hoisted.auditApi,
   inboxApi: hoisted.inboxApi,
+  blueskyApi: hoisted.blueskyApi,
   getAccessToken: vi.fn(() => 'tok'),
 }))
 
@@ -130,6 +132,7 @@ const MUTATION_CASES: Array<[string, () => { mutateAsync: (v: unknown) => Promis
   ['useGenerateWorkflow', () => H.useGenerateWorkflow(), { prompt: 'p' }, 'workflowApi', 'generateWorkflow', [{ prompt: 'p' }]],
   ['useDeployWorkflow', () => H.useDeployWorkflow(), 'w1', 'workflowApi', 'deployWorkflow'],
   ['useConnectAccount', () => H.useConnectAccount(), { platform: 'x', teamId: 't1' }, 'accountsApi', 'connect', ['x', 't1']],
+  ['useConnectBluesky', () => H.useConnectBluesky(), { handle: 'h', appPassword: 'p', pdsUrl: 'u' }, 'blueskyApi', 'connect', ['h', 'p', 'u']],
   ['useDisconnectAccount', () => H.useDisconnectAccount(), 'a1', 'accountsApi', 'disconnect'],
   ['useSyncBusinessAccounts', () => H.useSyncBusinessAccounts(), 'a1', 'accountsApi', 'syncBusinessAccounts', ['a1']],
   ['useSetBusinessAccount', () => H.useSetBusinessAccount(), { id: 'a1', businessAccountId: 'b1' }, 'accountsApi', 'setBusinessAccount', ['a1', 'b1']],
