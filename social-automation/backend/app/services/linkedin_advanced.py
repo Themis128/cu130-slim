@@ -220,19 +220,20 @@ async def stream_conversion(
 # ── Conversion rules (create/list/resolve) ───────────────────────────────
 
 # event name → (env var holding the rule URN, LinkedIn conversion `type`)
-# ``type`` is the Campaign Manager "key conversion behavior" — LEAD for
-# form/booking captures, SIGNUP for subscriptions, PURCHASE for checkout,
-# CUSTOM for everything else.
+# ``type`` is the Campaign Manager "key conversion behavior". The API enum
+# only accepts LEAD / CONTACT / PURCHASE (verified live 2026-11-16 —
+# SIGNUP and CUSTOM 422 "not an enum symbol"), so micro-conversions map to
+# the closest accepted bucket.
 CONVERSION_EVENTS: dict[str, tuple[str, str]] = {
     "audit_booked": ("LINKEDIN_CONVERSION_RULE", "LEAD"),
     "lead_created": ("LINKEDIN_CONVERSION_RULE_LEAD_CREATED", "LEAD"),
     "contact_created": ("LINKEDIN_CONVERSION_RULE_CONTACT", "LEAD"),
     "consultation_booked": ("LINKEDIN_CONVERSION_RULE_CONSULT", "LEAD"),
-    "signup": ("LINKEDIN_CONVERSION_RULE_SIGNUP", "SIGNUP"),
+    "signup": ("LINKEDIN_CONVERSION_RULE_SIGNUP", "LEAD"),
     "purchase": ("LINKEDIN_CONVERSION_RULE_PURCHASE", "PURCHASE"),
     # Closed-loop: EspoCRM lead reached Converted — downstream optimization
     # signal so LinkedIn bids toward leads that close, not just form fills.
-    "lead_won": ("LINKEDIN_CONVERSION_RULE_WON", "CUSTOM"),
+    "lead_won": ("LINKEDIN_CONVERSION_RULE_WON", "CONTACT"),
 }
 
 
