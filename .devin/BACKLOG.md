@@ -3226,9 +3226,14 @@ Resolved this pass (details inline above):
 - [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
       classes, the grandchild rule, and why `-WindowStyle Hidden` /
       `conhost --headless` (for output capture) don't work.
-- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
-      `_popup-watch` captures in the loop if popups are reported again —
-      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
+      logon 23:44 spawned both watcher instances under `conhost --headless`;
+      12min `popup-flash-watch` capture post-logon: 0 console-window events.
+      Full autostart surface audited: Run key (conheadless), Startup folder
+      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
+      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
+      not user-visible. Keep `_popup-watch` captures in the loop if popups
+      are reported again — stale watch logs mis-attribute sources.
 - [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
       | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
       already run under `conhost.exe --headless` (docker-socket-watch,
