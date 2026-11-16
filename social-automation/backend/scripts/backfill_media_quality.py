@@ -19,25 +19,24 @@ overwrite scores written during a degraded run when LanguageTool/DMR were down).
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from uuid import UUID
 
 # Add the backend to the path — inside the container the code lives at /app,
 # on the host checkout it is the repo's backend dir.
-import os
-
 for _p in ("/app", "/home/tbaltzakis/cu130-slim/social-automation/backend"):
     if os.path.isdir(os.path.join(_p, "app")):
         sys.path.insert(0, _p)
         break
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import select  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+from sqlalchemy.orm.attributes import flag_modified  # noqa: E402
 
-from app.db.session import async_session_maker
-from app.models.content import MediaAsset
-from app.services.media_quality import apply_media_quality
+from app.db.session import async_session_maker  # noqa: E402
+from app.models.content import MediaAsset  # noqa: E402
+from app.services.media_quality import apply_media_quality  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
