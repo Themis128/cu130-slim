@@ -22,8 +22,14 @@ import logging
 import sys
 from uuid import UUID
 
-# Add the backend to the path
-sys.path.insert(0, "/home/tbaltzakis/cu130-slim/social-automation/backend")
+# Add the backend to the path — inside the container the code lives at /app,
+# on the host checkout it is the repo's backend dir.
+import os
+
+for _p in ("/app", "/home/tbaltzakis/cu130-slim/social-automation/backend"):
+    if os.path.isdir(os.path.join(_p, "app")):
+        sys.path.insert(0, _p)
+        break
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
