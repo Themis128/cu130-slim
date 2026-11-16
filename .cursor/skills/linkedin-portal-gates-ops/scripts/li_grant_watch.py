@@ -83,10 +83,12 @@ async def probe(client, token, method, url, extra_headers=None, **kw):
         denied = (r.status_code in (401, 403)
                   or any(m in body for m in DENY_MARKERS))
         return {"status": r.status_code, "denied": denied,
+                "authorized": not denied,
                 "granted": r.status_code in (200, 201, 204),
                 "detail": body[:160]}
     except Exception as e:
-        return {"granted": False, "detail": f"error:{e}"[:160]}
+        return {"granted": False, "authorized": False,
+                "detail": f"error:{e}"[:160]}
 
 async def main():
     out = {}
@@ -97,6 +99,13 @@ async def main():
         out["dmp_segments"] = await probe(
             c, org, "GET",
             f"{REST}/dmpSegments?q=account&account={quote(AD_URN, safe='')}")
+        # Write-probe: segment CRUD can pass under rw_ads while user
+        # streaming still needs rw_dmp_segments. Authz is checked before
+        # validation/segment-existence, so any non-403 = authorized.
+        out["dmp_users_write"] = await probe(
+            c, org, "POST", f"{REST}/dmpSegments/0/users",
+            json={"elements": []},
+            extra_headers={"X-RestLi-Method": "BATCH_CREATE"})
         # Member DP endpoints are pinned to Linkedin-Version 202312 and need
         # q=criteria — a bare GET 404s on version/params, not on authz.
         out["member_snapshot"] = await probe(
@@ -188,7 +197,7 @@ def granted_map(state: dict) -> dict:
     member_scopes = set((scopes.get("member") or {}).get("scopes") or [])
     return {
         "matched_audiences": bool(
-            (api.get("dmp_segments") or {}).get("granted")
+            (api.get("dmp_users_write") or {}).get("authorized")
             or "rw_dmp_segments" in org_scopes),
         # memberSnapshotData is the canonical Member DP probe; changelog is
         # recorded for context but 404s independently of the grant.
@@ -218,9 +227,10 @@ def diff_alert(old: dict, new: dict) -> list[str]:
     api = new.get("api") or {}
     org_scopes = set((new.get("scopes") or {}).get("org", {}).get("scopes") or [])
     if "rw_dmp_segments" in org_scopes and \
-            (api.get("dmp_segments") or {}).get("denied"):
-        alerts.append("rw_dmp_segments in token but DMP API still denies — "
-                      "product grant pending or token stale; re-auth may help")
+            (api.get("dmp_users_write") or {}).get("denied"):
+        alerts.append("rw_dmp_segments in token but DMP user streaming still "
+                      "denies — product grant pending or token stale; "
+                      "re-auth may help")
     return alerts
 
 
