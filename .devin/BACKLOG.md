@@ -3229,7 +3229,6 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-<<<<<<< Updated upstream
 - [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
       | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
       already run under `conhost.exe --headless` (docker-socket-watch,
