@@ -2804,3 +2804,19 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   anchor must exist in social-api).
 - [ ] note: scripts/linkedin_feed_tool.py (new CLI in #1986) is outside
   app/ coverage scope — ops-verified via linkedin-cm-ops skill instead.
+
+## 2026-11-16 — LinkedIn webhook revalidated (transient flap, not a code bug)
+
+- [x] Lead Sync webhook `fa17fec4…` showed **Failed Validation** in the
+  developer portal — root cause was the fsbridge flap window: LinkedIn's
+  ~periodic challenge GET never reached social-api (no challengeCode hits
+  in API logs for 12h). Endpoint itself verified correct (challenge →
+  200 + valid HMAC in ~190ms).
+- [x] Revalidated via portal UI driven through the sidecar
+  (`/debug/navigate` + `/debug/eval` on the Webhooks page → row "Webhook
+  Actions" dropdown → "Revalidate URL") — row now reads **Validated**
+  (Nov 16 11:36). Lead Sync event delivery restored.
+- [ ] watch: if flap windows recur near LinkedIn's re-validation cadence,
+  the same failure can repeat — consider a lightweight probe beat that
+  GETs `?challengeCode=` on our own webhook URL and TG-alerts on non-200
+  (cheap insurance, ~10 lines in an existing beat).
