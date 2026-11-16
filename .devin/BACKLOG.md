@@ -2923,3 +2923,13 @@ Resolved this pass (details inline above):
 - [x] mautic healthy — root cause confirmed in earlier entry (Infisical
   pull regression dropped MAUTIC_DB_* from .env; restored from bak).
 - Open PRs at sweep end: #2016 (rebuilt docs PR, auto-merge armed).
+
+## 2026-11-16 — PR sweep: all branches merged to master (Devin)
+
+- [x] #1975, #1978, #1982, #1984, #1985 merged; #1982 BACKLOG conflict
+  resolved (kept both sections). #2017 BACKLOG conflict resolved likewise.
+- [ ] decide: `origin/fix/sh-crlf` has no PR — its one commit only adds an
+  ad-hoc `scripts/newsletter-ops-dump-editions.sh` (sidecar :9225 debug
+  scraper; message says "strip CRLF", contents don't). Not merged.
+- [ ] cleanup: ~60 remote branches belong to CLOSED-unmerged PRs (mostly
+  `*-rebuilt-rebuilt…` pr_rebuild leftovers) — safe to prune once confirmed.
