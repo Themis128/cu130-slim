@@ -363,7 +363,12 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
                     "reason": f"{kind} open rate {d['open_rate']:.0%} — subject lines or list hygiene",
                 }
             )
+    from app.services.datalake_rewards import weights_gate
+
+    gated = weights_gate(signals.get("action_weights"))
     for word, n in signals.get("pain_topics", [])[:3]:
+        if gated.get("content_topic"):
+            break  # drafts underperformed — stop re-proposing topics
         actions.append(
             {
                 "type": "content_topic",
@@ -547,6 +552,9 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
         signals["coaching_latest"] = dict(latest["meta_data"] or {})
     signals["team_id"] = str(team_id)
     signals["computed_at"] = datetime.now(UTC).isoformat()
+    from app.services import datalake_rewards as _rewards
+
+    signals["action_weights"] = await _rewards.action_weights(db, team_id)
     signals["actions"] = pick_actions(signals)
     return signals
 
