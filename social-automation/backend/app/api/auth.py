@@ -237,6 +237,15 @@ LINKEDIN_SCOPES: list[str] = [
     # Community Management API read — needed for organizationalEntity*
     # statistics endpoints (share/follower stats feed the insights engine).
     "r_organization_social",
+    # Marketing/advertising products granted on the app (verified live
+    # 2026-11-16 via token introspection + authorize-load probe). Dropping
+    # any of these on re-consent silently kills Conversions API uploads,
+    # Lead Sync forms, ads reporting, and Marketing API writes (rw_ads —
+    # Advertising API Development Tier approved 2026-11-16).
+    "r_ads",
+    "rw_ads",
+    "rw_conversions",
+    "r_marketing_leadgen_automation",
 ]
 
 

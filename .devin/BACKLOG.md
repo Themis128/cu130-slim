@@ -2842,12 +2842,14 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 - [x] **Advertising API Development Tier APPROVED** on app 264925843
   (approval email ~15:4x). Live scope probe confirms `rw_ads` now
   grantable on client `77j8kzfi1a6jn8`; `rw_dmp_segments` still rejected
-  (Matched Audiences review pending). Re-consent with the full 22-scope
-  union + `rw_ads` in progress — grants REPLACE so the union must be
-  complete (current token carries 21 scopes incl. `r_ads`,
-  `rw_conversions`, `r_marketing_leadgen_automation` which are NOT in
-  `LINKEDIN_EXTRA_SCOPES` — latent drop-risk on any future standard
-  re-auth; fix = add them + `rw_ads` to the scope list).
+  (Matched Audiences review pending). **`rw_ads` GRANTED 2026-11-16
+  ~16:25 UTC** — full 22-scope union re-consented via sidecar (fresh
+  credential login → SMS checkpoint via ADB → consent Allow → callback
+  `linkedin account connected successfully`); token-inspect shows
+  `rw_ads` on BOTH person + org accounts, all 21 prior scopes preserved.
+  Durable fix: `r_ads rw_ads rw_conversions r_marketing_leadgen_automation`
+  added to `LINKEDIN_SCOPES` in auth.py so future re-auths can't drop
+  them. adAccounts read verified (512642510 ACTIVE).
 - [x] **Member DP (Member) Default Tier APPROVED** on dedicated app
   265100977 (approval email). Data already flowing since 07:31 UTC —
   this is the formal product grant behind `LINKEDIN_MEMBER_DP_TOKEN`.
@@ -2855,10 +2857,10 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   cause class: the ~15:50–16:05 mass exit-127/fsbridge event + Docker
   Desktop restart left social-api unreachable during LinkedIn's
   re-validation window. Endpoint verified healthy after recovery
-  (challenge → 200 in 0.21s). Revalidation via portal pending sidecar
-  browser reconnect. NOTE: the #2010 self-check beat could not fire
-  during the outage (workers were dead) — flap-window blind spot is
-  inherent to in-stack probes; host-level probe would cover it.
+  (challenge → 200 in 0.21s). **Revalidated via portal 16:16 EEST —
+  row now reads Validated.** NOTE: the #2010 self-check beat could not
+  fire during the outage (workers were dead) — flap-window blind spot
+  is inherent to in-stack probes; host-level probe would cover it.
 - [x] fsbridge flap #7 healed by an external `docker desktop restart`
   (~16:12) — all 52 containers back, mounts verified (`/app/.env` is a
   file again), workers+beat healthy, public API ok. Interim
