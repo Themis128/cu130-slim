@@ -101,18 +101,18 @@ async def test_build_and_apply_signals():
     email = [{"kind": "marketing", "status": "opened", "n": 7}]
     devapp = [{"meta_data": {"platform": "linkedin", "ok": True, "health": {"token_valid": True}}}]
     coaching = [{"occurred_at": datetime(2026, 1, 1), "meta_data": {"topic": "x", "homework_due": "y"}}]
-    results = [_rows_result(r) for r in (responses, leads, funnel, ad, posts, foll, email, devapp, coaching)]
+    results = [_rows_result(r) for r in (responses, leads, funnel, ad, posts, foll, email, devapp, coaching, [])]
     db = SimpleNamespace(execute=AsyncMock(side_effect=results), add=lambda o: None, commit=AsyncMock())
     sig = await D.build_signals(db, "00000000-0000-0000-0000-000000000001")
     assert sig["team_id"] and sig["actions"] and sig["coaching_latest"]["topic"] == "x"
-    db.execute = AsyncMock(side_effect=[_rows_result(r) for r in (responses, leads, funnel, ad, posts, foll, email, devapp, coaching)])
+    db.execute = AsyncMock(side_effect=[_rows_result(r) for r in (responses, leads, funnel, ad, posts, foll, email, devapp, coaching, [])])
     out = await D.apply_signals(db, "00000000-0000-0000-0000-000000000001")
     assert out["team_id"] and db.commit.called
 
 
 @pytest.mark.asyncio
 async def test_build_signals_no_coaching():
-    empty = [_rows_result([]) for _ in range(9)]
+    empty = [_rows_result([]) for _ in range(10)]
     db = SimpleNamespace(execute=AsyncMock(side_effect=empty))
     sig = await D.build_signals(db, "00000000-0000-0000-0000-000000000002")
     assert "coaching_latest" not in sig and sig["actions"] == []
