@@ -135,7 +135,6 @@ def _close_tab(base, tab_id):
 class CDP:
     def __init__(self, ws_url):
         import threading
-        import websocket
         self.ws_url = ws_url
         self.ws = None
         self._responses = {}
