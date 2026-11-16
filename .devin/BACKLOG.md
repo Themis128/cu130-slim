@@ -3109,3 +3109,12 @@ Resolved this pass (details inline above):
     authorize under that client_id → exchange code → store token;
     then point `linkedin_dmp_sync` at it. NOT client_credentials —
     LinkedIn member tokens need user consent.
+
+- [x] **LinkedIn Developer Support status inquiry SUBMITTED 2026-11-16**
+  via Contact form (linkedin.com/help/linkedin/ask/dsapi) — Form Type:
+  Developer Support, Product: Matched Audience, Issue: Access Issue,
+  Client ID 77j8kzfi1a6jn8 (264925843). Asked LinkedIn to confirm both
+  requests (227354605 + 264925843) are in queue, whether business-email
+  verification is pending, and expected timeline. Confirmation: "You've
+  successfully submitted your request." Watch for case-reply email via
+  devapp_mail_watch (4h cron).
