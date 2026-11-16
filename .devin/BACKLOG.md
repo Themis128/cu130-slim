@@ -2868,3 +2868,34 @@ Resolved this pass (details inline above):
   ~01:30 EET estimate; recheck member_dp_probe later.
 - backfill_media_quality.py host-path sys.path bug fixed; --force pass
   running over the 444 unflagged assets.
+
+## 2026-11-16 — IG onboarding drive #3 + leftover verifies (Devin)
+
+- [x] **PR #2013 lint fail fixed + merged** — backfill_media_quality.py
+  sys.path-bootstrap imports needed E402 noqa + isort ordering (CI ruff).
+- [x] **PR #1999 empty-merge = FALSE ALARM** — conversion enum fix IS on
+  master (signup→LEAD, lead_won→CONTACT in linked_advanced.py:232/236);
+  0-file diff just meant it arrived via another path.
+- [x] **Bluesky rotation verified live** post-#2000 merge — DID-first
+  createSession returns cloudless.gr session OK.
+- [x] **LinkedIn Ad Library verified live** post-#2006 — search_all
+  keyword+advertiser both 200 inside social-worker-default; weekly watch
+  will pass next run.
+- [~] **IG↔Page link — nearest-yet pass, still blocked**: drove the whole
+  wizard on :9229 — cleared the cookie-consent iframe (needed DOM click,
+  coords are iframe-relative), logged `cloudless.gr` into IG (Meta shared
+  TOTP works — generated + submitted twice), reached
+  facebook_business_extension/oauth/?code=… **then Temporarily Blocked
+  re-fired** (rate bucket is per-flow-attempts, not per-session).
+  `instagram_business_account` still null. Resume watcher re-armed
+  (ig_onboarding_resume2.log). Two untried lanes: phone IG-app route
+  (cover still closed), and waiting out a longer cooldown (every retry
+  today may be refreshing the block — consider backing off to 1/hr).
+- [ ] watch: phone cover still `covered: True` — Galaxy S22 IG-app link
+  path remains the fallback when opened.
+- [x] fsbridge: proxy alive, 13 stale hashed mounts remain (nominal for
+  new recreates); reconcile probes stay negative → transplants stay;
+  durable heal = scheduled 05:00 wsl --shutdown.
+- [x] mautic healthy — root cause confirmed in earlier entry (Infisical
+  pull regression dropped MAUTIC_DB_* from .env; restored from bak).
+- Open PRs at sweep end: #2016 (rebuilt docs PR, auto-merge armed).
