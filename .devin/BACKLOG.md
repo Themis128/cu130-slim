@@ -3186,3 +3186,20 @@ Resolved this pass (details inline above):
   from the phone's Gmail (notification extras + inbox dump).
 - Rules added: `docker-mcp-first` (#2076 merged), `web-search-when-stuck`
   (#2079) + AGENTS.md note.
+
+## 2026-11-16 night — console-flash (cmd/PowerShell popup) elimination
+
+- Root cause: every WSL→Windows interop spawn (`powershell.exe`, `*.exe`
+  under /mnt/c, `wsl.exe`, `adb.exe`, `docker.exe`) allocates a visible
+  console; unconditional per-pass cron calls produced ~500 flashes/day.
+- New skill **`win-interop-quiet`** (.devin + .cursor): the 5 quiet
+  patterns (batch probes → one spawn, stamp-throttle, shared state files,
+  WSL-native-first + .exe fallback, headless scheduled tasks) +
+  `scripts/win_spawn_audit.py` crontab scanner (HOT/GUARD/REVIEW).
+- Applied: `host_gates_check.py` single batched powershell spawn/pass +
+  persists `host-ram-available-mb`; `fb_session_heal.py` reads that file;
+  `docker_engine_guard.py` exe probe hourly-stamped; `cdp-debug-watch.py`
+  hourly batched janitor (home-ops); `tt_profile_link.py` Linux-adb-first;
+  `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
+- Residual flashes are deliberate rare remediations (wsl --shutdown,
+  401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
