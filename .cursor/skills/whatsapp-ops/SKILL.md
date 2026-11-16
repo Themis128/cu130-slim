@@ -670,6 +670,26 @@ Cloud API registration this skill covers):
 | **Cloud API webhook** | if the number is already registered on a WABA, Meta can deliver the OTP as a platform message — check `social-api` logs for `/api/v1/whatsapp/webhook` hits |
 | Voice call | user answers; reads code aloud |
 
+### Termux lane on the S22+ (verified 2026-11-17)
+
+`com.termux` + `termux.api/.boot/.widget/.window` are installed; termux-api
+0.60.0 works, and Termux **accepts injected `input text`** (no
+anti-automation filter — unlike `com.whatsapp.w4b`). The terminal itself is
+readable via `uiautomator dump` (one big `content-desc` on
+`com.termux:id/terminal_view`).
+
+- `pm grant com.termux.api android.permission.READ_SMS` via adb →
+  `termux-sms-list -l N` returns the inbox as JSON — second OTP-read lane
+  next to `content://sms/inbox`. Background watcher used:
+  `for i in $(seq 90); do termux-sms-list -l 15 > /sdcard/sms-poll.json; sleep 4; done`
+  (run `termux-setup-storage` once first; /sdcard is adb-readable).
+- `termux-clipboard-set 6977777838` puts the reg number on the clipboard —
+  collapses the human gate to *long-press field → Paste → Next*.
+- `input text '<cmd>'; input keyevent 66` types+runs commands in Termux —
+  the reliable way to operate it from adb when `sshd` isn't up (it isn't,
+  by default; install `openssh` + drop a key in `~/.ssh/authorized_keys`
+  if the wa_verify `:8022` lane is wanted).
+
 ### Coexistence (app + Cloud API on one number)
 
 Officially supported (Meta `whatsapp_business_app_onboarding` Embedded
