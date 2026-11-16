@@ -2730,3 +2730,31 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   expired/revoked until callback lands.
 - [x] X @TBaltzakis — live `/2/users/me` probe OK; DB `active` confirmed.
 - [x] Instagram false-active row (d2215…, OAuth 190) → marked `expired`.
+
+## 2026-11-16 (cont.) — leftovers sweep
+
+- [x] Bluesky credential truth: 401 root cause was handle release —
+  `tbaltzakis.bsky.social` no longer resolves (HandleNotFound); account's
+  live handle is custom domain `cloudless.gr`. DID unchanged. App pw +
+  BSKY_MAIN_PASSWORD both auth fine via DID. DB username corrected;
+  PR #2000 makes createSession prefer account_id (DID) in all call sites.
+- [x] WhatsApp token invalidated AGAIN overnight (190/460 — Meta-side
+  session invalidation, likely tied to the Pixel-7 checkpoint). Re-drove
+  the full OAuth: whatsapp_authorize URL minted in-container → consent
+  on :9229 (session still logged in) → callback stored fresh token
+  (row updated_at 06:49Z). Propagated to WSL+Windows .env and recreated
+  social-api (image moved: social-backend-api-latest pulled fresh).
+  `whatsapp_tool.py status` live: VERIFIED, TIER_250, CLOUD_API.
+- [x] Chrome 'cannot read and write to data directory' dialog — web
+  research root-caused: SIX unsynchronized launchers on the single-instance
+  chrome-debug-profile (ports 9222/9229/9330/9333). Fixes: unified both
+  legacy launch .bats onto restart-chrome-debug.ps1 (healthy-guard +
+  Wait-Process teardown), cdp-launch.bat profile-held guard, idika
+  engine teardown wait (PR #2002), cdp-debug-watch powershell.exe path
+  fix (home-ops cfc6151 — cron PATH lacks interop dirs, restarts were
+  crashing on FileNotFoundError). Removed taskkill /F /IM chrome.exe
+  that killed the user's normal browser. Profile ACLs verified clean.
+- [ ] watch: IG onboarding STILL temp-blocked (resume daemon attempt 2+
+  at 08:40 same block). Phone route pending — flip cover closed.
+- [ ] watch: LinkedIn portal 429 cooldown; Meta business verification
+  docs pending user input; PRs #1996/#1999/#2000/#2001 on merge treadmill.
