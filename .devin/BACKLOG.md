@@ -3068,19 +3068,14 @@ Resolved this pass (details inline above):
 - [x] PR #2044 — `li_grant_watch` gains `dmp_users_write` probe
   (empty-elements POST; authz precedes validation → non-403 =
   authorized); `matched_audiences` grant now requires it.
-- [x] **SECOND Matched Audiences request SUBMITTED 2026-11-16 ~19:0x
-  EEST** — portal audit found the first form targeted app 227354605
-  while our OAuth tokens live on 264925843 (whose product row showed
-  "Access denied" from an older support-case denial, no self-serve
-  reapply). Resubmitted the same standard-tier Qualtrics form
-  (SV_8CUnOsYiyMj0Qd0) via sidecar naming client `77j8kzfi1a6jn8`
-  (Cloudless Analytics App) in the use-case details + noting the
-  parallel 227354605 request. Confirmation: "Thank you for submitting
-  the Matched Audiences API standard tier access form" — Microsoft
-  Vetting Services will email-verify the business email.
-- [ ] On `rw_dmp_segments` grant on EITHER app: if it lands on
-  227354605, a token from THAT client is needed for DMP calls (our
-  stored tokens are all 264925843-issued) — check client-secret
-  availability then. If on 264925843: re-consent so the scope joins
-  the token, watcher auto-dispatches `sync_linkedin_dmp_audiences` →
-  uploads hashed EspoCRM emails into segment 81778122.
+- [ ] On `rw_dmp_segments` grant on EITHER app:
+  - **264925843** (our OAuth client — `LINKEDIN_CLIENT_ID`/`SECRET`
+    in `.env`): re-consent so the scope joins the token → watcher
+    auto-dispatches `sync_linkedin_dmp_audiences` → uploads hashed
+    EspoCRM emails into segment 81778122.
+  - **227354605**: client creds captured 2026-11-16 from dev-portal
+    Auth tab → `.env` `LINKEDIN_API_APP_CLIENT_ID` /
+    `LINKEDIN_API_APP_CLIENT_SECRET`. Token path = 3-legged OAuth
+    authorize under that client_id → exchange code → store token;
+    then point `linkedin_dmp_sync` at it. NOT client_credentials —
+    LinkedIn member tokens need user consent.
