@@ -215,13 +215,15 @@ Remaining:
   watch portal for tier flip. NOTE: an earlier test run also submitted a
   junk response with a placeholder link; if review flags it, resubmit via
   cm_survey_drive (dedupe resets on origin-storage clear).
-- [ ] human: Member DP (Member) in-portal modal on 265077368 after
-  biz-email verify — modal was inert under automation; retry once a
-  valid portal session exists.
-- [ ] human: LinkedIn Matched Audiences (264925843,
-  CRM:015285039163310) — DENIED "Business verification failed"; support
-  case submitted 2026-11-07, may need Greek business registration
-  (ΑΦΜ/ΓΕΜΗ) if requested.
+- [x] Member DP (Member) — RESOLVED 2026-11-16: Default Tier approved on
+  dedicated app 265100977 (approval email); real snapshot+changelog data
+  flowing since 07:31 UTC via `LINKEDIN_MEMBER_DP_TOKEN`. The 265077368
+  modal is no longer needed.
+- [ ] human: LinkedIn Matched Audiences — earlier request on 264925843
+  DENIED "Business verification failed" (support case 2026-11-07); NEW
+  standard-tier request SUBMITTED 2026-11-16 via app 227354605 with the
+  AADE fiscal address — in review, watch for Microsoft Vetting Services
+  email.
 - [ ] human: Gmail MCP connector in Devin Desktop fails client-side
   (likely expired OAuth); repo gmail-ops OAuth path works as fallback.
 - [ ] human: ChromeDebug schtasks edit denied (stored-credential task) —
@@ -1975,10 +1977,9 @@ superseded by rebuild):
   C: 8.7→~52GB free. Fixes in home-ops `f4aa003`.
 - DMR env drift RESOLVED: `compose up -d` recreate baked canonical
   DMR_*_MODEL fleet into containers; 4/4 workers pong.
-- Portal gates still open: Member DP (Member) on app 265077368 +
-  Matched Audiences case on 264925843 — `scripts/li-portal-gate-watch.sh`
-  cron (every 2h, 24h dedup) retries the probe and drives the modal once
-  LinkedIn's 429 clears.
+- Portal gates: Member DP (Member) RESOLVED 2026-11-16 (app 265100977
+  approved, data flowing); Matched Audiences standard-tier request
+  submitted on 227354605 same day — in review.
 - Tests: 11 new cases; ruff clean; workers restarted.
 
 ## 2026-11-13 — FB approve-from-another-device infra
@@ -2835,6 +2836,35 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   anchor must exist in social-api).
 - [ ] note: scripts/linkedin_feed_tool.py (new CLI in #1986) is outside
   app/ coverage scope — ops-verified via linkedin-cm-ops skill instead.
+
+## 2026-11-16 (pm) — LinkedIn approvals landing + fsbridge flap #7
+
+- [x] **Advertising API Development Tier APPROVED** on app 264925843
+  (approval email ~15:4x). Live scope probe confirms `rw_ads` now
+  grantable on client `77j8kzfi1a6jn8`; `rw_dmp_segments` still rejected
+  (Matched Audiences review pending). Re-consent with the full 22-scope
+  union + `rw_ads` in progress — grants REPLACE so the union must be
+  complete (current token carries 21 scopes incl. `r_ads`,
+  `rw_conversions`, `r_marketing_leadgen_automation` which are NOT in
+  `LINKEDIN_EXTRA_SCOPES` — latent drop-risk on any future standard
+  re-auth; fix = add them + `rw_ads` to the scope list).
+- [x] **Member DP (Member) Default Tier APPROVED** on dedicated app
+  265100977 (approval email). Data already flowing since 07:31 UTC —
+  this is the formal product grant behind `LINKEDIN_MEMBER_DP_TOKEN`.
+- [x] Webhook `fa17fec4…` failed validation a SECOND time — same root
+  cause class: the ~15:50–16:05 mass exit-127/fsbridge event + Docker
+  Desktop restart left social-api unreachable during LinkedIn's
+  re-validation window. Endpoint verified healthy after recovery
+  (challenge → 200 in 0.21s). Revalidation via portal pending sidecar
+  browser reconnect. NOTE: the #2010 self-check beat could not fire
+  during the outage (workers were dead) — flap-window blind spot is
+  inherent to in-stack probes; host-level probe would cover it.
+- [x] fsbridge flap #7 healed by an external `docker desktop restart`
+  (~16:12) — all 52 containers back, mounts verified (`/app/.env` is a
+  file again), workers+beat healthy, public API ok. Interim
+  `social-api-rescue` container was removed in the churn; stack-ops
+  still Exited(127) → `stack-ops-bridge` remains the live proxy until
+  real stack-ops can start (compose-healer keeps retrying).
 
 ## 2026-11-16 — LinkedIn webhook revalidated (transient flap, not a code bug)
 
