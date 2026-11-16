@@ -3241,5 +3241,6 @@ Resolved this pass (details inline above):
       Note: `desktop stop`+immediate `start` races — if start says
       "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
+
+- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
+      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
