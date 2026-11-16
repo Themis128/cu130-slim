@@ -2236,7 +2236,7 @@ async def _publish_facebook(
             # Auto-format: every page video defaults to a Reel (Meta heavily
             # favors reels for organic reach). Opt out with format="video".
             if str(fb_opts.get("format", "auto")).lower() in ("auto", "reel"):
-                video = await fb_client.create_reel_post(video_url=video_url, description=text)
+                video = await fb_client.create_reel_post(video_url=video_url, description=text, local_path=media_paths[0])
                 video_id = str(video.get("id") or "")
                 if not video_id:
                     return PublishResult(
@@ -2249,7 +2249,7 @@ async def _publish_facebook(
                     platform_url=f"https://www.facebook.com/reel/{video_id}",
                     platform_meta={"publish_path": "graph_reels"},
                 )
-            video = await fb_client.create_video_post(video_url=video_url, description=text)
+            video = await fb_client.create_video_post(video_url=video_url, description=text, local_path=media_paths[0])
             video_id = str(video.get("id") or "")
             if not video_id:
                 return PublishResult(
