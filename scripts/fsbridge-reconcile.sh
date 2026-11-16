@@ -32,10 +32,15 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >>"$LOG"; }
 
 # --- cheap gates (run every watchdog pass, must stay fast) ---
-[ -f "$OVERRIDE" ] || exit 0
-grep -q "$MARKER" "$OVERRIDE" || exit 0
 [ -f "$DOCTOR" ] || { log "doctor missing: $DOCTOR"; exit 0; }
 command -v docker >/dev/null 2>&1 || exit 0
+
+# Work items: transplant-override retirement and/or stack-ops-bridge
+# retirement. Either one keeps the script alive; neither → exit.
+NEEDED=0
+if [ -f "$OVERRIDE" ] && grep -q "$MARKER" "$OVERRIDE"; then NEEDED=1; fi
+docker inspect stack-ops-bridge >/dev/null 2>&1 && NEEDED=1
+[ "$NEEDED" = 1 ] || exit 0
 
 # --- throttle the expensive mount probe ---
 now=$(date -u +%s)
@@ -50,9 +55,40 @@ if ! echo "$out" | grep -q "mount OK"; then
   log "fsbridge still poisoned — transplants stay"
   exit 0
 fi
-log "fsbridge HEALED — retiring transplant overrides"
+log "fsbridge HEALED — retiring interim workarounds"
+
+# --- deploy lock for the compose ops below ---
+echo "$(date -u +%FT%TZ) devin fsbridge-reconcile: heal detected" >"$REPO/.deploy.lock"
+trap 'rm -f "$REPO/.deploy.lock"' EXIT
+
+# --- retire stack-ops-bridge interim proxy ---
+# The bridge holds the same host ports real stack-ops publishes, so it must
+# be removed BEFORE `compose up -d stack-ops` can bind them. If the recreate
+# fails, bring the bridge back — routes stay up either way.
+BRIDGE_SH="$REPO/scripts/stack-ops-bridge.sh"
+if docker inspect stack-ops-bridge >/dev/null 2>&1; then
+  log "retiring stack-ops-bridge interim proxy"
+  docker rm -f stack-ops-bridge >>"$LOG" 2>&1 || true
+  if (cd "$REPO" && timeout 900 docker compose up -d stack-ops >>"$LOG" 2>&1); then
+    sleep 10
+    st=$(docker inspect -f '{{.State.Status}}' stack-ops 2>/dev/null || echo missing)
+    if [ "$st" = "running" ]; then
+      log "stack-ops restored on real mounts — bridge retired"
+      /usr/bin/python3 "$TG_ALERT" ops "fsbridge healed — stack-ops-bridge interim proxy retired, real stack-ops back (wake/sleep + :8787 restored)" >>"$LOG" 2>&1 || true
+    else
+      log "stack-ops recreate failed ($st) — restoring bridge"
+      bash "$BRIDGE_SH" up >>"$LOG" 2>&1 || true
+      /usr/bin/python3 "$TG_ALERT" ops "fsbridge healed but stack-ops recreate failed ($st) — bridge restored, manual check needed" >>"$LOG" 2>&1 || true
+    fi
+  else
+    log "stack-ops compose up FAILED — restoring bridge"
+    bash "$BRIDGE_SH" up >>"$LOG" 2>&1 || true
+    /usr/bin/python3 "$TG_ALERT" ops "fsbridge healed but stack-ops recreate FAILED — bridge restored, manual check needed" >>"$LOG" 2>&1 || true
+  fi
+fi
 
 # --- strip the transplant blocks, keep everything else (e.g. infisical) ---
+if [ -f "$OVERRIDE" ] && grep -q "$MARKER" "$OVERRIDE"; then
 cp "$OVERRIDE" "$OVERRIDE.bak-$(date -u +%Y%m%dT%H%M%SZ)"
 python3 - "$OVERRIDE" $TRANSPLANT_SERVICES $TRANSPLANT_VOLUMES <<'PY'
 import sys, re
@@ -120,8 +156,6 @@ open(path, "w").writelines(out)
 PY
 
 # --- recreate the six services on their real bind mounts ---
-echo "$(date -u +%FT%TZ) devin fsbridge-reconcile: retiring transplants" >"$REPO/.deploy.lock"
-trap 'rm -f "$REPO/.deploy.lock"' EXIT
 if ! (cd "$REPO" && timeout 900 docker compose up -d $TRANSPLANT_SERVICES >>"$LOG" 2>&1); then
   log "compose up FAILED — restoring override backup"
   cp "$OVERRIDE" "$OVERRIDE.stripped-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -153,4 +187,7 @@ docker volume rm $TRANSPLANT_VOLUMES >>"$LOG" 2>&1 || true
 
 log "transplants retired — all six services on native bind mounts"
 /usr/bin/python3 "$TG_ALERT" ops "fsbridge healed (wsl --shutdown / proxy respawn) — volume transplants auto-retired, all six services recreated on native mounts" >>"$LOG" 2>&1 || true
+else
+  log "no transplant overrides pending — nothing to strip"
+fi
 exit 0

@@ -1,26 +1,6 @@
-"""stack-ops-bridge interim relay — fsbridge flap workaround (BACKLOG 2026-11-16).
-
-The real ``stack-ops`` container has bind mounts, so every fsbridge flap
-poisons them and the whole ``stack-ops:*`` route surface (COMFYUI_URL,
-browser sidecars, LanguageTool, n8n-sandbox, ...) goes dark. This script
-runs INSIDE the mount-free ``stack-ops-bridge`` container (alias
-``stack-ops`` on cu130-backend) and TCP-relays each listener port to the
-real service container.
-
-Route table mirrors ``stack-ops/services.json`` (listeners -> services ->
-target host:port) as of 2026-11-16. Regenerate if services.json changes:
-this bridge is interim — remove it after the ``wsl --shutdown`` heal
-(``docker rm -f stack-ops-bridge`` + ``docker compose up -d stack-ops``).
-
-Install/launch (compose-watchdog section 14 does this automatically):
-    docker cp stack-ops/bridge-relay.py stack-ops-bridge:/tmp/relay.py
-    docker exec -d stack-ops-bridge python /tmp/relay.py
-"""
-
 import socket
 import threading
 
-# listener_port -> (target_container, target_port)
 ROUTES = {
     9223: ("browser-novnc", 9223),
     9224: ("tiktok-browser-sidecar", 9224),
@@ -45,13 +25,13 @@ ROUTES = {
 }
 
 
-def pipe(a: socket.socket, b: socket.socket) -> None:
+def pipe(a, b):
     try:
         while True:
-            data = a.recv(65536)
-            if not data:
+            d = a.recv(65536)
+            if not d:
                 break
-            b.sendall(data)
+            b.sendall(d)
     except OSError:
         pass
     finally:
@@ -62,7 +42,7 @@ def pipe(a: socket.socket, b: socket.socket) -> None:
                 pass
 
 
-def handle(client: socket.socket, host: str, port: int) -> None:
+def handle(client, host, port):
     try:
         upstream = socket.create_connection((host, port), timeout=15)
     except OSError:
@@ -72,18 +52,17 @@ def handle(client: socket.socket, host: str, port: int) -> None:
     threading.Thread(target=pipe, args=(upstream, client), daemon=True).start()
 
 
-def serve(port: int, host: str, target_port: int) -> None:
+def serve(port, host, tport):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
     srv.listen(128)
-    print(f"listening :{port} -> {host}:{target_port}", flush=True)
+    print(f"listening :{port} -> {host}:{tport}", flush=True)
     while True:
-        client, _ = srv.accept()
-        threading.Thread(target=handle, args=(client, host, target_port), daemon=True).start()
+        c, _ = srv.accept()
+        threading.Thread(target=handle, args=(c, host, tport), daemon=True).start()
 
 
-if __name__ == "__main__":
-    for p, (h, tp) in ROUTES.items():
-        threading.Thread(target=serve, args=(p, h, tp), daemon=True).start()
-    threading.Event().wait()
+for p, (h, tp) in ROUTES.items():
+    threading.Thread(target=serve, args=(p, h, tp), daemon=True).start()
+threading.Event().wait()
