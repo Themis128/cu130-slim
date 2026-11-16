@@ -3148,3 +3148,33 @@ Resolved this pass (details inline above):
 - [ ] **ComfyUI credentials**: invalid username-password inside the
   throwaway container — verify `COMFYUI_*` env in live `.env` vs the
   ComfyUI container's actual auth (may also be rotation drift).
+
+## 2026-11-16 (night) — fsbridge healed: rescue→managed hand-back + Meta lock state (Devin)
+
+- [x] **fsbridge healed** — fresh-mount probe OK for every worker bind
+  source (`.env`, `app`, `scripts`, `dbt`, `tests`, `uploads`; `mlruns`
+  legitimately empty). No `wsl --shutdown` needed this time.
+- [x] **Rescue→managed hand-back done**: removed the 6 unlabeled rescue
+  containers (`social-api`, 4 workers, `celery-beat`), `docker compose up
+  -d` recreated them on `social-backend-latest` (new pull = latest master)
+  with live `.env` mounts. Verified: API `{"status":"ok"}` :8083, **4
+  celery nodes online**, all 6 healthy, `.deploy.lock` released.
+  `social-api-gateway` was already managed+healthy — untouched.
+- [x] **slack-token-sync blockage resolved by the hand-back**: its
+  `compose up` failures were name conflicts with the rescue containers.
+  Fresh containers booted after the `SLACK_BOT_TOKEN` env update, so the
+  new token is live; the `.pending` marker will no-op or recreate cleanly
+  on the next cron run. (`SLACK_CHANNEL_ID channel_not_found` remains a
+  separate minor config gap.)
+- [x] **FACEBOOK_PASSWORD rotated** — the phone unlock flow completed the
+  in-app password change; new password written to both `.env` copies.
+- [ ] **FB :9229 debug Chrome still logged out** — `fb_session_heal.py
+  heal` cannot pass the Meta account lock ("log in with another device");
+  checkpoint persists, 0 stored cookies. Human gate: finish the phone
+  unlock (fresh email code needed — the earlier `16919622` code expired),
+  then re-run `fb_session_heal.py heal` → `capture`.
+- [ ] **Meta account lock / IG↔FB link**: unchanged — personal FB
+  restricted since 2021 + account locked Nov 16; unlock must complete on
+  a recognized device before Business Settings → Instagram accounts → Add
+  can be retried. Support case was submitted pre-lock (registration
+  unverified).
