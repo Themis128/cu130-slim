@@ -35,7 +35,8 @@ def _post(**kw):
     kw.setdefault("media_ids", [])
     kw.setdefault("link_url", None)
     kw.setdefault("link_preview_override", None)
-    kw.setdefault("title", None)
+    # No `title` kwarg — the real Post model has no title column; keeping
+    # the fake faithful is what caught the bsky `post.title` AttributeError.
     kw.setdefault("platform_specific", {})
     kw.setdefault("hashtags", [])
     return SimpleNamespace(

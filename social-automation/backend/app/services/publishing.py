@@ -3752,6 +3752,8 @@ async def _publish_bluesky(
         )
 
     bsky_text = text[:295]
+    # Post has no `title` column — alt text comes from the caption.
+    bsky_alt = (post.content_text or "")[:500]
 
     images: list[dict[str, Any]] = []
     video: dict[str, Any] | None = None
@@ -3763,7 +3765,7 @@ async def _publish_bluesky(
             if lower.endswith(".mp4"):
                 with open(path, "rb") as fh:
                     blob = await client.upload_blob(fh.read(), "video/mp4")
-                video = {"blob": blob, "alt": post.title or ""}
+                video = {"blob": blob, "alt": bsky_alt}
                 break  # one video per post; it replaces the image embed
             mime = mimetypes.guess_type(lower)[0] or "image/jpeg"
             if mime not in IMAGE_MIMES:
@@ -3777,7 +3779,7 @@ async def _publish_bluesky(
                 ar = {"width": w, "height": h}
             except Exception:
                 ar = None
-            images.append({"blob": blob, "alt": post.title or "", "aspectRatio": ar})
+            images.append({"blob": blob, "alt": bsky_alt, "aspectRatio": ar})
             if len(images) >= MAX_IMAGES:
                 break
 
