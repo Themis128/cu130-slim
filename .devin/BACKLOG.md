@@ -3226,14 +3226,9 @@ Resolved this pass (details inline above):
 - [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
       classes, the grandchild rule, and why `-WindowStyle Hidden` /
       `conhost --headless` (for output capture) don't work.
-- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
-      logon 23:44 spawned both watcher instances under `conhost --headless`;
-      12min `popup-flash-watch` capture post-logon: 0 console-window events.
-      Full autostart surface audited: Run key (conheadless), Startup folder
-      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
-      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
-      not user-visible. Keep `_popup-watch` captures in the loop if popups
-      are reported again — stale watch logs mis-attribute sources.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
 - [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
       | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
       already run under `conhost.exe --headless` (docker-socket-watch,
@@ -3246,20 +3241,6 @@ Resolved this pass (details inline above):
       Note: `desktop stop`+immediate `start` races — if start says
       "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
 
-### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
-
-- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
-      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
-- [x] Server throttled tonight's requests: "WhatsApp is temporarily
-      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
-      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
-      stacked request_code attempts earlier.
-- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
-      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
-      Do NOT re-request before the timer — each request extends the cooldown.
-- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
-      meta_data + verify Cloud API/coexistence status (skill runbook).
-- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
+- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
+      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
