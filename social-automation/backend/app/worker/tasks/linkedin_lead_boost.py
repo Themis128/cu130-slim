@@ -24,9 +24,47 @@ def route_linkedin_leads() -> dict:
     return run_async(_route_linkedin_leads())
 
 
+async def _webhook_selfcheck() -> None:
+    """Probe our own Lead Sync webhook challenge endpoint.
+
+    LinkedIn re-validates webhook URLs periodically and blocks delivery
+    after repeated failures (seen 2026-11-16 when an infra flap made the
+    endpoint unreachable). A ~200ms GET every 30min catches the outage
+    before LinkedIn's email does.
+    """
+    import secrets
+
+    import httpx
+
+    from app.core.config import settings
+    from app.services.slack_notifications import send_telegram_alert
+
+    base = (settings.TELEGRAM_WEBHOOK_BASE or "").rstrip("/")
+    if not base:
+        return
+    challenge = f"selfcheck-{secrets.token_hex(8)}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{base}/webhooks/linkedin-lead-sync",
+                params={"challengeCode": challenge},
+            )
+        ok = r.status_code == 200 and challenge in r.text
+    except httpx.HTTPError:
+        ok = False
+    if not ok:
+        await send_telegram_alert(
+            "P2",
+            f"linkedin-lead-sync webhook self-check failed "
+            f"(LinkedIn will block delivery if validation keeps failing): "
+            f"GET {base}/webhooks/linkedin-lead-sync?challengeCode=…",
+        )
+
+
 async def _route_linkedin_leads() -> dict:
     if not ENABLED:
         return {"skip": "LINKEDIN_ADVANCED off"}
+    await _webhook_selfcheck()
     from sqlalchemy import select
 
     from app.models.social_account import SocialAccount
