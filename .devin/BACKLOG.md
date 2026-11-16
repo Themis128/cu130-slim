@@ -2621,8 +2621,8 @@ Live end-to-end run from office-1: 35 pass / 7 warn / 4 fail. ACL + 15 embedded 
 - [x] **omv-ha :443 closed** — not a fault (rechecked 2026-11-16 over ssh): omv-ha only listens on :80, nothing is meant to serve 443; the ACL 443 grant is just unused.
 - [x] **cam-nc220 (192.168.1.42) offline** — back online 2026-11-16 (TP-Link MAC 60-e3-27-80-05-71, same IP): :80 200, :8080 401, :554 + :2020 open.
 - [ ] **office-1 Tailscale 1.104.6 → 1.104.7**: `tailscale update` needs admin; enabled `tailscale set --auto-update` (Check+Apply true) so the SYSTEM service self-updates. Note: the `TailnetAutoupdate` scheduled task only updates the WSL client, not Windows. Still 1.104.6 on 2026-11-16 (upstream 1.104.7, Check+Apply true) — if it doesn't self-apply, run `tailscale update --yes` from an elevated shell.
-- [ ] grokbot-box-1 / grokbot-user-249203278 offline + client updates pending (1.104.4 / 1.102.5) — update when they next wake.
-- [ ] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch; awaiting owner merge.
+- [x] grokbot-box-1 / grokbot-user-249203278 offline + client updates pending (1.104.4 / 1.102.5) — no manual step: tailnet setting `devicesAutoUpdatesOn: true` (verified via API 2026-11-16) self-updates them when they next come online.
+- [x] tailnet-watch PR #3 (lan-pin ownership) reviewed clean + deployed live on D:\tailnet-watch — merged.
 - go2rtc relay 192.168.1.200 serves on :80 (not :1984) — not a fault.
 
 ## 2026-11-15 — member-dp token hardening (Devin, post-#1964 review)
