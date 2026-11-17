@@ -1022,10 +1022,12 @@ def test_export_email_campaigns():
         created_at=datetime(2026, 1, 2, tzinfo=UTC),
     )
     lead_id = uuid.uuid4()
+    from app.models.email_campaign import RecipientStatus
+
     rec = SimpleNamespace(
         email="Person@Example.com",
         lead_id=lead_id,
-        status="delivered",
+        status=RecipientStatus.sent,
         sent_at=datetime(2026, 1, 3, 1, tzinfo=UTC),
     )
     resp = SimpleNamespace(
@@ -1050,7 +1052,7 @@ def test_export_email_campaigns():
         {
             "email_hash": _email_hash("person@example.com"),
             "lead_id": str(lead_id),
-            "status": "delivered",
+            "status": "sent",
             "sent_at": de._iso(rec.sent_at),
         }
     ]
