@@ -176,6 +176,12 @@ celery_app.conf.update(
             "soft_time_limit": 2700,
             "time_limit": 3000,
         },
+        # Meta lane mirrors the main sweep — FB sidecar video posts can
+        # legitimately take ~5-10min (browser upload + processing poll).
+        "app.worker.tasks.publishing.process_meta_publish_queue": {
+            "soft_time_limit": 2700,
+            "time_limit": 3000,
+        },
         "app.worker.tasks.publishing.check_scheduled_posts": {
             "soft_time_limit": 120,
             "time_limit": 180,
@@ -314,7 +320,9 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.process_publish_queue": {"queue": "publishing"},
         "app.worker.tasks.publishing.check_scheduled_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.publish_post_now": {"queue": "publishing"},
-        "app.worker.tasks.publishing.reconcile_instagram_publish": {"queue": "publishing"},
+        # ── meta queue: Meta-platform publish sweep + Meta-only tasks ──────
+        "app.worker.tasks.publishing.process_meta_publish_queue": {"queue": "meta"},
+        "app.worker.tasks.publishing.reconcile_instagram_publish": {"queue": "meta"},
         "app.worker.tasks.token_refresh.refresh_expiring_tokens": {"queue": "publishing"},
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
@@ -350,7 +358,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
-        "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "default"},
+        "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "meta"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
         "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
@@ -558,6 +566,10 @@ celery_app.conf.update(
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,
         },
+        "process-meta-publish-queue": {
+            "task": "app.worker.tasks.publishing.process_meta_publish_queue",
+            "schedule": 30.0,
+        },
         # Retry failed publish targets — transient causes (media URL
         # expiry, token contention) resolve on requeue. 15min cadence.
         "publish-verify": {
@@ -599,6 +611,9 @@ celery_app.conf.update(
         "export-datalake": {
             "task": "app.worker.tasks.datalake_export.export_datalake",
             "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
+            # Drop runs that sat queued >55min (worker downtime) — the next
+            # scheduled sweep supersedes them; prevents post-outage pile-up.
+            "options": {"expires": 3300},
         },
         # Read the lake source tables back into decision signals every 6h,
         # right after the export — persists an AnalyticsEvent the next
@@ -606,6 +621,7 @@ celery_app.conf.update(
         "datalake-insights-sweep": {
             "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
             "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
+            "options": {"expires": 3300},
         },
         # Developer-app ingest — live health/insights/demographics/quota per
         # connected account, 5min before the export so the same pass lands
@@ -1026,6 +1042,7 @@ celery_app.conf.update(
         "datalake-executor": {
             "task": "app.worker.tasks.datalake_executor.execute_actions",
             "schedule": crontab(hour="*/6", minute=45),
+            "options": {"expires": 3300},
         },
         # Score executed actions against post metrics (+5min after executor)
         "datalake-reward-sweep": {
