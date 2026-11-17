@@ -153,6 +153,7 @@ const MUTATION_CASES: Array<[string, () => { mutateAsync: (v: unknown) => Promis
   ['useGenerateHashtags', () => H.useGenerateHashtags(), { content: 'c' }, 'aiApi', 'generateHashtags', [{ content: 'c' }]],
   ['useAnalyzeContent', () => H.useAnalyzeContent(), { content: 'c' }, 'aiApi', 'analyzeContent', [{ content: 'c' }]],
   ['useAnalyzeSeo', () => H.useAnalyzeSeo(), { content: 'c' }, 'aiApi', 'analyzeSeo', [{ content: 'c' }]],
+  ['useConnectBluesky', () => H.useConnectBluesky(), { handle: 'h', appPassword: 'p', pdsUrl: 'x' }, 'blueskyApi', 'connect', ['h', 'p', 'x']],
   ['useUpsertAIProvider', () => H.useUpsertAIProvider(), { name: 'p', data: {} }, 'aiProvidersApi', 'upsert', ['p', {}]],
   ['useDeleteAIProvider', () => H.useDeleteAIProvider(), 'p', 'aiProvidersApi', 'delete', ['p']],
   ['useTestAIProvider', () => H.useTestAIProvider(), 'p', 'aiProvidersApi', 'test', ['p']],
