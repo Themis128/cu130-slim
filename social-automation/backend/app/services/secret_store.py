@@ -20,6 +20,7 @@ from dotenv import dotenv_values
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 
+from app.core.security import decrypt_secret, encrypt_secret
 from app.db.session import async_session_maker
 from app.models.social_secret import SocialSecret
 from app.services.d1_client import d1_client
@@ -34,6 +35,19 @@ def _log_secret_failure(message: str, _key: str | None, exc: BaseException) -> N
     # Never log key names or exception messages — CodeQL treats both as sensitive /
     # user-controlled. Exception type alone is enough for ops diagnostics.
     logger.warning("%s (%s)", message, type(exc).__name__)
+
+
+def _encrypt_if_possible(value: str) -> str:
+    """Encrypt a value for Postgres storage when ENCRYPTION_KEY is configured.
+
+    Falls back to plaintext so environments without the key keep their
+    current behavior (the D1 copy is intentionally left plaintext — see
+    the social_secrets docstring).
+    """
+    try:
+        return encrypt_secret(value)
+    except ValueError:
+        return value
 
 
 class SecretStore:
@@ -121,7 +135,15 @@ class SecretStore:
             async with async_session_maker() as session:
                 result = await session.execute(select(SocialSecret).where(SocialSecret.key == key))
                 row = result.scalar_one_or_none()
-                return row.value if row else None
+                if not row:
+                    return None
+                try:
+                    return decrypt_secret(row.value)
+                except Exception as exc:
+                    # Prefixed ciphertext we can't decrypt (wrong/missing key)
+                    # must never be returned as if it were the secret.
+                    _log_secret_failure("Postgres secret decrypt failed", key, exc)
+                    return None
         except Exception as exc:
             _log_secret_failure("Postgres secret read failed", key, exc)
             return None
@@ -132,15 +154,16 @@ class SecretStore:
                 result = await session.execute(select(SocialSecret).where(SocialSecret.key == key))
                 row = result.scalar_one_or_none()
                 now = _utc_now()
+                stored = _encrypt_if_possible(value)
                 if row:
-                    row.value = value
+                    row.value = stored
                     row.description = description or row.description
                     row.updated_at = now
                 else:
                     session.add(
                         SocialSecret(
                             key=key,
-                            value=value,
+                            value=stored,
                             description=description or "",
                             created_at=now,
                             updated_at=now,
