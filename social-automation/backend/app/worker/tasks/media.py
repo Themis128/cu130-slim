@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 import uuid
 
 from celery import shared_task
@@ -18,6 +19,17 @@ logger = logging.getLogger(__name__)
 
 celery_app.set_default()
 celery_app.set_current()
+
+# Mirrors the generate_video_asset_task annotation in celery_app.py — the
+# QA-retry gate needs the task's soft budget to decide whether a second
+# render can still fit. Keep in sync with the task_annotations entry.
+_TASK_SOFT_LIMIT_S = 2700
+# DMR vision cold-loads run for many minutes; QA is advisory metadata and
+# must never consume the render task's time budget (2026-11-16: a finished
+# Wan2.2 render was discarded when the QA vision call ate the soft limit).
+_SEMANTIC_QA_TIMEOUT_S = 180
+# Headroom for a second render + re-QA under the task soft limit.
+_QA_RETRY_MARGIN_S = 120
 
 
 @shared_task
@@ -52,6 +64,7 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
     options = options or {}
 
     async def _run() -> str:
+        started = time.monotonic()
         # Expand the terse prompt into a detailed scene description BEFORE
         # the GPU lock — the call runs on the warm DMR mid model.
         expanded_prompt = await media_ai.expand_visual_prompt(prompt, media_type="video")
@@ -79,8 +92,68 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                 if not image_bytes:
                     raise ValueError(f"could not load bytes for asset {image_asset_id}")
 
+            async def _persist(vdata: bytes, vmeta: dict):
+                """Store rendered bytes + create the MediaAsset row — the
+                durable step. Must run before any optional post-processing."""
+                asset = await save_uploaded_media(
+                    db,
+                    team_id=uuid.UUID(team_id),
+                    user_id=uuid.UUID(user_id),
+                    original_filename=vmeta["filename"],
+                    content=vdata,
+                    mime_type="video/mp4",
+                    alt_text=options.get("alt_text") or f"AI-generated video: {prompt[:120]}",
+                    tags=options.get("tags") or ["comfyui", vmeta.get("model", "wan22"), "generated-video"],
+                    width=vmeta["width"],
+                    height=vmeta["height"],
+                )
+                asset.source = f"comfyui-{vmeta.get('model', 'wan22')}"
+                asset.generation_prompt = prompt
+                asset.duration_seconds = int(round(vmeta["duration_seconds"]))
+                meta_dict = dict(asset.meta_data or {})
+                if expanded_prompt != prompt:
+                    meta_dict["expanded_prompt"] = expanded_prompt
+                asset.meta_data = meta_dict
+                await db.commit()
+                return asset
+
+            async def _qa_frame(vdata: bytes) -> dict:
+                """Extract frame 0 + bounded semantic QA. Non-raising: DMR
+                vision cold-loads can exceed the remaining task budget, so the
+                call is wrapped in wait_for and every failure degrades to
+                advisory metadata instead of discarding the render."""
+                try:
+                    import subprocess
+                    import tempfile
+                    from pathlib import Path
+
+                    with tempfile.TemporaryDirectory() as td:
+                        src_mp4 = Path(td) / "clip.mp4"
+                        frame_png = Path(td) / "f0.png"
+                        src_mp4.write_bytes(vdata)
+                        proc = await asyncio.to_thread(
+                            subprocess.run,
+                            ["ffmpeg", "-y", "-i", str(src_mp4), "-frames:v", "1", str(frame_png)],
+                            capture_output=True,
+                            timeout=60,
+                        )
+                        if proc.returncode == 0 and frame_png.exists():
+                            return await asyncio.wait_for(
+                                media_ai.verify_media_semantics(
+                                    frame_png.read_bytes(), prompt, media_type="video"
+                                ),
+                                timeout=_SEMANTIC_QA_TIMEOUT_S,
+                            )
+                except TimeoutError:
+                    logger.warning("[video-task] semantic QA timed out (%ss)", _SEMANTIC_QA_TIMEOUT_S)
+                    return {"match": True, "caption": None, "reason": "qa timeout", "vision": None}
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[video-task] semantic QA skipped: %s", type(exc).__name__)
+                return {"match": True, "caption": None, "reason": "not run", "vision": None}
+
             # One-model-in-VRAM: hold the GPU lock for the render so
             # DMR can't load a model mid-job (8GB card).
+            render_started = time.monotonic()
             async with gpu_arbiter.media_gpu_lock():
                 if scene_prompts:
                     data, meta = await comfyui_video.generate_video_segments(
@@ -112,76 +185,63 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                         image_bytes=image_bytes,
                         i2v_strength=float(options.get("i2v_strength") or 1.0),
                     )
+            render_elapsed = time.monotonic() - render_started
+
+            # Persist the render BEFORE semantic QA — the bytes are the
+            # expensive product; QA only annotates metadata afterwards.
+            asset = await _persist(data, meta)
+
             # Semantic QA on frame 0 — DMR vision, AFTER the GPU lock was
             # released (the vision model reloads through the arbiter).
-            qa = {"match": True, "caption": None, "reason": "not run"}
-            try:
-                import subprocess
-                import tempfile
-                from pathlib import Path
+            qa = await _qa_frame(data)
 
-                with tempfile.TemporaryDirectory() as td:
-                    src_mp4 = Path(td) / "clip.mp4"
-                    frame_png = Path(td) / "f0.png"
-                    src_mp4.write_bytes(data)
-                    proc = await asyncio.to_thread(
-                        subprocess.run,
-                        ["ffmpeg", "-y", "-i", str(src_mp4), "-frames:v", "1", str(frame_png)],
-                        capture_output=True,
-                        timeout=60,
-                    )
-                    if proc.returncode == 0 and frame_png.exists():
-                        qa = await media_ai.verify_media_semantics(frame_png.read_bytes(), prompt, media_type="video")
-                        if not qa["match"]:
-                            logger.warning("[video-task] QA mismatch (%s) — retrying once", qa.get("reason"))
-                            retry_prompt = f"{expanded_prompt}. Depict: {prompt[:200]}. Avoid: {qa.get('reason', 'wrong subject')}"
-                            async with gpu_arbiter.media_gpu_lock():
-                                data, meta = await comfyui_video.generate_video(
-                                    prompt=retry_prompt,
-                                    negative_prompt=options.get("negative_prompt"),
-                                    width=int(options.get("width") or 704),
-                                    height=int(options.get("height") or 1280),
-                                    num_frames=num_frames,
-                                    frame_rate=frame_rate,
-                                    steps=int(options.get("steps") or 20),
-                                    cfg=float(options.get("cfg_scale") or 5.0),
-                                    seed=None,
-                                    filename_prefix="socialauto",
-                                    model=model,
-                                    image_bytes=image_bytes,
-                                    i2v_strength=float(options.get("i2v_strength") or 1.0),
-                                )
-                            src_mp4.write_bytes(data)
-                            proc = await asyncio.to_thread(
-                                subprocess.run,
-                                ["ffmpeg", "-y", "-i", str(src_mp4), "-frames:v", "1", str(frame_png)],
-                                capture_output=True,
-                                timeout=60,
+            if qa.get("match") is False:
+                # A second render costs ~another render_elapsed — only attempt
+                # it when it can still fit under the task soft limit.
+                retry_cost = render_elapsed + _SEMANTIC_QA_TIMEOUT_S + _QA_RETRY_MARGIN_S
+                if time.monotonic() - started + retry_cost < _TASK_SOFT_LIMIT_S:
+                    logger.warning("[video-task] QA mismatch (%s) — retrying once", qa.get("reason"))
+                    retry_prompt = f"{expanded_prompt}. Depict: {prompt[:200]}. Avoid: {qa.get('reason', 'wrong subject')}"
+                    try:
+                        async with gpu_arbiter.media_gpu_lock():
+                            data, meta = await comfyui_video.generate_video(
+                                prompt=retry_prompt,
+                                negative_prompt=options.get("negative_prompt"),
+                                width=int(options.get("width") or 704),
+                                height=int(options.get("height") or 1280),
+                                num_frames=num_frames,
+                                frame_rate=frame_rate,
+                                steps=int(options.get("steps") or 20),
+                                cfg=float(options.get("cfg_scale") or 5.0),
+                                seed=None,
+                                filename_prefix="socialauto",
+                                model=model,
+                                image_bytes=image_bytes,
+                                i2v_strength=float(options.get("i2v_strength") or 1.0),
                             )
-                            if proc.returncode == 0 and frame_png.exists():
-                                qa = await media_ai.verify_media_semantics(frame_png.read_bytes(), prompt, media_type="video")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("[video-task] semantic QA skipped: %s", type(exc).__name__)
+                        retry_qa = await _qa_frame(data)
+                        # Keep the first verdict when the retry's QA couldn't
+                        # produce one — a fake "not run" pass would erase a
+                        # real mismatch.
+                        if retry_qa.get("reason") not in ("not run", "qa timeout"):
+                            qa = retry_qa
+                        previous = asset
+                        asset = await _persist(data, meta)
+                        prev_meta = dict(previous.meta_data or {})
+                        prev_meta["superseded_by"] = str(asset.id)
+                        previous.meta_data = prev_meta
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[video-task] QA retry render failed: %s", type(exc).__name__)
+                        qa = {**qa, "retry": f"failed: {type(exc).__name__}"}
+                else:
+                    logger.warning(
+                        "[video-task] QA mismatch (%s) — retry skipped, insufficient task budget",
+                        qa.get("reason"),
+                    )
+                    qa = {**qa, "retry": "skipped: insufficient task budget"}
 
-            asset = await save_uploaded_media(
-                db,
-                team_id=uuid.UUID(team_id),
-                user_id=uuid.UUID(user_id),
-                original_filename=meta["filename"],
-                content=data,
-                mime_type="video/mp4",
-                alt_text=options.get("alt_text") or f"AI-generated video: {prompt[:120]}",
-                tags=options.get("tags") or ["comfyui", meta.get("model", "wan22"), "generated-video"],
-                width=meta["width"],
-                height=meta["height"],
-            )
-            asset.source = f"comfyui-{meta.get('model', 'wan22')}"
-            asset.generation_prompt = prompt
-            asset.duration_seconds = int(round(meta["duration_seconds"]))
             meta_dict = dict(asset.meta_data or {})
             meta_dict["semantic_qa"] = qa
-            if expanded_prompt != prompt:
-                meta_dict["expanded_prompt"] = expanded_prompt
             asset.meta_data = meta_dict
             await db.commit()
             return str(asset.id)
