@@ -3645,10 +3645,19 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 - [ ] DMR follow-up: concurrency cap on model loads or tier consolidation
       (text/tiny/quality/vision/embedding) to stop simultaneous cold-load RAM
       spikes that kill llama.cpp.
-- [ ] Hotjar 6507725 — DECIDED free-tier, but GTM archaeology found live
-      GTM-W7N3J3TV v3 has 0 tags (GA4 is direct-coded); a Hotjar tag was
-      added+deleted same-day 2026-11-05. Awaiting operator pick: retry via
-      GTM Custom HTML tag (consent-gated) vs direct embed in
-      GoogleTagManager.tsx vs drop property. GDPR/consent applies (EU site).
+- [x] Hotjar 6507725 — DONE 2026-11-17: consent-gated direct embed
+      (src/components/HotjarAnalytics.tsx, NEXT_PUBLIC_HOTJAR_ID), Site
+      overview dashboard + en→/consultation funnel configured. GTM container
+      stays empty — no GTM tag needed.
 - [ ] CDP relay durability — watchdog cycles but relay still flaps
       (bind conflicts/respawn churn); monitor, consider single-instance lock.
+- [x] Greptile export sweep (analytics-export-2026-11-17, 78 findings) —
+      verified all against master: ~55 stale (fixed by #2331/#2340/follow-ups
+      or doc churn), 23 real → fixed on fix/greptile-findings-2026-11-17:
+      ig_onboarding_drive hostname checks + Page/IG-username match + popup
+      dedup, ig_link_probe account_type select + page-token fallback +
+      probe_error surfacing + blue-green container pick, ig_onboarding_resume
+      full-text block check + BLOCKED loop, recover_rendered_video unique-post
+      + PUBLISHING/PUBLISHED guard + /api/v1/media/upload path (--direct
+      fallback), media.py retry persist-before-QA, popup-free-host.mdc
+      frontmatter + real-entrypoint advice.
