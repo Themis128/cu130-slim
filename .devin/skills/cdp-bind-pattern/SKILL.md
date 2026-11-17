@@ -114,3 +114,32 @@ now serves the live debug Chrome to WSL** (firewall rule
   heal reports `cookies-rejected`, credential login hits the Cloudflare
   challenge. Automation is armed (`li_session_heal` cron */30min +
   `li_portal_sidecar` */30min); it self-recovers when the 429 lifts.
+
+## 2026-11-17 — relay process explosion (335 procs) + structural fix
+
+Incident: `chrome-debug-watch.ps1` spawned one `cdp_relay.py` per 60s tick
+whenever no `0.0.0.0:9229` listener existed. During a relay outage Windows
+`SO_REUSEADDR` let every spawned copy bind the port anyway → hundreds of
+duplicate listeners, connections split unpredictably; bind-failures stayed
+alive as zombies. Worse, `restart-chrome-debug.ps1` only checked
+`localhost:9229` (Chrome) — with Chrome healthy and the relay dead it
+exited `HEALTHY`, which is why the "auto-restart failed" alert fired while
+WSL lanes stayed blind.
+
+Fix applied (host-local files, canonical doc only — they are NOT in git):
+
+- `C:\Users\tbaltzakis\devin-scripts\cdp_relay.py` — binds each
+  non-loopback local IP (`100.83.120.93`, `172.18.224.1`, `172.22.144.1`,
+  `192.168.1.23`) individually instead of `0.0.0.0`. A wildcard
+  `SO_EXCLUSIVEADDRUSE` bind can't coexist with Chrome's
+  `127.0.0.1:9229`; per-IP binds have no overlap, and a duplicate relay
+  fails the bind and exits — self-limiting.
+- `chrome-debug-watch.ps1` — detects a relay by ANY non-loopback
+  `:9229` listener, reaps `cdp_relay.py` procs that own no listener,
+  spawns at most one.
+- `restart-chrome-debug.ps1` — after the Chrome health gate, also heals
+  the relay layer: probes a non-loopback listener, kills orphan relay
+  procs, starts one. No more `HEALTHY` short-circuit on a blind WSL lane.
+
+Watch detection must never key on `LocalAddress -eq '0.0.0.0'` — the relay
+no longer owns a wildcard listener.
