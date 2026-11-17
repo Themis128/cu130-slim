@@ -42,11 +42,23 @@ class _SessionCtx:
 
 
 class _Resp:
-    def __init__(self, data):
+    def __init__(self, data, status=200):
         self._data = data
+        self.status_code = status
 
     def json(self):
         return {"data": self._data}
+
+
+class _RespBody:
+    """Raw-body response (threads /me + error envelopes have no 'data' key)."""
+
+    def __init__(self, body, status=200):
+        self._body = body
+        self.status_code = status
+
+    def json(self):
+        return self._body
 
 
 class _Client:
@@ -89,7 +101,7 @@ def _wire(monkeypatch, rows, client):
 @pytest.mark.asyncio
 async def test_no_accounts(monkeypatch):
     db, _ = _wire(monkeypatch, [], _Client())
-    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0}
+    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0, "inconclusive": 0}
     assert db.committed
 
 
@@ -147,3 +159,45 @@ def test_wrapper_dispatches(monkeypatch):
     monkeypatch.setattr(task, "run_async", sent)
     assert task.check_facebook_tokens() == {"ok": 1}
     sent.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_threads_probe_healthy(monkeypatch):
+    a = _acct(platform="threads")
+    a.token_expires_at = None
+    _wire(monkeypatch, [a], _Client(_RespBody({"id": "1784"})))
+    stats = await task._check()
+    assert stats["healthy"] == 1 and stats["inconclusive"] == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_probe_dead_code_alerts(monkeypatch):
+    a = _acct(platform="threads")
+    a.token_expires_at = None
+    _, alert = _wire(monkeypatch, [a], _Client(_RespBody({"error": {"code": 190}}, status=400)))
+    stats = await task._check()
+    assert stats["expired"] == 1
+    assert a.meta_data["fb_token_invalid"] is True
+    alert.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_transient_not_flagged(monkeypatch):
+    a = _acct()
+    _, alert = _wire(monkeypatch, [a], _Client(_RespBody({"error": {"code": 2}}, status=500)))
+    stats = await task._check()
+    assert stats["inconclusive"] == 1 and stats["expired"] == 0
+    assert "fb_token_invalid" not in a.meta_data
+    alert.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_threads_expiry_falls_back_to_stored(monkeypatch):
+    import datetime as dt
+
+    a = _acct(platform="threads")
+    a.token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(days=3)
+    _, alert = _wire(monkeypatch, [a], _Client(_RespBody({"id": "1784"})))
+    stats = await task._check()
+    assert stats["expiring"] == 1
+    alert.assert_awaited_once()
