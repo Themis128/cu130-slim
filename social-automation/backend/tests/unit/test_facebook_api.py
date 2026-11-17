@@ -55,7 +55,7 @@ class _FakeAsyncClient:
         self.calls.append({"method": "GET", "url": url, "headers": headers, "params": params})
         return self._next_response()
 
-    async def post(self, url, headers=None, params=None, _json=None, data=None, content=None):
+    async def post(self, url, headers=None, params=None, _json=None, data=None, content=None, files=None):
         self.calls.append(
             {
                 "method": "POST",
@@ -65,6 +65,7 @@ class _FakeAsyncClient:
                 "json": _json,
                 "data": data,
                 "content": content,
+                "files": files,
             }
         )
         return self._next_response()
@@ -230,6 +231,99 @@ async def test_create_video_post(client):
     assert call["url"].endswith("/123456789/videos")
     assert call["data"]["file_url"] == "https://example.com/video.mp4"
     assert call["data"]["description"] == "My description"
+
+
+_FETCH_BLOCK = {
+    "error": {
+        "message": "Unable to fetch media from URL, got status code: 403 Restricted by robots.txt",
+        "type": "FileUrlProcessingError",
+        "code": 389,
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_create_video_post_bytes_fallback(client, tmp_path):
+    """file_url fetch blocked → retries with the local file as multipart source."""
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(b"fake-video-bytes")
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(422, _FETCH_BLOCK),
+            _FakeResponse(200, {"id": "video-bytes-1"}),
+        ]
+    )
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        result = await client.create_video_post(
+            "https://example.com/video.mp4", "desc", local_path=str(video_file)
+        )
+
+    assert result["id"] == "video-bytes-1"
+    assert len(fake.calls) == 2
+    retry = fake.calls[1]
+    assert retry["files"]["source"][0] == "clip.mp4"
+    assert "file_url" not in retry["data"]
+
+
+@pytest.mark.asyncio
+async def test_create_video_post_no_local_path_propagates(client):
+    fake = _FakeAsyncClient([_FakeResponse(422, _FETCH_BLOCK)])
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        with pytest.raises(api.FacebookAPIError):
+            await client.create_video_post("https://example.com/video.mp4", "desc")
+
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_reel_post_bytes_fallback(client, tmp_path):
+    """file_url transfer failure → fresh start phase + bytes upload."""
+    video_file = tmp_path / "reel.mp4"
+    video_file.write_bytes(b"reel-bytes")
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"video_id": "v1", "upload_url": "https://rupload/up1"}),
+            _FakeResponse(422, _FETCH_BLOCK),  # file_url transfer refused
+            _FakeResponse(200, {"video_id": "v2", "upload_url": "https://rupload/up2"}),
+            _FakeResponse(200, {"success": True}),  # bytes transfer
+            _FakeResponse(200, {"success": True}),  # finish
+        ]
+    )
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        result = await client.create_reel_post(
+            "https://example.com/reel.mp4", "caption", local_path=str(video_file)
+        )
+
+    assert result["id"] == "v2"
+    assert len(fake.calls) == 5
+    transfer = fake.calls[3]
+    assert transfer["url"] == "https://rupload/up2"
+    assert transfer["headers"]["offset"] == "0"
+    assert transfer["headers"]["file_size"] == str(len(b"reel-bytes"))
+    assert b"".join(transfer["content"]) == b"reel-bytes"
+
+
+@pytest.mark.asyncio
+async def test_create_reel_post_no_local_path_propagates(client):
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"video_id": "v1", "upload_url": "https://rupload/up1"}),
+            _FakeResponse(422, _FETCH_BLOCK),
+        ]
+    )
+    with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+
+        with pytest.raises(api.FacebookAPIError):
+            await client.create_reel_post("https://example.com/reel.mp4", "caption")
+
+    assert len(fake.calls) == 2
 
 
 @pytest.mark.asyncio
