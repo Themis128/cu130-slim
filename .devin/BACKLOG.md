@@ -2704,14 +2704,14 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   PUT/DELETE role keys; REQUESTED=invite, APPROVED=active.
 - [x] #8 Member DP diff alerts — per-domain sha256 in Redis
   (`linkedin:dma:hash:*`); changed domains → TG ops alert on next sync.
-- [x] watch: first live runs of the 3 new beats after deploy —
+- [ ] watch: first live runs of the 3 new beats after deploy —
   community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
   offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
-  Verified 2026-11-17: `moderate_linkedin_community` ran 02:07 UTC,
+  Partial 2026-11-17: `moderate_linkedin_community` ran 02:07 UTC,
   succeeded (10 posts scanned, dry-run). ads-guard (daily 08:00) +
   offline-conversions (daily 06:40) had no slot yet — celery-beat was
-  recreated 00:53 UTC in the fsbridge recovery; both fire on their next
-  scheduled slot today.
+  recreated 00:53 UTC in the fsbridge recovery; confirm both fired on
+  their first scheduled slot before closing this watch.
 
 ## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
 
@@ -3176,8 +3176,11 @@ Resolved this pass (details inline above):
   fsbridge probe fails.
 - [x] **watch: strategy-report-run4** — COMPLETED degraded 2026-11-16
   (engine outage window): 255 teams, 2 emailed, llm_used=0, rule-based
-  fallback. Container gone; DMR verified healthy post-recovery — next
-  scheduled run uses live inference via the fixed launcher (#2187).
+  fallback. Container gone; DMR verified healthy post-recovery. NOTE:
+  scheduled `daily-strategy-report` runs `run_notebook_report` inside
+  the celery worker (live env already) — it does NOT go through
+  run-backend-once.sh; the launcher (#2187) covers ad-hoc/throwaway
+  runs only.
 - [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
   push; auto-merge armed on all 13 open PRs, 0 other failures.
 
