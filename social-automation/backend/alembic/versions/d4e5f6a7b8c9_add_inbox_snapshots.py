@@ -4,7 +4,7 @@ Point-in-time captures of the unified inbox (Messenger, personal Messenger,
 Instagram DMs, WhatsApp) so reports can count unanswered conversations and
 track response-time trends without live provider calls.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: d4e5f6a7b8c9
 Revises: x9y0z1a2b3c4
 Create Date: 2026-11-18 01:00:00.000000
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "a1b2c3d4e5f6"
+revision = "d4e5f6a7b8c9"
 down_revision = "x9y0z1a2b3c4"
 branch_labels = None
 depends_on = None
