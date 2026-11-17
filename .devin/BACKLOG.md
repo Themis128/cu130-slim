@@ -3615,3 +3615,29 @@ All 8 ranked lanes implemented on master pending this PR's merge:
   fallback in `facebook_api.py` + 1 test line.
 - `docs/backlog-ig-driver-findings` (closed PR #2062): +47 unmerged test
   lines in `test_datalake_export.py` — archived at refs/pull/2062/head.
+### CLO-17 ops leftovers (2026-11-17)
+
+- [x] PR merge queue drained — 0 open PRs (was ~30). Named PRs all landed;
+      #2220's audit content merged via rebuild #2300. Structural fixes kept:
+      "require branches up to date" OFF on master + advisory-run reaper.
+- [x] Alembic deploy verified — alembic current = x9y0z1a2b3c4 (head);
+      social_secrets all enc:v1: at rest, transparent decrypt spot-checked.
+- [x] FB heal validated — cookie heal via :9229 → loggedIn:True, 311 cookies,
+      c_user+xs. Fixed CDP relay (Chrome is IPv6-only [::1]:9229; relay now
+      tries ::1+127.0.0.1) + added cdp-relay-watch.ps1 watchdog. Credential
+      path (profile-chooser→password→mobile-approval) deployed, untested by
+      design — validate on next real logout.
+- [x] DMR RAM policy decided — .wslconfig is wrong lever (llama-server is
+      Windows-side). Kept per-model keep-alives + guarded embedding-only warm
+      task + watchdogs. Remaining churn = concurrent inference across tiers
+      cold-loading simultaneously.
+- [ ] DMR follow-up: concurrency cap on model loads or tier consolidation
+      (text/tiny/quality/vision/embedding) to stop simultaneous cold-load RAM
+      spikes that kill llama.cpp.
+- [ ] Hotjar 6507725 — DECIDED free-tier, but GTM archaeology found live
+      GTM-W7N3J3TV v3 has 0 tags (GA4 is direct-coded); a Hotjar tag was
+      added+deleted same-day 2026-11-05. Awaiting operator pick: retry via
+      GTM Custom HTML tag (consent-gated) vs direct embed in
+      GoogleTagManager.tsx vs drop property. GDPR/consent applies (EU site).
+- [ ] CDP relay durability — watchdog cycles but relay still flaps
+      (bind conflicts/respawn churn); monitor, consider single-instance lock.
