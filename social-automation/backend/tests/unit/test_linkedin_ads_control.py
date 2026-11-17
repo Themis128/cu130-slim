@@ -11,6 +11,13 @@ import pytest
 import app.services.linkedin_ads_control as A
 
 
+@pytest.fixture(autouse=True)
+def _api_down_by_default(monkeypatch):
+    """Sidecar-path tests predate the Marketing API lane — keep the API
+    path unavailable unless a test opts in via _api_patch."""
+    monkeypatch.setattr(A, "_api_token", AsyncMock(side_effect=RuntimeError("api disabled in test")))
+
+
 def _settings(**kw):
     base = dict(
         LINKEDIN_AD_ACCOUNT_ID="512642510",
@@ -316,3 +323,140 @@ async def test_notify_slack_fallbacks(monkeypatch):
     slack.reset_mock()
     await A.notify_slack("done")
     assert slack.await_args.kwargs["text"] == "done"
+
+
+# ── Marketing API path (rw_ads) ──────────────────────────────────────
+
+
+class _ApiClient:
+    """Minimal fake for the account-scoped Marketing API entity URL."""
+
+    def __init__(self, gets, post=None):
+        self._gets = list(gets)
+        self._post = post if post is not None else _Resp(200, {"status": "PAUSED"})
+        self.posts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, **kw):
+        return self._gets.pop(0)
+
+    async def post(self, url, **kw):
+        self.posts.append((url, kw))
+        return self._post
+
+
+def _api_patch(monkeypatch, client):
+    monkeypatch.setattr(A, "_api_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(A, "get_settings", lambda: _settings())
+
+
+@pytest.mark.asyncio
+async def test_api_pause_happy(monkeypatch):
+    client = _ApiClient(
+        [_Resp(200, {"status": "ACTIVE"}), _Resp(200, {"status": "PAUSED"})],
+        post=_Resp(200, {}),
+    )
+    _api_patch(monkeypatch, client)
+    out = await A.set_campaign_status("pause")
+    assert out["ok"] is True and out["status"] == "paused"
+    assert "Marketing API" in out["detail"]
+    # write went to the account-scoped entity with Rest.li partial update
+    url, kw = client.posts[0]
+    assert "/adAccounts/512642510/adCampaigns/907100946" in url
+    assert kw["headers"]["X-RestLi-Method"] == "PARTIAL_UPDATE"
+    assert kw["json"] == {"patch": {"$set": {"status": "PAUSED"}}}
+
+
+@pytest.mark.asyncio
+async def test_api_resume_sends_active(monkeypatch):
+    client = _ApiClient(
+        [_Resp(200, {"status": "PAUSED"}), _Resp(200, {"status": "ACTIVE"})],
+        post=_Resp(200, {}),
+    )
+    _api_patch(monkeypatch, client)
+    out = await A.set_campaign_status("resume")
+    assert out["ok"] is True and out["status"] == "active"
+    assert client.posts[0][1]["json"] == {"patch": {"$set": {"status": "ACTIVE"}}}
+
+
+@pytest.mark.asyncio
+async def test_api_already_in_state(monkeypatch):
+    client = _ApiClient([_Resp(200, {"status": "PAUSED"})])
+    _api_patch(monkeypatch, client)
+    out = await A.set_campaign_status("pause")
+    assert out == {"ok": True, "status": "paused", "detail": "Already paused"}
+    assert client.posts == []
+
+
+@pytest.mark.asyncio
+async def test_api_completed_campaign_refused(monkeypatch):
+    client = _ApiClient([_Resp(200, {"status": "COMPLETED"})])
+    _api_patch(monkeypatch, client)
+    out = await A.set_campaign_status("pause")
+    assert out["ok"] is False and "completed" in out["detail"]
+    assert client.posts == []
+
+
+@pytest.mark.asyncio
+async def test_api_403_forbidden_is_definitive(monkeypatch):
+    client = _ApiClient([_Resp(403, {"message": "not configured"})])
+    _api_patch(monkeypatch, client)
+    out = await A.set_campaign_status("pause")
+    assert out["ok"] is False and out["status"] == "forbidden"
+    assert "Ad Accounts" in out["detail"]
+
+
+@pytest.mark.asyncio
+async def test_api_transport_failure_falls_back_to_sidecar(monkeypatch):
+    monkeypatch.setattr(A, "_api_token", AsyncMock(side_effect=RuntimeError("no db")))
+    monkeypatch.setattr(A, "get_settings", lambda: _settings())
+    client = _Client(
+        [
+            ("navigate", _Resp()),
+            ("page-text", _Resp(payload={"text": "907100946\n\nPaused"})),
+        ]
+    )
+    _patch_client(monkeypatch, client)
+    out = await A.set_campaign_status("pause")
+    assert out == {"ok": True, "status": "paused", "detail": "Already paused"}
+
+
+@pytest.mark.asyncio
+async def test_api_5xx_falls_back_to_sidecar(monkeypatch):
+    """API status read 503 → None → sidecar path answers."""
+    monkeypatch.setattr(A, "_api_token", AsyncMock(return_value="tok"))
+    monkeypatch.setattr(A, "get_settings", lambda: _settings())
+    side = _Client(
+        [
+            ("navigate", _Resp()),
+            ("page-text", _Resp(payload={"text": "907100946\n\nPaused"})),
+        ]
+    )
+    api_gets = [_Resp(503, {"message": "down"})]
+
+    class _Router:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, **kw):
+            if "adAccounts" in url:
+                return api_gets.pop(0)
+            return await side.get(url, **kw)
+
+        async def post(self, url, **kw):
+            if "adAccounts" in url:
+                return _Resp(200, {})
+            return await side.post(url, **kw)
+
+    monkeypatch.setattr(A.httpx, "AsyncClient", lambda **kw: _Router())
+    out = await A.set_campaign_status("pause")
+    assert out == {"ok": True, "status": "paused", "detail": "Already paused"}

@@ -1,10 +1,19 @@
-"""LinkedIn Ads campaign control — pause/resume ad sets via the LinkedIn
-browser sidecar (Campaign Manager UI automation).
+"""LinkedIn Ads campaign control — pause/resume ad campaigns.
 
-The app now has ``r_ads`` + ``r_ads_reporting`` (read/reporting), but NOT
-``rw_ads`` — write operations like pause/resume still go through the same
-sidecar path as the daily report scraper. Triggered by Slack interactive
-buttons / slash commands via ``app.api.slack``.
+Primary path is the Marketing API (``rw_ads`` granted 2026-11-16,
+Advertising API Development Tier approved 2026-11-18): read +
+``PARTIAL_UPDATE`` on ``/rest/adAccounts/{acct}/adCampaigns/{id}``.
+The browser-sidecar Campaign Manager scrape remains as fallback for
+transport/5xx failures — it needs a logged-in sidecar session and is
+the brittle lane this replaces.
+
+NOTE: Development Tier only manages ad accounts allowlisted in the
+developer portal (Products → Advertising API → View settings → Ad
+Accounts, max 5). An unlisted account returns 403 FORBIDDEN — that is
+app configuration, not a token problem.
+
+Triggered by Slack interactive buttons / slash commands via
+``app.api.slack``.
 """
 
 from __future__ import annotations
@@ -22,6 +31,104 @@ from app.services.slack_notifications import _post_slack_text
 logger = logging.getLogger(__name__)
 
 _CM_BASE = "https://www.linkedin.com/campaignmanager"
+_REST = "https://api.linkedin.com/rest"
+_LI_VERSION = "202610"
+
+
+async def _api_token() -> str:
+    """Decrypt the first active LinkedIn account token (member grant —
+    org rows store the same token)."""
+    from sqlalchemy import select
+
+    from app.core.security import decrypt_token
+    from app.db.session import async_session_maker
+    from app.models.social_account import SocialAccount
+
+    async with async_session_maker() as db:
+        acc = (
+            await db.execute(
+                select(SocialAccount)
+                .where(SocialAccount.platform == "linkedin", SocialAccount.status == "active")
+                .limit(1)
+            )
+        ).scalars().first()
+    if not acc or not acc.access_token_enc:
+        raise RuntimeError("no active LinkedIn account token")
+    return decrypt_token(bytes(acc.access_token_enc))
+
+
+def _api_headers(token: str, method: str | None = None) -> dict[str, str]:
+    h = {
+        "Authorization": f"Bearer {token}",
+        "LinkedIn-Version": _LI_VERSION,
+        "X-Restli-Protocol-Version": "2.0.0",
+    }
+    if method:
+        h["X-RestLi-Method"] = method
+    return h
+
+
+async def _api_set_status(action: str, campaign_id: str, acct_id: str) -> dict[str, Any] | None:
+    """Marketing API pause/resume. Returns None when the API path can't
+    decide (transport/5xx) so the caller can fall back to the sidecar;
+    a dict means the API answered definitively (incl. config 403)."""
+    want = "PAUSED" if action == "pause" else "ACTIVE"
+    url = f"{_REST}/adAccounts/{acct_id}/adCampaigns/{campaign_id}"
+    try:
+        token = await _api_token()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(url, headers=_api_headers(token))
+            if r.status_code == 403:
+                return {
+                    "ok": False,
+                    "status": "forbidden",
+                    "detail": "App not allowlisted for this ad account — add it in the dev portal (Products → Advertising API → View settings → Ad Accounts)",
+                }
+            if r.status_code != 200:
+                logger.warning("ads-control API status read HTTP %s: %s", r.status_code, r.text[:200])
+                return None
+            current = str((r.json() or {}).get("status") or "").upper()
+            if current in ("COMPLETED", "ARCHIVED"):
+                return {
+                    "ok": False,
+                    "status": current.lower(),
+                    "detail": f"Campaign is {current.lower()} — cannot pause/resume",
+                }
+            if current == want:
+                return {"ok": True, "status": current.lower(), "detail": f"Already {want.lower()}"}
+            if not current:
+                return {"ok": False, "status": "unknown", "detail": "Campaign status unreadable via API"}
+
+            w = await client.post(
+                url,
+                headers={**_api_headers(token, "PARTIAL_UPDATE"), "Content-Type": "application/json"},
+                json={"patch": {"$set": {"status": want}}},
+            )
+            if w.status_code == 403:
+                return {
+                    "ok": False,
+                    "status": "forbidden",
+                    "detail": "App not allowlisted for this ad account — add it in the dev portal (Products → Advertising API → View settings → Ad Accounts)",
+                }
+            if w.status_code >= 500:
+                logger.warning("ads-control API write HTTP %s: %s", w.status_code, w.text[:200])
+                return None
+            if w.status_code not in (200, 201, 204):
+                return {
+                    "ok": False,
+                    "status": "unknown",
+                    "detail": f"API write HTTP {w.status_code}: {w.text[:200]}",
+                }
+
+            # Confirm the flip landed.
+            v = await client.get(url, headers=_api_headers(token))
+            now = str((v.json() or {}).get("status") or "").upper() if v.status_code == 200 else ""
+            if now == want:
+                return {"ok": True, "status": now.lower(), "detail": f"Campaign is now {now.lower()} (Marketing API)"}
+            return {"ok": False, "status": now.lower() or "unknown", "detail": f"Write accepted but status reads '{now or 'unknown'}'"}
+    except Exception as exc:  # noqa: BLE001 — any API-path failure falls back to sidecar
+        logger.warning("LinkedIn ads control API path failed: %s", exc)
+        return None
 
 
 def _cm_campaigns_url() -> str:
@@ -121,6 +228,12 @@ async def set_campaign_status(action: str) -> dict[str, Any]:
         return {"ok": False, "status": "unknown", "detail": f"unknown action {action!r}"}
 
     want = "paused" if action == "pause" else "active"
+
+    # Marketing API first — deterministic, no browser session needed.
+    api_result = await _api_set_status(action, campaign_id, settings.LINKEDIN_AD_ACCOUNT_ID or "512642510")
+    if api_result is not None:
+        return api_result
+
     menu_item = "Pause" if action == "pause" else "Activate"
 
     try:
