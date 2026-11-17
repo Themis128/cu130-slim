@@ -115,6 +115,25 @@ services:
       - redis
     restart: unless-stopped
 
+  social-worker-meta:
+    # Dedicated `meta` queue lane (facebook/instagram/threads publish sweep +
+    # Meta-only tasks). Without this service Meta publishes queue forever.
+    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    pull_policy: always
+    container_name: social-worker-meta
+    command: celery -A app.worker.celery_app worker -Q meta --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=meta@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis/0
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-worker-latest
     pull_policy: always
