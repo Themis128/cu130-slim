@@ -709,3 +709,28 @@ app (migrates the number off the API) or leave it API-only.
   rate-limit source; app-side requests are.
 - WABA token died with the lock (190/460) — re-auth via SocialAuto console
   before trusting API-side status.
+
+### Input-injection matrix on w4b registration screens (verified 2026-11-17)
+
+| Channel | Result |
+|---|---|
+| `input tap` / swipe / mouse / stylus | FILTERED — no effect |
+| `input text` / digit keyevents | FILTERED — lands nowhere |
+| `input keyevent DPAD_*` | **WORKS** — `DPAD_CENTER` clicks the focused node (used to click EULA "Agree and continue" → RegisterPhone) |
+| `input keyevent TAB` / PASTE | no effect (nothing in the form accepts a11y focus — focus stays on the logo ImageView) |
+| `am start` activity / `monkey -p` | WORKS for navigation only |
+
+The number-entry screen's EditText nodes exist in the a11y tree but never
+take `focused=true` — WhatsApp deliberately doesn't focus-chain them. So the
+gate is only *field focus*; the one remaining synthetic idea is an
+IME-broadcast keyboard (commits via InputConnection — same path as the real
+keyboard) IF focus can be seeded.
+
+### Wireless-debug dynamic port (2026-11-17)
+
+When the phone drops from `adb tcpip 5555` mode into stock Wireless
+Debugging, it listens on a **random port** — `connect 100.84.31.85:5555`
+refuses while the host pings fine. Recovery: TCP-scan the tailnet IP
+(python `connect_ex` over 30000–50000, ~5s at 300 threads) →
+`adb connect 100.84.31.85:<port>`. First connect may read `offline`
+during the TLS/auth handshake — `adb kill-server` + retry fixes it.
