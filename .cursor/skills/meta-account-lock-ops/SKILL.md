@@ -100,6 +100,37 @@ Verify recovery: `social_accounts.status` returns to `active` for
 facebook/instagram/threads/whatsapp; then requeue failed
 `post_targets`/`publish_queue` rows.
 
+## Ad-account / advertising restrictions — a DIFFERENT failure class (verified 2026-11-16)
+
+Separate from login locks: Meta can restrict the **FB account / ad
+accounts / business portfolio** for advertising while logins work fine.
+These surface as unrelated feature blocks — e.g. the Page↔Instagram link
+flow ends with *"resolve some issues with your Facebook account … View
+details in Account Quality"*.
+
+Map (drive on the debug Chrome / sidecar):
+
+| URL | Shows |
+|---|---|
+| `business.facebook.com/business-support-home/` | 30-day issue window — misses OLD flags |
+| `…/business-support-home/<business_id>/` | **accounts list**: FB-account restriction, ad accounts, catalogs, Pages, data sources |
+| `…/business-support-home/<business_id>/<ad_account_id>/` | per-asset detail + "What you can do" |
+
+- `facebook.com/accountquality` forces a switch to the personal profile —
+  Page context can't view it.
+- Three levels are DISTINCT: FB-account-level (the person), ad-account,
+  business-portfolio. A clean portfolio does NOT imply a clean person.
+- "Can't be reviewed — too much time has passed" = the flag is permanent;
+  no self-serve review. Escalation lanes on the detail page: "Chat with
+  Meta AI" (24/7 assistant — the appeal history lives in its chat list),
+  "Go to Business Settings" (add a clean ad account), business
+  onboarding "Get started".
+- Current state (2026-11-16): personal FB account restricted Feb 2021 +
+  personal ad account `657781691826702` disabled Jan 2021 + ad account
+  `2771400643144250` restricted — all from Advertising Standards, all
+  unreviewable. Blocks the cloudless.gr Page↔IG connection upgrade.
+  Business portfolio `1558125105019725` is clean.
+
 ## What NOT to do
 
 - Don't hammer the heal script — each attempt can trigger a new Meta
