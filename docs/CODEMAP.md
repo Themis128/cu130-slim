@@ -4,7 +4,7 @@ Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) —
 
 ## What it is
 
-SocialAuto: multi-platform social media automation — compose/publish posts, unified DM inbox with AI auto-reply, brand system, media generation, analytics. FastAPI backend + Next.js frontend + 4 queue-dedicated Celery workers + per-platform browser sidecars, all on one Docker Compose stack on the WSL workstation.
+SocialAuto: multi-platform social media automation — compose/publish posts, unified DM inbox with AI auto-reply, brand system, media generation, analytics. FastAPI backend + Next.js frontend + 5 queue-dedicated Celery workers + per-platform browser sidecars, all on one Docker Compose stack on the WSL workstation.
 
 ## Request path
 
@@ -45,7 +45,7 @@ Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypa
 | social-postgres | 5433→5432 | app DB `social_automation` |
 | redis | 6379 | Celery broker + cache failover |
 | celery-beat | — | scheduler (single instance) |
-| social-worker-{publishing,media,default,messenger} | — | 4 queue-dedicated Celery workers, same image/env |
+| social-worker-{publishing,media,default,messenger,meta} | — | 5 queue-dedicated Celery workers, same image/env |
 | cloudflared | — | named tunnel `social-cloudless` → social.cloudless.gr (social.* only since the 2026-10-05 tunnel split) |
 | browser-novnc | 9223 (bridge), 6080 (noVNC), 5900 (VNC) | shared Chromium for DM/profile ops |
 | tiktok-browser-sidecar | 9224 | TikTok browser session |
