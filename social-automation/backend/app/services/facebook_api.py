@@ -322,18 +322,29 @@ class FacebookAPIClient:
         self._raise_for_status(resp, upload_url)
 
     async def _reels_transfer_bytes(self, client: httpx.AsyncClient, upload_url: str, local_path: str) -> None:
-        """Transfer phase via raw bytes — resumable-upload ``offset`` POST."""
-        with open(local_path, "rb") as f:
-            data = f.read()
+        """Transfer phase via raw bytes — resumable-upload ``offset`` POST.
+
+        Meta's video-ads/reels upload protocol is non-chunking (one POST at
+        ``offset=0`` with the full body), so the file streams as the request
+        body in bounded pieces — a multi-GB fallback must not land on the
+        worker's heap (social-worker-publishing shares ~1.2 GiB across
+        three processes). ``file_size`` comes from the file itself.
+        """
+
+        def _iter_file() -> Any:
+            with open(local_path, "rb") as f:
+                while piece := f.read(4 * 1024 * 1024):
+                    yield piece
+
         resp = await client.post(
             upload_url,
             headers={
                 "Authorization": f"OAuth {self.access_token}",
                 "offset": "0",
-                "file_size": str(len(data)),
+                "file_size": str(os.path.getsize(local_path)),
                 "Content-Type": "application/octet-stream",
             },
-            content=data,
+            content=_iter_file(),
         )
         self._raise_for_status(resp, upload_url)
 

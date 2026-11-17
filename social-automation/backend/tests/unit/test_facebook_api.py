@@ -306,7 +306,7 @@ async def test_create_reel_post_bytes_fallback(client, tmp_path):
     assert transfer["url"] == "https://rupload/up2"
     assert transfer["headers"]["offset"] == "0"
     assert transfer["headers"]["file_size"] == str(len(b"reel-bytes"))
-    assert transfer["content"] == b"reel-bytes"
+    assert b"".join(transfer["content"]) == b"reel-bytes"
 
 
 @pytest.mark.asyncio
