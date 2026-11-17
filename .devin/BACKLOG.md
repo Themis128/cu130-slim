@@ -3178,3 +3178,19 @@ Resolved this pass (details inline above):
   a recognized device before Business Settings → Instagram accounts → Add
   can be retried. Support case was submitted pre-lock (registration
   unverified).
+
+## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
+
+- Audited both backend issues against the live codebase — every checklist
+  item already implemented; closed both as Done with evidence comments on
+  the issues (no code change needed).
+- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
+  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
+  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
+- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
+  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
+  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
+  chain; composite indexes throughout.
+- [ ] Hardening follow-up (unfiled): social_secrets.value is plaintext
+  Text (generic secret-store failover for D1 SSM) — unlike OAuth tokens.
+  Encrypt at rest if the failover table keeps holding real secrets.
