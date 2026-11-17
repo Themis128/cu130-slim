@@ -3225,3 +3225,28 @@ Resolved this pass (details inline above):
   re-login: picker → "Use another profile" → creds → 2FA on phone.
 - [ ] **watch: PR #2087** — video QA fix (4th rebuild) rebased + force-pushed
   past the BACKLOG treadmill, auto-merge armed.
+
+## 2026-11-17 — lead-sync self-check alert = restart-window blip (hardened)
+
+- [x] Two `linkedin-lead-sync webhook self-check failed` P2s at 16:33 EET —
+  root cause NOT the endpoint: the whole stack mass-restarted ~16:32:24
+  (WSL restart after the 13:55 UTC fsbridge bind-mount poisonings; uptime
+  + `social-stack-watchdog.log` show recreate failures on hashed mounts).
+  Two queued `route_linkedin_leads` deliveries (16:33:09 + 16:33:28, beat
+  catch-up double-delivery) both probed while social-api/cloudflared were
+  still booting → 2 alerts. Endpoint verified healthy 3min later
+  (challenge → 200 + valid HMAC in ~0.8s, subscription `7676113` intact
+  via `list_lead_notifications`). LinkedIn block needs 3 consecutive
+  failed re-validations at ~2h cadence — a ~2min outage cannot trigger it.
+- [x] **Hardened**: `_webhook_selfcheck` now requires 3 CONSECUTIVE
+  failures (Redis key `linkedin:lead_sync:selfcheck_fails`, resets on
+  success, fails open on Redis error) before paging — covers ~60-90min of
+  real outage, suppresses restart-window blips. Alert body now includes
+  the failure detail (HTTP status / exception). +3 unit tests.
+- [ ] **watch**: LinkedIn portal "Validated" state not re-verified (sidecar
+  session logged out — `logged_in:false`, needs credential re-login;
+  CDP :9222 not running). Low risk: poller `route_linkedin_leads` covers
+  delivery + subscription intact. If leads stall, revalidate via portal
+  like 2026-11-16 (Webhooks tab → Revalidate URL).
+- [ ] linkedin-browser-sidecar session dead post-restart — session-ops
+  hourly sweep may heal; DM/engage lanes depend on it (webhook does not).
