@@ -3250,3 +3250,96 @@ Resolved this pass (details inline above):
   like 2026-11-16 (Webhooks tab → Revalidate URL).
 - [ ] linkedin-browser-sidecar session dead post-restart — session-ops
   hourly sweep may heal; DM/engage lanes depend on it (webhook does not).
+
+## 2026-11-17 — salvaged leftovers (IG↔FB gate + stale-env containers)
+
+- [ ] **IG↔FB Page link blocked by 2021 ad restriction (root cause found 2026-11-16)**:
+  Page `116436681562585` Linked accounts shows "Instagram — Connected to
+  @cloudless.gr" but LIMITED features; Graph `instagram_business_account`/
+  `connected_instagram_account` both absent. The upgrade flow (Page
+  settings → Linked accounts → Instagram → Review connection → Confirm →
+  IG OIDC login) completes the IG auth then fails with **"Unable to
+  connect to Instagram — resolve some issues with your Facebook
+  account"** → Account Quality shows the ONLY issue: personal FB account
+  `Themistoklis Baltzakis` **"Account restricted" Feb 12, 2021** +
+  personal ad account `657781691826702` **Disabled Jan 24, 2021**
+  ("can't be reviewed — too much time passed"). Vera Symeonidou ad
+  account `2771400643144250` also restricted same date.
+  **Human gate**: needs Meta support escalation / business verification
+  (`business.facebook.com/business-support-home/1134463867/` → "Chat with
+  Meta AI" or new ad account in Business Settings). Business portfolio
+  `cloudless.gr` (1558125105019725) is clean. Chat history shows many
+  past failed appeals (Aug–Oct). IG-app "Edit profile → Page" is
+  mobile-only and phone was covered; likely hits the same FB-side gate.
+  Driver `ig_onboarding_drive.py` stays parked until restriction lifts —
+  retries only refresh Meta's rate bucket.
+- [ ] **Throwaway report containers carry stale env**: `strategy-report-run3`
+  Redis auth failed all run (`REDIS_URL` password predates the
+  2026-11-16 ~12:37 pgrotate) → GPU arbiter "DMR unserialized" + ComfyUI
+  "invalid username-password" (same stale-env class). social-api env is
+  fresh and works. Fix: always launch report containers with
+  `--env-file` pointed at the LIVE `.env`, or recreate on rotation.
+- [ ] **ComfyUI credentials**: invalid username-password inside the
+  throwaway container — verify `COMFYUI_*` env in live `.env` vs the
+  ComfyUI container's actual auth (may also be rotation drift).
+
+## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
+- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
+      the task layer was never the flash source.
+- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
+      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
+      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
+      `.bat` launchers, Chrome native hosts (inherent).
+- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
+      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
+      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
+      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
+      mcp-health-watch, mail-outbound-secret-heal (+ new
+      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
+- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
+      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
+      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
+      `npx`/`.cmd` shim chains are gone.
+- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
+- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
+      classes, the grandchild rule, and why `-WindowStyle Hidden` /
+      `conhost --headless` (for output capture) don't work.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
+      already run under `conhost.exe --headless` (docker-socket-watch,
+      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
+      EvidencePipeline-DmrTunnel). No wrap needed.
+- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
+      resolver.v1 wedged after the engine death; full `docker desktop
+      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
+      `mcp secret ls` verified live; gateway unaffected (cached secrets).
+      Note: `desktop stop`+immediate `start` races — if start says
+      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
+### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
+- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
+      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
+- [x] Server throttled tonight's requests: "WhatsApp is temporarily
+      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
+      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
+      stacked request_code attempts earlier.
+- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
+      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
+      Do NOT re-request before the timer — each request extends the cooldown.
+- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
+      meta_data + verify Cloud API/coexistence status (skill runbook).
+- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
+### Gmail thread watchers — crash bug + transient-alert hardening (2026-11-17)
+- [x] `dypa-da2` + `SKC` TG alerts (`Remote end closed connection`) — one
+      shared Google-API drop ~00:13–00:15, both self-healed; verified clean live.
+- [x] Real bug: stray `watches/vodafone-career-state.json` crashed
+      `run-all-watches.py` (`KeyError: 'name'`) every sweep — glob now skips
+      `*-state.json`; stray moved aside.
+- [x] `api()` in `gmail-thread-watch.py` + `skc-watch.py` gains 3-try
+      backoff (5s/10s) so single API blips no longer fire the 24h-deduped
+      error alert. Both watches verified: `no new inbound` / `no new mail`.
+      (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
