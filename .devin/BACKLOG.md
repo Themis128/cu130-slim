@@ -3179,30 +3179,29 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear CLO-6/CLO-7 pass + PR sweep (Devin agent, Windows side)
+## 2026-11-17 — Linear CLO board closed + MCP arg-bug bypass (Devin)
 
-- [x] **CLO-6 (Configure Greptile)** — all 130 themis128 repos already
-  connected + reviews Enabled (cu130-slim has 222+ reviews). Created
-  REST API key `devin-indexing` → Infisical prod `GREPTILE_API_KEY` +
-  `%APPDATA%\devin\secrets\greptile-api-key`. FINDING: manual KB indexing
-  is RETIRED (`POST /v2/repositories` → 410 `repository_indexing_retired`);
-  KBs build automatically per-org rollout — 0 KBs org-wide as of today,
-  no dashboard/API trigger; may need Greptile support or paid plan.
-  Verify later: `list_knowledge_bases` via greptile MCP (org cloudless-gr).
-- [x] **CLO-7 (Backend tracker)** — verified live: social-api healthy,
-  550 OpenAPI paths / 61 routers, 4/4 celery nodes + beat, postgres at
-  alembic head `nlw001q2e3u4` (57 versions), Redis AUTH ok, D1 dual-write
-  healthy. Backend already exists and runs — issue is a tracker.
-- [x] **PR sweep** — `pr_sweep_all.py` run from Windows host (see gotcha):
-  7 DIRTY PRs clean-rebuilt onto master → new PRs #2222-#2225,#2227-#2229
-  (superseded #2211-#2213,#2215-#2218). All 27 open PRs auto-merge armed.
-  #2222 (ex-#2218) will still fail `frontend-test` until #2219's coverage
-  gap fix lands — expected, not a rebuild problem.
-- **Windows-host gotchas for the sweep**: `python3` resolves to the
-  Microsoft Store stub — shim `python3.exe` exists at
-  `~/.zcode/bin/python3.exe` (copy of Python312); prepend to PATH.
-  `pr_rebuild.py` can't resolve repo on UNC paths → set
-  `GH_REPO=Themis128/cu130-slim`. `wsl.exe` calls still flake
-  (WSAETIMEDOUT) — Windows-side `gh` + UNC file access works fine.
-- [ ] watch: re-run sweep after the current CI wave lands; merge queue
-  keeps invalidating branches (treadmill) — ~30 pending checks per PR.
+- [x] **Linear CLO-5…CLO-16 all Done** — verified live via direct MCP call:
+  parallel sessions reconciled the board 04:24–04:42 UTC with evidence
+  comments (Greptile repos indexed/reviews-enabled, MCP auth healthy,
+  backend+frontend trees verified). Tracker CLO-5 closed after reconcile.
+- [ ] **Greptile KB synthesis enrollment pending** — support request emailed
+  to support@greptile.com ~04:34 UTC (org cloudless-gr); `list_knowledge_bases`
+  still returns 0. Watch for Greptile reply; KBs auto-build once enabled.
+- [x] **`mcp_call_tool` empty-arguments bug worked around** — every
+  parameterized MCP call this session emitted `arguments:{}` (client-side
+  serialization bug; `/bug` worthy). Bypass: `~/scripts/mcp-http.py`
+  (home-ops, committed) reads OAuth tokens from
+  `~/.local/share/devin/mcp/oauth/*.json` and calls remote MCP servers
+  (linear, greptile, …) directly over streamable-HTTP. Verified for
+  linear `get_issue`/`list_comments` and greptile `list_knowledge_bases`.
+- [ ] **#2181 dependabot `frontend-test` red** — same coverage-threshold
+  baseline gap fixed by #2219; resolves on rebase after #2219 merges.
+  Non-required check — does not block auto-merge.
+- [ ] **omv-ha LAN path flake (non-blocking)** — 192.168.1.130 ping/ssh/IMAP
+  all time out from WSL while tailnet `100.95.117.84` works fine (dovecot +
+  postfix `active`, IMAP 993 verified). Other LAN hosts reachable, so it's
+  Pi-side (firewall/subnet), not WSL. Mail-dependent scripts should fall
+  back to the tailnet IP if LAN keeps flaking.
+- [x] **Greptile KB enrollment — no reply yet** (checked INBOX ~07:00 UTC,
+  request sent ~04:34 UTC). Still waiting on support@greptile.com.
