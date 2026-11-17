@@ -128,7 +128,96 @@ Expected after full heal: facebook user+page `active` (~60d tokens),
 instagram `active`, threads `active`. whatsapp remains a separate manual
 WABA lane.
 
-## 7. Boundaries
+## 7. IG↔FB Page link — the REAL surface (verified 2026-11-16)
+
+The OAuth onboarding wizard is the WRONG lane for linking an existing IG
+professional account to a Page. The correct, deterministic surface is:
+
+```
+FB (switched into the Page — "Switch Now" on the Page's banner)
+→ Settings & privacy → Settings → Linked accounts → Instagram
+→ https://www.facebook.com/settings/?tab=linked_profiles
+→ Instagram row → https://www.facebook.com/settings/?tab=linked_instagram
+```
+
+States observed on `?tab=linked_instagram`:
+- `Connected to @handle` + "Review account connection — only some
+  features" = **limited link exists** (IG↔profile pairing). Graph
+  `connected_instagram_account` may still be absent — the field only
+  populates after the full Page↔IG connection completes.
+- "Review connection" opens a **multi-step accordion inside ONE
+  `[role=dialog]`**: Get-more-features `Confirm` → "Confirm Your Page
+  and Instagram connection" `Confirm connection` → "Choose Instagram
+  message settings" `Confirm` → spawns an
+  `instagram.com/oauth/oidc/?app_id=…&redirect_uri=…facebook.com/page/instag…`
+  login popup. Each click only reveals the next section — keep dumping
+  the same dialog's innerText.
+
+The OIDC popup (`enable_fb_login=0` = IG-native login):
+- Page renders footer-only for ~10-20s before the real body appears —
+  don't declare it blank early; check buttons before text.
+- `Log in as @handle` authorizes with the existing IG session (no
+  password needed) → popup self-closes on success (WS-DIED = progress).
+
+### The gate that fails last (verified live)
+
+After the IG login completes, FB checks the **acting admin's FB account
+standing**. With any restriction it renders:
+
+> "Unable to connect to Instagram — Before connecting this Facebook
+> Page and Instagram account, you'll need to resolve some issues with
+> your Facebook account. View details in Account Quality."
+
+Account Quality surfaces:
+- `https://business.facebook.com/business-support-home/` — overview,
+  "Recent account issues" (30-day window only — misses old flags)
+- `…/business-support-home/<business_id>/` — **accounts list**: FB
+  account restriction, ad accounts, catalogs, Pages, data sources
+- `…/business-support-home/<business_id>/<ad_account_id>/` — per-asset
+  detail + "What you can do" (review button only when reviewable)
+- Restriction levels are DISTINCT: FB-account-level (person),
+  ad-account-level, business-portfolio-level. cloudless.gr's block is
+  FB-account-level (Feb 2021 ad-policy flag) + disabled personal ad
+  account (Jan 2021, "can't be reviewed — too much time passed").
+- Escalation lanes on the detail page: "Chat with Meta AI" (24/7
+  assistant, chat history lives there), "Go to Business Settings"
+  (add a clean ad account), business onboarding "Get started".
+
+**Graph truth**: `GET /<PAGE_ID>?fields=instagram_business_account,
+connected_instagram_account` — both fields are OMITTED when empty (not
+errors). `instagram_business_account` = the API-usable business link;
+`connected_instagram_account` = the settings link. Probe via
+`scripts/ig_link_probe.py`.
+
+**IG-side alternative**: IG app → Edit profile → Page (mobile-only —
+the web edit page literally says links/Page editing is app-only) —
+likely hits the same FB-account gate because the acting admin's
+standing is checked either way.
+
+## 8. CDP driving mechanics for Meta UI
+
+- `GET /json/new?url` requires **PUT** on newer Chrome (405 otherwise).
+- **JS `.click()` can never open `window.open` popups** — use trusted
+  `Input.dispatchMouseEvent` (mousePressed+mouseReleased at element
+  center). Scroll `scrollIntoView({block:'center'})` first; viewport-
+  relative coords go stale.
+- **`offsetParent !== null` is a broken visibility test** for Meta's
+  `position:fixed` dialog buttons — use `getClientRects().length > 0`.
+- WS-DIED / StopIteration on `_ws_url` = the tab navigated or closed —
+  re-resolve the tab id by URL substring from `/json/list`, or the
+  popup self-closed (usually progress, not failure).
+- Meta settings tabs wedge randomly — close via
+  `GET /json/close/<id>`, reopen via `PUT /json/new`.
+- `forced_account_switch` interstitial = a plain FORM with one
+  `input[type=submit] Continue` — trusted-click it.
+- React inputs ignore programmatic `innerText`/`.value` — use the
+  native setter + `input` event (contenteditable chat boxes still
+  mostly ignore it — Meta AI assistant is one such case).
+- Page-context switch: "Switch Now" on the Page banner sets a session
+  cookie browser-wide — after it, `/settings` is the PAGE's settings
+  (shows "Page details"/"Page setup"); before it, personal settings.
+
+## 9. Boundaries
 
 - This skill heals `social_accounts` rows. The legacy `FB_USER_TOKEN`
   operator gate is a different lane — `operator-gate-ops` skill.
