@@ -27,6 +27,7 @@ describe('API Service', () => {
   let apiModule: any
   let mockAxiosInstance: any
   let mockRequestInterceptor: any
+  let mockRequestInterceptorRejected: any
   let mockResponseInterceptor: any
   let mockResponseFulfilled: any
 
@@ -45,9 +46,9 @@ describe('API Service', () => {
       defaults: { baseURL: '/api/v1', headers: { 'Content-Type': 'application/json' } },
       interceptors: {
         request: {
-          use: vi.fn().mockImplementation((fn) => {
-            console.log('Request interceptor registered:', fn)
+          use: vi.fn().mockImplementation((fn, onRejected) => {
             mockRequestInterceptor = fn
+            mockRequestInterceptorRejected = onRejected
           })
         },
         response: {
@@ -195,6 +196,11 @@ describe('API Service', () => {
       return expect(result).rejects.toThrow('Request failed')
     })
   })
+
+    it('should pass request errors through the rejection handler unchanged', async () => {
+      const error = new Error('socket hangup')
+      await expect(mockRequestInterceptorRejected(error)).rejects.toBe(error)
+    })
 
   describe('Response Interceptor - Token Refresh', () => {
     it('should return response as-is for successful requests', () => {
@@ -1040,4 +1046,43 @@ describe('API Service', () => {
       expect(result.data).toEqual({ sentiment: 'positive', readability: 80 })
     })
   })
+
+describe('API coverage gaps', () => {
+  describe('Bluesky API', () => {
+    it('connects with an explicit PDS url', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: { ok: true } })
+      await apiModule.blueskyApi.connect('handle', 'app-pass', 'https://pds.example')
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/bluesky/connect', {
+        handle: 'handle',
+        app_password: 'app-pass',
+        pds_url: 'https://pds.example',
+      })
+    })
+
+    it('connects without a PDS url', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+      await apiModule.blueskyApi.connect('handle', 'app-pass')
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/bluesky/connect', {
+        handle: 'handle',
+        app_password: 'app-pass',
+      })
+    })
+
+    it('fetches connection status', async () => {
+      mockAxiosInstance.get.mockResolvedValue({ data: { status: 'ok' } })
+      await apiModule.blueskyApi.status('acc-1')
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/bluesky/acc-1/status')
+    })
+  })
+
+  describe('Email campaigns API', () => {
+    it('nudges a campaign', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: { nudged: 3 } })
+      const result = await apiModule.emailCampaignsApi.nudge('camp-1')
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/email-campaigns/camp-1/nudge')
+      expect(result.data).toEqual({ nudged: 3 })
+    })
+  })
+})
+
 })
