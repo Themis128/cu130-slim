@@ -3198,3 +3198,10 @@ Resolved this pass (details inline above):
 - [ ] **#2181 dependabot `frontend-test` red** — same coverage-threshold
   baseline gap fixed by #2219; resolves on rebase after #2219 merges.
   Non-required check — does not block auto-merge.
+- [ ] **omv-ha LAN path flake (non-blocking)** — 192.168.1.130 ping/ssh/IMAP
+  all time out from WSL while tailnet `100.95.117.84` works fine (dovecot +
+  postfix `active`, IMAP 993 verified). Other LAN hosts reachable, so it's
+  Pi-side (firewall/subnet), not WSL. Mail-dependent scripts should fall
+  back to the tailnet IP if LAN keeps flaking.
+- [x] **Greptile KB enrollment — no reply yet** (checked INBOX ~07:00 UTC,
+  request sent ~04:34 UTC). Still waiting on support@greptile.com.
