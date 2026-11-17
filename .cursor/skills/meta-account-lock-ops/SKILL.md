@@ -170,3 +170,44 @@ Corollaries proven this incident:
 - The WABA/Graph token dies with the lock (190/460 session-invalidated) —
   re-auth via SocialAuto console after unlock, don't trust DB status
   until `account_truth.py` confirms.
+
+## Meta-wide session invalidation (no lock email — verified 2026-11-16)
+
+A different event class from the lock: Meta invalidates **existing**
+sessions/tokens server-side (password change, security session reset) —
+no "Unlock your Meta Account" mail, no lock screen. Signature observed
+simultaneously:
+
+- `refresh_expiring_tokens` sweep errors: `instagram/<acct>: Error
+  validating access token: The session has been invalidated because the
+  user changed their password or Facebook has changed the session for
+  security reasons.` — hits several Meta rows at once, not one expiring.
+- `facebook-browser-sidecar` stuck at the **profile picker** (FB's
+  "Continue as X / Use another profile" re-auth screen): log shows
+  `handleProfilePicker error: locator.click: Timeout 30000ms exceeded` +
+  `<div ...> from <div ...> subtree intercepts pointer events` looping
+  every ~30s — the picker button is under an overlay Playwright can't
+  click through. A browser `storage_state` that was working minutes
+  earlier is dead.
+- Side effect: publishes targeting the sidecar stall in `publishing`
+  until the client's HTTP timeout fires (post_video = 300s) — the post
+  then retries/fails; no data loss. See `publish-ops` stuck-publish
+  triage. Do NOT mass-revoke the task or re-render media — the assets
+  are fine; only auth is dead.
+
+Response ladder:
+
+1. Confirm it's invalidation, not a wedge: `scripts/meta_lock_check.py`
+   + the two signatures above. If only ONE row died it's expiry, not an
+   event — use `token-lifecycle-ops` instead.
+2. Sidecar re-login is interactive (credentials + 2FA tap/SMS on the
+   user's phone — the documented FB sidecar login lane in host
+   `global_rules.md`: picker → "Use another profile" → email+pass → 2FA
+   via office SIM/WhatsApp, approval lands on the Windows-11 FB app or
+   the Galaxy S22+). Drive it or hand the user the exact steps; the
+   picker-click wedge does NOT self-heal.
+3. Token lanes (`fb_reauth.py`, `meta-oauth-ops`) mint fresh Graph
+   tokens once the user credential is live again.
+4. Requeue the publishes that failed during the window — media assets
+   persist; `publish_retry`/`media_heal` pick them up once the account
+   row is `active` again (`account_truth.py` verifies).
