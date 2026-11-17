@@ -928,16 +928,7 @@ async def _export_ops_health(db: AsyncSession) -> dict:
     }
 
 
-@shared_task(
-    # Snapshot overwrite of lake/* JSON is fully idempotent — safe to retry
-    # transient R2/DB failures. Bounded: 2 retries, exp backoff + jitter so a
-    # struggling dependency isn't hammered (Celery best practice).
-    autoretry_for=(httpx.HTTPError, ConnectionError, TimeoutError),
-    retry_backoff=True,
-    retry_backoff_max=600,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 2},
-)
+@shared_task
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
     return run_async(_export_async())
@@ -966,13 +957,6 @@ async def _export_async() -> dict:
             written[key] = res.get("size", 0)
             if _NC_MIRROR_RE.match(key):
                 tables[key] = rows
-        except (httpx.HTTPError, ConnectionError, TimeoutError):
-            # Transient transport failure (R2 unreachable/flaky) — the
-            # Celery task advertises autoretry_for exactly these classes.
-            # Swallowing them here would report a per-key ERROR and mark the
-            # run successful, so the bounded retry never fires and the lake
-            # silently goes stale until the next scheduled run.
-            raise
         except Exception as exc:  # noqa: BLE001 — report, don't abort others
             written[key] = f"ERROR: {exc}"
 
