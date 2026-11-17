@@ -3677,13 +3677,16 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 - [x] Member analytics CONFIRMED GRANTED: memberFollowersCount=856,
       memberCreatorPostAnalytics impressions=65,911 (version>=202506).
       Consumer: analytics_sync.py.
-- [ ] USER GATE — Dev-Tier portal allowlist: developers.linkedin.com →
-      app 264925843 → Products → Advertising API → View settings →
-      Ad Accounts → add sponsoredAccount:512642510 (max 5). Until then
-      all writes 403; `linkedin_ads_tool.py allowlist` reproduces check.
-- [ ] USER GATE — set LINKEDIN_ADS_CAMPAIGN_ID in .env to a live
-      non-COMPLETED campaign (only campaign 904916326 is COMPLETED —
-      pause/resume refused by design on terminal statuses).
+- [x] Dev-Tier portal allowlist DONE 2026-11-18 — automated via CDP:
+      linkedin-portal-ops/scripts/li_ads_add.py added 512642510 to app
+      264925843 (mdp-settings → Add Ad Account → Save). allowlist probe
+      now reports ALLOWLISTED (no-op write accepted).
+- [x] LINKEDIN_ADS_CAMPAIGN_ID=904916326 set in .env (verified live in
+      social-worker-default settings). NOTE: only campaign on the
+      account is COMPLETED — status reads + ads report work; pause/
+      resume refuses terminal statuses by design until a live
+      ACTIVE/PAUSED campaign exists (create one in Campaign Manager or
+      via API, then update the env var).
 - [ ] Optional: member-analytics probes earlier showed 400/404 on some
       endpoints — inconclusive probe artifacts; analytics_sync will
       surface real grant state on next sync.
