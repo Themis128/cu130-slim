@@ -22,6 +22,7 @@ from app.models.email_campaign import (
     RecipientStatus,
     SurveyResponse,
 )
+from app.models.inbox_snapshot import InboxSnapshot
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
@@ -86,6 +87,7 @@ __all__ = [
     "WebAnalyticsConfig",
     "WebAnalyticsEvent",
     "WhatsAppMessage",
+    "InboxSnapshot",
     "AgencyAudit",
     "AgencyAuditStatus",
     "AgencyProposal",

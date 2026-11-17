@@ -31,7 +31,6 @@ from app.models.lead import Lead
 from app.models.linkedin_ads import AdDailyMetric
 from app.models.social_account import SocialAccount
 from app.models.web_analytics import WebAnalyticsEvent
-from app.models.whatsapp_message import WhatsAppMessage
 
 logger = logging.getLogger(__name__)
 
@@ -160,36 +159,38 @@ async def _social_leads_by_source(since: datetime) -> dict[str, int]:
     return out
 
 
-async def _whatsapp_24h() -> tuple[int, int]:
-    """(inbound msgs, unanswered threads) in last 24h."""
-    since = _since_hours(24)
+async def _inbox_pulse() -> tuple[dict[str, dict[str, int]], list[dict[str, str]], dict[str, Any]]:
+    """Live-capture the unified inbox for every team (also persists a snapshot
+    batch for history), then summarize unread threads + WhatsApp FRT stats.
+
+    Returns (by_platform, unread_conversations, frt_stats).
+    """
+    from app.models.user import Team
+    from app.services.inbox_snapshot import capture, latest_summary, whatsapp_frt_stats
+
+    by_platform: dict[str, dict[str, int]] = {}
+    unread: list[dict[str, str]] = []
+    frt: dict[str, Any] = {}
     async with async_session_maker() as db:
-        inbound = (await db.execute(
-            select(func.count()).select_from(WhatsAppMessage)
-            .where(WhatsAppMessage.direction == "inbound",
-                   WhatsAppMessage.created_at >= since)
-        )).scalar() or 0
-        # threads whose latest message is inbound and older than 2h unanswered
-        latest = (
-            select(
-                WhatsAppMessage.sender_phone,
-                func.max(WhatsAppMessage.created_at).label("mx"),
-            )
-            .where(WhatsAppMessage.created_at >= since - timedelta(days=7))
-            .group_by(WhatsAppMessage.sender_phone)
-            .subquery()
-        )
-        unanswered = (await db.execute(
-            select(func.count()).select_from(WhatsAppMessage)
-            .join(latest, WhatsAppMessage.sender_phone == latest.c.sender_phone)
-            .where(
-                WhatsAppMessage.direction == "inbound",
-                WhatsAppMessage.created_at == latest.c.mx,
-                WhatsAppMessage.created_at <= datetime.now(UTC) - timedelta(hours=2),
-                WhatsAppMessage.created_at >= since,
-            )
-        )).scalar() or 0
-    return int(inbound), int(unanswered)
+        team_ids = (await db.execute(select(Team.id))).scalars().all()
+        for tid in team_ids:
+            try:
+                await capture(db, tid)
+                summary = await latest_summary(db, tid)
+            except Exception as exc:  # noqa: BLE001 — a wedged platform must not kill the report
+                logger.warning("inbox snapshot failed for team %s: %s", tid, exc)
+                continue
+            for plat, counts in summary.by_platform.items():
+                agg = by_platform.setdefault(plat, {"total": 0, "unread": 0})
+                agg["total"] += counts.get("total", 0)
+                agg["unread"] += counts.get("unread", 0)
+            unread.extend(summary.unread_conversations)
+        try:
+            frt = await whatsapp_frt_stats(db, since=datetime.now(UTC) - timedelta(days=7))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("whatsapp FRT stats failed: %s", exc)
+            frt = {"error": str(exc)}
+    return by_platform, unread, frt
 
 
 def _fmt_counts(counts: dict[str, int], empty: str = "none") -> list[str]:
@@ -220,9 +221,29 @@ async def build_lead_pulse() -> FunnelReport:
     espo_opps = await _espo_count("Opportunity", since=since, group_attr="stage")
     report.line("Bookings / opportunities created (24h)", *_fmt_counts(espo_opps))
 
-    wa_in, wa_un = await _whatsapp_24h()
-    report.line("WhatsApp inbox", f"• inbound messages: {wa_in}",
-                f"• threads unanswered >2h: {wa_un}")
+    # Unified inbox snapshot (all platforms) + WhatsApp reply-time stats
+    inbox_platforms, unread_convos, frt = await _inbox_pulse()
+    report.line("Unified inbox (live capture)", *[
+        f"• {plat}: {c.get('total', 0)} threads, {c.get('unread', 0)} unread"
+        for plat, c in sorted(inbox_platforms.items())
+    ] or ["no conversations / all fetches failed"])
+    if unread_convos:
+        report.line("Unread conversations needing reply",
+                    *[f"• [{u['platform']}] {u['sender']}: {u['preview']}" for u in unread_convos[:10]])
+    if frt.get("error"):
+        report.line("WhatsApp response time (7d)", f"• stats unavailable: {frt['error']}")
+    elif frt.get("replies_measured"):
+        report.line("WhatsApp response time (7d)",
+                    f"• {frt['replies_measured']} replies measured — "
+                    f"median {frt.get('median_frt')}, p90 {frt.get('p90_frt')}, "
+                    f"slowest {frt.get('slowest_frt')}",
+                    f"• within 4h target: {frt.get('within_target')}, "
+                    f"over 24h: {frt.get('breaches_24h')}")
+        for u in frt.get("unanswered", []):
+            report.line("WhatsApp unanswered >2h",
+                        f"• {u.get('name', u.get('phone'))} — waiting {u.get('waiting_hours')}")
+    else:
+        report.line("WhatsApp response time (7d)", "• no inbound messages in window")
 
     # consultation intent on the site
     utm_src = WebAnalyticsEvent.payload["utm_source"].astext
@@ -238,9 +259,10 @@ async def build_lead_pulse() -> FunnelReport:
 
     total = sum(v for v in sa_leads.values()) + sum(
         v for k, v in espo_leads.items() if v > 0)
+    total_unread = sum(c.get("unread", 0) for c in inbox_platforms.values())
     report.line("Takeaway",
                 f"• {total} new leads + {sum(max(v,0) for v in espo_opps.values())} opportunities in 24h"
-                + (f" — {wa_un} WhatsApp threads need a reply" if wa_un else ""))
+                + (f" — {total_unread} unread conversations across {len(inbox_platforms)} channels" if total_unread else ""))
     return report
 
 
@@ -298,6 +320,22 @@ async def build_attribution() -> FunnelReport:
         ccounts[key] = ccounts.get(key, 0) + int(n)
     report.line("Consultation visits by source (7d)", *_fmt_counts(ccounts))
 
+    # bookings with first-touch attribution (written by the calcom webhook
+    # from the metadata the site attaches at booking time)
+    booking_src = WebAnalyticsEvent.payload["utm_source"].astext
+    async with async_session_maker() as db:
+        bookings = (await db.execute(
+            select(booking_src, func.count())
+            .where(WebAnalyticsEvent.occurred_at >= since,
+                   WebAnalyticsEvent.event_name == "booking_created")
+            .group_by(booking_src)
+        )).all()
+    bcounts: dict[str, int] = {}
+    for raw, n in bookings:
+        bcounts[str(raw) if raw else "(unattributed)"] = bcounts.get(
+            str(raw) if raw else "(unattributed)", 0) + int(n)
+    report.line("Bookings by source (7d)", *_fmt_counts(bcounts))
+
     sa = await _social_leads_by_source(since)
     report.line("SocialAuto leads by channel (7d)", *_fmt_counts(sa))
     espo = await _espo_count("Lead", since=since)
@@ -306,8 +344,10 @@ async def build_attribution() -> FunnelReport:
     report.line("Opportunities by stage (7d)", *_fmt_counts(opps))
 
     booked = sum(v for k, v in opps.items() if v > 0)
+    total_bookings = sum(bcounts.values())
     report.line("Takeaway",
-                f"• {booked} opportunities from {sum(v for v in sa.values()) + sum(max(v,0) for v in espo.values())} leads this week"
+                f"• {total_bookings} attributed bookings, {booked} opportunities from "
+                f"{sum(v for v in sa.values()) + sum(max(v,0) for v in espo.values())} leads this week"
                 + (" — top consult source: " + max(ccounts, key=ccounts.get) if ccounts else ""))
     return report
 

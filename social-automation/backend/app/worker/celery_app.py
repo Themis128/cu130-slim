@@ -130,6 +130,7 @@ celery_app = Celery(
         "app.worker.tasks.bluesky_credential",
         "app.worker.tasks.meeting_notes",
         "app.worker.tasks.funnel_reports",
+        "app.worker.tasks.inbox_snapshot",
     ],
 )
 
@@ -1046,6 +1047,13 @@ celery_app.conf.update(
                 minute=settings.FUNNEL_MONTHLY_MINUTE,
             ),
             "kwargs": {"send": True},
+        },
+        # Unified-inbox snapshot every 6h — persists Messenger/IG/WhatsApp
+        # conversation state so the lead-pulse report and future SLA trends
+        # don't depend on live provider calls.
+        "inbox-snapshot": {
+            "task": "app.worker.tasks.inbox_snapshot.run_inbox_snapshot",
+            "schedule": crontab(minute=15, hour="*/6"),
         },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {
