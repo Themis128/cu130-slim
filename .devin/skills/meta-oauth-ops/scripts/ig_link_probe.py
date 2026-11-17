@@ -10,17 +10,27 @@ Usage:  python3 ig_link_probe.py          (runs inside social-api)
 No secrets are printed — only booleans and IDs.
 """
 import json
+import os
 import subprocess
 import sys
 
 PAGE_ID = "116436681562585"
 BUSINESS_ID = "1134463867"  # business.facebook.com portfolio hosting the page
+# Blue-green deploys may leave only social-api-green running.
+CONTAINER = os.environ.get("PROBE_CONTAINER") or next(
+    (c for c in ("social-api", "social-api-green")
+     if subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", c],
+                       capture_output=True, text=True).stdout.strip() == "true"),
+    "social-api",
+)
 
 CODE = r'''
 import asyncio, json, urllib.request, urllib.error
 from app.db.session import async_session_maker
 from sqlalchemy import text
 from app.core.security import decrypt_token
+
+PAGE_ID = "''' + PAGE_ID + '''"
 
 def get(u):
     try:
@@ -34,26 +44,45 @@ async def main():
     out = {}
     async with async_session_maker() as s:
         r = await s.execute(text(
-            "select access_token_enc from social_accounts "
+            "select account_type, access_token_enc from social_accounts "
             "where platform='facebook' and status='active' "
-            "and username not ilike '%.gr' limit 1"))
-        enc = r.scalar()
+            "and account_type in ('user','page')"))
+        toks = {row.account_type: decrypt_token(row.access_token_enc)
+                for row in r if row.access_token_enc}
         r2 = await s.execute(text(
             "select username, status, account_type, account_id "
             "from social_accounts where platform='instagram'"))
         out["ig_rows"] = [dict(x._mapping) for x in r2]
-    if not enc:
-        out["error"] = "no active facebook user token"
-        print(json.dumps(out)); return
-    tok = decrypt_token(enc)
-    d = get("https://graph.facebook.com/v21.0/me/accounts"
-            "?access_token=" + tok +
-            "&fields=id,name,instagram_business_account,"
-            "connected_instagram_account,access_token")
-    for p in d.get("data", []):
-        if p.get("id") == "''' + PAGE_ID + '''":
-            p.pop("access_token", None)
-            out["page"] = p
+    tok_user = toks.get("user")
+    tok_page = toks.get("page")
+    if tok_user:
+        # User token: enumerate managed Pages, keep only ours.
+        d = get("https://graph.facebook.com/v21.0/me/accounts"
+                "?access_token=" + tok_user +
+                "&fields=id,name,instagram_business_account,"
+                "connected_instagram_account,access_token")
+        if "data" not in d:
+            out["probe_error"] = d
+        else:
+            for p in d.get("data", []):
+                if p.get("id") == PAGE_ID:
+                    p.pop("access_token", None)
+                    out["page"] = p
+            if "page" not in out:
+                out["probe_error"] = {"note": "page not in me/accounts",
+                                      "managed": [p.get("id") for p in d.get("data", [])]}
+    elif tok_page:
+        # Page token fallback (user row expired): read the Page directly.
+        d = get(f"https://graph.facebook.com/v21.0/{PAGE_ID}"
+                f"?access_token={tok_page}"
+                "&fields=id,name,instagram_business_account,"
+                "connected_instagram_account")
+        if "id" in d:
+            out["page"] = d
+        else:
+            out["probe_error"] = d
+    else:
+        out["error"] = "no active facebook user/page token"
     print(json.dumps(out))
 
 asyncio.run(main())
@@ -62,14 +91,17 @@ asyncio.run(main())
 
 def main():
     r = subprocess.run(
-        ["docker", "exec", "-i", "social-api", "python", "-"],
+        ["docker", "exec", "-i", CONTAINER, "python", "-"],
         input=CODE, capture_output=True, text=True, timeout=90)
     line = next((l for l in r.stdout.splitlines()
                  if l.strip().startswith("{")), "")
     if not line:
-        print("probe failed:", (r.stderr or r.stdout)[-300:])
+        print(f"probe failed ({CONTAINER}):", (r.stderr or r.stdout)[-300:])
         return 1
     d = json.loads(line)
+    if d.get("probe_error") or d.get("error"):
+        print("PROBE FAILED:", json.dumps(d.get("probe_error") or d.get("error"))[:300])
+        return 3
     page = d.get("page") or {}
     igbiz = bool(page.get("instagram_business_account"))
     igconn = bool(page.get("connected_instagram_account"))

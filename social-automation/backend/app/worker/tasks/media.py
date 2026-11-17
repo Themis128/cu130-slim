@@ -151,7 +151,9 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                         )
                         if proc.returncode == 0 and frame_png.exists():
                             return await asyncio.wait_for(
-                                media_ai.verify_media_semantics(frame_png.read_bytes(), prompt, media_type="video"),
+                                media_ai.verify_media_semantics(
+                                    frame_png.read_bytes(), prompt, media_type="video"
+                                ),
                                 timeout=timeout,
                             )
                 except TimeoutError:
@@ -229,14 +231,17 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                                 image_bytes=image_bytes,
                                 i2v_strength=float(options.get("i2v_strength") or 1.0),
                             )
+                        # Persist the retry render BEFORE its QA — same rule as
+                        # the first pass: the bytes are the expensive product,
+                        # and a soft-limit kill during QA must not lose them.
+                        previous = asset
+                        asset = await _persist(data, meta)
                         retry_qa = await _qa_frame(data)
                         # Keep the first verdict when the retry's QA couldn't
                         # produce one — a fake "not run" pass would erase a
                         # real mismatch.
                         if retry_qa.get("reason") not in ("not run", "qa timeout"):
                             qa = retry_qa
-                        previous = asset
-                        asset = await _persist(data, meta)
                         prev_meta = dict(previous.meta_data or {})
                         prev_meta["superseded_by"] = str(asset.id)
                         previous.meta_data = prev_meta

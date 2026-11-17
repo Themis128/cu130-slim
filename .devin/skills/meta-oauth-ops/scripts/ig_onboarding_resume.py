@@ -64,17 +64,27 @@ def main():
             return
         url = ext["url"]
         try:
-            txt = eval_on(ext["id"], "location.href.slice(0,90)+' ||| '+document.body.innerText.slice(0,300)")
+            # full innerText — Meta's chrome header can exceed 300 chars and
+            # push the block notice past a small slice
+            txt = eval_on(ext["id"], "location.href.slice(0,90)+' ||| '+document.body.innerText")
         except Exception as e:
             print(f"  eval failed: {e} — retrying next interval", flush=True)
             time.sleep(INTERVAL)
             continue
         print(f"[{time.strftime('%H:%M:%S')}] attempt {attempt}: {str(txt)[:160]}", flush=True)
-        if txt and "Temporarily Blocked" not in str(txt):
+        if txt in (None, "WS-DIED", "TIMEOUT"):
+            print("  eval unusable — retrying next interval", flush=True)
+            time.sleep(INTERVAL)
+            continue
+        blocked = "Temporarily Blocked" in str(txt)
+        if not blocked:
             # block cleared — click through wizard steps a few times
             for _ in range(6):
                 r = eval_on(ext["id"], STEP_CLICK)
                 print(f"  step: {r}", flush=True)
+                if r == "BLOCKED":
+                    blocked = True   # block notice was past the pre-check slice
+                    break
                 if not r or "WS-DIED" in str(r) or "TIMEOUT" in str(r):
                     break
                 time.sleep(8)
@@ -84,7 +94,8 @@ def main():
                     print("  extension tab closed — handoff done", flush=True)
                     return
                 ext = ext2
-            return
+            if not blocked:
+                return
         # still blocked — reload and wait
         try:
             ws = __import__("websocket").create_connection(ext["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)

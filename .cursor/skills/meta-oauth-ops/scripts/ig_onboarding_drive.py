@@ -14,9 +14,28 @@ CDP = "http://172.22.144.1:9229"
 INTERVAL = 7200            # seconds between full attempts
 MAX_ATTEMPTS = 12          # ~24h budget
 ENV_PATH = "/home/tbaltzakis/cu130-slim/.env"
+PAGE_ID = "116436681562585"   # cloudless.gr FB Page
+IG_USERNAME = "cloudless.gr"
 STATE = {
     "t": "10024d25-2ea4-40ea-86c6-b1a89f515a2e",  # overwritten by mint
 }
+
+
+def _container():
+    """Active API container — blue-green deploys may leave only -green."""
+    for c in ("social-api", "social-api-green"):
+        r = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", c],
+                           capture_output=True, text=True)
+        if r.stdout.strip() == "true":
+            return c
+    return "social-api"
+
+
+def _ig_host(url):
+    """True only for real instagram.com hosts — a substring match would let
+    evil.example/?next=instagram.com qualify for credential entry."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host == "instagram.com" or host.endswith(".instagram.com")
 
 
 # ---------- helpers ----------
@@ -27,6 +46,10 @@ def tabs():
 
 def tab_by_url(substr):
     return next((t for t in tabs() if substr in t.get("url", "")), None)
+
+
+def tabs_by_id(tab_id):
+    return next((t for t in tabs() if t.get("id") == tab_id), {})
 
 
 def ws_for(tab):
@@ -139,7 +162,7 @@ url = ('https://www.facebook.com/dialog/oauth?client_id=' + settings.FACEBOOK_CL
        + '&state=' + state + '&display=page&extras=' + quote(extras))
 print(url)
 '''
-    out = subprocess.run(["docker", "exec", "social-api", "python", "-c", code],
+    out = subprocess.run(["docker", "exec", _container(), "python", "-c", code],
                          capture_output=True, text=True, timeout=60)
     for line in out.stdout.splitlines():
         if line.startswith("https://www.facebook.com/dialog/oauth"):
@@ -161,26 +184,49 @@ def close_tab(tab_id):
 
 
 def page_ig_linked():
-    """True once the FB Page has instagram_business_account set."""
+    """True only once OUR Page (cloudless.gr) has the cloudless.gr IG account
+    linked — a link on any other managed Page must not count as success."""
     code = r'''
 import sys, asyncio, json, urllib.request
 sys.path.insert(0,'/app')
 from app.db.session import async_session_maker
 from sqlalchemy import text
 from app.core.security import decrypt_token
+PAGE_ID = "''' + PAGE_ID + '''"
+IG_USERNAME = "''' + IG_USERNAME + '''"
+FIELDS = "id,name,instagram_business_account{username},connected_instagram_account"
 async def main():
     async with async_session_maker() as s:
-        r = await s.execute(text("select access_token_enc from social_accounts where platform='facebook' and status='active' and username not ilike '%.gr' limit 1"))
-        enc = r.scalar()
-    tok = decrypt_token(enc)
-    d = json.loads(urllib.request.urlopen('https://graph.facebook.com/v21.0/me/accounts?access_token='+tok+'&fields=id,instagram_business_account',timeout=15).read())
-    for p in d.get('data',[]):
-        if p.get('instagram_business_account'):
-            print('LINKED', p['instagram_business_account'])
+        r = await s.execute(text(
+            "select account_type, access_token_enc from social_accounts "
+            "where platform='facebook' and status='active' "
+            "and account_type in ('user','page')"))
+        toks = {row.account_type: decrypt_token(row.access_token_enc)
+                for row in r if row.access_token_enc}
+    tok_user = toks.get("user")
+    tok_page = toks.get("page")
+    d = None
+    if tok_user:
+        d = json.loads(urllib.request.urlopen(
+            'https://graph.facebook.com/v21.0/me/accounts?access_token='+tok_user
+            +'&fields='+FIELDS, timeout=15).read())
+        pages = [p for p in d.get('data', []) if p.get('id') == PAGE_ID]
+    elif tok_page:
+        d = json.loads(urllib.request.urlopen(
+            f'https://graph.facebook.com/v21.0/{PAGE_ID}?access_token={tok_page}'
+            +'&fields='+FIELDS, timeout=15).read())
+        pages = [d] if d.get('id') == PAGE_ID else []
+    else:
+        return
+    for p in pages:
+        ig = p.get('instagram_business_account') or {}
+        uname = (ig.get('username') or '').lower()
+        if uname == IG_USERNAME.lower():
+            print('LINKED', ig.get('id'))
 asyncio.run(main())
 '''
     try:
-        out = subprocess.run(["docker", "exec", "social-api", "python", "-c", code],
+        out = subprocess.run(["docker", "exec", _container(), "python", "-c", code],
                              capture_output=True, text=True, timeout=60)
         return "LINKED" in out.stdout
     except Exception:
@@ -192,6 +238,10 @@ asyncio.run(main())
 def drive_ig_tab(tab):
     """Handle whatever the IG/OIDC popup shows: cookie banner, profile pick,
     WhatsApp-vs-authenticator chooser, TOTP, save-login."""
+    if not _ig_host(tabs_by_id(tab["id"]).get("url", "")):
+        log(f"ig: refusing credential entry on non-instagram host: "
+            f"{tabs_by_id(tab['id']).get('url', '')[:80]}")
+        return "BAD_HOST"
     t = Tab(tab["id"])
     txt = t.text(600)
     # cookie consent (iframe coords are unreliable — DOM click)
@@ -269,15 +319,16 @@ def attempt(n):
     existing = (tab_by_url("facebook_business_extension")
                 or tab_by_url("dialog/oauth")
                 or next((x for x in tabs()
-                         if re.search(r"instagram\.com/accounts/login", x.get("url", ""))), None))
+                         if _ig_host(x.get("url", ""))
+                         and "/accounts/login" in urllib.parse.urlparse(x.get("url", "")).path), None))
     if existing:
         log(f"  resuming existing tab {existing['id'][:8]} {existing['url'][:60]}")
         t = Tab(existing["id"])
         # close stale IG auth tabs from dead chains — they'd hijack priority-1
         for x in tabs():
-            if (x["id"] != t.id and re.search(
-                    r"instagram\.com/(accounts/(login|two_step)|auth_platform|oauth)",
-                    x.get("url", ""))):
+            if (x["id"] != t.id and _ig_host(x.get("url", "")) and re.search(
+                    r"/(accounts/(login|two_step)|auth_platform|oauth)",
+                    urllib.parse.urlparse(x.get("url", "")).path)):
                 close_tab(x["id"])
     else:
         try:
@@ -290,6 +341,8 @@ def attempt(n):
     time.sleep(8)
 
     popups_done = 0   # IG login popups completed in this attempt
+    seen_popups = set()  # popup target ids already counted — a popup still
+                       # loading must not burn the retry budget
     need_reload = False  # parent went stale after a popup closed — reload once
     for step in range(16):
         try:
@@ -312,9 +365,10 @@ def attempt(n):
 
         # --- priority 1: an IG auth popup open in ANOTHER tab ---
         ig = next((x for x in tabs()
-                   if x["id"] != t.id and re.search(
-                       r"instagram\.com/(accounts/(login|challenge|two_step)|oauth|auth_platform)",
-                       x.get("url", ""))),
+                   if x["id"] != t.id
+                   and re.search(r"/(accounts/(login|challenge|two_step)|oauth|auth_platform)",
+                                 urllib.parse.urlparse(x.get("url", "")).path)
+                   and _ig_host(x.get("url", ""))),
                   None)
         if ig:
             try:
@@ -324,7 +378,9 @@ def attempt(n):
                 r = None
             if r == "NO_TOTP":
                 return
-            popups_done += 1
+            if ig["id"] not in seen_popups:
+                seen_popups.add(ig["id"])
+                popups_done += 1
             need_reload = True   # parent needs a reload to see next sub-step
             if popups_done >= 4:
                 # the wizard has 3 sub-steps (login/page-link/perms), each able
@@ -373,7 +429,7 @@ def attempt(n):
                 log("  ✅ IG business account linked — done")
                 sys.exit(0)
             return
-        if "instagram.com" in cur:
+        if _ig_host(cur):
             try:
                 r = drive_ig_tab({"id": t.id})
             except Exception:
@@ -400,7 +456,7 @@ def attempt(n):
             if "Get started" in txt:
                 t.click_button("get started")           # JS click opens the popup
                 time.sleep(5)
-                if not any(x["id"] != t.id and "instagram.com" in x.get("url", "")
+                if not any(x["id"] != t.id and _ig_host(x.get("url", ""))
                            for x in tabs()):
                     t.click_button("get started", trusted=True)  # real-mouse fallback
             else:
