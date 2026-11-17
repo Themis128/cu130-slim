@@ -3203,69 +3203,16 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
-
-## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
-
-- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
-      the task layer was never the flash source.
-- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
-      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
-      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
-      `.bat` launchers, Chrome native hosts (inherent).
-- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
-      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
-      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
-      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
-      mcp-health-watch, mail-outbound-secret-heal (+ new
-      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
-- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
-      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
-      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
-      `npx`/`.cmd` shim chains are gone.
-- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
-- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
-      classes, the grandchild rule, and why `-WindowStyle Hidden` /
-      `conhost --headless` (for output capture) don't work.
-- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
-      `_popup-watch` captures in the loop if popups are reported again —
-      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
-      are already headless or need the same wrap.
-- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
-      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
-      clean through the wrapper.
-
-### battle-test addendum (same day, evening)
-
-- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
-      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
-      the PRE-EDIT config in memory (on-disk configs already clean).
-- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
-      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
-- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
-      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
-      with the old flash-prone command line.
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
-
-### Leftover sweep — optimal pass (2026-11-17)
-
-- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
-      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
-      Remaining "failures" are only the cancelled `notify` job — the
-      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
-- [x] IG reauth ran (fast path): connected a DIFFERENT IG
-      (`17841463022505300` — personal, new active row
-      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
-      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
-      lane, still the Meta wizard gate.
-- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
-      from containers; only WSL `localhost` forwarding is dead (vsock class).
-- [ ] threads heal blocked further upstream than expected: threads.net/oauth
-      redirects to login — the sidecar has NO instagram.com session; needs a
-      real IG login (backup code + trust-device) before consent can run.
-- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
-      via SocialAuto console; wa_verify daemon retry-loops until then.
-- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
-      needs one human tap → "Call me" (voice channel bypasses SMS throttle).
+- [x] **Video render task: persist-before-QA + bounded vision calls**
+  (2026-11-16). `generate_video_asset_task` saved the MediaAsset only
+  AFTER semantic QA — a DMR vision cold-load ate the 2700s soft limit and
+  a finished Wan2.2 render (`socialauto_00015.mp4`, post c4dff316) was
+  discarded (SoftTimeLimitExceeded; asset recovered manually as
+  37d483f0). Fix: asset persists immediately post-render; QA wrapped in
+  `asyncio.wait_for` (180s) so timeout/unavailability is metadata
+  (`reason: "qa timeout"`), never a task kill; the QA-mismatch re-render
+  now runs only when elapsed + render cost + QA + margin < soft limit
+  (a second Wan2.2 render never fit anyway — flagged `retry: skipped`),
+  and its output saves as a NEW asset with the original marked
+  `superseded_by` (non-destructive). CF vision clients got per-phase
+  `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.
