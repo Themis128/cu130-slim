@@ -18,7 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import and_, func, select, text
 
 from app.core.security import decrypt_token
 from app.models import AnalyticsEvent, Post, SocialAccount
@@ -37,15 +37,29 @@ async def _pending_signals(db) -> list[tuple]:
     """Latest ``datalake_signals`` event per team within the dedup window.
 
     The insights sweep persists one event per team per run; executing only
-    the single newest event starves every other team's actions."""
+    the single newest event starves every other team's actions. Latest-per-
+    team is selected in SQL before any row cap so a sweep covering more
+    teams than a flat LIMIT still reaches every team's newest event."""
     since = datetime.now(UTC) - timedelta(hours=24)
+    team_col = AnalyticsEvent.meta_data["team_id"].astext
+    latest = (
+        select(team_col.label("tid"), func.max(AnalyticsEvent.occurred_at).label("mx"))
+        .where(AnalyticsEvent.event_type == SIGNALS_TYPE, AnalyticsEvent.occurred_at >= since)
+        .group_by(team_col)
+        .subquery()
+    )
     rows = (
         (
             await db.execute(
                 select(AnalyticsEvent)
-                .where(AnalyticsEvent.event_type == SIGNALS_TYPE, AnalyticsEvent.occurred_at >= since)
-                .order_by(AnalyticsEvent.occurred_at.desc())
-                .limit(200)
+                .join(
+                    latest,
+                    and_(
+                        team_col == latest.c.tid,
+                        AnalyticsEvent.occurred_at == latest.c.mx,
+                    ),
+                )
+                .where(AnalyticsEvent.event_type == SIGNALS_TYPE)
             )
         )
         .scalars()
@@ -148,7 +162,9 @@ async def _exec_devapp_health(db, team_id, action) -> dict:
     if await _already_executed(db, team_id, "devapp_health", key):
         return {"skipped": "already alerted <24h"}
     label = f"{action.get('platform')}/@{action.get('username')}" if action.get("username") else str(action.get("platform"))
-    await post_alert_to_slack(f"⚠️ devapp health — {label}: {action.get('reason', 'unknown')}")
+    ok = await post_alert_to_slack(f"⚠️ devapp health — {label}: {action.get('reason', 'unknown')}")
+    if not ok:
+        return {"error": "slack_alert_failed"}
     return {"alerted": label}
 
 
@@ -168,37 +184,48 @@ def execute_actions() -> dict:
 async def _run() -> dict:
     async with task_session() as db:
         pending = await _pending_signals(db)
-        results = []
-        teams_done = 0
-        for tid_raw, signals in pending:
-            actions = signals.get("actions") or []
-            if not actions:
-                continue
-            teams_done += 1
+    results = []
+    team_errors = []
+    teams_done = 0
+    for tid_raw, signals in pending:
+        actions = signals.get("actions") or []
+        if not actions:
+            continue
+        # Each team commits in its own session — a failed flush rolls back
+        # only that team instead of poisoning one shared transaction and
+        # discarding every other team's drafts and action records.
+        team_results = []
+        try:
             team_id = uuid.UUID(tid_raw) if isinstance(tid_raw, str) else tid_raw
-            for action in actions:
-                fn: Any = _EXECUTORS.get(action.get("type"))
-                if not fn:
-                    continue
-                key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
-                if action.get("type") == "devapp_health":
-                    # match the dedup key _exec_devapp_health checks against
-                    key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
-                try:
-                    out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
-                except Exception as e:
-                    out = {"error": str(e)[:120]}
-                db.add(
-                    AnalyticsEvent(
-                        team_id=team_id,
-                        event_type=ACTIONS_TYPE,
-                        platform="datalake",
-                        occurred_at=datetime.now(UTC),
-                        meta_data={"action_type": action["type"], "key": key, "reason": action.get("reason", ""), "result": out},
+            async with task_session() as db:
+                for action in actions:
+                    fn: Any = _EXECUTORS.get(action.get("type"))
+                    if not fn:
+                        continue
+                    key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
+                    if action.get("type") == "devapp_health":
+                        # match the dedup key _exec_devapp_health checks against
+                        key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
+                    try:
+                        out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
+                    except Exception as e:
+                        out = {"error": str(e)[:120]}
+                    db.add(
+                        AnalyticsEvent(
+                            team_id=team_id,
+                            event_type=ACTIONS_TYPE,
+                            platform="datalake",
+                            occurred_at=datetime.now(UTC),
+                            meta_data={"action_type": action["type"], "key": key, "reason": action.get("reason", ""), "result": out},
+                        )
                     )
-                )
-                results.append({"type": action["type"], "team": str(team_id), **out})
-        if not results:
-            return {"skipped": "no signals"}
-        await db.commit()
-        return {"executed": len(results), "teams": teams_done, "results": results}
+                    team_results.append({"type": action["type"], "team": str(team_id), **out})
+                await db.commit()
+            results.extend(team_results)
+            teams_done += 1
+        except Exception as e:
+            logger.exception("datalake_executor team %s failed", tid_raw)
+            team_errors.append({"team": str(tid_raw), "error": str(e)[:200]})
+    if not results and not team_errors:
+        return {"skipped": "no signals"}
+    return {"executed": len(results), "teams": teams_done, "team_errors": team_errors, "results": results}
