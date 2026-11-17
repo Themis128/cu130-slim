@@ -546,7 +546,7 @@ app/services/
 │   │                           (.devin/skills/slack-ops/scripts/slack_token_sync.py,
 │   │                           2h cron): it rotates the mcp-remote xoxe user
 │   │                           token, mirrors it into .env, and recreates the
-│   │                           token consumers (social-api + 4 workers +
+│   │                           token consumers (social-api + 5 workers +
 │   │                           celery-beat + n8n — n8n only once its running
 │   │                           executions drain, since EXECUTIONS_MODE=regular
 │   │                           shares the container: a graceful
@@ -1536,7 +1536,7 @@ Inbound message           Polling/             Chatbot Service       AI Provider
 │                                                                     │
 │  ┌─────────────┐                                                    │
 │  │ Flower      │  Celery monitoring dashboard (:5555)              │
-│  │             │  Auth-protected, monitors all 4 worker queues     │
+│  │             │  Auth-protected, monitors all 5 worker queues     │
 │  └─────────────┘                                                    │
 └─────────────────────────────────────────────────────────────────────┘
 ```

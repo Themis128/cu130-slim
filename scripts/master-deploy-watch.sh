@@ -44,7 +44,7 @@ asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
   }
 }
 
-CORE_RESTART="social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat"
+CORE_RESTART="social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-worker-meta celery-beat"
 HEALTH_URL="${HEALTH_URL:-http://localhost:8083/health}"
 
 # ── deploy lock held by someone else → hands off ──────────────────────
