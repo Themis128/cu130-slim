@@ -3119,24 +3119,100 @@ Resolved this pass (details inline above):
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
 
-- [x] **Throwaway report containers stale-env class — FIXED 2026-11-16**:
-  `strategy-report-run3` baked a pre-rotation `REDIS_URL` into
-  Config.Env; pydantic env vars beat the mounted `/app/.env`, so the
-  whole report ran degraded (Redis auth fails → GPU arbiter
-  unserialized; the "comfyui invalid username-password" error is the
-  same stale-Redis class, NOT ComfyUI auth — ComfyUI has no credential
-  env and prompt submission succeeded). New launcher
-  `scripts/run-backend-once.sh <name> '<cmd>'` always injects the LIVE
-  `.env` (baked-image + docker-cp path works even while the fsbridge is
-  poisoned; `--mounted` refuses when the probe fails). Verified: env
-  hash inside container == host `.env`.
-- [ ] **IG↔FB Page link — Meta escalation path (researched 2026-11-16)**:
-  Account Quality (`business.facebook.com/accountquality`) is the only
-  review surface; admin-only, ~3 review attempts max, reviews take
-  ~24–72h for minor cases and a completed review is FINAL. Check the
-  PERSONAL profile's restrictions there (the 2021 ad-account + profile
-  restrictions contaminate the portfolio), have identity/business
-  verification ready before requesting, and file ONE well-prepared
-  review — past failed appeals (Aug–Oct) likely lacked it. Business
-  portfolio `cloudless.gr` is clean; the personal profile is the
-  restricted asset. `ig_onboarding_drive.py` stays parked until then.
+## 2026-11-16 (evening) — leftovers sweep
+
+- [x] **Skills+tools update landed in PR #2070** — meta-oauth-ops gained the
+  REAL IG↔FB link surface (Page Settings → Linked accounts → Review
+  connection accordion → IG OIDC), the account-standing gate, Graph field
+  semantics, CDP mechanics + `ig_link_probe.py`; meta-account-lock-ops
+  gained the ad-restriction failure class + Account Quality URL map;
+  report-delivery-ops gained the stale-env throwaway gotcha; DMR skill
+  gained the unload-requeue loop + stale-env arbiter bypass.
+- [x] **Strategy report relaunched with FRESH env** — `strategy-report-run3`
+  wedged: baked-in stale `REDIS_URL` → Celery result-store retry loop
+  (20× reconnect forever). Root cause found: `.env` on disk is a
+  **placeholder file** (`REDIS_URL=redis://:redis_password@…`) — real
+  secrets live in Infisical/inject into managed containers. Relaunched
+  as `strategy-report-run4` with live `REDIS_URL` pulled from
+  `social-api`'s env + `COMFYUI_URL=http://stack-ops:8199` (the real
+  path — `.env`'s `http://comfyui:8000` resolves nowhere). Redis ping
+  now OK. **run-backend-once.sh caveat: `docker cp .env` alone is NOT
+  enough when `.env` holds placeholders — the env_file path must also
+  inject live values** (PR #2069 script updated for fsbridge but not
+  for placeholder-vs-live secrets; see below).
+- [x] **PR #2066 coverage fixed** — frontend-test failed on marginal
+  thresholds (lines 99.4/99.5, functions 99.28/99.5, statements
+  99.14/99.2). Added surface-table rows (blueskyApi.connect/status,
+  emailCampaignsApi.nudge) + `useConnectBluesky` mutation case →
+  pushed `a7908fd1` to `chore/dependabot-sweep`.
+- [x] **IG onboarding driver PARKED** (pid 293484 killed) — verified the
+  wizard is hard-blocked by the FB account restriction (not rate
+  limits); each attempt burns ~4 forced-auth IG logins against Meta's
+  rate bucket for zero progress. Re-arm only after Account Quality
+  restriction lifts.
+- [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
+  (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
+  (active coverage fix).
+- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
+  `run-backend-once.sh` copies the placeholder `.env`; for
+  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
+  container env (`docker exec social-api printenv`) as done for run4,
+  or extend the script with `--live-secrets` that diffs against
+  `social-api`'s env.
+- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
+  `Loading...` under the known thrash); inference already failed →
+  rule-based fallback active, still executing.
+- [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
+  push; auto-merge armed on all 13 open PRs, 0 other failures.
+
+## 2026-11-16 late — Meta lock cleared via phone; WA Business app still gated
+
+- **Meta device-verification lock CLEARED** on the Galaxy S22+ (a
+  previously-used device): Gmail on the phone delivered the code →
+  mandatory password reset → reused `.env` `FACEBOOK_PASSWORD` (accepted —
+  zero credential drift) → FB app logged in. New runbook in
+  `meta-account-lock-ops`.
+- **WABA token still dead** (190/460 invalidated by the lock) — needs
+  SocialAuto-console re-auth, then `account_truth.py` before trusting rows.
+- **WhatsApp Business app verify still blocked**: SMS never arrived
+  (likely suppressed by the lock — re-request now post-unlock). Verify
+  screen filters ALL injected input; Samsung Pass passkey prompt for
+  ********7838 appeared on fresh install — **fingerprint = human gate**
+  (user was asked to scan, or Cancel → SMS path). App-only registration
+  would migrate the number OFF Cloud API — coexistence needs the
+  `whatsapp_business_app_onboarding` Embedded-Signup feature from the
+  partner side; decide app-only vs coexistence before completing.
+- New tool: `human-gate-bridges/scripts/phone_gmail_otp.py` — reads OTPs
+  from the phone's Gmail (notification extras + inbox dump).
+- Rules added: `docker-mcp-first` (#2076 merged), `web-search-when-stuck`
+  (#2079) + AGENTS.md note.
+
+## 2026-11-16 night — console-flash (cmd/PowerShell popup) elimination
+
+- Root cause: every WSL→Windows interop spawn (`powershell.exe`, `*.exe`
+  under /mnt/c, `wsl.exe`, `adb.exe`, `docker.exe`) allocates a visible
+  console; unconditional per-pass cron calls produced ~500 flashes/day.
+- New skill **`win-interop-quiet`** (.devin + .cursor): the 5 quiet
+  patterns (batch probes → one spawn, stamp-throttle, shared state files,
+  WSL-native-first + .exe fallback, headless scheduled tasks) +
+  `scripts/win_spawn_audit.py` crontab scanner (HOT/GUARD/REVIEW).
+- Applied: `host_gates_check.py` single batched powershell spawn/pass +
+  persists `host-ram-available-mb`; `fb_session_heal.py` reads that file;
+  `docker_engine_guard.py` exe probe hourly-stamped; `cdp-debug-watch.py`
+  hourly batched janitor (home-ops); `tt_profile_link.py` Linux-adb-first;
+  `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
+- Residual flashes are deliberate rare remediations (wsl --shutdown,
+  401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+- [x] **Video render task: persist-before-QA + bounded vision calls**
+  (2026-11-16). `generate_video_asset_task` saved the MediaAsset only
+  AFTER semantic QA — a DMR vision cold-load ate the 2700s soft limit and
+  a finished Wan2.2 render (`socialauto_00015.mp4`, post c4dff316) was
+  discarded (SoftTimeLimitExceeded; asset recovered manually as
+  37d483f0). Fix: asset persists immediately post-render; QA wrapped in
+  `asyncio.wait_for` (180s) so timeout/unavailability is metadata
+  (`reason: "qa timeout"`), never a task kill; the QA-mismatch re-render
+  now runs only when elapsed + render cost + QA + margin < soft limit
+  (a second Wan2.2 render never fit anyway — flagged `retry: skipped`),
+  and its output saves as a NEW asset with the original marked
+  `superseded_by` (non-destructive). CF vision clients got per-phase
+  `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.

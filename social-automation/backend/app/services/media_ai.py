@@ -125,7 +125,7 @@ async def _call_cloudflare_vision(
             "max_tokens": max_tokens,
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
             resp = await client.post(
                 url,
                 headers={
@@ -156,7 +156,7 @@ async def _call_cloudflare_vision(
     else:
         moondream_payload["prompt"] = prompt
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
         resp = await client.post(
             url,
             headers={
