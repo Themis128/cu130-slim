@@ -3343,3 +3343,275 @@ Resolved this pass (details inline above):
       backoff (5s/10s) so single API blips no longer fire the 24h-deduped
       error alert. Both watches verified: `no new inbound` / `no new mail`.
       (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
+
+## 2026-11-17 — salvaged entries from stale branches (sweep, part 2)
+
+More branches pruned in the 2026-11-17 leftover sweep; unique lines
+preserved below. Closed-PR heads remain fetchable via `refs/pull/<N>/head`.
+
+### from `docs/backlog-leftovers-2026-11-17` (PR 2192)
+
+```text
+- [x] Take a fresh post-recovery NAS backup once stack is confirmed stable
+  (nightly job should do it; verify tomorrow's run). Verified 2026-11-17:
+  `backup_freshness_watch` reports ok — newest `manifest-20261116-0430.csv`
+  (20h at last check), nightly job running on schedule.
+- [x] Rotate `POSTGRES_PASSWORD` (metabase role) — DONE 2026-11-17: the
+  `postgres` container's superuser is `metabase` (= `METABASE_DB_PASS`,
+  shared by metabase app DB + the `infisical` DB via `INFISICAL_DB_URI`).
+  Rotated: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`.
+  Verified SCRAM auth on both DBs, metabase+infisical healthy. ALSO fixed
+  a stale Metabase *data-source* credential found during verification:
+  "SocialAuto" source (id 1 → social-postgres/social_user) held the
+  pre-2026-11-13 `SOCIAL_POSTGRES_PASSWORD` → `PUT /api/database/1` with
+  the current secret; `/api/database/1/healthcheck` now `ok`.
+- [ ] Rotate Infisical UA client secret (same 2026-11-09 exposure window)
+  per secret-safety policy — tracked at the STILL OPEN item below.
+  Partial 2026-11-17: `moderate_linkedin_community` ran 02:07 UTC,
+  succeeded (10 posts scanned, dry-run). ads-guard (daily 08:00) +
+  offline-conversions (daily 06:40) had no slot yet — celery-beat was
+  recreated 00:53 UTC in the fsbridge recovery; confirm both fired on
+  their first scheduled slot before closing this watch.
+- [x] **throwaway-launcher live-secrets lane — DONE in PR #2187**:
+  `scripts/run-backend-once.sh` defaults to exporting the live env from
+  the `social-api` container (`--env-file`), so placeholder `.env`
+  values can't leak into throwaway runs; `--mounted` refuses when the
+  fsbridge probe fails.
+- [x] **watch: strategy-report-run4** — COMPLETED degraded 2026-11-16
+  (engine outage window): 255 teams, 2 emailed, llm_used=0, rule-based
+  fallback. Container gone; DMR verified healthy post-recovery. NOTE:
+  scheduled `daily-strategy-report` runs `run_notebook_report` inside
+  the celery worker (live env already) — it does NOT go through
+  run-backend-once.sh; the launcher (#2187) covers ad-hoc/throwaway
+  runs only.
+## 2026-11-17 — leftovers pass: metabase-role rotation + stale data-source fix (Devin)
+- [x] **`METABASE_DB_PASS` rotated** (the 2026-11-09 transcript-exposure
+  item): postgres superuser `metabase` is shared by the metabase app DB
+  AND the `infisical` DB (`INFISICAL_DB_URI` embeds the password).
+  Sequence: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`
+  under deploy lock. Verified: SCRAM auth OK on `metabase`+`infisical`
+  DBs, both containers healthy, `127.0.0.1:8090/api/status` = Ok.
+- [x] **Metabase "SocialAuto" data source repaired** — its stored
+  `social_user` password predated the 2026-11-13 rotation → startup
+  health check `password-incorrect`. Fixed via admin session +
+  `PUT /api/database/1` (details.password = current
+  `SOCIAL_POSTGRES_PASSWORD`); `/api/database/1/healthcheck` = ok.
+  Metabase has no published port — reach it via `docker exec metabase
+  curl localhost:3000` or the stack-ops wake path.
+- [x] Verified-and-closed watches: NAS nightly backup fresh
+  (manifest-20261116), linkedin-community-moderation beat live (02:07
+  UTC success), strategy-report-run4 completed, run-backend-once
+  live-secrets lane shipped in PR #2187.
+- [ ] STILL OPEN (need humans/external): INFISICAL_UA_CLIENT_SECRET
+  rotation (dedicated window — it IS the Infisical credential),
+  LinkedIn `rw_dmp_segments`/Matched Audiences approvals (expire
+  ~2026-12-06 — reapply if lapsed), Meta re-auths (WABA token, IG/FB/Threads
+  revoked rows), WhatsApp Business in-app "Call me" verify after cooldown,
+  FB :9229 manual login, X quota reset, host RAM/vsock flaps.
+```
+
+### from `docs/backlog-optimal-round` (PR 2131)
+
+```text
+### Leftover sweep — optimal pass (2026-11-17)
+- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
+      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
+      Remaining "failures" are only the cancelled `notify` job — the
+      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
+- [x] IG reauth ran (fast path): connected a DIFFERENT IG
+      (`17841463022505300` — personal, new active row
+      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
+      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
+      lane, still the Meta wizard gate.
+- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
+      from containers; only WSL `localhost` forwarding is dead (vsock class).
+- [ ] threads heal blocked further upstream than expected: threads.net/oauth
+      redirects to login — the sidecar has NO instagram.com session; needs a
+      real IG login (backup code + trust-device) before consent can run.
+- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
+      via SocialAuto console; wa_verify daemon retry-loops until then.
+- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
+      needs one human tap → "Call me" (voice channel bypasses SMS throttle).
+```
+
+### from `fix/2326-tests` (PR 2326)
+
+```text
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
+```
+
+### from `fix/ig-session-heal-sync` (PR 1702)
+
+```text
+## 2026-11-11 (pm3) — Instagram auth-revocation incident + healer gap fixed
+```
+
+### from `fix/whatsapp-oauth-authorize` (PR 1988)
+
+```text
+All 8 ranked lanes implemented on master pending this PR's merge:
+```
+
+### from `pr-1814` (PR 1814)
+
+```text
+- [ ] Backfill verification: pass resumed 2026-11-07 inside social-api
+  (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
+  had spellcheck_applied at start). Confirm final counts +
+  `meta_data.quality.spellcheck_applied=true` when it completes.
+- [ ] human: Member DP (Member) in-portal modal on 265077368 after
+  biz-email verify — modal was inert under automation; retry once a
+  valid portal session exists.
+- [ ] human: LinkedIn Matched Audiences (264925843,
+  CRM:015285039163310) — DENIED "Business verification failed"; support
+  case submitted 2026-11-07, may need Greek business registration
+  (ΑΦΜ/ΓΕΜΗ) if requested.
+- [ ] decide: schedule `wsl-safe-bounce.ps1` nightly ~04:30 — the script
+  is marked operator-only; declined unattended so far.
+- [ ] watch: PR #1399 (LinkedIn Ad Library intel pipeline) — auto-merge
+  armed, checks cycling.
+     100.86.188.43:2222; or
+  REGISTERED_BUSINESS_ADDRESS (Thermopilon 15, Koropi 19441) — ready
+- [ ] First live `devapps-sync` run — verify per-platform pullers
+  against real tokens (FB page_token path, IG demographics metric name,
+  LinkedIn org vs member split); failures land as `ok:false` rows.
+- [ ] `devapp-channel-actions` first run — confirm scheduled posts land
+  per channel and dedup holds on the 2nd/3rd/4th daily sweep.
+- [ ] Rotate POSTGRES_PASSWORD + Infisical UA client secret — both were
+  printed in transcripts. Needs a maintenance window: ALTER USER inside
+  social-postgres, update .env + Infisical prod, recreate all
+  DB-connected services. Not done — high blast radius.
+     ΑΦΜ 115307716) → Registered Business Account → Links field appears.
+- [ ] Set `BSKY_MAIN_PASSWORD` (Bluesky account main password) in
+      `.env` + Infisical, or mint a new app password at bsky.app →
+      Settings → App passwords and reconnect via POST /api/v1/bluesky/connect.
+- [ ] After quota reset (~05:13 UTC) verify posts 02853052…/6844e52e…
+      publish; requeue if still failed.
+- [ ] PRs armed: #1704 (IG session heal), #1708 (prompt-leak guard),
+      #1710 (TG credential drops), #1711 (bsky rotation).
+  «ΑΠΟΔΕΙΚΤΙΚΟ ΕΝΗΜΕΡΩΤΗΚΟ ΓΙΑ ΧΡΕΗ», ΑΦΜ 115307716) prints
+- **Watch**: cert fiscal address (Οδός Ιωάννη 15, 19400) ≠ form business
+  address (Thermopilon 15, Koropi 19441) — if next rejection cites
+  .env; **pushed to Infisical prod 2026-11-12 ~19:25** (POST 200/200 via
+  in-container API — WSL↔Windows interop was down, used `docker exec
+  infisical node` + universal-auth from .env creds). Force pulls safe.
+## 2026-11-12 — ntfy central alert lane (phone push)
+- [x] PR #1752 merged — severity alerts fan out to ntfy `cloudless-alerts`
+  (priority 5/4/3/2 for critical/ops/intel/digest) alongside Slack+TG.
+  Covers `send_telegram_alert`, `post_alert_to_slack`, daily digest,
+  `tg_alert.py` skill (devin+cursor mirrors), 12 home-ops watchers via
+  `home-ops/scripts/ntfy_notify.py`. Relay acct `alert-relay` write-only;
+  token in repo `.env` (`NTFY_ALERT_BASE_URL`/`NTFY_ALERT_TOKEN`; topic
+  defaults `cloudless-alerts`). Phone subscribed to all 3 topics on
+  `ntfy.cloudless.gr`, verified live.
+- [ ] **deploy pending**: containers bind-mount the shared checkout, which
+  sits on `feat/dmr-tunnel-gate` (active WIP). ntfy backend code activates
+  on next `checkout master && pull` + restart of social-api + 4 workers +
+  celery-beat. `.env` vars already present — no compose change needed
+  (Settings reads mounted `/app/.env`).
+- [ ] Optional: audit remaining producers that bypass the patched choke
+  points (n8n workflows, email-only alerts, `post_publishing_to_slack`
+  variants) if "all notifications" coverage is wanted beyond TG/Slack paths.
+## 2026-11-12 (eve) — worker sweep bug fixes (PR #1761)
+- [x] PR #1761 — report_videos detached-session fix (12 stuck
+  pending_video_task drafts flushed to FAILED), datalake_insights alert
+  dedupe (~113 identical ntfy msgs/day → 1 per distinct digest),
+  plain_english prompt-leak guard, publish_verify asyncpg casts,
+  media_backfill run_async. Auto-merge armed; required checks green.
+- [ ] **Bluesky app password dead + bsky 429 rate-limit** — stored app
+  password returns 401; rotation sweep runs daily 04:20 but createSession
+  is IP-rate-limited (429) as of 21:10Z. Self-heals on next sweep window;
+  if still failing tomorrow, mint app password at bsky.app manually.
+- [ ] **LinkedIn sidecar session rate_limited** — session_healer reports
+  `rate_limited`, OAuth sessions_invalid=2. Automated lanes exhausted;
+  needs session-ops manual relogin via noVNC if it persists.
+- [ ] **Other agents' dirty files left uncommitted**: fb_session_heal.py,
+  tt_verify_status.py, tiktok_reauth.py — not mine, left in tree.
+- [ ] Host gates warn: RAM pressure (WSL avail 3.7GB / host free 1.4GB),
+  dmr_tunnel retry loops alive, cdp_lane :9229 relaunched — self-healing
+  lanes active, monitor only.
+```
+
+### from `pr2074-fix` (PR 2074)
+
+```text
+- [x] **Video render task: persist-before-QA + bounded vision calls**
+  (2026-11-16). `generate_video_asset_task` saved the MediaAsset only
+  AFTER semantic QA — a DMR vision cold-load ate the 2700s soft limit and
+  a finished Wan2.2 render (`socialauto_00015.mp4`, post c4dff316) was
+  discarded (SoftTimeLimitExceeded; asset recovered manually as
+  37d483f0). Fix: asset persists immediately post-render; QA wrapped in
+  `asyncio.wait_for` (180s) so timeout/unavailability is metadata
+  (`reason: "qa timeout"`), never a task kill; the QA-mismatch re-render
+  now runs only when elapsed + render cost + QA + margin < soft limit
+  (a second Wan2.2 render never fit anyway — flagged `retry: skipped`),
+  and its output saves as a NEW asset with the original marked
+  `superseded_by` (non-destructive). CF vision clients got per-phase
+  `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.
+```
+
+### from `termux-ops-skill` (PR 2097)
+
+```text
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
+```
+
+### from `win-popup-battletest` (PR 2095)
+
+```text
+### battle-test addendum (same day, evening)
+- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
+      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
+      the PRE-EDIT config in memory (on-disk configs already clean).
+- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
+      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
+- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
+      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
+      with the old flash-prone command line.
+```
+
+### stranded code fragments (local-only, recover via reflog ~90d)
+
+- `fix-1859` @09523a8f: +59 unmerged lines of mypy
+  annotations in `synigoros_case.py` (tail of closed PR #1859 lane).
+- `rb-` @c6feafc8: +6 unmerged lines, FB bytes-upload
+  fallback in `facebook_api.py` + 1 test line.
+- `docs/backlog-ig-driver-findings` (closed PR #2062): +47 unmerged test
+  lines in `test_datalake_export.py` — archived at refs/pull/2062/head.
