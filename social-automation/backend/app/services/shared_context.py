@@ -69,6 +69,15 @@ async def save(ctx: dict[str, Any]) -> None:
         return
     except Exception:
         pass
-    os.makedirs(os.path.dirname(FALLBACK), exist_ok=True)
+    # Prevent path traversal on relative paths; absolute paths are
+    # operator-configured and allowed (e.g. /app/.state or test tmp dirs).
+    fallback_dir = os.path.normpath(os.path.dirname(FALLBACK) or ".")
+    if not os.path.isabs(fallback_dir):
+        base = os.path.normpath(os.path.abspath("."))
+        resolved = os.path.normpath(os.path.abspath(fallback_dir))
+        if os.path.commonpath([resolved, base]) != base:
+            raise ValueError(f"Invalid fallback directory: {fallback_dir}")
+        fallback_dir = resolved
+    os.makedirs(fallback_dir, exist_ok=True)
     with open(FALLBACK, "w") as f:
         f.write(raw)

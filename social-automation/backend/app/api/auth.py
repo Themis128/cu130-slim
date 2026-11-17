@@ -4,7 +4,6 @@ import secrets
 import uuid
 from datetime import UTC, datetime
 
-import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from httpx_oauth.clients.facebook import FacebookOAuth2
@@ -24,6 +23,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
+from app.core.url_security import SafeAsyncClient
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User, UserRole
@@ -352,7 +352,7 @@ async def _sync_linkedin_organizations(
     access_token: str,
     refresh_token: str | None,
     scopes: list[str],
-    http: httpx.AsyncClient,
+    http: SafeAsyncClient,
 ) -> list[SocialAccount]:
     """Upsert LinkedIn Company Pages the member can administer / post as."""
     headers = {
@@ -1376,7 +1376,7 @@ async def oauth_callback(
     # Get user info from platform
     access_token = token["access_token"]
     headers = {"Authorization": f"Bearer {access_token}"}
-    async with httpx.AsyncClient() as http:
+    async with SafeAsyncClient() as http:
         if platform == "linkedin":
             resp = await http.get("https://api.linkedin.com/v2/userinfo", headers=headers)
             if resp.status_code != 200:
@@ -2173,7 +2173,7 @@ async def instagram2_callback(
         raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
     team_id = uuid.UUID(state_data["t"])
 
-    async with httpx.AsyncClient(timeout=15.0) as http:
+    async with SafeAsyncClient(timeout=15.0) as http:
         # Exchange code for short-lived user token
         token_resp = await http.post(
             "https://api.instagram.com/oauth/access_token",
@@ -2365,7 +2365,7 @@ async def linkedin_sync_orgs(
         raise HTTPException(status_code=400, detail=f"Token decrypt failed: {exc}")
 
     # Probe what scopes LinkedIn actually accepted
-    async with httpx.AsyncClient(timeout=15.0) as http:
+    async with SafeAsyncClient(timeout=15.0) as http:
         probe = await http.get(
             "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
             headers={
@@ -2382,7 +2382,7 @@ async def linkedin_sync_orgs(
             detail=f"LinkedIn org ACL query failed ({probe.status_code}): {raw}",
         )
 
-    async with httpx.AsyncClient(timeout=30.0) as http:
+    async with SafeAsyncClient(timeout=30.0) as http:
         synced = await _sync_linkedin_organizations(
             db=db,
             team_id=personal.team_id,
@@ -2623,9 +2623,8 @@ async def oidc_authorize():
 @router.get("/oidc/callback")
 async def oidc_callback(code: str, db: AsyncSession = Depends(get_db)):
     """Exchange the authentik code → userinfo → upsert → app JWT."""
-    import httpx
 
-    async with httpx.AsyncClient(verify=False, timeout=15) as http:
+    async with SafeAsyncClient(allow_private_ips=True, timeout=15) as http:
         tok = await http.post(
             f"{AUTHENTIK_ISSUER}/token/",
             data={

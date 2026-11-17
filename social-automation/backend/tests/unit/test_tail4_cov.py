@@ -23,9 +23,8 @@ async def test_oidc_callback_new_user(monkeypatch):
     inst = SimpleNamespace(post=AsyncMock(return_value=tok_resp), get=AsyncMock(return_value=ui_resp))
     cls = MagicMock()
     cls.return_value.__aenter__.return_value = inst
-    import httpx
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: cls(**kw))
+    monkeypatch.setattr(A, "SafeAsyncClient", lambda **kw: cls(**kw))
     res = SimpleNamespace(scalar_one_or_none=lambda: None)
     db = SimpleNamespace(execute=AsyncMock(return_value=res), add=lambda u: None, commit=AsyncMock(), refresh=AsyncMock())
     monkeypatch.setattr(A, "hash_password", lambda p: "h")
@@ -40,9 +39,8 @@ async def test_oidc_callback_no_email_400(monkeypatch):
     inst = SimpleNamespace(post=AsyncMock(return_value=tok_resp), get=AsyncMock(return_value=ui_resp))
     cls = MagicMock()
     cls.return_value.__aenter__.return_value = inst
-    import httpx
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: cls(**kw))
+    monkeypatch.setattr(A, "SafeAsyncClient", lambda **kw: cls(**kw))
     db = SimpleNamespace(execute=AsyncMock())
     with pytest.raises(HTTPException) as e:
         await A.oidc_callback("code", db)

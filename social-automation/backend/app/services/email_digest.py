@@ -253,6 +253,11 @@ def send_email_smtp(
     if attachments:
         _attach_files(msg, attachments)
 
+    # Security: SMTP_SSL_VERIFY defaults to True and should remain True in production.
+    # Setting it to False disables certificate validation and exposes MITM risk.
+    # Only set SMTP_SSL_VERIFY=False in controlled test environments.
+    if not getattr(settings, "SMTP_SSL_VERIFY", True) and getattr(settings, "APP_ENV", "development") == "production":
+        logger.warning("SMTP_SSL_VERIFY is False in production — certificate validation disabled (MITM risk)")
     context = ssl.create_default_context()
     if not getattr(settings, "SMTP_SSL_VERIFY", True):
         context.check_hostname = False

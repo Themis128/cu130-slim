@@ -69,12 +69,11 @@ class _HTTP:
 
 @pytest.fixture
 def http(monkeypatch):
-    import httpx
 
     _HTTP.response = _Resp()
     _HTTP.error = None
     _HTTP.requests = []
-    monkeypatch.setattr(httpx, "AsyncClient", _HTTP)
+    monkeypatch.setattr(analytics, "SafeAsyncClient", _HTTP)
     return _HTTP
 
 
@@ -371,9 +370,8 @@ class TestTikTokFollowers:
                     return _Resp(403, {})
                 return _Resp(200, {"stats": {"followers": 55}})
 
-        import httpx
 
-        monkeypatch.setattr(httpx, "AsyncClient", SeqHTTP)
+        monkeypatch.setattr(analytics, "SafeAsyncClient", SeqHTTP)
         a = _account("tiktok", username="@cloudless.gr")
         assert await analytics._tiktok_follower_count(a) == 55
         assert any("profile/videos" in u for u in calls)
