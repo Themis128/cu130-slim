@@ -3178,3 +3178,26 @@ Resolved this pass (details inline above):
   a recognized device before Business Settings → Instagram accounts → Add
   can be retried. Support case was submitted pre-lock (registration
   unverified).
+
+## 2026-11-17 — Linear "cu130-slim Platform" project reconciled with live stack (Devin)
+
+- [x] **Verified all 12 Linear issues against the codebase** — the
+  greenfield planning tickets describe a platform that already exists in
+  production. Closed as Done: CLO-7 (backend epic: FastAPI ~60 API
+  modules, SQLAlchemy async, Celery+Redis+Postgres live), CLO-8
+  (frontend epic: Next.js 16.4.2 + TS 5.3 + Tailwind 4 + TanStack Query
+  5 — exact spec), CLO-9 (API CRUD/auth/social + app/core/limiter.py),
+  CLO-10 (27 models, encrypted `access_token_enc` + `social_secrets`, 57
+  Alembic revs), CLO-11 (4 queue workers + beat, dozens of task
+  modules), CLO-12 (dashboard/accounts UI), CLO-13 (composer +
+  calendar/campaigns scheduler), CLO-14 (analytics + reports pages),
+  CLO-16 (Greptile MCP re-auth verified live — `get_me` returns ADMIN on
+  org cloudless-gr; "expired token" premise was stale). Evidence comment
+  posted on tracking epic CLO-5 (left open as tracker).
+- [ ] **CLO-15 Greptile KB builds — genuinely open**: all 6 repos
+  (cu130-slim, cloudless-nextcloud, cloudless.gr, devoptimizer,
+  galaxy-s22-toolkit, home-ops) are registered with
+  `reviewsEnabled: true`, but `list_knowledge_bases` returns ZERO
+  indexes for every repo. Human/agent step: trigger index builds at
+  app.greptile.com — the MCP exposes no index-trigger tool. CLO-6
+  remains In Progress on this.
