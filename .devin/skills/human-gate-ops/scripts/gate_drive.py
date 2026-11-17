@@ -7,6 +7,7 @@ Run standalone (`python3 gate_drive.py <gate>`) or from the beat.
 No-ops cleanly when a lane is down — never errors on absence.
 """
 import json, os, sys, base64, subprocess
+from pathlib import Path
 
 BRIDGE = "http://browser-novnc:9223"
 API = "http://127.0.0.1:8000"
@@ -135,6 +136,12 @@ def drive_totp():
     return {"status": "manual", "how": "run totp-ops/scripts/totp_setup.py on Windows Chrome"}
 
 def drive_meta_submit():
+    draft = Path(__file__).with_name("meta_app_review_draft.py")
+    if draft.exists():
+        out = subprocess.run([sys.executable, str(draft)],
+                             capture_output=True, text=True, timeout=30)
+        return {"status": "manual", "how": "paste into Meta console",
+                "draft": out.stdout}
     return {"status": "manual", "how": "meta_app_review_draft.py prints paste-ready text"}
 
 GATES = {
