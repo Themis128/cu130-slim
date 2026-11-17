@@ -12,14 +12,23 @@ user) if unexpected screens appear. Run:
 
 Log: ~/logs/tt-profile-link.log ; UI dumps: ~/logs/tt-dumps/
 """
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
-ADB = "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+ADB = next(
+    (p for p in (
+        shutil.which("adb"),
+        os.path.expanduser("~/.local/platform-tools/adb"),
+        "/home/tbaltzakis/.local/platform-tools/adb",
+    ) if p and os.path.exists(p)),
+    "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
+)
 SER = "RFCTA0AEKZP"
 PKG = "com.zhiliaoapp.musically"
 URL = "https://cloudless.gr/links"
