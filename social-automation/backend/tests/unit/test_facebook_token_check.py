@@ -89,7 +89,7 @@ def _wire(monkeypatch, rows, client):
 @pytest.mark.asyncio
 async def test_no_accounts(monkeypatch):
     db, _ = _wire(monkeypatch, [], _Client())
-    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0}
+    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0, "inconclusive": 0}
     assert db.committed
 
 
