@@ -122,16 +122,6 @@ async def _exec_content_topic(db, team_id, action) -> dict:
     return {"post_id": str(post.id), "platform": platform}
 
 
-def _factory(custom=None):
-    """Email-sender factory — returns the injected sender or the shared
-    dispatcher (provider-aware, suppress-filtered) as default."""
-    if custom is not None:
-        return custom
-    from app.services.email_digest import send_email
-
-    return send_email
-
-
 async def _exec_audit_escalation(db, team_id, action) -> dict:
     """audit_escalation → Telegram booking ping with the emails."""
     emails = action.get("emails") or []
@@ -200,16 +190,19 @@ async def _run() -> dict:
             async with task_session() as db:
                 for action in actions:
                     fn: Any = _EXECUTORS.get(action.get("type"))
-                    if not fn:
-                        continue
                     key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
                     if action.get("type") == "devapp_health":
                         # match the dedup key _exec_devapp_health checks against
                         key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
-                    try:
-                        out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
-                    except Exception as e:
-                        out = {"error": str(e)[:120]}
+                    if not fn:
+                        # unknown type (e.g. lead_source, ad_efficiency) — record
+                        # the skip so dropped actions stay auditable in the lake
+                        out = {"skipped": "no executor"}
+                    else:
+                        try:
+                            out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
+                        except Exception as e:
+                            out = {"error": str(e)[:120]}
                     db.add(
                         AnalyticsEvent(
                             team_id=team_id,

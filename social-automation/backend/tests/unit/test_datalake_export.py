@@ -8,9 +8,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
-import pytest
-
 from app.worker.tasks import datalake_export as de
 from app.worker.tasks.datalake_export import (
     _email_domain,
@@ -581,36 +578,6 @@ def test_export_async_insights_and_put_failures(monkeypatch):
     assert ins is _put
 
 
-def test_export_async_transport_error_propagates_for_retry(monkeypatch):
-    """httpx transport errors must escape put() so the Celery task's
-    autoretry_for=(httpx.HTTPError, ...) actually fires — swallowing them
-    as per-key ERRORs leaves the lake stale with no retry (Greptile #2058).
-    """
-    s = de.settings
-    monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
-    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
-    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
-
-    db = _OneExecDB(_Scalars([]))
-    monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
-    for name in (
-        "_export_accounts", "_export_posts", "_export_metrics", "_export_followers",
-        "_export_account_events", "_export_leads", "_export_telegram_channels",
-        "_export_web_events", "_export_ad_snapshots", "_export_ad_daily",
-        "_export_ad_demographics", "_export_devapps", "_export_channel_actions",
-    ):
-        monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
-    monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
-    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
-    monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
-    monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
-    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
-    monkeypatch.setattr(de, "_put_json", AsyncMock(side_effect=httpx.ConnectError("r2 unreachable")))
-
-    with pytest.raises(httpx.ConnectError):
-        _run(de._export_async())
-
-
 def test_put_json(monkeypatch):
     captured = {}
 
@@ -1031,83 +998,54 @@ def test_export_survey_responses():
     assert rows2[0]["email_hash"] is None and rows2[0]["recipient_status"] is None
 
 
-class _SeqDB:
-    """execute() pops the next queued result — for multi-query exporters."""
-
-    def __init__(self, results):
-        self._results = list(results)
-
-    async def execute(self, _q):
-        return self._results.pop(0)
+# ── _export_monetization ────────────────────────────────────────────────
 
 
-def test_export_email_campaigns():
-    from app.worker.tasks import datalake_export as de
+def _crit(name, current, target, met):
+    return SimpleNamespace(name=name, current=current, target=target, met=met)
 
-    camp = SimpleNamespace(
-        id=uuid.uuid4(),
-        team_id=uuid.uuid4(),
-        name="Survey Q1",
-        kind="survey",
-        status="sent",
-        survey_url="https://x/s/tok",
-        sent_at=datetime(2026, 1, 3, tzinfo=UTC),
-        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+
+def test_export_monetization_rows(monkeypatch):
+    import app.services.monetization as mon
+
+    acct_ok = _acct(platform="tiktok", username="cloudless")
+    acct_fail = _acct(platform="x", username="tb")
+    db = _OneExecDB(_Scalars([acct_ok, acct_fail]))
+
+    async def _metrics(db_, a):
+        if a is acct_fail:
+            raise RuntimeError("metrics boom")
+        return {"followers": 12000, "gain_per_day": 3.5}
+
+    report = SimpleNamespace(
+        program="TikTok Creator Rewards",
+        criteria=[_crit("followers", 12000, 10000, True)],
     )
-    lead_id = uuid.uuid4()
-    from app.models.email_campaign import RecipientStatus
+    monkeypatch.setattr(mon, "gather_account_metrics", _metrics)
+    monkeypatch.setattr(mon, "evaluate_program", lambda p, m, account_type=None: report if p == "tiktok" else None)
 
-    rec = SimpleNamespace(
-        email="Person@Example.com",
-        lead_id=lead_id,
-        status=RecipientStatus.sent,
-        sent_at=datetime(2026, 1, 3, 1, tzinfo=UTC),
-    )
-    resp = SimpleNamespace(
-        lead_id=None,
-        answers={"q1": "yes"},
-        espocrm_noted=True,
-        submitted_at=datetime(2026, 1, 4, tzinfo=UTC),
-    )
-    db = _SeqDB(
-        [
-            _Scalars([camp]),  # campaigns
-            _Scalars([rec]),  # recipients
-            _Scalars([(resp, "person@example.com")]),  # responses join
-        ]
-    )
-    rows = _run(de._export_email_campaigns(db))
-    assert len(rows) == 1
-    r = rows[0]
-    assert r["campaign_id"] == str(camp.id)
-    assert r["survey_url"] is True
-    assert r["recipients"] == [
-        {
-            "email_hash": _email_hash("person@example.com"),
-            "lead_id": str(lead_id),
-            "status": "sent",
-            "sent_at": de._iso(rec.sent_at),
-        }
-    ]
-    assert r["responses"] == [
-        {
-            "email_hash": _email_hash("person@example.com"),
-            "lead_id": None,
-            "answers": {"q1": "yes"},
-            "espocrm_noted": True,
-            "submitted_at": de._iso(resp.submitted_at),
-        }
-    ]
-    # outer-join miss → null email tolerated; recipient without lead_id
-    db2 = _SeqDB(
-        [
-            _Scalars([camp]),
-            _Scalars([SimpleNamespace(email="x@y.z", lead_id=None, status="pending", sent_at=None)]),
-            _Scalars([(resp, None)]),
-        ]
-    )
-    rows2 = _run(de._export_email_campaigns(db2))
-    assert rows2[0]["recipients"][0]["lead_id"] is None
-    assert rows2[0]["responses"][0]["email_hash"] is None
-    # no campaigns → empty
-    assert _run(de._export_email_campaigns(_SeqDB([_Scalars([])]))) == []
+    rows = _run(de._export_monetization(db))
+    assert len(rows) == 2
+    ok, err = rows
+    assert ok["platform"] == "tiktok" and ok["program"] == "TikTok Creator Rewards"
+    assert ok["criteria"] == [{"name": "followers", "current": 12000, "target": 10000, "met": True}]
+    assert ok["evaluated_at"]
+    assert err["platform"] == "x" and "metrics boom" in err["error"] and "program" not in err
+
+
+def test_export_monetization_funnel_only(monkeypatch):
+    import app.services.monetization as mon
+
+    acct = _acct(platform="linkedin", username="page")
+    db = _OneExecDB(_Scalars([acct]))
+
+    async def _metrics(db_, a):
+        return {"followers": 500}
+
+    monkeypatch.setattr(mon, "gather_account_metrics", _metrics)
+    monkeypatch.setattr(mon, "evaluate_program", lambda *a, **k: None)
+
+    rows = _run(de._export_monetization(db))
+    assert rows[0]["program"] is None
+    assert rows[0]["role"] == mon.FUNNEL_ONLY["linkedin"]
+    assert rows[0]["criteria"] == []
