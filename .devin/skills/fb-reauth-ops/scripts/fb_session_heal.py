@@ -140,6 +140,47 @@ EVAL_2FA = r"""
 })()
 """
 
+# FB's current login is a two-step gate, not the classic form:
+#   1) saved-profile chooser ("Themistoklis Baltzakis — Continue")
+#   2) "Log into your Meta Account" password dialog (pass only, no email)
+# JS .click() does not advance the chooser — it needs a real mouse event.
+EVAL_GATE_PROBE = r"""
+JSON.stringify({
+  e: !!document.querySelector('#email,input[name="email"]'),
+  p: !!document.querySelector('#pass,input[name="pass"]'),
+  u: location.href.slice(0, 90)
+})
+"""
+
+# Fill the password-only Meta Account dialog (account preselected).
+EVAL_FILL_PASS_ONLY = r"""
+(() => {
+  const pw = %s;
+  const p = document.querySelector('#pass,input[name="pass"]');
+  if (!p) return 'no-pass';
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype, 'value').set;
+  setter.call(p, pw);
+  p.dispatchEvent(new Event('input', {bubbles:true}));
+  p.dispatchEvent(new Event('change', {bubbles:true}));
+  return 'filled:' + p.value.length;
+})()
+"""
+
+# Bounding box of a visible button/div[role=button] with exact text —
+# for Input.dispatchMouseEvent real clicks.
+EVAL_BUTTON_BOX = r"""
+(() => {
+  const want = %s;
+  const b = [...document.querySelectorAll(
+    'div[role=button],button,a')].find(e => e.offsetParent
+    && (e.innerText || '').trim() === want);
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return JSON.stringify({x: r.x + r.width / 2, y: r.y + r.height / 2});
+})()
+"""
+
 
 def _state():
     try:
@@ -383,6 +424,52 @@ def _drive_interstitials(c, rounds=4):
         time.sleep(4)
 
 
+def _real_click_text(c, text):
+    """Real mouse click (Input.dispatchMouseEvent) on the visible element
+    whose trimmed innerText equals `text`. FB's chooser ignores synthetic
+    JS .click(); trusted input events are required."""
+    raw = _eval_quick(c, EVAL_BUTTON_BOX % json.dumps(text), timeout=15)
+    if not raw:
+        return False
+    try:
+        box = json.loads(raw)
+    except Exception:
+        return False
+    for tp in ("mousePressed", "mouseReleased"):
+        c.cmd("Input.dispatchMouseEvent", {
+            "type": tp, "x": box["x"], "y": box["y"],
+            "button": "left", "clickCount": 1}, timeout=15)
+    return True
+
+
+def _dismiss_cookie_banner(c):
+    """Accept FB's cookie-consent banner when it overlays the flow —
+    it blocks the 2FA page render ('Invalid request' symptom)."""
+    for label in ("Allow all cookies", "Allow optional cookies"):
+        if _real_click_text(c, label):
+            time.sleep(2)
+            return True
+    return False
+
+
+def _fill_pass_and_login(c, pw):
+    """Fill + submit the password-only 'Log into your Meta Account'
+    dialog (saved profile preselected — no email field)."""
+    r = _eval_quick(c, EVAL_FILL_PASS_ONLY % json.dumps(pw), timeout=20)
+    if not (r and str(r).startswith("filled")):
+        return False
+    time.sleep(1)
+    if _real_click_text(c, "Log in"):
+        return True
+    # fallback: JS click if the real-click box lookup raced a re-render
+    return _eval_quick(c, """(() => {
+      const b = [...document.querySelectorAll("div[role=button],button")]
+        .find(e => e.offsetParent
+          && (e.innerText || "").trim() === "Log in");
+      if (!b) return "no-btn"; b.click(); return "clicked";
+    })()""", timeout=15) == "clicked"
+
+
 def _credential_login(base):
     user = _env("FACEBOOK_USERNAME") or _env("FACEBOOK_EMAIL")
     pw = _env("FACEBOOK_PASSWORD")
@@ -390,36 +477,57 @@ def _credential_login(base):
         return {"ok": False, "reason": "no-credentials"}
 
     def _submit_flow(c):
-        """Navigate to the login page, wait for the form, submit creds.
+        """Navigate to the login page and submit creds through whichever
+        gate FB presents: saved-profile chooser -> Meta Account password
+        dialog, or the classic email+password form.
         Returns (ok, probe-dict)."""
         c.cmd("Page.enable")
         c.cmd("Page.navigate", {"url": LOGIN_URL})
         print("navigated to login — waiting for form", flush=True)
         time.sleep(8)
-        # wait for the real form (FB may show a redirect/interstitial)
-        form_ready = False
         probe = {}
-        for _ in range(10):
+        gate_done = False
+        for _ in range(14):
             if not _wait_eval_live(c, tries=3):
                 continue
-            raw = _eval_quick(c, "JSON.stringify({f:!!document.querySelector("
-                         "'#email,input[name=\"email\"]'),"
-                         "u:location.href.slice(0,90)})")
+            _dismiss_cookie_banner(c)
+            raw = _eval_quick(c, EVAL_GATE_PROBE, timeout=15)
             try:
                 probe = json.loads(raw) if raw else {}
             except Exception:
                 probe = {}
-            if probe.get("f"):
-                form_ready = True
-                break
+            if not probe:
+                time.sleep(3)
+                continue
+            if not gate_done and not probe.get("e") and not probe.get("p"):
+                # saved-profile chooser — needs a real mouse click
+                if _real_click_text(c, "Continue"):
+                    print("profile chooser — clicked Continue", flush=True)
+                else:
+                    print("profile chooser — Continue not found yet",
+                          flush=True)
+                gate_done = True
+                time.sleep(4)
+                continue
+            gate_done = True
+            if probe.get("p") and not probe.get("e"):
+                # Meta Account password dialog — password only
+                if _fill_pass_and_login(c, pw):
+                    print("password dialog — submitted", flush=True)
+                    return True, probe
+                time.sleep(3)
+                continue
+            if probe.get("e"):
+                # classic email+password form
+                r = _eval_quick(
+                    c, EVAL_LOGIN % (json.dumps(user), json.dumps(pw)),
+                    timeout=25)
+                if r == "submitted":
+                    print("login form ready — submitted", flush=True)
+                    return True, probe
+                return False, {"login_eval": r}
             time.sleep(3)
-        if not form_ready:
-            return False, probe
-        print("login form ready — submitting", flush=True)
-        r = _eval_quick(c, EVAL_LOGIN % (json.dumps(user), json.dumps(pw)), timeout=25)
-        if r != "submitted":
-            return False, {"login_eval": r}
-        return True, probe
+        return False, probe
 
     def _swap_tab(c):
         """Renderer dead beyond reload — close the tab and open a fresh
@@ -449,6 +557,7 @@ def _credential_login(base):
         totp_tried = False
         for attempt in range(20):
             time.sleep(5)
+            _dismiss_cookie_banner(c)
             st = probe_state(c)
             print(f"post-login poll {attempt}: url={st.get('url','')[:70]} "
                   f"in={st.get('loggedIn')} ckpt={st.get('checkpoint')} "
