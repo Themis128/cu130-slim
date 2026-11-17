@@ -1031,9 +1031,7 @@ async def _export_async() -> dict:
             mirrored: dict[str, Any] = {}
             for key, rows in tables.items():
                 # tables only ever receives keys that already matched
-                # _NC_MIRROR_RE in put() — the negative arc is unreachable.
-                if not _NC_MIRROR_RE.match(key):  # pragma: no branch
-                    continue
+                # _NC_MIRROR_RE in put() — no re-check needed here.
                 try:
                     remote = await nextcloud_export.upload_bytes(key, json.dumps(rows, default=str).encode(), "application/json")
                     mirrored[key] = remote
