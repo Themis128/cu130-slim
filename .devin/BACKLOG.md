@@ -3204,24 +3204,91 @@ Resolved this pass (details inline above):
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
 
-## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
+## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
 
-- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
-  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
-  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
-  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
-  hash-dupes removed, lock released. API healthy.
-- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
-  Fired `reconcile_account_status` manually — all Meta rows now honestly
-  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
-  tokens; heal lanes must re-auth before any Meta action.
-- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
-  failed). Ingest still runs but candidates are stale (IG max Nov 11,
-  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
-  sessions, NOT the brain/scoring layer — no model upgrade needed.
-- **FB :9229** still parked on expired two_step_verification checkpoint;
-  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
-  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
-- **strategy-report-run4** completed degraded (engine outage window):
-  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
-  (200 from container); next run uses live inference.
+- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
+      the task layer was never the flash source.
+- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
+      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
+      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
+      `.bat` launchers, Chrome native hosts (inherent).
+- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
+      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
+      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
+      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
+      mcp-health-watch, mail-outbound-secret-heal (+ new
+      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
+- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
+      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
+      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
+      `npx`/`.cmd` shim chains are gone.
+- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
+- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
+      classes, the grandchild rule, and why `-WindowStyle Hidden` /
+      `conhost --headless` (for output capture) don't work.
+- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
+      logon 23:44 spawned both watcher instances under `conhost --headless`;
+      12min `popup-flash-watch` capture post-logon: 0 console-window events.
+      Full autostart surface audited: Run key (conheadless), Startup folder
+      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
+      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
+      not user-visible. Keep `_popup-watch` captures in the loop if popups
+      are reported again — stale watch logs mis-attribute sources.
+- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
+      already run under `conhost.exe --headless` (docker-socket-watch,
+      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
+      EvidencePipeline-DmrTunnel). No wrap needed.
+- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
+      resolver.v1 wedged after the engine death; full `docker desktop
+      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
+      `mcp secret ls` verified live; gateway unaffected (cached secrets).
+      Note: `desktop stop`+immediate `start` races — if start says
+      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
+
+### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
+
+- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
+      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
+- [x] Server throttled tonight's requests: "WhatsApp is temporarily
+      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
+      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
+      stacked request_code attempts earlier.
+- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
+      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
+      Do NOT re-request before the timer — each request extends the cooldown.
+- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
+      meta_data + verify Cloud API/coexistence status (skill runbook).
+- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
+- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
+      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
+      the PRE-EDIT config in memory (on-disk configs already clean).
+- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
+      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
+- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
+      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
+      with the old flash-prone command line.
+## 2026-11-17 — Meta session-invalidation event + robots.txt publish block
+
+- [x] FB browser session restored via sidecar (profile-picker -> remembered-
+  device login); OAuth re-auth completed: facebook user + page rows -> active
+  at 22:12 UTC (page token exp 2027-01-28). instagram business -> active
+  21:55 via instagram-onboarding callback.
+- [x] Post c4dff316 (Wan2.2 reel) PUBLISHED manually —
+  facebook.com/reel/2579079235925469. Graph file_url fetch was blocked by
+  robots.txt (Disallow: /api/ covers /api/v1/media/view); bypassed with a
+  3-phase bytes upload (script: /tmp/manual_reel_upload.py).
+- [ ] watch: PR #2107 (robots.txt Allow: /api/v1/media/) must merge+deploy
+  before URL-fetched publishes work again — same block hits IG image_url,
+  Threads, TikTok PULL_FROM_URL.
+- [ ] human: `wsl --shutdown` still needed (workstation policy blocks me) —
+  4th fsbridge wave tonight killed 17 containers; manual heals only buy
+  ~20-30min windows.
+- [ ] consider: facebook_api.create_reel_post has no binary-upload lane —
+  add bytes fallback when file_url fetch fails (same pattern used in the
+  manual publish tonight).
+- [ ] minor: unknown .wslconfig key experimental.virtiofs warns on every
+  wsl.exe call.
