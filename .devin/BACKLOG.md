@@ -3241,32 +3241,6 @@ Resolved this pass (details inline above):
       Note: `desktop stop`+immediate `start` races — if start says
       "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
 
-### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
-
-- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
-      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
-- [x] Server throttled tonight's requests: "WhatsApp is temporarily
-      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
-      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
-      stacked request_code attempts earlier.
-- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
-      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
-      Do NOT re-request before the timer — each request extends the cooldown.
-- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
-      meta_data + verify Cloud API/coexistence status (skill runbook).
-- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
-
-### Gmail thread watchers — crash bug + transient-alert hardening (2026-11-17)
-
-- [x] `dypa-da2` + `SKC` TG alerts (`Remote end closed connection`) — one
-      shared Google-API drop ~00:13–00:15, both self-healed; verified clean live.
-- [x] Real bug: stray `watches/vodafone-career-state.json` crashed
-      `run-all-watches.py` (`KeyError: 'name'`) every sweep — glob now skips
-      `*-state.json`; stray moved aside.
-- [x] `api()` in `gmail-thread-watch.py` + `skc-watch.py` gains 3-try
-      backoff (5s/10s) so single API blips no longer fire the 24h-deduped
-      error alert. Both watches verified: `no new inbound` / `no new mail`.
-      (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
+- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
+      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
