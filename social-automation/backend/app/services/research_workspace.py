@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.security import decrypt_secret
 from app.db.session import async_session_maker
 from app.services.chroma_client import _get_embedding
 from app.services.nextcloud_sync import _base_url, _client
@@ -169,7 +170,7 @@ async def sync_all():
 
         row = (await db.execute(select(SocialSecret).where(SocialSecret.key == "research_folder"))).scalars().first()
     try:
-        rows = json.loads(row.value) if row else []
+        rows = json.loads(decrypt_secret(row.value)) if row else []
     except (ValueError, TypeError):
         logger.warning("[research] research_folder secret is not valid JSON")
         rows = []
