@@ -105,7 +105,12 @@ async def score_actions(db, team_id) -> dict[str, Any]:
         if await _already_scored(db, team_id, ev.id):
             skipped += 1
             continue
-        snap = await _latest_snapshot(db, team_id, uuid.UUID(post_id))
+        try:
+            post_uuid = uuid.UUID(str(post_id))
+        except (ValueError, AttributeError, TypeError):
+            skipped += 1  # malformed post_id in legacy action events
+            continue
+        snap = await _latest_snapshot(db, team_id, post_uuid)
         if snap is None:
             pending += 1  # draft exists but no metrics synced yet
             continue
