@@ -140,7 +140,7 @@ class TestWarmupLockRelease:
     @pytest.mark.asyncio
     async def test_lock_released_when_warm_loop_raises(self, monkeypatch, fake_redis):
         _patch_warmup(monkeypatch, {"used": 0, "free": 8000, "total": 8192})
-        monkeypatch.setattr(dmr, "apply_best_practice_configs", AsyncMock(side_effect=RuntimeError))
+        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(side_effect=RuntimeError))
         with pytest.raises(RuntimeError):
             await dmr.warmup_models()
         assert dmr._WARMUP_LOCK_KEY not in fake_redis.kv
