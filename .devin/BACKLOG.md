@@ -3179,29 +3179,20 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear CLO board closed + MCP arg-bug bypass (Devin)
+## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
 
-- [x] **Linear CLO-5…CLO-16 all Done** — verified live via direct MCP call:
-  parallel sessions reconciled the board 04:24–04:42 UTC with evidence
-  comments (Greptile repos indexed/reviews-enabled, MCP auth healthy,
-  backend+frontend trees verified). Tracker CLO-5 closed after reconcile.
-- [ ] **Greptile KB synthesis enrollment pending** — support request emailed
-  to support@greptile.com ~04:34 UTC (org cloudless-gr); `list_knowledge_bases`
-  still returns 0. Watch for Greptile reply; KBs auto-build once enabled.
-- [x] **`mcp_call_tool` empty-arguments bug worked around** — every
-  parameterized MCP call this session emitted `arguments:{}` (client-side
-  serialization bug; `/bug` worthy). Bypass: `~/scripts/mcp-http.py`
-  (home-ops, committed) reads OAuth tokens from
-  `~/.local/share/devin/mcp/oauth/*.json` and calls remote MCP servers
-  (linear, greptile, …) directly over streamable-HTTP. Verified for
-  linear `get_issue`/`list_comments` and greptile `list_knowledge_bases`.
-- [ ] **#2181 dependabot `frontend-test` red** — same coverage-threshold
-  baseline gap fixed by #2219; resolves on rebase after #2219 merges.
-  Non-required check — does not block auto-merge.
-- [ ] **omv-ha LAN path flake (non-blocking)** — 192.168.1.130 ping/ssh/IMAP
-  all time out from WSL while tailnet `100.95.117.84` works fine (dovecot +
-  postfix `active`, IMAP 993 verified). Other LAN hosts reachable, so it's
-  Pi-side (firewall/subnet), not WSL. Mail-dependent scripts should fall
-  back to the tailnet IP if LAN keeps flaking.
-- [x] **Greptile KB enrollment — no reply yet** (checked INBOX ~07:00 UTC,
-  request sent ~04:34 UTC). Still waiting on support@greptile.com.
+- Audited both backend issues against the live codebase — every checklist
+  item already implemented; closed both as Done with evidence comments on
+  the issues (no code change needed).
+- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
+  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
+  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
+- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
+  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
+  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
+  chain; composite indexes throughout.
+- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
+  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
+  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
+  D1 primary intentionally left plaintext (SSM of record for external
+  tooling).
