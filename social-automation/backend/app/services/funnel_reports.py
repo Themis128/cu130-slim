@@ -403,9 +403,13 @@ async def build_content_weekly() -> FunnelReport:
 
     prev_map = {_key(r): r for r in prev}
     rows: list[dict[str, Any]] = []
+    plat: dict[str, list[int]] = {}
     for r in cur:
         p = prev_map.get(_key(r))
         prev_eng = int(p[4]) if p else 0
+        totals = plat.setdefault(str(r[1]), [0, 0])
+        totals[0] += int(r[3] or 0)
+        totals[1] += int(r[2] or 0)
         rows.append({
             "post_id": str(r[0])[:8],
             "platform": r[1],
@@ -433,11 +437,6 @@ async def build_content_weekly() -> FunnelReport:
                 *[_fmt_post(r) for r in flop] or ["none"])
 
     # per-platform totals this week
-    plat: dict[str, list[int]] = {}
-    for r in rows:
-        totals = plat.setdefault(str(r["platform"]), [0, 0])
-        totals[0] += int(r["engagement"])
-        totals[1] += int(r["impressions"])
     report.line("Per-platform totals (7d)",
                 *[f"• {k}: {v[0]} eng / {v[1]} imp" for k, v in sorted(plat.items())] or ["none"])
 
