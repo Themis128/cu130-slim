@@ -214,9 +214,8 @@ async def test_funnel_answer_lead_fallback(monkeypatch):
 
 
 def test_survey_pain_answer_stopwords_skipped():
-    """Pain-topic words that are stopwords must not enter the counter —
-    covers the  20:44:37 up  1:25,  2 users,  load average: 9.58, 12.30, 10.10
-USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU  WHAT false arc."""
+    """Stopwords in free-text survey answers must not enter pain_topics —
+    covers the stopword-filter branch in compute_survey_signals."""
     out = D.compute_survey_signals(
         [{"answers": {"it_support": "that cost is the problem"}, "email": "a@b.c"}]
     )
