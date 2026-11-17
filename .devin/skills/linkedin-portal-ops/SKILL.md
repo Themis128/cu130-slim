@@ -77,3 +77,17 @@ webview default per MS docs). Our lane uses `start-chrome-debug.bat` →
 
 - `li_portal_edit.py` — `auth <APP_ID> add-redirect <URL>`,
   `auth <APP_ID> get-secret`, `products <APP_ID> request "<product name>"`.
+
+## Advertising API ad-account allowlist (verified 2026-11-18)
+
+Dev Tier manages max 5 ad accounts via
+`/developers/apps/<APP_ID>/products/mdp-settings` — fully automatable:
+
+- `li_ads_settings.py` — dumps the page surface (runs on Windows python
+  via `winrun 'C:\Program Files\Python312\python.exe' <script>`).
+- `li_ads_add.py <account_id> [--execute]` — clicks "Add Ad Account",
+  fills `input#adAccountInput` (Ember event storm), clicks
+  "Save Ad Account", reports the "successfully added" toast. Dry-run
+  without `--execute`.
+- Verified live: added `512642510` to app 264925843; subsequent
+  `linkedin_ads_tool.py allowlist` reports ALLOWLISTED.

@@ -48,12 +48,14 @@ developer portal — there is NO API/CLI path to add them:
 "View settings" next to Advertising API → Ad Accounts** → add
 `sponsoredAccount:512642510`.
 
-Until allowlisted, every write returns:
-`403 FORBIDDEN — "application is not configured to access the related
-advertiser account(s)… add the account ID(s) in your Account Management list"`
+~~Until allowlisted~~ **DONE 2026-11-18**: `512642510` added via CDP
+automation (`linkedin-portal-ops/scripts/li_ads_add.py`) — portal shows
+"Ad Account was successfully added", `allowlist` probe now reports
+ALLOWLISTED (no-op write accepted).
 
-`linkedin_ads_tool.py allowlist` reproduces this check on demand.
-Standard Tier (production spend) is a separate application afterwards.
+If a NEW ad account is added later, re-run `li_ads_add.py <id> --execute`
+(max 5 on Dev Tier). Standard Tier (production spend) is a separate
+application afterwards.
 
 ## Consumers
 
