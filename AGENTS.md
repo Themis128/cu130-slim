@@ -1,11 +1,5 @@
 # Agent working notes for cu130-slim / SocialAuto
 
-## When stuck — web search first
-
-User directive 2026-11-16: **when you get stuck, use web search** — symptom-
-based queries, official docs first, document durable findings back into the
-matching skill or BACKLOG. Search is the alternative to grinding retries.
-
 ## Persistent backlog (read first, update last)
 
 `.devin/BACKLOG.md` is the living to-do list across sessions. Every session MUST:
@@ -120,7 +114,7 @@ rm -f .deploy.lock                                                 # release
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Files are bind-mounted — pull/checkout then restart; no cp needed.
-- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger`, `social-worker-meta` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Files are bind-mounted — pull/checkout then restart all five + `social-api`. The five queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger`, `social-worker-meta` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Files are bind-mounted — pull/checkout then restart all four + `social-api`. The five queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
 - **Worker async model** — every Celery task runs its coroutines on ONE persistent asyncio loop per prefork child (`app/worker/_async.py`, started by `worker_process_init`). Use `run_async(coro)` instead of `asyncio.run()` and `task_session()` / `get_session_factory()` instead of `async_session_maker()` or a per-task engine. Combining `asyncio.run()` with the shared session pool is the 'Future attached to a different loop' crash — eliminated by construction here. `docker cp` does NOT reload modules in a running worker — always restart after hot-syncing.
 - `comfyui` — restart after CLI args or env changes.
@@ -146,7 +140,7 @@ docker compose exec -T social-api python -m ruff check <paths>
 # validate compose
 docker compose config --quiet
 
-# restart key containers (4 queue-dedicated workers + beat)
+# restart key containers (5 queue-dedicated workers + beat)
 docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-worker-meta celery-beat
 
 # health
@@ -213,7 +207,6 @@ docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
 - **All video/audio media posted must carry the corresponding sound/music track** — never publish a Reel/TikTok/video post muted or with missing audio. If a generated video lacks audio, attach or generate the sound/music before scheduling; silent media is a broken asset, same class as a missing carousel slide.
 - **All media creation must go through the SocialAuto platform API** — never hand-roll uploads/generation via ad-hoc scripts that write `media_assets` rows or push bytes to R2 directly. Use `POST /api/v1/media/upload` (multipart), `POST /api/v1/media/generate-image`, or `POST /api/v1/ai/generate-image-pipeline` so assets get quality scores, provenance (`meta_data.inference_provider`), phash dedup metadata, and correct storage wiring. Direct DB/R2 writes bypass all of that (observed 2026-11-06: hand-generated branded JPEGs skipped platform QA).
 - **Admin user has unrestricted access.** The user logs in with admin credentials (`SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWORD`). As admin, the user must have full unrestricted access to all SocialAuto features — connecting/adding accounts, all platforms, all endpoints, quotas bypassed. If the app blocks the admin from an action, treat it as a bug to fix, not a limitation.
-- **Use web search for stack/console lookups** — when diagnosing platform consoles, account-quality/restriction pages, or any Meta/LinkedIn/TikTok developer-portal state that isn't reachable via API, web-search the current official URL/page name first instead of guessing paths (console UIs move often). Verify against the live page before reporting.
 - **Platform focus (Visibility Era DAY 2, 8-week commitment)**: MAIN = LinkedIn (original content, carousels, Educator posts) → SECONDARY = Meta platforms (Instagram, Facebook Page, Threads — adapted versions) → LAST = Twitter/X + TikTok (opportunistic only). Scheduled workflows must target main/secondary tiers; never add schedules firing into last-tier platforms. Stored live as `brand_voices.voice_signature.platform_focus`; check with `creator_type.py platforms`.
 - LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `9c4451bb-e820-489f-8676-76ddbc788ffe`, not a personal profile.
 - Threads identity map (verified live 2026-11-16): the brand Instagram account `cloudless.gr` ("Cloudless | Managed Cloud", IG ds_user_id 36910035385) is linked to the Threads profile **`@t_baltzakis`** — SocialAuto row `c0c6bf77-fb6c-439e-809c-406274de243b` (account_id `38255289647418861`, ACTIVE). The old Threads profile `@cloudless.gr` **no longer exists** (threads.com 404, even logged in) — its SocialAuto row `1071dcd5` is correctly `revoked`. Do NOT try to re-auth a `cloudless.gr` Threads username; `threads_reauth.py` post-verify must check the `t_baltzakis` row, not the revoked one. The stale `instagram.com/cloudless.gr` → `threads.com/@cloudless.gr` badge is an IG-side leftover, not a live profile.
@@ -666,7 +659,7 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 | `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
 | `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, `run_notebook_report` (papermill executes `/notebooks/reports/*.ipynb` — worker mounts `./notebooks`, needs papermill/ipykernel/pandas/matplotlib from `social-worker-latest`), `export_datalake`, `linkedin_ads_*`, unrouted tasks |
 | `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
-| `meta` | `social-worker-meta` | 2 | 200 | Facebook/Instagram/Threads publish sweep + Meta-only tasks (`facebook_token_check`, IG reconcile) — dedicated lane so a wedged Meta call can't starve other platforms' publishes |
+| `meta` | `social-worker-meta` | 2 | 200 | `process_meta_publish_queue`, `reconcile_instagram_publish`, `check_facebook_tokens` (Meta-platform blast-radius isolation) |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
 - Total: 11 concurrent prefork processes across 5 containers (was 4 in a single container before).
@@ -684,8 +677,8 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
   - Digest: 5–10 min
 - Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
 - The `social-worker-default` container consumes both `default` and `celery` queues — the `celery` queue catches any task that wasn't explicitly routed.
-- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`, `messenger@%h`.
-- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 4 nodes online.
+- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`, `messenger@%h`, `meta@%h`.
+- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 5 nodes online.
 - Verify queue routing: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues`.
 - Verify per-worker concurrency: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect stats | grep max-concurrency`.
 
