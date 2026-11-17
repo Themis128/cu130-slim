@@ -3236,36 +3236,29 @@ Resolved this pass (details inline above):
       engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
       clean through the wrapper.
 
-### battle-test addendum (same day, evening)
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
 
-- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
-      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
-      the PRE-EDIT config in memory (on-disk configs already clean).
-- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
-      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
-- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
-      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
-      with the old flash-prone command line.
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
-
-### Leftover sweep — optimal pass (2026-11-17)
-
-- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
-      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
-      Remaining "failures" are only the cancelled `notify` job — the
-      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
-- [x] IG reauth ran (fast path): connected a DIFFERENT IG
-      (`17841463022505300` — personal, new active row
-      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
-      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
-      lane, still the Meta wizard gate.
-- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
-      from containers; only WSL `localhost` forwarding is dead (vsock class).
-- [ ] threads heal blocked further upstream than expected: threads.net/oauth
-      redirects to login — the sidecar has NO instagram.com session; needs a
-      real IG login (backup code + trust-device) before consent can run.
-- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
-      via SocialAuto console; wa_verify daemon retry-loops until then.
-- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
-      needs one human tap → "Call me" (voice channel bypasses SMS throttle).
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
