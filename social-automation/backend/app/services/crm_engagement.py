@@ -67,7 +67,7 @@ def _fetch_candidates(lookback_days: int) -> tuple[list[dict[str, Any]], list[st
         # Security: SMTP_SSL_VERIFY defaults to True and should remain True in production.
         # Setting it to False disables certificate validation and exposes MITM risk.
         # Only set SMTP_SSL_VERIFY=False in controlled test environments.
-        if not settings.SMTP_SSL_VERIFY and settings.APP_ENV == "production":
+        if not settings.SMTP_SSL_VERIFY and getattr(settings, "APP_ENV", "development") == "production":
             logger.warning("SMTP_SSL_VERIFY is False in production — certificate validation disabled (MITM risk)")
         ctx = ssl.create_default_context() if settings.SMTP_SSL_VERIFY else ssl._create_unverified_context()  # noqa: SLF001
         since = (datetime.now(UTC) - timedelta(days=lookback_days)).strftime("%d-%b-%Y")

@@ -20,11 +20,11 @@ without a network probe. A single account failure never aborts the sweep.
 import logging
 from datetime import UTC, datetime
 
-import httpx
 from celery import shared_task
 from sqlalchemy import select
 
 from app.core.security import decrypt_token
+from app.core.url_security import SafeAsyncClient
 from app.models.social_account import SocialAccount
 from app.services.slack_notifications import post_alert_to_slack
 from app.worker._async import run_async, task_session
@@ -42,7 +42,7 @@ async def _probe(platform: str, account_id: str, token: str, meta: dict | None) 
     """Return 'active' | 'revoked' | 'inconclusive' from a live platform read."""
     meta = meta or {}
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        async with SafeAsyncClient(timeout=_TIMEOUT) as c:
             if platform == "threads":
                 r = await c.get(
                     "https://graph.threads.net/v1.0/me",

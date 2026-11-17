@@ -1003,7 +1003,7 @@ class TestOAuthCallbackHappyPath:
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         owner = _user()
         db = FakeDB(users=[owner])
         state = sign_oauth_state({"t": str(team_id)})
@@ -1053,7 +1053,7 @@ class TestOAuthCallbackHappyPath:
         )
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
         monkeypatch.setattr(auth.settings, "LINKEDIN_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         owner = _user()
         db = FakeDB(users=[owner])
         state = sign_oauth_state({"t": str(team_id)})
@@ -1077,7 +1077,7 @@ class TestOAuthCallbackHappyPath:
         )
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
         monkeypatch.setattr(auth.settings, "LINKEDIN_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("linkedin", state=state, db=FakeDB(), code="c")
@@ -1095,7 +1095,7 @@ class TestOAuthCallbackHappyPath:
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("twitter", state=state, db=FakeDB(), code="c")
@@ -1128,7 +1128,7 @@ class TestOAuthCallbackHappyPath:
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(accounts=[existing])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("twitter", state=state, db=db, code="c")
@@ -1500,7 +1500,7 @@ class TestOAuthCallbackMorePlatforms:
         monkeypatch.setattr(auth, "threads_client", FakeClient())
         monkeypatch.setattr(auth.settings, "THREADS_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "THREADS_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("threads", state=state, db=db, code="c")
@@ -1527,7 +1527,7 @@ class TestOAuthCallbackMorePlatforms:
         monkeypatch.setattr(auth, "threads_client", FakeClient())
         monkeypatch.setattr(auth.settings, "THREADS_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "THREADS_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("threads", state=state, db=FakeDB(), code="c")
@@ -1583,7 +1583,7 @@ class TestOAuthCallbackMorePlatforms:
         )
         monkeypatch.setattr(auth, "instagram_client", FakeClient())
         monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("instagram", state=state, db=db, code="c")
@@ -1648,7 +1648,7 @@ class TestOAuthCallbackMorePlatforms:
         )
         monkeypatch.setattr(auth, "instagram_client", FakeClient())
         monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("instagram", state=state, db=db, code="c")
@@ -1686,7 +1686,7 @@ class TestOAuthCallbackMorePlatforms:
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("tiktok", state=state, db=db, code="c")
@@ -1749,7 +1749,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id)})
         out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -1786,7 +1786,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()], accounts=[existing_page])
         state = sign_oauth_state({"t": str(team_id)})
         await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -1800,7 +1800,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         http = _FakeAsyncHTTPClient(self._fb_routes(**{f"{self._FB}/me": _FakeResp(200, {"error": {"message": "bad token"}})}))
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("facebook", state=state, db=FakeDB(), code="c")
@@ -1835,7 +1835,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
         out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -1863,7 +1863,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
         await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -1881,7 +1881,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4()), "p": "instagram-onboarding"})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("facebook", state=state, db=FakeDB(), code="c")
@@ -1912,7 +1912,7 @@ class TestOAuthCallbackFacebookWhatsApp:
         )
         monkeypatch.setattr(auth, "facebook_client", self._fb_client())
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         state = sign_oauth_state({"t": str(team_id), "p": "whatsapp"})
         out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -1959,7 +1959,7 @@ class TestInstagram2Callback:
         return _C({})
 
     async def test_ig2_happy_creates_business_account(self, monkeypatch, _silence_connect_email):
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: self._ig2_http())
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: self._ig2_http())
         db = FakeDB()
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         out = await auth.instagram2_callback(state=state, db=db, code="c")
@@ -1977,7 +1977,7 @@ class TestInstagram2Callback:
         http = self._ig2_http(
             ll_post=_FakeResp(404, {"error": {"message": "does not exist"}}),
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB()
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         out = await auth.instagram2_callback(state=state, db=db, code="c")
@@ -1988,7 +1988,7 @@ class TestInstagram2Callback:
             ll_post=_FakeResp(500, {"error": {"message": "x"}}),
             ll_get=_FakeResp(500, {"error": {"message": "y"}}),
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.instagram2_callback(state=state, db=FakeDB(), code="c")
@@ -2007,7 +2007,7 @@ class TestInstagram2Callback:
             access_token_enc=encrypt_token("x"),
             meta_data={"instagram_token_status": "expired", "reconnect_required": True},
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: self._ig2_http())
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: self._ig2_http())
         db = FakeDB(accounts=[existing])
         state = sign_oauth_state({"t": str(existing.team_id)})
         await auth.instagram2_callback(state=state, db=db, code="c")
@@ -2053,7 +2053,7 @@ class TestLinkedInSyncOrgs:
                 "https://api.linkedin.com/rest/organizationAcls": _FakeResp(200, {"elements": []}),
             }
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         synced_acct = SimpleNamespace(id=uuid.uuid4(), display_name="Org", account_id="777")
         monkeypatch.setattr(auth, "_sync_linkedin_organizations", AsyncMock(return_value=[synced_acct]))
         db = FakeDB(accounts=[acct])
@@ -2078,7 +2078,7 @@ class TestLinkedInSyncOrgs:
                 "https://api.linkedin.com/rest/organizationAcls": _FakeResp(401, {"message": "expired"}),
             }
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(accounts=[acct])
         db.execute = AsyncMock(return_value=_Result([acct]))
         with pytest.raises(HTTPException) as e:
@@ -2402,7 +2402,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
         monkeypatch.setattr(auth.settings, "LINKEDIN_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth, "_sync_linkedin_organizations", AsyncMock(side_effect=RuntimeError("org sync down")))
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("linkedin", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert "connected successfully" in out["message"]
@@ -2415,7 +2415,7 @@ class TestOAuthCallbackTails:
         http = _FakeAsyncHTTPClient({"https://api.x.com/2/users/me": _FakeResp(500, {})})
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("twitter", state=state, db=FakeDB(), code="c")
@@ -2429,7 +2429,7 @@ class TestOAuthCallbackTails:
         http = _FakeAsyncHTTPClient({"https://api.x.com/2/users/me": _FakeResp(200, {"data": {"username": "x"}})})
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("twitter", state=state, db=FakeDB(), code="c")
@@ -2453,7 +2453,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("facebook", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
@@ -2476,7 +2476,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth, "threads_client", FakeClient())
         monkeypatch.setattr(auth.settings, "THREADS_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "THREADS_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("threads", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
@@ -2497,7 +2497,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth, "threads_client", FakeClient())
         monkeypatch.setattr(auth.settings, "THREADS_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "THREADS_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.oauth_callback("threads", state=state, db=FakeDB(), code="c")
@@ -2522,7 +2522,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
@@ -2550,7 +2550,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
@@ -2571,7 +2571,7 @@ class TestOAuthCallbackTails:
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback(
             "tiktok",
@@ -2598,7 +2598,7 @@ class TestOAuthCallbackTails:
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback(
             "tiktok",
@@ -2637,7 +2637,7 @@ class TestOAuthCallbackTails:
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()], accounts=[existing])
         out = await auth.oauth_callback("tiktok", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert "follower_count" not in existing.meta_data
@@ -2671,7 +2671,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
         monkeypatch.setattr(auth.settings, "LINKEDIN_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth, "_sync_linkedin_organizations", AsyncMock(return_value=[]))
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()], accounts=[existing])
         out = await auth.oauth_callback("linkedin", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert existing.meta_data["author_urn"] == "urn:li:person:li-1"
@@ -2712,7 +2712,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()], accounts=[existing])
         state = sign_oauth_state({"t": str(team_id), "p": "whatsapp"})
         out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
@@ -2762,7 +2762,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()], accounts=[existing])
         out = await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert existing.meta_data["account_type"] is not None
@@ -2784,7 +2784,7 @@ class TestOAuthCallbackTails:
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[owner])
         out = await auth.oauth_callback("twitter", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert "connected successfully" in out["message"]
@@ -2812,7 +2812,7 @@ class TestOAuthCallbackTails:
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[owner])
         out = await auth.oauth_callback("twitter", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
         assert "connected successfully" in out["message"]
@@ -2823,7 +2823,7 @@ class TestCallbackTails:
 
     async def test_instagram2_token_exchange_400(self, monkeypatch):
         http = _FakeAsyncHTTPClient({"https://api.instagram.com/oauth/access_token": _FakeResp(400, {"err": 1})})
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
             await auth.instagram2_callback(state=state, db=FakeDB(), code="c")
@@ -2844,7 +2844,7 @@ class TestCallbackTails:
                 "https://graph.instagram.com/access_token": _RaisingResp(),
             }
         )
-        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
         monkeypatch.setattr(auth.settings, "INSTAGRAM2_CLIENT_SECRET", "cs")
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:

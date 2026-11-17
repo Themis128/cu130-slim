@@ -138,7 +138,7 @@ def _fb_http(monkeypatch, **routes):
     http = _FakeAsyncHTTPClient(merged)
     monkeypatch.setattr(auth, "facebook_client", _FBClient())
     monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
-    monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+    monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
     return http
 
 
@@ -219,7 +219,7 @@ async def test_instagram_skips_id_less_entries_then_business_manager(monkeypatch
     monkeypatch.setattr(auth.settings, "INSTAGRAM_REDIRECT_URI", "https://x/cb")
     monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_ID", "cid")
     monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
-    monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+    monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
     db = FakeDB(users=[_user()])
     await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
     acct = next(a for a in db.added if isinstance(a, SocialAccount))
@@ -249,7 +249,7 @@ async def test_tiktok_regrant_keeps_scope_gated_meta(monkeypatch):
     http = _FakeAsyncHTTPClient({"https://open.tiktokapis.com/v2/user/info/": _FakeResp(200, {"data": {"user": {"open_id": "oid-1", "display_name": "C"}}})})
     monkeypatch.setattr(auth, "tiktok_client", FakeClient())
     monkeypatch.setattr(auth.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
-    monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+    monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
     await auth.oauth_callback(
         "tiktok",
         state=sign_oauth_state({"t": str(team_id)}),
@@ -271,7 +271,7 @@ async def test_owner_opted_out_of_connect_email(monkeypatch):
     http = _FakeAsyncHTTPClient({"https://api.x.com/2/users/me": _FakeResp(200, {"data": {"id": "1", "username": "x", "name": "X"}})})
     monkeypatch.setattr(auth, "twitter_client", FakeClient())
     monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
-    monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+    monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
     import app.services.email_templates as et
 
     send = AsyncMock()
@@ -287,7 +287,7 @@ async def test_ig2_long_lived_token_without_expiry(monkeypatch):
         team_id=uuid.uuid4(), platform="instagram", account_id="ig-42", username="old", status="active", access_token_enc=encrypt_token("x"), meta_data={}
     )
     http = TestInstagram2Callback()._ig2_http(ll_post=_FakeResp(200, {"access_token": "ll_ig"}))
-    monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+    monkeypatch.setattr(auth, "SafeAsyncClient", lambda *a, **kw: http)
     await auth.instagram2_callback(state=sign_oauth_state({"t": str(existing.team_id)}), db=FakeDB(accounts=[existing]), code="c")
     assert existing.token_expires_at is None
     assert "instagram_token_expires_at" not in existing.meta_data

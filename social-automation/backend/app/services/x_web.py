@@ -362,13 +362,16 @@ class FileGuardStore:
     """JSON file + flock — used when Redis is unreachable."""
 
     def __init__(self, path: str) -> None:
-        # Normalize and validate path to prevent path traversal
+        # Normalize and validate path to prevent path traversal.
+        # Relative paths must resolve within the working directory;
+        # absolute paths are operator-configured and allowed.
         normalized_path = os.path.normpath(path)
-        # Ensure path is within the expected state directory
-        expected_dir = os.path.normpath("/app/.state")
-        if not normalized_path.startswith(expected_dir) and not normalized_path.startswith(os.path.normpath(".")):
-            # Allow relative paths within project but prevent absolute path traversal
-            raise ValueError(f"Invalid state file path: {path}")
+        if not os.path.isabs(normalized_path):
+            base = os.path.normpath(os.path.abspath("."))
+            resolved = os.path.normpath(os.path.abspath(normalized_path))
+            if os.path.commonpath([resolved, base]) != base:
+                raise ValueError(f"Invalid state file path: {path}")
+            normalized_path = resolved
         self.path = normalized_path
 
     @contextlib.asynccontextmanager
