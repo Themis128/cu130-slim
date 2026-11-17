@@ -3178,3 +3178,18 @@ Resolved this pass (details inline above):
   a recognized device before Business Settings → Instagram accounts → Add
   can be retried. Support case was submitted pre-lock (registration
   unverified).
+
+## 2026-11-17 — Linear board reconcile + PR sweep (Devin Desktop)
+
+- Linear (cloudless-gr, team CLO): CLO-1..4 onboarding stubs closed
+  Done (workspace demonstrably connected/configured); CLO-6..16
+  engineering issues all Done; CLO-5 platform tracker moved
+  Backlog → In Progress (standing tracker for social-automation dev).
+- PR sweep: 25 open PRs, all auto-merge armed; 7 DIRTY rebuilt onto
+  master as #2222–#2228 (superseding #2211–#2218); final state zero
+  actionable failures.
+- watch: #2219 (frontend coverage-threshold gaps) fixes the recurring
+  `frontend-test` failure that flagged #2218 — 99.4% lines vs 99.5%
+  global threshold; once it lands, rebuilt PRs stop tripping the gate.
+- watch: rebuilt PR queue merges serially under the strict
+  up-to-date rule; re-run pr_sweep_all.py if any stall DIRTY/BEHIND.
