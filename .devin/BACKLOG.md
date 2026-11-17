@@ -593,8 +593,10 @@ Leftovers:
   Mautic 200, `social.cloudless.gr/pricing` 200 via cloudflared.
 - Synigoros monitor OTP gate fixed same day (PRs #1561/#1563/#1564) — see
   Synigoros section above.
-- [ ] Take a fresh post-recovery NAS backup once stack is confirmed stable
-  (nightly job should do it; verify tomorrow's run).
+- [x] Take a fresh post-recovery NAS backup once stack is confirmed stable
+  (nightly job should do it; verify tomorrow's run). Verified 2026-11-17:
+  `backup_freshness_watch` reports ok — newest `manifest-20261116-0430.csv`
+  (20h at last check), nightly job running on schedule.
 - [ ] `docker model`/DMR + GPU services (`social-media-comfyui-gpu`,
   `instagram-private-api`, sidecars) are stack-ops sleep-managed Exited —
   expected idle state, not a fault. Wake on demand via stackctl.
@@ -617,9 +619,18 @@ Leftovers:
   cluster workflow when needed; do not export pod env as artifacts.
 - [ ] 61 placeholder/empty `.env` keys intentionally skipped — revisit if any
   become real (e.g. SLACK_*_WEBHOOK_URL family).
-- [ ] Rotate `POSTGRES_PASSWORD` (metabase role) — value was printed in a tool
-  transcript 2026-11-09; also rotate Infisical UA client secret (same exposure
-  window earlier) per secret-safety policy.
+- [x] Rotate `POSTGRES_PASSWORD` (metabase role) — DONE 2026-11-17: the
+  `postgres` container's superuser is `metabase` (= `METABASE_DB_PASS`,
+  shared by metabase app DB + the `infisical` DB via `INFISICAL_DB_URI`).
+  Rotated: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`.
+  Verified SCRAM auth on both DBs, metabase+infisical healthy. ALSO fixed
+  a stale Metabase *data-source* credential found during verification:
+  "SocialAuto" source (id 1 → social-postgres/social_user) held the
+  pre-2026-11-13 `SOCIAL_POSTGRES_PASSWORD` → `PUT /api/database/1` with
+  the current secret; `/api/database/1/healthcheck` now `ok`.
+- [ ] Rotate Infisical UA client secret (same 2026-11-09 exposure window)
+  per secret-safety policy — tracked at the STILL OPEN item below.
 - [ ] Docker Desktop flapped repeatedly tonight (engine down ~02:30–02:40,
   Infisical wedged once — restarted). Watchdog covers social stack only;
   consider adding `infisical`+`postgres` to its critical-container list.
@@ -2696,6 +2707,11 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
 - [ ] watch: first live runs of the 3 new beats after deploy —
   community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
   offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
+  Partial 2026-11-17: `moderate_linkedin_community` ran 02:07 UTC,
+  succeeded (10 posts scanned, dry-run). ads-guard (daily 08:00) +
+  offline-conversions (daily 06:40) had no slot yet — celery-beat was
+  recreated 00:53 UTC in the fsbridge recovery; confirm both fired on
+  their first scheduled slot before closing this watch.
 
 ## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
 
@@ -3153,15 +3169,18 @@ Resolved this pass (details inline above):
 - [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
   (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
   (active coverage fix).
-- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
-  `run-backend-once.sh` copies the placeholder `.env`; for
-  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
-  container env (`docker exec social-api printenv`) as done for run4,
-  or extend the script with `--live-secrets` that diffs against
-  `social-api`'s env.
-- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
-  `Loading...` under the known thrash); inference already failed →
-  rule-based fallback active, still executing.
+- [x] **throwaway-launcher live-secrets lane — DONE in PR #2187**:
+  `scripts/run-backend-once.sh` defaults to exporting the live env from
+  the `social-api` container (`--env-file`), so placeholder `.env`
+  values can't leak into throwaway runs; `--mounted` refuses when the
+  fsbridge probe fails.
+- [x] **watch: strategy-report-run4** — COMPLETED degraded 2026-11-16
+  (engine outage window): 255 teams, 2 emailed, llm_used=0, rule-based
+  fallback. Container gone; DMR verified healthy post-recovery. NOTE:
+  scheduled `daily-strategy-report` runs `run_notebook_report` inside
+  the celery worker (live env already) — it does NOT go through
+  run-backend-once.sh; the launcher (#2187) covers ad-hoc/throwaway
+  runs only.
 - [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
   push; auto-merge armed on all 13 open PRs, 0 other failures.
 
@@ -3204,6 +3223,27 @@ Resolved this pass (details inline above):
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
 
+## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
+
+- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
+  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
+  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
+  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
+  hash-dupes removed, lock released. API healthy.
+- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
+  Fired `reconcile_account_status` manually — all Meta rows now honestly
+  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
+  tokens; heal lanes must re-auth before any Meta action.
+- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
+  failed). Ingest still runs but candidates are stale (IG max Nov 11,
+  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
+  sessions, NOT the brain/scoring layer — no model upgrade needed.
+- **FB :9229** still parked on expired two_step_verification checkpoint;
+  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
+  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
+- **strategy-report-run4** completed degraded (engine outage window):
+  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
+  (200 from container); next run uses live inference.
 ## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
 
 - [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
@@ -3241,78 +3281,97 @@ Resolved this pass (details inline above):
       Note: `desktop stop`+immediate `start` races — if start says
       "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
 
-- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
-      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
+### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
 
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
+- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
+      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
+- [x] Server throttled tonight's requests: "WhatsApp is temporarily
+      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
+      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
+      stacked request_code attempts earlier.
+- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
+      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
+      Do NOT re-request before the timer — each request extends the cooldown.
+- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
+      meta_data + verify Cloud API/coexistence status (skill runbook).
+- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
 
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
-BACKLOG_EOF
-cd /tmp/backlog-wt2 && git add .devin/BACKLOG.md && git commit -qm "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" && git push -qu origin docs/backlog-stack-recovery-20261117 && gh pr create --base master --title "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" --body "Session notes: DD-bounce container/image vanish recovery, social-api crash-loop root-caused to in-flight url_security WIP, sshd + WSL-Permanent-Fix items verified already-fixed." | tail -2
+### Gmail thread watchers — crash bug + transient-alert hardening (2026-11-17)
 
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
+- [x] `dypa-da2` + `SKC` TG alerts (`Remote end closed connection`) — one
+      shared Google-API drop ~00:13–00:15, both self-healed; verified clean live.
+- [x] Real bug: stray `watches/vodafone-career-state.json` crashed
+      `run-all-watches.py` (`KeyError: 'name'`) every sweep — glob now skips
+      `*-state.json`; stray moved aside.
+- [x] `api()` in `gmail-thread-watch.py` + `skc-watch.py` gains 3-try
+      backoff (5s/10s) so single API blips no longer fire the 24h-deduped
+      error alert. Both watches verified: `no new inbound` / `no new mail`.
+      (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
 
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
+## 2026-11-17 — Postgres MCP for agents (read-only lane) + MCP-catalog findings
+
+- [x] `pg-mcp` container live: `crystaldba/postgres-mcp` on `cu130-db`
+      (name-based `social-postgres:5432`, immune to IP churn),
+      `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
+      `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
+      mounts `~/.pgpass` (chmod 600, has `social-postgres:5432:*:mcp_reader`
+      + `localhost:5433` lines). Restricted mode = read-only tools only.
+- [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
+      USAGE(public) + SELECT all tables + default-privileges for future
+      tables (owner social_user). Verified: 61 public tables visible,
+      `execute_sql select 1` OK. Password lives ONLY in ~/.pgpass + the
+      role itself — nowhere in configs/inspect/env.
+- [x] Devin MCP config `~/.config/devin/mcp_config.json` gained a
+      `postgres` stdio server: `docker exec -i pg-mcp postgres-mcp
+      --access-mode=restricted` (activates next session; heal script only
+      rewrites the file if missing — safe). 9 tools incl. execute_sql,
+      explain_query, analyze_db_health, get_top_queries.
+- [x] Why not catalog `database-server`: MCP-toolkit containers can't
+      reach the DB — `127.0.0.1:5433` publish is loopback-only
+      (host.docker.internal refused), container IPs are ephemeral, and
+      the gateway spec has no network/host-network field. The
+      docker-exec bridge sidesteps all of it. Catalog path would need a
+      compose static-IP PR — not pursued (name-based is strictly better).
+- [x] Filed docker/mcp-gateway issues #621 (mcp-find hides oauth.providers
+      secret requirements) + #622 (BM25 whole-token recall misses
+      "PostgreSQL" for query "postgres"). Findings also in
+      ~/AGENTS.md (home-ops, commit 517a3c8).
+- [x] `mcp_reader` also granted on the `n8n` DB (2026-11-17): CONNECT +
+      USAGE(public) + SELECT all 178 tables + default privileges — same
+      read-only posture. pgpass `*` db field already covers it.
+- [ ] if `pg-mcp` container is ever removed, recreate:
+      `docker run -d --name pg-mcp --network cu130-db --restart
+      unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
+      mcp_reader@social-postgres:5432/social_automation -e
+      PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
+      crystaldba/postgres-mcp:latest infinity`
+
+## 2026-11-17 — leftovers pass: metabase-role rotation + stale data-source fix (Devin)
+
+- [x] **`METABASE_DB_PASS` rotated** (the 2026-11-09 transcript-exposure
+  item): postgres superuser `metabase` is shared by the metabase app DB
+  AND the `infisical` DB (`INFISICAL_DB_URI` embeds the password).
+  Sequence: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`
+  under deploy lock. Verified: SCRAM auth OK on `metabase`+`infisical`
+  DBs, both containers healthy, `127.0.0.1:8090/api/status` = Ok.
+- [x] **Metabase "SocialAuto" data source repaired** — its stored
+  `social_user` password predated the 2026-11-13 rotation → startup
+  health check `password-incorrect`. Fixed via admin session +
+  `PUT /api/database/1` (details.password = current
+  `SOCIAL_POSTGRES_PASSWORD`); `/api/database/1/healthcheck` = ok.
+  Metabase has no published port — reach it via `docker exec metabase
+  curl localhost:3000` or the stack-ops wake path.
+- [x] Verified-and-closed watches: NAS nightly backup fresh
+  (manifest-20261116), linkedin-community-moderation beat live (02:07
+  UTC success), strategy-report-run4 completed, run-backend-once
+  live-secrets lane shipped in PR #2187.
+- [ ] STILL OPEN (need humans/external): INFISICAL_UA_CLIENT_SECRET
+  rotation (dedicated window — it IS the Infisical credential),
+  LinkedIn `rw_dmp_segments`/Matched Audiences approvals (expire
+  ~2026-12-06 — reapply if lapsed), Meta re-auths (WABA token, IG/FB/Threads
+  revoked rows), WhatsApp Business in-app "Call me" verify after cooldown,
+  FB :9229 manual login, X quota reset, host RAM/vsock flaps.
