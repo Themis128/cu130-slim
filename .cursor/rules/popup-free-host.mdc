@@ -1,3 +1,8 @@
+---
+description: Prevent visible cmd, PowerShell, and conhost popups on the Windows host.
+alwaysApply: true
+---
+
 # Popup-free host — address ALL cmd/conhost popups
 
 Standing directive (2026-11-17): **no visible cmd/PowerShell/conhost flash is
@@ -19,7 +24,7 @@ hunt it to the spawning process and fix the launch path — don't just close it.
 |---|---|---|
 | `conhost.exe --headless <cmd>` | Scheduled-task actions / fire-and-forget | No console ever created — but **eats stdout** (terminal escapes); never for output capture |
 | `~/scripts/win-hidden.sh` → `winrun`/`winps`/`wincmd` | WSL→Windows calls that need stdout/exit code | `pythonw.exe` + `C:\Users\tbaltzakis\devin-scripts\mcp-hide.pyw` (`CREATE_NO_WINDOW`, stdio passed through) |
-| Direct `.js` entrypoint | MCP servers / node tools | Skip `npx`/`.cmd` shims entirely — point at `...\node_modules\<pkg>\dist\index.js` |
+| Direct `.js` entrypoint | MCP servers / node tools | Skip `npx`/`.cmd` shims entirely — point at the package's real entrypoint: resolve the `bin` field in its `package.json` (e.g. `@playwright/mcp` ships `cli.js`, `firebase-tools` ships `lib/bin/firebase.js`), not a guessed `dist\index.js` |
 | `Start-Process -NoNewWindow` | Child launched inside an already console-less pwsh | Keeps the child console-less too |
 | `WScript.Shell.Run "cmd /c x.bat",0` | vbs startup launchers | Hidden by design — NOT a flash |
 
