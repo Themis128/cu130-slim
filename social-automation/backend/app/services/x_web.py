@@ -362,7 +362,14 @@ class FileGuardStore:
     """JSON file + flock — used when Redis is unreachable."""
 
     def __init__(self, path: str) -> None:
-        self.path = path
+        # Normalize and validate path to prevent path traversal
+        normalized_path = os.path.normpath(path)
+        # Ensure path is within the expected state directory
+        expected_dir = os.path.normpath("/app/.state")
+        if not normalized_path.startswith(expected_dir) and not normalized_path.startswith(os.path.normpath(".")):
+            # Allow relative paths within project but prevent absolute path traversal
+            raise ValueError(f"Invalid state file path: {path}")
+        self.path = normalized_path
 
     @contextlib.asynccontextmanager
     async def lock(self) -> AsyncIterator[None]:
@@ -996,7 +1003,7 @@ async def _default_twscrape_api(username: str) -> Any:
     os.chmod(workdir, 0o700)
     proxy = (get_settings().X_WEB_PROXY or "").strip() or None
     api = API(os.path.join(workdir, "accounts.db"), proxy=proxy, raise_when_no_account=True)
-    api._x_web_workdir = workdir  # removed by fetch_x_web_analytics
+    api._x_web_workdir = workdir
     await api.pool.add_account_cookies(username, _cookie_header(load_cookies()))
     return api
 

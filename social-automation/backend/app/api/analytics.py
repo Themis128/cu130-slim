@@ -19,6 +19,7 @@ from app.api.auth import get_current_user
 from app.api.deps import TeamId
 from app.core.config import settings
 from app.core.security import decrypt_token
+from app.core.url_security import SafeAsyncClient
 from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post, PostStatus, PostTarget
@@ -191,13 +192,11 @@ async def _twitter_follower_count(account: SocialAccount) -> int:
     if account.platform != "twitter":
         return 0
     try:
-        import httpx
-
         token = decrypt_token(account.access_token_enc)
         headers = {"Authorization": f"Bearer {token}"}
         # Use the account_id (Twitter user ID) to fetch user info
         user_id = account.account_id
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with SafeAsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 f"https://api.x.com/2/users/{user_id}",
                 headers=headers,
@@ -232,11 +231,9 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
             pass
         return -1
     try:
-        import httpx
-
         token = meta.get("page_token") or decrypt_token(account.access_token_enc)
         page_id = account.account_id
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with SafeAsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 facebook_graph_url(str(page_id)),
                 params={"fields": "followers_count,fan_count", "access_token": token},
@@ -261,12 +258,10 @@ async def _instagram_follower_count(account: SocialAccount) -> int:
     if account.platform != "instagram":
         return 0
     try:
-        import httpx
-
         token = decrypt_token(account.access_token_enc)
         ig_user_id = account.account_id
         url = f"https://graph.instagram.com/v26.0/{ig_user_id}" if token.startswith("IGAAU") else facebook_graph_url(str(ig_user_id))
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with SafeAsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 url,
                 params={"fields": "followers_count", "access_token": token},
@@ -290,11 +285,9 @@ async def _threads_follower_count(account: SocialAccount) -> int:
     if account.platform != "threads":
         return 0
     try:
-        import httpx
-
         token = decrypt_token(account.access_token_enc)
         threads_user_id = account.account_id
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with SafeAsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 f"https://graph.threads.net/v1.0/{threads_user_id}/threads_insights",
                 headers={"Authorization": f"Bearer {token}"},
@@ -324,10 +317,8 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
     if account.platform != "tiktok":
         return -1
     try:
-        import httpx
-
         token = decrypt_token(account.access_token_enc)
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with SafeAsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 "https://open.tiktokapis.com/v2/user/info/",
                 headers={"Authorization": f"Bearer {token}"},
@@ -342,14 +333,13 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
         pass
     # Sidecar fallback — profile page renders followers without API scope.
     try:
-        import httpx
-
         from app.core.config import get_settings
 
         username = (account.username or "").lstrip("@")
         if not username:
             return -1
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        # Use allow_private_ips for internal sidecar service
+        async with SafeAsyncClient(timeout=90.0, allow_private_ips=True) as client:
             resp = await client.get(
                 f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
                 params={"username": username},

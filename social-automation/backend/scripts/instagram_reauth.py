@@ -55,7 +55,14 @@ API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 # Compose sets FACEBOOK_BROWSER_SIDECAR_URL (stack-ops wake proxy); the
 # FACEBOOK_SIDECAR alias is kept for manual runs.
 SIDECAR = os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL") or os.environ.get("FACEBOOK_SIDECAR") or "http://facebook-browser-sidecar:9226"
-STATE = "/tmp/instagram-reauth-state.json"
+# Use pathlib for secure path handling - prevent path traversal
+_state_path = Path("/tmp") / "instagram-reauth-state.json"
+# Ensure the path is within /tmp directory
+try:
+    _state_path.resolve().relative_to(Path("/tmp").resolve())
+except ValueError:
+    raise ValueError("Invalid state file path - path traversal attempt detected")
+STATE = str(_state_path)
 # The @cloudless.gr account is login_type=business_login — it was connected
 # through the "Instagram API with Facebook Login" onboarding flow, whose
 # authorize endpoint is instagram-onboarding and whose callback lands on the

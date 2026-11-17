@@ -20,6 +20,7 @@ import redis.asyncio as aioredis
 
 KEY = "shared_context:v1"
 FALLBACK = "/app/.state/shared_context.json"
+FALLBACK_DIR = os.path.dirname(FALLBACK)
 
 DEFAULT: dict[str, Any] = {
     "survey": {
@@ -69,6 +70,11 @@ async def save(ctx: dict[str, Any]) -> None:
         return
     except Exception:
         pass
-    os.makedirs(os.path.dirname(FALLBACK), exist_ok=True)
+    # Ensure fallback directory is within expected path to prevent path traversal
+    fallback_dir = os.path.normpath(FALLBACK_DIR)
+    expected_dir = os.path.normpath("/app/.state")
+    if not fallback_dir.startswith(expected_dir):
+        raise ValueError(f"Invalid fallback directory: {fallback_dir}")
+    os.makedirs(fallback_dir, exist_ok=True)
     with open(FALLBACK, "w") as f:
         f.write(raw)

@@ -38,10 +38,18 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 BRIDGE = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
-STATE = "/tmp/threads-reauth-state.json"
+# Use pathlib for secure path handling - prevent path traversal
+_state_path = Path("/tmp") / "threads-reauth-state.json"
+# Ensure the path is within /tmp directory
+try:
+    _state_path.resolve().relative_to(Path("/tmp").resolve())
+except ValueError:
+    raise ValueError("Invalid state file path - path traversal attempt detected")
+STATE = str(_state_path)
 CALLBACK_MARK = "/api/v1/auth/oauth/threads/callback"
 MAX_CONSECUTIVE_FAILS = 3
 

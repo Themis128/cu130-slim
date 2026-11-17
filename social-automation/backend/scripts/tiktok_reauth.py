@@ -36,10 +36,18 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 API = os.environ.get("SOCIAL_API_INTERNAL", "http://127.0.0.1:8000")
 SIDECAR = os.environ.get("TIKTOK_SIDECAR", "http://tiktok-browser-sidecar:9224")
-STATE = "/tmp/tiktok-reauth-state.json"
+# Use pathlib for secure path handling - prevent path traversal
+_state_path = Path("/tmp") / "tiktok-reauth-state.json"
+# Ensure the path is within /tmp directory
+try:
+    _state_path.resolve().relative_to(Path("/tmp").resolve())
+except ValueError:
+    raise ValueError("Invalid state file path - path traversal attempt detected")
+STATE = str(_state_path)
 CALLBACK_MARK = "social.cloudless.gr/api/v1/auth/oauth/tiktok/callback"
 MAX_ATTEMPTS_PER_HOUR = 1
 MAX_CONSECUTIVE_FAILS = 3

@@ -210,7 +210,8 @@ def main() -> int:
         p = HERE / script
         if p.exists():
             print(f"\n$ python {script}")
-            os.system(f'"{sys.executable}" "{p}"')
+            import subprocess
+            subprocess.run([sys.executable, str(p)], check=False)
     return 0
 
 
