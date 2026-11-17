@@ -341,6 +341,17 @@ and the durable `wsl --shutdown` + Docker Desktop restart for
 vsock/memory-pressure flapping. Verified live 2026-11-13: correctly
 flagged 5 wedged loads while `/api/ps` looked healthy.
 
+**Unload-requeue loop (verified 2026-11-16)**: `docker model ps`
+`Loading...` rows are *pending load requests*, not resident models —
+`unload` frees the loaded bytes but the queued callers re-request all
+their models immediately, so a task backlog re-fills the loader queue
+within seconds. Freeing VRAM helps only the NEXT request; the durable
+lever is fewer distinct models in the request mix (the ~5-model fleet
+can't coexist in 8GB). Also: `gpu_arbiter` serialization only works
+when the caller's `REDIS_URL` is current — a container launched with a
+pre-rotation `.env` logs `Redis unreachable (AuthenticationError) —
+DMR unserialized` and every call bypasses the lock.
+
 ## VRAM management
 
 **All models now run CPU (`n-gpu-layers 0`) — see the banner at the top.
@@ -501,6 +512,7 @@ Environment variables:
 | `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 | `scripts/dmr_pressure.py` | Fleet pressure verdict — wedged loads, low host RAM, dmr_lock contention, chat-probe canary |
+| `scripts/dmr-restore.sh` | Runner-container-GONE recovery — image pull (EOF retry), `install-runner` with `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1`, API wait + verify. `--check` reports state only |
 
 ## Common operations
 
@@ -611,7 +623,10 @@ Notes:
 - Admin keep-alive overrides persist in Redis hash dmr:config_overrides
 - ComfyUI /free is called by the heal path only when its queue is idle
 
-## Runner container gone — full reinstall (seen 2026-10-08)
+## Runner container gone — full reinstall (seen 2026-10-08, again 2026-11-15)
+
+Automated: `scripts/dmr-restore.sh` runs this whole procedure (`--check`
+for state only). Manual steps below.
 
 Symptom: `docker-model-runner` missing from `docker ps -a`, port 12435
 refused everywhere, watchdog logs "container gone — Docker Desktop restart
