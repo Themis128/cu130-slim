@@ -299,10 +299,14 @@ wiped on EVERY `docker restart docker-model-runner`, Docker Desktop reset, or
 WSL shutdown (verified: `configure show` returns `[]` after restart). They are
 NOT in the models volume.
 
-The `dmr-watchdog` compose service closes this gap: it mounts the
-`docker-model` CLI plugin (`/usr/local/lib/docker/cli-plugins/docker-model`,
-which resolves to the same path inside docker-desktop) and polls the runner's
-`StartedAt` every 60s — on change, it reapplies the canonical configs:
+The `dmr-watchdog` compose service closes this gap: it polls the runner's
+`StartedAt` every **10s** — on change it queues the canonical configs and
+applies **one model per tick** via `POST /engines/_configure`, staggering
+the background preloads each configure triggers (a burst of N configs = N
+simultaneous cold loads = the RAM stampede this design avoids). A failed
+push stays at the head of the queue and retries next tick. Canonical set
+lives in `MODEL_CONFIGS` in docker-compose.yml — update it there, not by
+hand:
 
 ```bash
 docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
