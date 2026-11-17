@@ -1,0 +1,14 @@
+# Uptime-Kuma namespace ResourceQuota.
+# Raised 2026-11-17: limits.memory 512Mi -> 768Mi. The kuma + kuma-slack-bridge
+# pods (384Mi) plus a heartbeats cronjob pod (128Mi) needed 512Mi exactly —
+# any overlap produced FailedCreate quota rejections every 5 minutes.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: uptime-kuma-quota
+  namespace: uptime-kuma
+spec:
+  hard:
+    limits.memory: 768Mi
+    requests.memory: 384Mi
+    pods: "10"
