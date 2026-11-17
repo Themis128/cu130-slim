@@ -62,10 +62,7 @@ async def _action_events(db, team_id) -> list[AnalyticsEvent]:
 async def _already_scored(db, team_id, action_event_id) -> bool:
     row = (
         await db.execute(
-            text(
-                "SELECT 1 FROM analytics_events WHERE team_id=:t AND event_type=:e "
-                "AND meta_data->>'action_event_id'=:a LIMIT 1"
-            ),
+            text("SELECT 1 FROM analytics_events WHERE team_id=:t AND event_type=:e AND meta_data->>'action_event_id'=:a LIMIT 1"),
             {"t": team_id, "e": REWARDS_TYPE, "a": str(action_event_id)},
         )
     ).scalar_one_or_none()
