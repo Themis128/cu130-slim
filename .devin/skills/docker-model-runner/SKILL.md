@@ -341,6 +341,17 @@ and the durable `wsl --shutdown` + Docker Desktop restart for
 vsock/memory-pressure flapping. Verified live 2026-11-13: correctly
 flagged 5 wedged loads while `/api/ps` looked healthy.
 
+**Unload-requeue loop (verified 2026-11-16)**: `docker model ps`
+`Loading...` rows are *pending load requests*, not resident models —
+`unload` frees the loaded bytes but the queued callers re-request all
+their models immediately, so a task backlog re-fills the loader queue
+within seconds. Freeing VRAM helps only the NEXT request; the durable
+lever is fewer distinct models in the request mix (the ~5-model fleet
+can't coexist in 8GB). Also: `gpu_arbiter` serialization only works
+when the caller's `REDIS_URL` is current — a container launched with a
+pre-rotation `.env` logs `Redis unreachable (AuthenticationError) —
+DMR unserialized` and every call bypasses the lock.
+
 ## VRAM management
 
 **All models now run CPU (`n-gpu-layers 0`) — see the banner at the top.
