@@ -19,7 +19,7 @@ def _client(status=200, json_data=None):
 def _patch(monkeypatch, client):
     from app.worker.tasks import account_status_reconcile as M
 
-    monkeypatch.setattr(M.httpx, "AsyncClient", lambda *a, **k: client)
+    monkeypatch.setattr(M, "SafeAsyncClient", lambda *a, **k: client)
 
 
 @pytest.mark.asyncio
