@@ -402,7 +402,7 @@ async def build_content_weekly() -> FunnelReport:
         return (str(r[0]), r[1])
 
     prev_map = {_key(r): r for r in prev}
-    rows = []
+    rows: list[dict[str, Any]] = []
     for r in cur:
         p = prev_map.get(_key(r))
         prev_eng = int(p[4]) if p else 0
@@ -435,9 +435,9 @@ async def build_content_weekly() -> FunnelReport:
     # per-platform totals this week
     plat: dict[str, list[int]] = {}
     for r in rows:
-        p = plat.setdefault(r["platform"], [0, 0])
-        p[0] += r["engagement"]
-        p[1] += r["impressions"]
+        totals = plat.setdefault(str(r["platform"]), [0, 0])
+        totals[0] += int(r["engagement"])
+        totals[1] += int(r["impressions"])
     report.line("Per-platform totals (7d)",
                 *[f"• {k}: {v[0]} eng / {v[1]} imp" for k, v in sorted(plat.items())] or ["none"])
 
