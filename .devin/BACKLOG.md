@@ -3244,3 +3244,75 @@ Resolved this pass (details inline above):
 
 - [x] `popup-free-host` rule committed (both mirrors) — standing directive to
       hunt every cmd/conhost flash to its spawn config; the five fix lanes.
+
+## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
+
+- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
+  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
+  containers + their images vanished (social-api, 4 workers,
+  celery-beat, stack-ops, stack-watchers, env-manager-backend,
+  metabase, portainer, flower, comfyui, autoheal,
+  docker-socket-proxy, dmr-watchdog, compose-healer,
+  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
+  docker/for-win bug class (issues #13089/#14499/#14528).
+  Gateway crash-looped on host-not-found upstream social-api:8000
+  until recreate.
+- Recovery: docker compose up -d re-pulled all missing images
+  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
+  engine flapped again (docker.sock vanished) then self-recovered;
+  creates flushed. social-api + 4 workers + celery-beat + chroma +
+  env-manager-backend now Up/healthy.
+- **social-api unhealthy root cause = ANOTHER agent live WIP**:
+  uncommitted edits at 08:13 add url_security imports
+  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
+  hardening pass) but app/core/url_security.py not yet created —
+  bind-mounted checkout crash-loops the API until that agent
+  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
+- Second docker compose up -d (another agent, 08:14) still running
+  for the remaining stragglers — left to finish (two concurrent ups
+  = recreate-removal race; killed my duplicate).
+- **Stale backlog items verified already-fixed** (mark done next
+  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
+  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
+  open; WSL-Permanent-Fix task — already repointed to
+  conhost --headless + local pwsh.exe, last run result 0.
+- watch: after other agent up completes, verify stack-ops +
+  stack-watchers exist (they own idle-sleep + watcher respawn);
+  social-api health returns once url_security.py lands.
+BACKLOG_EOF
+cd /tmp/backlog-wt2 && git add .devin/BACKLOG.md && git commit -qm "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" && git push -qu origin docs/backlog-stack-recovery-20261117 && gh pr create --base master --title "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" --body "Session notes: DD-bounce container/image vanish recovery, social-api crash-loop root-caused to in-flight url_security WIP, sshd + WSL-Permanent-Fix items verified already-fixed." | tail -2
+
+## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
+
+- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
+  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
+  containers + their images vanished (social-api, 4 workers,
+  celery-beat, stack-ops, stack-watchers, env-manager-backend,
+  metabase, portainer, flower, comfyui, autoheal,
+  docker-socket-proxy, dmr-watchdog, compose-healer,
+  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
+  docker/for-win bug class (issues #13089/#14499/#14528).
+  Gateway crash-looped on host-not-found upstream social-api:8000
+  until recreate.
+- Recovery: docker compose up -d re-pulled all missing images
+  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
+  engine flapped again (docker.sock vanished) then self-recovered;
+  creates flushed. social-api + 4 workers + celery-beat + chroma +
+  env-manager-backend now Up/healthy.
+- **social-api unhealthy root cause = ANOTHER agent live WIP**:
+  uncommitted edits at 08:13 add url_security imports
+  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
+  hardening pass) but app/core/url_security.py not yet created —
+  bind-mounted checkout crash-loops the API until that agent
+  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
+- Second docker compose up -d (another agent, 08:14) still running
+  for the remaining stragglers — left to finish (two concurrent ups
+  = recreate-removal race; killed my duplicate).
+- **Stale backlog items verified already-fixed** (mark done next
+  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
+  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
+  open; WSL-Permanent-Fix task — already repointed to
+  conhost --headless + local pwsh.exe, last run result 0.
+- watch: after other agent up completes, verify stack-ops +
+  stack-watchers exist (they own idle-sleep + watcher respawn);
+  social-api health returns once url_security.py lands.
