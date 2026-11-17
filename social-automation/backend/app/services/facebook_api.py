@@ -21,6 +21,7 @@ API reference: https://developers.facebook.com/docs/graph-api
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -300,12 +301,61 @@ class FacebookAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def create_video_post(self, video_url: str, description: str = "") -> dict:
+    async def _reels_start(self, client: httpx.AsyncClient) -> tuple[str, str]:
+        """Run the video_reels ``start`` phase; return (video_id, upload_url)."""
+        start = self._url(f"{self.page_id}/video_reels")
+        resp = await client.post(start, params=self._params(), data={"upload_phase": "start"})
+        self._raise_for_status(resp, start)
+        started = resp.json()
+        video_id = str(started.get("video_id") or "")
+        upload_url = started.get("upload_url") or ""
+        if not video_id or not upload_url:
+            raise RuntimeError(f"video_reels start phase returned no video_id/upload_url: {started}")
+        return video_id, upload_url
+
+    async def _reels_transfer_url(self, client: httpx.AsyncClient, upload_url: str, video_url: str) -> None:
+        """Transfer phase via ``file_url`` — Meta's servers fetch the video."""
+        resp = await client.post(
+            upload_url,
+            headers={"Authorization": f"OAuth {self.access_token}", "file_url": video_url},
+        )
+        self._raise_for_status(resp, upload_url)
+
+    async def _reels_transfer_bytes(self, client: httpx.AsyncClient, upload_url: str, local_path: str) -> None:
+        """Transfer phase via raw bytes — resumable-upload ``offset`` POST.
+
+        Meta's video-ads/reels upload protocol is non-chunking (one POST at
+        ``offset=0`` with the full body), so the file streams as the request
+        body in bounded pieces — a multi-GB fallback must not land on the
+        worker's heap (social-worker-publishing shares ~1.2 GiB across
+        three processes). ``file_size`` comes from the file itself.
+        """
+
+        def _iter_file() -> Any:
+            with open(local_path, "rb") as f:
+                while piece := f.read(4 * 1024 * 1024):
+                    yield piece
+
+        resp = await client.post(
+            upload_url,
+            headers={
+                "Authorization": f"OAuth {self.access_token}",
+                "offset": "0",
+                "file_size": str(os.path.getsize(local_path)),
+                "Content-Type": "application/octet-stream",
+            },
+            content=_iter_file(),
+        )
+        self._raise_for_status(resp, upload_url)
+
+    async def create_video_post(self, video_url: str, description: str = "", *, local_path: str | None = None) -> dict:
         """Publish a video post to the Page.
 
         ``POST /{page_id}/videos`` with ``file_url`` (public video URL) and
-        ``description``. Returns the Graph API response containing the new
-        video ``id``.
+        ``description``. When the file_url fetch fails (e.g. robots.txt block
+        on the media endpoint) and ``local_path`` is given, retries once with
+        the video bytes uploaded as ``source`` multipart. Returns the Graph
+        API response containing the new video ``id``.
         """
         if not video_url:
             raise ValueError("video_url is required for a Facebook video post")
@@ -317,10 +367,26 @@ class FacebookAPIClient:
 
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.post(url, params=self._params(), data=payload)
+            if resp.status_code < 400:
+                return resp.json()
+            if not local_path or not os.path.exists(local_path):
+                self._raise_for_status(resp, url)
+            logger.warning(
+                "Facebook /videos file_url fetch failed (%s) — retrying with bytes upload",
+                _sanitize_log_text(resp.text)[:120],
+            )
+            payload = {"description": description} if description else {}
+            with open(local_path, "rb") as f:
+                resp = await client.post(
+                    url,
+                    params=self._params(),
+                    data=payload,
+                    files={"source": (os.path.basename(local_path or "video.mp4"), f, "application/octet-stream")},
+                )
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def create_reel_post(self, video_url: str, description: str = "") -> dict:
+    async def create_reel_post(self, video_url: str, description: str = "", *, local_path: str | None = None) -> dict:
         """Publish a Reel to the Page via the video_reels 3-phase upload.
 
         ``POST /{page_id}/video_reels?upload_phase=start`` -> {video_id, upload_url};
@@ -328,25 +394,29 @@ class FacebookAPIClient:
         from our public media URL (no binary upload needed);
         ``POST /{page_id}/video_reels?upload_phase=finish`` with
         ``video_state=PUBLISHED``. Returns the final Graph response.
+
+        When the file_url fetch fails (e.g. robots.txt blocking the media
+        endpoint — observed 2026-11-16 as "403 Restricted by robots.txt") and
+        ``local_path`` is given, retries once with a fresh start phase and a
+        direct bytes upload. ``file_url`` stays primary so the common path
+        never loads the video into memory.
         """
         if not video_url:
             raise ValueError("video_url is required for a Facebook reel")
 
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            start = self._url(f"{self.page_id}/video_reels")
-            resp = await client.post(start, params=self._params(), data={"upload_phase": "start"})
-            self._raise_for_status(resp, start)
-            started = resp.json()
-            video_id = str(started.get("video_id") or "")
-            upload_url = started.get("upload_url") or ""
-            if not video_id or not upload_url:
-                raise RuntimeError(f"video_reels start phase returned no video_id/upload_url: {started}")
-
-            resp = await client.post(
-                upload_url,
-                headers={"Authorization": f"OAuth {self.access_token}", "file_url": video_url},
-            )
-            self._raise_for_status(resp, upload_url)
+            video_id, upload_url = await self._reels_start(client)
+            try:
+                await self._reels_transfer_url(client, upload_url, video_url)
+            except FacebookAPIError:
+                if not local_path or not os.path.exists(local_path):
+                    raise
+                logger.warning(
+                    "Facebook reel file_url fetch failed — retrying with bytes upload from %s",
+                    local_path,
+                )
+                video_id, upload_url = await self._reels_start(client)
+                await self._reels_transfer_bytes(client, upload_url, local_path)
 
             finish = self._url(f"{self.page_id}/video_reels")
             payload: dict[str, Any] = {
