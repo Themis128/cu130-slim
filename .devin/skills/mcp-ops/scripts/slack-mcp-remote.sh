@@ -35,19 +35,23 @@ NODE=/home/tbaltzakis/.local/bin/node
 PROXY=/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js
 [[ -f "$PROXY" ]] || PROXY="$HOME/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js"
 
-INFO="$(python3 - "$CLIENT_ID" "$CLIENT_SECRET" "$PORT" <<'PY'
+# The secret travels via the process ENVIRONMENT (${SLACK_MCP_CLIENT_SECRET}
+# placeholder expanded by mcp-remote's parseJsonWithEnvVars), never via argv —
+# `ps` exposes argv to every local user, environ only to the owner.
+INFO="$(python3 - "$CLIENT_ID" "$PORT" <<'PY'
 import json, sys
-cid, sec, port = sys.argv[1], sys.argv[2], sys.argv[3]
+cid, port = sys.argv[1], sys.argv[2]
 print(json.dumps({
   "client_id": cid,
-  "client_secret": sec,
+  "client_secret": "${SLACK_MCP_CLIENT_SECRET}",
   "redirect_uris": [f"http://localhost:{port}/callback",
                     f"http://127.0.0.1:{port}/callback"],
 }))
 PY
 )"
 
-exec "$NODE" "$PROXY" \
+exec env SLACK_MCP_CLIENT_SECRET="$CLIENT_SECRET" \
+  "$NODE" "$PROXY" \
   "https://mcp.slack.com/mcp" \
   "$PORT" --host localhost --callback-path /callback \
   --static-oauth-client-info "$INFO" \

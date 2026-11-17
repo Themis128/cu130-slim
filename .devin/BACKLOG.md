@@ -3236,7 +3236,6 @@ Resolved this pass (details inline above):
       engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
       clean through the wrapper.
 
-<<<<<<< Updated upstream
 ### battle-test addendum (same day, evening)
 
 - [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
@@ -3247,10 +3246,8 @@ Resolved this pass (details inline above):
 - [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
       `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
       with the old flash-prone command line.
-=======
 - [x] `termux-first` rule committed (both mirrors) — standing directive to use
       Termux as the primary on-device lane for any phone-side task.
->>>>>>> Stashed changes
 
 ### Leftover sweep — optimal pass (2026-11-17)
 
