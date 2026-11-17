@@ -599,6 +599,9 @@ celery_app.conf.update(
         "export-datalake": {
             "task": "app.worker.tasks.datalake_export.export_datalake",
             "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
+            # Drop runs that sat queued >55min (worker downtime) — the next
+            # scheduled sweep supersedes them; prevents post-outage pile-up.
+            "options": {"expires": 3300},
         },
         # Read the lake source tables back into decision signals every 6h,
         # right after the export — persists an AnalyticsEvent the next
@@ -606,6 +609,7 @@ celery_app.conf.update(
         "datalake-insights-sweep": {
             "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
             "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
+            "options": {"expires": 3300},
         },
         # Developer-app ingest — live health/insights/demographics/quota per
         # connected account, 5min before the export so the same pass lands
@@ -1026,6 +1030,7 @@ celery_app.conf.update(
         "datalake-executor": {
             "task": "app.worker.tasks.datalake_executor.execute_actions",
             "schedule": crontab(hour="*/6", minute=45),
+            "options": {"expires": 3300},
         },
         # Score executed actions against post metrics (+5min after executor)
         "datalake-reward-sweep": {

@@ -80,3 +80,21 @@ def test_central_brain_registered_and_scheduled():
     assert routes.get(task, {}).get("queue") == "default"
     entry = celery_app.conf.beat_schedule.get("central-brain-daily")
     assert entry is not None and entry["task"] == task
+
+
+def test_datalake_sweeps_have_expiry_and_export_retries():
+    """Beat sweeps must not pile up after worker downtime (expires), and the
+    idempotent R2 snapshot export gets bounded transient retries."""
+    from app.worker.celery_app import celery_app
+
+    sched = celery_app.conf.beat_schedule
+    for name in ("export-datalake", "datalake-insights-sweep", "datalake-executor"):
+        opts = sched[name].get("options") or {}
+        assert opts.get("expires"), f"{name} missing expires"
+        assert opts["expires"] < 6 * 3600, f"{name} expires must stay under the 6h cadence"
+
+    from app.worker.tasks import datalake_export  # noqa: F401 — registers the task
+
+    task = celery_app.tasks["app.worker.tasks.datalake_export.export_datalake"]
+    assert task.autoretry_for, "export_datalake must autoretry transient failures"
+    assert task.retry_backoff and task.retry_jitter

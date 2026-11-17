@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
+import pytest
+
 from app.worker.tasks import datalake_export as de
 from app.worker.tasks.datalake_export import (
     _email_domain,
@@ -576,6 +579,36 @@ def test_export_async_insights_and_put_failures(monkeypatch):
     # insights failure -> error payload written to insights table
     ins = de._put_json
     assert ins is _put
+
+
+def test_export_async_transport_error_propagates_for_retry(monkeypatch):
+    """httpx transport errors must escape put() so the Celery task's
+    autoretry_for=(httpx.HTTPError, ...) actually fires — swallowing them
+    as per-key ERRORs leaves the lake stale with no retry (Greptile #2058).
+    """
+    s = de.settings
+    monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
+
+    db = _OneExecDB(_Scalars([]))
+    monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
+    for name in (
+        "_export_accounts", "_export_posts", "_export_metrics", "_export_followers",
+        "_export_account_events", "_export_leads", "_export_telegram_channels",
+        "_export_web_events", "_export_ad_snapshots", "_export_ad_daily",
+        "_export_ad_demographics", "_export_devapps", "_export_channel_actions",
+    ):
+        monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_put_json", AsyncMock(side_effect=httpx.ConnectError("r2 unreachable")))
+
+    with pytest.raises(httpx.ConnectError):
+        _run(de._export_async())
 
 
 def test_put_json(monkeypatch):
