@@ -381,7 +381,7 @@ class FacebookAPIClient:
                     url,
                     params=self._params(),
                     data=payload,
-                    files={"source": (os.path.basename(local_path), f, "application/octet-stream")},
+                    files={"source": (os.path.basename(local_path or "video.mp4"), f, "application/octet-stream")},
                 )
             self._raise_for_status(resp, url)
             return resp.json()
