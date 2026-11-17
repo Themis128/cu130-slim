@@ -289,6 +289,29 @@ WORKFORCE = [
         ],
     ),
     Worker(
+        "linkedin-token-check",
+        "app.worker.tasks.linkedin_token_check.check_linkedin_tokens",
+        "default",
+        6 * 3600,
+        goal="Detect dead LinkedIn OAuth grants before publishes 401",
+        guardrails=(
+            "probe is read-only GET /v2/userinfo — never writes to LinkedIn",
+            "inconclusive probes (timeout/5xx) never flag a token invalid",
+            "token decrypted in-process only; never logged or emitted",
+        ),
+        fallback="P2 Telegram alert → human re-consent via linkedin_consent_url.py",
+        evidence=[
+            ("last probe", "SELECT max((meta_data->>'li_token_checked_at')::timestamptz) FROM social_accounts WHERE platform='linkedin'"),
+        ],
+        escalations=[
+            (
+                "linkedin tokens flagged invalid",
+                "SELECT count(*) FROM social_accounts WHERE platform='linkedin' AND meta_data->>'li_token_invalid'='true'",
+                "grant revoked — re-consent required (refresh returns invalid_grant)",
+            )
+        ],
+    ),
+    Worker(
         "tiktok-reconcile",
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox",
         "default",
