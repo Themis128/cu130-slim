@@ -5,7 +5,10 @@ import urllib.request
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
+for _p in Path(__file__).resolve().parents:
+    if (_p / "_lib" / "skill_http.py").is_file():
+        sys.path.insert(0, str(_p / "_lib"))
+        break
 
 BRIDGE = "http://localhost:9223"
 
