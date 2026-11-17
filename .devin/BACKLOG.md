@@ -3204,27 +3204,6 @@ Resolved this pass (details inline above):
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
 
-## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
-
-- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
-  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
-  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
-  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
-  hash-dupes removed, lock released. API healthy.
-- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
-  Fired `reconcile_account_status` manually — all Meta rows now honestly
-  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
-  tokens; heal lanes must re-auth before any Meta action.
-- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
-  failed). Ingest still runs but candidates are stale (IG max Nov 11,
-  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
-  sessions, NOT the brain/scoring layer — no model upgrade needed.
-- **FB :9229** still parked on expired two_step_verification checkpoint;
-  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
-  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
-- **strategy-report-run4** completed degraded (engine outage window):
-  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
-  (200 from container); next run uses live inference.
 ## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
 
 - [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
@@ -3247,43 +3226,18 @@ Resolved this pass (details inline above):
 - [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
       classes, the grandchild rule, and why `-WindowStyle Hidden` /
       `conhost --headless` (for output capture) don't work.
-- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
-      logon 23:44 spawned both watcher instances under `conhost --headless`;
-      12min `popup-flash-watch` capture post-logon: 0 console-window events.
-      Full autostart surface audited: Run key (conheadless), Startup folder
-      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
-      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
-      not user-visible. Keep `_popup-watch` captures in the loop if popups
-      are reported again — stale watch logs mis-attribute sources.
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
+### battle-test addendum (same day, evening)
 
-### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
-
-- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
-      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
-- [x] Server throttled tonight's requests: "WhatsApp is temporarily
-      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
-      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
-      stacked request_code attempts earlier.
-- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
-      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
-      Do NOT re-request before the timer — each request extends the cooldown.
-- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
-      meta_data + verify Cloud API/coexistence status (skill runbook).
-- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
 - [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
       desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
       the PRE-EDIT config in memory (on-disk configs already clean).
@@ -3292,96 +3246,26 @@ Resolved this pass (details inline above):
 - [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
       `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
       with the old flash-prone command line.
-## 2026-11-17 — Meta session-invalidation event + robots.txt publish block
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
 
-- [x] FB browser session restored via sidecar (profile-picker -> remembered-
-  device login); OAuth re-auth completed: facebook user + page rows -> active
-  at 22:12 UTC (page token exp 2027-01-28). instagram business -> active
-  21:55 via instagram-onboarding callback.
-- [x] Post c4dff316 (Wan2.2 reel) PUBLISHED manually —
-  facebook.com/reel/2579079235925469. Graph file_url fetch was blocked by
-  robots.txt (Disallow: /api/ covers /api/v1/media/view); bypassed with a
-  3-phase bytes upload (script: /tmp/manual_reel_upload.py).
-- [ ] watch: PR #2107 (robots.txt Allow: /api/v1/media/) must merge+deploy
-  before URL-fetched publishes work again — same block hits IG image_url,
-  Threads, TikTok PULL_FROM_URL.
-- [ ] human: `wsl --shutdown` still needed (workstation policy blocks me) —
-  4th fsbridge wave tonight killed 17 containers; manual heals only buy
-  ~20-30min windows.
-- [ ] consider: facebook_api.create_reel_post has no binary-upload lane —
-  add bytes fallback when file_url fetch fails (same pattern used in the
-  manual publish tonight).
-- [ ] minor: unknown .wslconfig key experimental.virtiofs warns on every
-  wsl.exe call.
+### Leftover sweep — optimal pass (2026-11-17)
 
-## 2026-11-17 — Postgres MCP for agents (read-only lane) + MCP-catalog findings
-
-- [x] `pg-mcp` container live: `crystaldba/postgres-mcp` on `cu130-db`
-      (name-based `social-postgres:5432`, immune to IP churn),
-      `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
-      `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
-      reads a named volume `pg-mcp-pgpass` seeded once from `~/.pgpass`
-      (chmod 600 inside; has `social-postgres:5432:*:mcp_reader` +
-      `localhost:5433` lines). Volume chosen over bind mount after the
-      2026-11-17 fsbridge flap killed the `~/.pgpass` bind — named volumes
-      bypass the 9p hashed-mount path entirely. Restricted = read-only.
-- [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
-      USAGE(public) + SELECT all tables + default-privileges for future
-      tables (owner social_user). Verified: 61 public tables visible,
-      `execute_sql select 1` OK. Password lives ONLY in ~/.pgpass + the
-      role itself — nowhere in configs/inspect/env.
-- [x] Devin MCP config `~/.config/devin/mcp_config.json` gained a
-      `postgres` stdio server: `docker exec -i pg-mcp postgres-mcp
-      --access-mode=restricted` (activates next session; heal script only
-      rewrites the file if missing — safe). 9 tools incl. execute_sql,
-      explain_query, analyze_db_health, get_top_queries.
-- [x] Why not catalog `database-server`: MCP-toolkit containers can't
-      reach the DB — `127.0.0.1:5433` publish is loopback-only
-      (host.docker.internal refused), container IPs are ephemeral, and
-      the gateway spec has no network/host-network field. The
-      docker-exec bridge sidesteps all of it. Catalog path would need a
-      compose static-IP PR — not pursued (name-based is strictly better).
-- [x] Filed docker/mcp-gateway issues #621 (mcp-find hides oauth.providers
-      secret requirements) + #622 (BM25 whole-token recall misses
-      "PostgreSQL" for query "postgres"). Findings also in
-      ~/AGENTS.md (home-ops, commit 517a3c8).
-- [x] `mcp_reader` also granted on the `n8n` DB (2026-11-17): CONNECT +
-      USAGE(public) + SELECT all 178 tables + default privileges — same
-      read-only posture. pgpass `*` db field already covers it.
-- [ ] if `pg-mcp` container is ever removed, recreate:
-      `docker volume create pg-mcp-pgpass` (skip if exists), seed it:
-      `docker run --rm -i -v pg-mcp-pgpass:/dst postgres:17-alpine sh -c
-      'cat > /dst/pgpass && chmod 600 /dst/pgpass' < ~/.pgpass`,
-      then `docker run -d --name pg-mcp --network cu130-db --restart
-      unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
-      mcp_reader@social-postgres:5432/social_automation -e
-      PGPASSFILE=/run/secrets/pgpass -v pg-mcp-pgpass:/run/secrets:ro
-      crystaldba/postgres-mcp:latest infinity`
-
-## 2026-11-17 — fsbridge flap: mass Exited(127), force-recreate recovery
-
-- ~01:20 UTC Docker Desktop restarted; on engine restart every container
-  with a restart policy tried to re-mount `\\wsl.localhost` sources through
-  the dd-user-distro-proxy hashed-mount path. The proxy had died on the
-  vsock flap → all hashed mounts resolved dead → 19 containers Exited(127),
-  including social-api + all 4 workers + every docker.sock consumer
-  (portainer, stack-ops, compose-healer, docker-socket-proxy, autoheal,
-  stack-watchers, dmr-watchdog, env-manager-backend, airbyte-mcp-server,
-  comfyui, pg-mcp).
-- `fsbridge_doctor.py` reported "fs bridge nominal" (proxy ALIVE again) but
-  casualties still couldn't start — plain `docker start` reuses the stored
-  dead mount hash. social-api + workers recovered with plain `docker start`
-  once the proxy re-declared their mounts; the docker.sock-mount set needed
-  `docker compose up -d --force-recreate` (fresh mount declarations).
-- Gotchas hit: recreate removal race produced hash-dupe containers
-  (`<hash>_autoheal`, `<hash>_env-manager-backend`, and the running
-  `<hash>_docker-socket-proxy`/`<hash>_dmr-watchdog` — left in place, they
-  are the live containers); `--force-recreate` on comfyui triggered a
-  multi-GB `pull_policy: always` pull — killed it and used `--pull never`
-  (local image) to restore service fast; next normal `compose up` pulls.
-- pg-mcp moved OFF the `~/.pgpass` bind mount onto named volume
-  `pg-mcp-pgpass` (see recipe above) — immune to this failure class.
-- Durable heal remains full `wsl --shutdown` (kills agent sessions); the
-  proxy self-healed this time so it wasn't needed. Worker healthchecks
-  flapped "unhealthy" for ~10 min post-restart (inspect ping >10s timeout)
-  then recovered on their own — tasks were processing throughout.
+- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
+      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
+      Remaining "failures" are only the cancelled `notify` job — the
+      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
+- [x] IG reauth ran (fast path): connected a DIFFERENT IG
+      (`17841463022505300` — personal, new active row
+      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
+      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
+      lane, still the Meta wizard gate.
+- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
+      from containers; only WSL `localhost` forwarding is dead (vsock class).
+- [ ] threads heal blocked further upstream than expected: threads.net/oauth
+      redirects to login — the sidecar has NO instagram.com session; needs a
+      real IG login (backup code + trust-device) before consent can run.
+- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
+      via SocialAuto console; wa_verify daemon retry-loops until then.
+- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
+      needs one human tap → "Call me" (voice channel bypasses SMS throttle).

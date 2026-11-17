@@ -108,10 +108,15 @@
       "url": "http://127.0.0.1:9231/mcp"
     },
     "cloudflare-docs": {
-      "command": "node",
+      "command": "/home/tbaltzakis/.local/bin/node",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
-        "https://docs.mcp.cloudflare.com/mcp"
+        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://docs.mcp.cloudflare.com/mcp",
+        "3121",
+        "--host",
+        "localhost",
+        "--callback-path",
+        "/callback"
       ]
     },
     "cloudflare": {
@@ -122,38 +127,29 @@
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "cloudflare-api": {
-      "command": "node",
+      "command": "/home/tbaltzakis/.local/bin/node",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
-        "https://mcp.cloudflare.com/mcp"
+        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://mcp.cloudflare.com/mcp",
+        "3120",
+        "--host",
+        "localhost",
+        "--callback-path",
+        "/callback"
       ]
     },
     "slack": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "bash",
       "args": [
-        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
-        "https://mcp.slack.com/mcp",
-        "3118",
-        "--host",
-        "localhost",
-        "--callback-path",
-        "/callback",
-        "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/slack-mcp-remote.sh",
+        "socialauto"
       ]
     },
     "slack-cloudless": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "bash",
       "args": [
-        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
-        "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
-        "3119",
-        "--host",
-        "localhost",
-        "--callback-path",
-        "/callback",
-        "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3119/callback\",\"http://127.0.0.1:3119/callback\"]}"
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/slack-mcp-remote.sh",
+        "cloudless"
       ]
     },
     "metabase": {
@@ -179,6 +175,7 @@
       "command": "npx",
       "args": [
         "-y",
+        "-p",
         "@thenavidm/google-photos-mcp-cli",
         "google-photos-mcp"
       ],
@@ -191,7 +188,7 @@
     "phone": {
       "command": "python3",
       "args": [
-        "/home/tbaltzakis/cu130-slim\\.devin\\skills\\phone-access\\scripts\\phone-mcp-server.py"
+        "/home/tbaltzakis/cu130-slim/.devin/skills/phone-access/scripts/phone-mcp-server.py"
       ]
     },
     "linkedin-ads": {

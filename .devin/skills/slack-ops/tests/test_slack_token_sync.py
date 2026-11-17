@@ -91,7 +91,7 @@ def test_recreate_services_hits_every_consumer_and_aggregates_rc(monkeypatch):
     # n8n" — the failing stop pends n8n before its recreate is attempted
     assert len(calls) == len(sync.SERVICES)
     assert "social-api" in calls and "celery-beat" in calls
-    assert sum(1 for c in calls if c.startswith("social-worker")) == 4
+    assert sum(1 for c in calls if c.startswith("social-worker")) == 5
     # every compose call failed → every service stays pending for retry
     # (the failing "stop" for n8n also pends it, like the failing "up")
     assert pending == list(sync.SERVICES)
