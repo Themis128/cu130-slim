@@ -3191,6 +3191,8 @@ Resolved this pass (details inline above):
   access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
   PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
   chain; composite indexes throughout.
-- [ ] Hardening follow-up (unfiled): social_secrets.value is plaintext
-  Text (generic secret-store failover for D1 SSM) — unlike OAuth tokens.
-  Encrypt at rest if the failover table keeps holding real secrets.
+- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
+  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
+  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
+  D1 primary intentionally left plaintext (SSM of record for external
+  tooling).
