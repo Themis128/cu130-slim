@@ -211,3 +211,114 @@ async def test_funnel_answer_lead_fallback(monkeypatch):
     monkeypatch.setattr(MS, "get_object", AsyncMock(return_value=body))
     out = await D.funnel_answer("how many lead forms came in")
     assert out["answer"] == "9"
+
+
+def test_survey_pain_answer_stopwords_skipped():
+    """Stopwords in free-text survey answers must not enter pain_topics —
+    covers the stopword-filter branch in compute_survey_signals."""
+    out = D.compute_survey_signals(
+        [{"answers": {"it_support": "that cost is the problem"}, "email": "a@b.c"}]
+    )
+    words = [w for w, _ in out["pain_topics"]]
+    assert "that" not in words and "cost" in words
+
+
+def test_email_funnel_multi_kind_and_unsent():
+    """A second campaign kind + an unsent kind cover the loop-back and
+     the sent-guard falsy arc in compute_email_signals."""
+    rows = [
+        {"kind": "marketing", "status": "sent", "n": 10},
+        {"kind": "news", "status": "sent", "n": 0},
+    ]
+    funnel = D.compute_email_signals(rows)["email_funnel"]
+    assert funnel["marketing"]["sent"] == 10
+    assert "open_rate" in funnel["marketing"]
+    assert funnel["news"]["sent"] == 0 and "open_rate" not in funnel["news"]
+
+
+def test_render_slack_negative_arcs():
+    """Campaign without CPL, growth platform without a gate, and an unsent
+    email kind cover the filter-false arcs in render_slack_lines."""
+    lines = D.render_slack_lines(
+        {
+            "responses": 0,
+            "lead_volume_30d": 0,
+            "best_converting": "",
+            "platform_funnels": {},
+            "lead_sources": [],
+            "ad_campaigns": {"c2": {"cpl": None, "spend": 5.0, "leads": 0}},
+            "growth": {"tt": {"followers": 3}},
+            "platform_engagement": {},
+            "email_funnel": {"n": {"sent": 0}},
+            "audit_yes": [],
+            "pain_topics": [],
+            "devapp_unhealthy": [],
+            "devapp_expiring": [],
+        }
+    )
+    blob = "\n".join(lines)
+    assert "ads: c2" not in blob  # cpl None → skipped
+    assert "tt:" not in blob  # no gate → skipped
+    assert "email n:" not in blob  # sent 0 → skipped
+
+
+@pytest.mark.asyncio
+async def test_funnel_answer_model_fallback(monkeypatch):
+    """Count-question over a summary JSON with no matching key and no lead
+    in the question falls through to the DMR extract path."""
+    import app.services.ai_functions as AF
+    import app.services.minio_storage as MS
+
+    monkeypatch.setattr(MS, "minio_enabled", lambda: True)
+    body = json.dumps({"contacts": {"rows": 4}, "exported_at": "x"}).encode()
+    monkeypatch.setattr(MS, "get_object", AsyncMock(return_value=body))
+    monkeypatch.setattr(AF, "ai_extract", AsyncMock(return_value="4 contacts"))
+    out = await D.funnel_answer("how many rows total")
+    assert out["answer"] == "4 contacts"
+    assert "rows_seen" in out
+
+
+def test_render_slack_devapp_lines():
+    """devapp_unhealthy/devapp_expiring entries cover the heal-line renders
+    and the error/quota/username label arcs."""
+    lines = D.render_slack_lines(
+        {
+            "responses": 0,
+            "devapp_unhealthy": [
+                {"platform": "x", "username": "me", "error": "401"},
+                {"platform": "tiktok", "quota_exhausted": True},
+                {"platform": "li"},
+            ],
+            "devapp_expiring": [{"platform": "fb", "username": "pg", "days_to_expiry": 3}],
+        }
+    )
+    blob = "\n".join(lines)
+    assert "devapp x/@me: 401" in blob
+    assert "devapp tiktok: quota exhausted" in blob
+    assert "devapp li: token invalid" in blob
+    assert "devapp fb/@pg: token expires in 3d" in blob
+
+
+def test_pick_actions_gated_content_topic_break():
+    """When reward weights gate content_topic, the pain-topic loop breaks
+    instead of re-proposing drafts (line ~371)."""
+    signals = {
+        "responses": 0,
+        "pain_topics": [("cost", 5), ("speed", 3)],
+        "action_weights": {"content_topic": {"n": 10, "avg_reward": 0.0}},
+    }
+    actions = D.pick_actions(signals)
+    assert not any(a.get("type") == "content_topic" for a in actions)
+
+
+@pytest.mark.asyncio
+async def test_funnel_answer_malformed_summary_falls_through(monkeypatch):
+    """Unparseable summary JSON hits the except-pass arc then the DMR path."""
+    import app.services.ai_functions as AF
+    import app.services.minio_storage as MS
+
+    monkeypatch.setattr(MS, "minio_enabled", lambda: True)
+    monkeypatch.setattr(MS, "get_object", AsyncMock(return_value=b"{not json"))
+    monkeypatch.setattr(AF, "ai_extract", AsyncMock(return_value="NONE"))
+    out = await D.funnel_answer("how many leads total")
+    assert out["answer"] is None and "rows_seen" in out
