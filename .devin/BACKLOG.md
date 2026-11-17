@@ -3229,44 +3229,36 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
 
-### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
-
-- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
-      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
-- [x] Server throttled tonight's requests: "WhatsApp is temporarily
-      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
-      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
-      stacked request_code attempts earlier.
-- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
-      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
-      Do NOT re-request before the timer — each request extends the cooldown.
-- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
-      meta_data + verify Cloud API/coexistence status (skill runbook).
-- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
-
-### Gmail thread watchers — crash bug + transient-alert hardening (2026-11-17)
-
-- [x] `dypa-da2` + `SKC` TG alerts (`Remote end closed connection`) — one
-      shared Google-API drop ~00:13–00:15, both self-healed; verified clean live.
-- [x] Real bug: stray `watches/vodafone-career-state.json` crashed
-      `run-all-watches.py` (`KeyError: 'name'`) every sweep — glob now skips
-      `*-state.json`; stray moved aside.
-- [x] `api()` in `gmail-thread-watch.py` + `skc-watch.py` gains 3-try
-      backoff (5s/10s) so single API blips no longer fire the 24h-deduped
-      error alert. Both watches verified: `no new inbound` / `no new mail`.
-      (Files: `C:\Users\tbaltzakis\AppData\Roaming\devin\skills\gmail-telegram-watch\scripts\`)
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
