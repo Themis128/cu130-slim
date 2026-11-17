@@ -133,24 +133,36 @@ def stage_graphql(account_tag: str, token: str) -> str:
     return f"latest={latest.get('status')} @ {latest.get('datetime')}"
 
 
-def stage_imap(host: str, user: str, password: str, subject_token: str,
+def stage_imap(hosts: str, user: str, password: str, subject_token: str,
                timeout_s: int, interval_s: int = 10) -> tuple[bool, str]:
+    """Poll INBOX for the probe subject. `hosts` is comma-separated and each
+    is tried in turn every round — the LAN IP of omv-ha reaches it through a
+    tailscale subnet route on this host, which RSTs connections during
+    tailnet flaps; the direct tailnet IP survives those. Track whether any
+    connect ever succeeded so a pure-connectivity outage can't masquerade
+    as a delivery failure.
+    """
+    host_list = [h.strip() for h in hosts.split(",") if h.strip()]
     deadline = time.time() + timeout_s
     last_err = ""
+    ever_connected = False
     while time.time() < deadline:
-        try:
-            m = imaplib.IMAP4_SSL(host, 993)
-            m.login(user, password)
-            m.select("INBOX")
-            _, data = m.search(None, "SUBJECT", f'"{subject_token}"')
-            ids = data[0].split() if data and data[0] else []
-            if ids:
+        for host in host_list:
+            try:
+                m = imaplib.IMAP4_SSL(host, 993)
+                m.login(user, password)
+                m.select("INBOX")
+                _, data = m.search(None, "SUBJECT", f'"{subject_token}"')
+                ids = data[0].split() if data and data[0] else []
                 m.logout()
-                return True, f"delivered after ~{int(timeout_s - (deadline - time.time()))}s"
-            m.logout()
-        except Exception as e:  # noqa: BLE001 — transient IMAP/network errors retry
-            last_err = str(e)[:120]
+                ever_connected = True
+                if ids:
+                    return True, f"delivered after ~{int(timeout_s - (deadline - time.time()))}s"
+            except Exception as e:  # noqa: BLE001 — transient IMAP/network errors retry
+                last_err = str(e)[:120]
         time.sleep(interval_s)
+    if not ever_connected:
+        return False, f"dovecot unreachable for {timeout_s}s ({last_err})"
     return False, f"not found in {timeout_s}s ({last_err or 'no match'})"
 
 
