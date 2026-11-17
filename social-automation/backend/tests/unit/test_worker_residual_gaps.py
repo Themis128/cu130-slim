@@ -271,7 +271,7 @@ async def test_datalake_executor_devapp_health_key(monkeypatch):
     team_id = uuid.uuid4()
     signals = {"team_id": str(team_id), "actions": [{"type": "devapp_health", "platform": "gh", "reason": "down"}]}
     _use_task_session(monkeypatch, EX, _DB())
-    monkeypatch.setattr(EX, "_latest_signals", AsyncMock(return_value=signals))
+    monkeypatch.setattr(EX, "_pending_signals", AsyncMock(return_value=[(str(team_id), signals)]))
     monkeypatch.setattr(EX, "_already_executed", AsyncMock(return_value=False))
     fake_fn = AsyncMock(return_value={"ok": True})
     monkeypatch.setitem(EX._EXECUTORS, "devapp_health", fake_fn)
