@@ -193,6 +193,26 @@ describe('useTheme — live OS changes and toggling', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
+  it('resolves system theme to light when OS prefers light', async () => {
+    localStorage.setItem('theme', 'system')
+    window.matchMedia = vi.fn().mockImplementation(query => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+    const { result } = renderHook(() => useTheme(), { wrapper })
+    await waitFor(() => {
+      expect(result.current.theme).toBe('system')
+      expect(result.current.resolvedTheme).toBe('light')
+    })
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+  })
+
   it('throws outside ThemeProvider', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => renderHook(() => useTheme())).toThrow('useTheme must be used within a ThemeProvider')
