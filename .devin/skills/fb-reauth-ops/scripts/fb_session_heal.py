@@ -527,7 +527,16 @@ def _credential_login(base):
 def _mem_available_mb() -> int | None:
     """Free RAM in MB. The wedged renderers live in Windows Chrome, so
     prefer the Windows host's FreePhysicalMemory over WSL's own
-    MemAvailable (which looks healthy while the host starves)."""
+    MemAvailable (which looks healthy while the host starves).
+    Reads the shared file host_gates_check refreshes every 10min first —
+    avoids a powershell.exe spawn (console flash) on every */30 cron pass."""
+    shared = os.path.expanduser(
+        "~/.local/state/host-gates-ops/host-ram-available-mb")
+    try:
+        if time.time() - os.path.getmtime(shared) < 900:
+            return int(open(shared).read().strip())
+    except Exception:
+        pass
     ps = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
     if os.path.exists(ps):
         try:
