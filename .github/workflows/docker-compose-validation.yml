@@ -11,6 +11,7 @@ name: Docker Compose Validation
       - '.env.example'
   pull_request:
     branches: [master]
+  merge_group:
   workflow_dispatch:
 
 permissions:
