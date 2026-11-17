@@ -3661,3 +3661,31 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       + PUBLISHING/PUBLISHED guard + /api/v1/media/upload path (--direct
       fallback), media.py retry persist-before-QA, popup-free-host.mdc
       frontmatter + real-entrypoint advice.
+
+## 2026-11-18 — LinkedIn ads API lane + member analytics live (Devin)
+
+- [x] LinkedIn OAuth grant restored 2026-11-17 via full-union consent
+      (22 scopes, one click revokes prior pair). Both person+org rows
+      healthy; `check_linkedin_tokens` beat task live (#2347 merged) —
+      6h /v2/userinfo probe + P2 alert, closes the silent-death gap.
+- [x] `linkedin_ads_control` → Marketing API first, sidecar fallback
+      (#2349 MERGED). Write = POST /rest/adAccounts/{acct}/adCampaigns/{id}
+      + X-RestLi-Method: PARTIAL_UPDATE; 403=portal-gate error surfaced.
+- [x] `linkedin_ads_tool.py` CLI + `linkedin-ads-api-ops` skill (#2352):
+      accounts/campaigns/analytics/pause|resume(dry-run)/allowlist/
+      member-analytics — all verified live in social-worker-media.
+- [x] Member analytics CONFIRMED GRANTED: memberFollowersCount=856,
+      memberCreatorPostAnalytics impressions=65,911 (version>=202506).
+      Consumer: analytics_sync.py.
+- [ ] USER GATE — Dev-Tier portal allowlist: developers.linkedin.com →
+      app 264925843 → Products → Advertising API → View settings →
+      Ad Accounts → add sponsoredAccount:512642510 (max 5). Until then
+      all writes 403; `linkedin_ads_tool.py allowlist` reproduces check.
+- [ ] USER GATE — set LINKEDIN_ADS_CAMPAIGN_ID in .env to a live
+      non-COMPLETED campaign (only campaign 904916326 is COMPLETED —
+      pause/resume refused by design on terminal statuses).
+- [ ] Optional: member-analytics probes earlier showed 400/404 on some
+      endpoints — inconclusive probe artifacts; analytics_sync will
+      surface real grant state on next sync.
+- [ ] Optional: LinkedIn Advertising API Standard Tier application
+      after Dev Tier proves out (separate review).
