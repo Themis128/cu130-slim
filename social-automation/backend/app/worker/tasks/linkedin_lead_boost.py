@@ -18,10 +18,42 @@ logger = logging.getLogger(__name__)
 
 ENABLED = os.getenv("LINKEDIN_ADVANCED", "0") == "1"
 
+_SELFCHECK_FAILS_KEY = "linkedin:lead_sync:selfcheck_fails"
+# Consecutive failures required before paging. At the */30m cadence this is
+# ~60-90min of continuous outage — a single probe landing inside a stack
+# restart window self-heals and must not page (seen 2026-11-17: two queued
+# runs fired during a ~2min mass-restart → 2 stale P2 alerts). LinkedIn
+# needs 3 failed re-validations at ~2h cadence to block delivery, so ~1h
+# of outage still leaves hours of runway.
+_SELFCHECK_ALERT_AFTER = 3
+
 
 @celery_app.task(name="app.worker.tasks.linkedin_lead_boost.route_linkedin_leads")
 def route_linkedin_leads() -> dict:
     return run_async(_route_linkedin_leads())
+
+
+async def _selfcheck_streak(ok: bool) -> int:
+    """Consecutive self-check failure counter (best-effort, Redis-backed).
+
+    Resets on success. If Redis is unreachable we can't know the streak —
+    return the alert threshold so a real failure still pages (fail open).
+    """
+    try:
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        try:
+            if ok:
+                await r.delete(_SELFCHECK_FAILS_KEY)
+                return 0
+            return int(await r.incr(_SELFCHECK_FAILS_KEY))
+        finally:
+            await r.aclose()
+    except Exception:  # noqa: BLE001 — bookkeeping must not swallow a failure
+        return _SELFCHECK_ALERT_AFTER
 
 
 async def _webhook_selfcheck() -> None:
@@ -30,7 +62,8 @@ async def _webhook_selfcheck() -> None:
     LinkedIn re-validates webhook URLs periodically and blocks delivery
     after repeated failures (seen 2026-11-16 when an infra flap made the
     endpoint unreachable). A ~200ms GET every 30min catches the outage
-    before LinkedIn's email does.
+    before LinkedIn's email does — but only after _SELFCHECK_ALERT_AFTER
+    consecutive failures, so transient restart windows stay silent.
     """
     import secrets
 
@@ -43,6 +76,7 @@ async def _webhook_selfcheck() -> None:
     if not base:
         return
     challenge = f"selfcheck-{secrets.token_hex(8)}"
+    detail = "transport error"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
@@ -50,15 +84,27 @@ async def _webhook_selfcheck() -> None:
                 params={"challengeCode": challenge},
             )
         ok = r.status_code == 200 and challenge in r.text
-    except httpx.HTTPError:
+        if not ok:
+            detail = f"HTTP {r.status_code}"
+    except httpx.HTTPError as exc:
         ok = False
-    if not ok:
-        await send_telegram_alert(
-            "P2",
-            f"linkedin-lead-sync webhook self-check failed "
-            f"(LinkedIn will block delivery if validation keeps failing): "
-            f"GET {base}/webhooks/linkedin-lead-sync?challengeCode=…",
-        )
+        detail = f"{type(exc).__name__}: {exc}"[:150]
+    streak = await _selfcheck_streak(ok)
+    if ok or streak < _SELFCHECK_ALERT_AFTER:
+        if not ok:
+            logger.warning(
+                "lead-sync self-check failed (%s) — streak %d/%d, not alerting yet",
+                detail,
+                streak,
+                _SELFCHECK_ALERT_AFTER,
+            )
+        return
+    await send_telegram_alert(
+        "P2",
+        f"linkedin-lead-sync webhook self-check failed {streak}x in a row "
+        f"(last: {detail}; LinkedIn will block delivery if validation keeps failing): "
+        f"GET {base}/webhooks/linkedin-lead-sync?challengeCode=…",
+    )
 
 
 async def _route_linkedin_leads() -> dict:

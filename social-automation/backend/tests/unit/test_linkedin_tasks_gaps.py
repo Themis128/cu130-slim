@@ -275,3 +275,98 @@ async def test_route_leads_unrouted_skips_alert(monkeypatch):
     out = await LB._route_linkedin_leads()
     assert out == {"routed": 0, "found": 1}
     alert.assert_not_called()
+
+
+# ── _webhook_selfcheck streak gate ──────────────────────────────────────
+
+
+class _ProbeResp:
+    def __init__(self, status_code=200, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+class _ProbeClient:
+    def __init__(self, resp=None, exc=None):
+        self._resp = resp
+        self._exc = exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, *a, params=None, **k):
+        if self._exc is not None:
+            raise self._exc
+        if callable(self._resp):
+            return self._resp(params or {})
+        return self._resp
+
+
+def _challenge_echo(params):
+    return _ProbeResp(200, f'"challengeCode":"{params.get("challengeCode", "")}"')
+
+
+def _patch_selfcheck(monkeypatch, resp=None, exc=None):
+    """Patch the pieces _webhook_selfcheck touches; returns (alerts, streaks)."""
+    import httpx
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TELEGRAM_WEBHOOK_BASE", "https://api.example.com/api/v1", raising=False)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _ProbeClient(resp=resp, exc=exc))
+    state = {"streak": 0}
+    streaks: list[int] = []
+
+    async def _streak(ok):
+        state["streak"] = 0 if ok else state["streak"] + 1
+        streaks.append(state["streak"])
+        return state["streak"]
+
+    monkeypatch.setattr(LB, "_selfcheck_streak", _streak)
+    import app.services.slack_notifications as SN
+
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "send_telegram_alert", alert)
+    return alert, streaks
+
+
+@pytest.mark.asyncio
+async def test_selfcheck_single_failure_no_alert(monkeypatch):
+    """A one-off probe failure (restart window) logs but does not page."""
+    alert, _ = _patch_selfcheck(monkeypatch, resp=_ProbeResp(503, "down"))
+    await LB._webhook_selfcheck()
+    await LB._webhook_selfcheck()
+    alert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_selfcheck_third_failure_alerts_with_detail(monkeypatch):
+    alert, streaks = _patch_selfcheck(monkeypatch, resp=_ProbeResp(503, "down"))
+    for _ in range(3):
+        await LB._webhook_selfcheck()
+    alert.assert_awaited_once()
+    sev, msg = alert.await_args.args
+    assert sev == "P2"
+    assert "3x in a row" in msg and "HTTP 503" in msg
+    assert streaks == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_selfcheck_success_resets_streak(monkeypatch):
+    """Flap recovery clears the streak — next failure starts from 1."""
+    alert, streaks = _patch_selfcheck(monkeypatch)
+    import httpx
+
+    # fail → fail → succeed → fail must NOT alert (streak restarts at 1)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _ProbeClient(resp=_ProbeResp(503, "down")))
+    await LB._webhook_selfcheck()
+    await LB._webhook_selfcheck()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _ProbeClient(resp=_challenge_echo))
+    await LB._webhook_selfcheck()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _ProbeClient(resp=_ProbeResp(503, "down")))
+    await LB._webhook_selfcheck()
+    alert.assert_not_called()
+    assert streaks == [1, 2, 0, 1]
