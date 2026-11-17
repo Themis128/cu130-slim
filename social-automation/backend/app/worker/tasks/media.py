@@ -117,11 +117,23 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                 await db.commit()
                 return asset
 
+            def _qa_budget_s() -> float:
+                """Seconds the QA wait_for may use without crossing the task
+                soft limit — reserves 60s for the final commit/return."""
+                return max(
+                    0.0,
+                    _TASK_SOFT_LIMIT_S - (time.monotonic() - started) - 60.0,
+                )
+
             async def _qa_frame(vdata: bytes) -> dict:
                 """Extract frame 0 + bounded semantic QA. Non-raising: DMR
                 vision cold-loads can exceed the remaining task budget, so the
                 call is wrapped in wait_for and every failure degrades to
                 advisory metadata instead of discarding the render."""
+                budget = _qa_budget_s()
+                if budget < 15.0:
+                    return {"match": True, "caption": None, "reason": "not run: no budget", "vision": None}
+                timeout = min(_SEMANTIC_QA_TIMEOUT_S, budget)
                 try:
                     import subprocess
                     import tempfile
@@ -142,10 +154,10 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                                 media_ai.verify_media_semantics(
                                     frame_png.read_bytes(), prompt, media_type="video"
                                 ),
-                                timeout=_SEMANTIC_QA_TIMEOUT_S,
+                                timeout=timeout,
                             )
                 except TimeoutError:
-                    logger.warning("[video-task] semantic QA timed out (%ss)", _SEMANTIC_QA_TIMEOUT_S)
+                    logger.warning("[video-task] semantic QA timed out (%ss)", timeout)
                     return {"match": True, "caption": None, "reason": "qa timeout", "vision": None}
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[video-task] semantic QA skipped: %s", type(exc).__name__)
@@ -231,6 +243,10 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                         prev_meta["superseded_by"] = str(asset.id)
                         previous.meta_data = prev_meta
                     except Exception as exc:  # noqa: BLE001
+                        # A failed _persist leaves the session in a pending-
+                        # rollback state — clear it so the final meta commit
+                        # doesn't die with PendingRollbackError.
+                        await db.rollback()
                         logger.warning("[video-task] QA retry render failed: %s", type(exc).__name__)
                         qa = {**qa, "retry": f"failed: {type(exc).__name__}"}
                 else:
