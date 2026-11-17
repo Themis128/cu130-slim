@@ -3661,3 +3661,34 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       + PUBLISHING/PUBLISHED guard + /api/v1/media/upload path (--direct
       fallback), media.py retry persist-before-QA, popup-free-host.mdc
       frontmatter + real-entrypoint advice.
+
+## 2026-11-18 — LinkedIn ads API lane + member analytics live (Devin)
+
+- [x] LinkedIn OAuth grant restored 2026-11-17 via full-union consent
+      (22 scopes, one click revokes prior pair). Both person+org rows
+      healthy; `check_linkedin_tokens` beat task live (#2347 merged) —
+      6h /v2/userinfo probe + P2 alert, closes the silent-death gap.
+- [x] `linkedin_ads_control` → Marketing API first, sidecar fallback
+      (#2349 MERGED). Write = POST /rest/adAccounts/{acct}/adCampaigns/{id}
+      + X-RestLi-Method: PARTIAL_UPDATE; 403=portal-gate error surfaced.
+- [x] `linkedin_ads_tool.py` CLI + `linkedin-ads-api-ops` skill (#2352):
+      accounts/campaigns/analytics/pause|resume(dry-run)/allowlist/
+      member-analytics — all verified live in social-worker-media.
+- [x] Member analytics CONFIRMED GRANTED: memberFollowersCount=856,
+      memberCreatorPostAnalytics impressions=65,911 (version>=202506).
+      Consumer: analytics_sync.py.
+- [x] Dev-Tier portal allowlist DONE 2026-11-18 — automated via CDP:
+      linkedin-portal-ops/scripts/li_ads_add.py added 512642510 to app
+      264925843 (mdp-settings → Add Ad Account → Save). allowlist probe
+      now reports ALLOWLISTED (no-op write accepted).
+- [x] LINKEDIN_ADS_CAMPAIGN_ID=904916326 set in .env (verified live in
+      social-worker-default settings). NOTE: only campaign on the
+      account is COMPLETED — status reads + ads report work; pause/
+      resume refuses terminal statuses by design until a live
+      ACTIVE/PAUSED campaign exists (create one in Campaign Manager or
+      via API, then update the env var).
+- [ ] Optional: member-analytics probes earlier showed 400/404 on some
+      endpoints — inconclusive probe artifacts; analytics_sync will
+      surface real grant state on next sync.
+- [ ] Optional: LinkedIn Advertising API Standard Tier application
+      after Dev Tier proves out (separate review).
