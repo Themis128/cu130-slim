@@ -23,6 +23,7 @@ docker exec -w /app -e PYTHONPATH=/app social-worker-media \
 | `campaign <id>` | single entity (name/status/budget/schedule) |
 | `analytics [--days N]` | spend/clicks/impressions pivot=CAMPAIGN |
 | `pause\|resume <id> [--execute]` | status write — **dry-run unless `--execute`** |
+| `create "<name>" --group <id> [--execute]` | PAUSED adCampaign create (dry-run default) |
 | `allowlist` | is the ad account in the app's Dev-Tier portal allowlist? (no-op write probe) |
 | `member-analytics` | verifies `r_member_profileAnalytics`/`r_member_postAnalytics` grants live |
 
@@ -36,8 +37,14 @@ docker exec -w /app -e PYTHONPATH=/app social-worker-media \
 - Member analytics endpoints (need version ≥202506):
   - `memberFollowersCount?q=me` → `r_member_profileAnalytics` — **856 followers**
   - `memberCreatorPostAnalytics?q=me&queryType=…&aggregation=…` → `r_member_postAnalytics` — **65,911 impressions**
-- Only campaign on account `512642510`: `904916326` "Boost Post Engagement
-  September 23" — status `COMPLETED` (pause/resume refused by design)
+- Campaigns on `512642510`: `904916326` COMPLETED (legacy boost),
+  `930234026` "API Smoke Test" PAUSED — created + round-tripped
+  PAUSED→ACTIVE→PAUSED live 2026-11-18; `LINKEDIN_ADS_CAMPAIGN_ID`
+  points at it (Slack lane live). Groups: 692134846/692171596/1216331486.
+- CREATE contract (verified via 422 iteration): flat body (no patch
+  wrapper), `dailyBudget:{amount,currencyCode}` object REQUIRED before
+  ACTIVE, `politicalIntent:"NOT_POLITICAL"`, type SPONSORED_UPDATES,
+  costType CPM, org `urn:li:organization:108614163`.
 
 ## THE gate: Dev-Tier ad-account allowlist
 
