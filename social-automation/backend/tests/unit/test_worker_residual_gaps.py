@@ -100,9 +100,9 @@ async def test_asr_probe_tiktok_non200(monkeypatch):
         async def post(self, *a, **k):
             return self._r
 
-    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **k: _Client(401))
+    monkeypatch.setattr(R, "SafeAsyncClient", lambda **k: _Client(401))
     assert await R._probe("tiktok", "x", "tok", {}) == "revoked"
-    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **k: _Client(500))
+    monkeypatch.setattr(R, "SafeAsyncClient", lambda **k: _Client(500))
     assert await R._probe("tiktok", "x", "tok", {}) == "inconclusive"
 
 
