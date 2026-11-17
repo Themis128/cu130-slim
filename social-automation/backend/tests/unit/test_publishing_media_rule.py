@@ -182,7 +182,7 @@ async def test_fb_single_video_defaults_to_reel(monkeypatch, tmp_path):
     assert r.success and r.platform_post_id == "reel9"
     assert r.platform_url == "https://www.facebook.com/reel/reel9"
     assert r.platform_meta == {"publish_path": "graph_reels"}
-    client.create_reel_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this")
+    client.create_reel_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this", local_path=clip)
     assert seen == ["up/clip.mp4"]
     assert built == [{"access_token": "ptok", "page_id": "1234567890"}]
     assert _FBHttp.posts == []  # never sent to /photos or /feed
@@ -199,7 +199,7 @@ async def test_fb_single_video_format_optout_uses_videos_endpoint(monkeypatch, t
     assert r.success and r.platform_post_id == "vid9"
     assert r.platform_url == "https://www.facebook.com/1234567890/videos/vid9"
     assert r.platform_meta == {"publish_path": "graph_videos"}
-    client.create_video_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this")
+    client.create_video_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this", local_path=clip)
     assert seen == ["up/clip.mp4"]
     assert built == [{"access_token": "ptok", "page_id": "1234567890"}]
     assert _FBHttp.posts == []  # never sent to /photos or /feed
