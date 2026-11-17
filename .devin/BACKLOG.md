@@ -3692,3 +3692,21 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       surface real grant state on next sync.
 - [ ] Optional: LinkedIn Advertising API Standard Tier application
       after Dev Tier proves out (separate review).
+
+## 2026-11-18 — WhatsApp WABA token revoked (Meta password-change class) (Devin)
+
+- [ ] `human:` WhatsApp Cloud API token DEAD — `whatsapp_tool.py status`
+      returns OAuthException 190 / error_subcode 460 ("session invalidated
+      because the user changed their password or Facebook changed the
+      session"). Same revocation class as the 2026-11-13 Meta password
+      change. DB row still `active` (FALSE-ACTIVE drift — account_truth
+      flags whatsapp probe=inconclusive→now confirmed dead).
+      Re-auth lane: `meta-oauth-ops` / `whatsapp-ops` — mint OAuth
+      authorize URL, drive via FB browser sidecar or CDP :9229, capture
+      new WABA token, write back to secret store + social_accounts.
+      Expect a human 2FA/device-approval gate.
+- [ ] `watch:` instagram `@cloudless.gr` business_login row
+      (38ddbd44-…) status=expired/revoked — professional account
+      17841463022505300 probes active and IG publish has 4 fallback
+      paths, so posting is not blocked. Re-auth only if the Graph path
+      is needed; otherwise leave expired (it is a legacy grant).
