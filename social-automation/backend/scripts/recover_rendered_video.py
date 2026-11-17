@@ -32,6 +32,12 @@ given — use it to re-slot a missed window).
 
 ``--check <post-id-prefix>`` prints the post's pending-render state plus
 the celery meta of the tracked task id (stale STARTED/not-found = orphan).
+
+Safety: the attach step re-reads the post row ``FOR UPDATE`` after the
+(asset) save commits and refuses to overwrite a ``video_asset_id`` or
+media that appeared meanwhile (e.g. ``materialize_report_videos`` retry).
+Renders with no audio stream are refused unless ``--allow-silent`` is
+given — Wan2.2 frame-combine output is silent and would publish muted.
 """
 
 import argparse
@@ -57,8 +63,8 @@ from app.services.media_storage import save_uploaded_media  # noqa: E402
 _PENDING_KEYS = ("pending_video_task", "video_render_attempts", "video_render_dispatched_at", "last_render_error")
 
 
-def _probe(path: str) -> tuple[int | None, int | None, float | None]:
-    """Best-effort ffprobe -> (width, height, duration_seconds)."""
+def _probe(path: str) -> tuple[int | None, int | None, float | None, bool]:
+    """Best-effort ffprobe -> (width, height, duration_seconds, has_audio)."""
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path],
@@ -66,13 +72,15 @@ def _probe(path: str) -> tuple[int | None, int | None, float | None]:
         )
         info = json.loads(out.stdout or "{}")
         vstream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+        has_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
         return (
             vstream.get("width"),
             vstream.get("height"),
             float(info.get("format", {}).get("duration") or 0) or None,
+            has_audio,
         )
     except Exception:  # noqa: BLE001
-        return None, None, None
+        return None, None, None, False
 
 
 async def _check(post_prefix: str) -> None:
@@ -106,8 +114,13 @@ async def _recover(args: argparse.Namespace) -> None:
     data = open(path, "rb").read()
     if len(data) < 1024:
         raise SystemExit(f"refusing: {path} is only {len(data)} bytes — not a rendered video")
-    width, height, duration = _probe(path)
-    print(f"file {path}: {len(data)} bytes  {width}x{height}  {duration}s")
+    width, height, duration, has_audio = _probe(path)
+    print(f"file {path}: {len(data)} bytes  {width}x{height}  {duration}s  audio={'yes' if has_audio else 'NO'}")
+    if not has_audio and not args.allow_silent:
+        raise SystemExit(
+            "render has no audio stream — Wan2.2 frame-combine output is silent. "
+            "Mux audio first, or pass --allow-silent if the publish path adds music."
+        )
 
     async with async_session_maker() as db:
         post = None
@@ -154,21 +167,40 @@ async def _recover(args: argparse.Namespace) -> None:
         print(f"asset {asset.id} saved (source={asset.source})")
 
         if post is not None:
-            fm = dict(post.meta_data or {})
+            # Re-read the row under a lock: save_uploaded_media just committed,
+            # and materialize_report_videos may have attached newer media in
+            # the meantime — refuse to overwrite it.
+            fresh = (
+                await db.execute(
+                    select(Post)
+                    .where(Post.id == post.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            ).scalars().first()
+            if fresh is None:
+                raise SystemExit(f"post {post.id} vanished during recovery — asset {asset.id} saved unattached")
+            fm = dict(fresh.meta_data or {})
+            existing = fm.get("video_asset_id")
+            if existing and str(existing) != str(asset.id):
+                raise SystemExit(
+                    f"post {fresh.id} already has video_asset_id={existing} — "
+                    f"refusing to overwrite newer media (asset {asset.id} saved unattached)"
+                )
             for k in _PENDING_KEYS:
                 fm.pop(k, None)
             fm["video_asset_id"] = str(asset.id)
-            post.meta_data = fm
-            post.media_ids = [asset.id]
-            post.status = PostStatus.SCHEDULED
+            fresh.meta_data = fm
+            fresh.media_ids = [asset.id]
+            fresh.status = PostStatus.SCHEDULED
             if args.schedule:
-                post.scheduled_at = datetime.fromisoformat(args.schedule)
-            elif post.scheduled_at is None:
+                fresh.scheduled_at = datetime.fromisoformat(args.schedule)
+            elif fresh.scheduled_at is None:
                 from datetime import timedelta
 
-                post.scheduled_at = datetime.now(UTC) + timedelta(hours=2)
+                fresh.scheduled_at = datetime.now(UTC) + timedelta(hours=2)
             await db.commit()
-            print(f"post {post.id}: status=SCHEDULED media_ids=[{asset.id}] scheduled_at={post.scheduled_at}")
+            print(f"post {fresh.id}: status=SCHEDULED media_ids=[{asset.id}] scheduled_at={fresh.scheduled_at}")
 
 
 def main() -> None:
@@ -182,6 +214,7 @@ def main() -> None:
     ap.add_argument("--prompt", help="generation prompt to record on the asset")
     ap.add_argument("--alt-text"), ap.add_argument("--tags", help="comma-separated")
     ap.add_argument("--schedule", help="ISO datetime to re-slot the post (default: keep, or +2h if NULL)")
+    ap.add_argument("--allow-silent", action="store_true", help="permit a render with no audio stream")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
