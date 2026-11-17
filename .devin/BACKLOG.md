@@ -3119,145 +3119,24 @@ Resolved this pass (details inline above):
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
 
-## 2026-11-16 (evening) — leftovers sweep
-
-- [x] **Skills+tools update landed in PR #2070** — meta-oauth-ops gained the
-  REAL IG↔FB link surface (Page Settings → Linked accounts → Review
-  connection accordion → IG OIDC), the account-standing gate, Graph field
-  semantics, CDP mechanics + `ig_link_probe.py`; meta-account-lock-ops
-  gained the ad-restriction failure class + Account Quality URL map;
-  report-delivery-ops gained the stale-env throwaway gotcha; DMR skill
-  gained the unload-requeue loop + stale-env arbiter bypass.
-- [x] **Strategy report relaunched with FRESH env** — `strategy-report-run3`
-  wedged: baked-in stale `REDIS_URL` → Celery result-store retry loop
-  (20× reconnect forever). Root cause found: `.env` on disk is a
-  **placeholder file** (`REDIS_URL=redis://:redis_password@…`) — real
-  secrets live in Infisical/inject into managed containers. Relaunched
-  as `strategy-report-run4` with live `REDIS_URL` pulled from
-  `social-api`'s env + `COMFYUI_URL=http://stack-ops:8199` (the real
-  path — `.env`'s `http://comfyui:8000` resolves nowhere). Redis ping
-  now OK. **run-backend-once.sh caveat: `docker cp .env` alone is NOT
-  enough when `.env` holds placeholders — the env_file path must also
-  inject live values** (PR #2069 script updated for fsbridge but not
-  for placeholder-vs-live secrets; see below).
-- [x] **PR #2066 coverage fixed** — frontend-test failed on marginal
-  thresholds (lines 99.4/99.5, functions 99.28/99.5, statements
-  99.14/99.2). Added surface-table rows (blueskyApi.connect/status,
-  emailCampaignsApi.nudge) + `useConnectBluesky` mutation case →
-  pushed `a7908fd1` to `chore/dependabot-sweep`.
-- [x] **IG onboarding driver PARKED** (pid 293484 killed) — verified the
-  wizard is hard-blocked by the FB account restriction (not rate
-  limits); each attempt burns ~4 forced-auth IG logins against Meta's
-  rate bucket for zero progress. Re-arm only after Account Quality
-  restriction lifts.
-- [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
-  (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
-  (active coverage fix).
-- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
-  `run-backend-once.sh` copies the placeholder `.env`; for
-  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
-  container env (`docker exec social-api printenv`) as done for run4,
-  or extend the script with `--live-secrets` that diffs against
-  `social-api`'s env.
-- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
-  `Loading...` under the known thrash); inference already failed →
-  rule-based fallback active, still executing.
-- [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
-  push; auto-merge armed on all 13 open PRs, 0 other failures.
-
-## 2026-11-16 late — Meta lock cleared via phone; WA Business app still gated
-
-- **Meta device-verification lock CLEARED** on the Galaxy S22+ (a
-  previously-used device): Gmail on the phone delivered the code →
-  mandatory password reset → reused `.env` `FACEBOOK_PASSWORD` (accepted —
-  zero credential drift) → FB app logged in. New runbook in
-  `meta-account-lock-ops`.
-- **WABA token still dead** (190/460 invalidated by the lock) — needs
-  SocialAuto-console re-auth, then `account_truth.py` before trusting rows.
-- **WhatsApp Business app verify still blocked**: SMS never arrived
-  (likely suppressed by the lock — re-request now post-unlock). Verify
-  screen filters ALL injected input; Samsung Pass passkey prompt for
-  ********7838 appeared on fresh install — **fingerprint = human gate**
-  (user was asked to scan, or Cancel → SMS path). App-only registration
-  would migrate the number OFF Cloud API — coexistence needs the
-  `whatsapp_business_app_onboarding` Embedded-Signup feature from the
-  partner side; decide app-only vs coexistence before completing.
-- New tool: `human-gate-bridges/scripts/phone_gmail_otp.py` — reads OTPs
-  from the phone's Gmail (notification extras + inbox dump).
-- Rules added: `docker-mcp-first` (#2076 merged), `web-search-when-stuck`
-  (#2079) + AGENTS.md note.
-
-## 2026-11-16 night — console-flash (cmd/PowerShell popup) elimination
-
-- Root cause: every WSL→Windows interop spawn (`powershell.exe`, `*.exe`
-  under /mnt/c, `wsl.exe`, `adb.exe`, `docker.exe`) allocates a visible
-  console; unconditional per-pass cron calls produced ~500 flashes/day.
-- New skill **`win-interop-quiet`** (.devin + .cursor): the 5 quiet
-  patterns (batch probes → one spawn, stamp-throttle, shared state files,
-  WSL-native-first + .exe fallback, headless scheduled tasks) +
-  `scripts/win_spawn_audit.py` crontab scanner (HOT/GUARD/REVIEW).
-- Applied: `host_gates_check.py` single batched powershell spawn/pass +
-  persists `host-ram-available-mb`; `fb_session_heal.py` reads that file;
-  `docker_engine_guard.py` exe probe hourly-stamped; `cdp-debug-watch.py`
-  hourly batched janitor (home-ops); `tt_profile_link.py` Linux-adb-first;
-  `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
-- Residual flashes are deliberate rare remediations (wsl --shutdown,
-  401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
-
-## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
-
-- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
-  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
-  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
-  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
-  hash-dupes removed, lock released. API healthy.
-- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
-  Fired `reconcile_account_status` manually — all Meta rows now honestly
-  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
-  tokens; heal lanes must re-auth before any Meta action.
-- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
-  failed). Ingest still runs but candidates are stale (IG max Nov 11,
-  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
-  sessions, NOT the brain/scoring layer — no model upgrade needed.
-- **FB :9229** still parked on expired two_step_verification checkpoint;
-  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
-  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
-- **strategy-report-run4** completed degraded (engine outage window):
-  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
-  (200 from container); next run uses live inference.
-## 2026-11-17 — Postgres MCP for agents (read-only lane) + MCP-catalog findings
-
-- [x] `pg-mcp` container live: `crystaldba/postgres-mcp` on `cu130-db`
-      (name-based `social-postgres:5432`, immune to IP churn),
-      `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
-      `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
-      mounts `~/.pgpass` (chmod 600, has `social-postgres:5432:*:mcp_reader`
-      + `localhost:5433` lines). Restricted mode = read-only tools only.
-- [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
-      USAGE(public) + SELECT all tables + default-privileges for future
-      tables (owner social_user). Verified: 61 public tables visible,
-      `execute_sql select 1` OK. Password lives ONLY in ~/.pgpass + the
-      role itself — nowhere in configs/inspect/env.
-- [x] Devin MCP config `~/.config/devin/mcp_config.json` gained a
-      `postgres` stdio server: `docker exec -i pg-mcp postgres-mcp
-      --access-mode=restricted` (activates next session; heal script only
-      rewrites the file if missing — safe). 9 tools incl. execute_sql,
-      explain_query, analyze_db_health, get_top_queries.
-- [x] Why not catalog `database-server`: MCP-toolkit containers can't
-      reach the DB — `127.0.0.1:5433` publish is loopback-only
-      (host.docker.internal refused), container IPs are ephemeral, and
-      the gateway spec has no network/host-network field. The
-      docker-exec bridge sidesteps all of it. Catalog path would need a
-      compose static-IP PR — not pursued (name-based is strictly better).
-- [x] Filed docker/mcp-gateway issues #621 (mcp-find hides oauth.providers
-      secret requirements) + #622 (BM25 whole-token recall misses
-      "PostgreSQL" for query "postgres"). Findings also in
-      ~/AGENTS.md (home-ops, commit 517a3c8).
-- [ ] optional: grant `mcp_reader` on the `n8n` DB too if agents need it
-      (currently social_automation only).
-- [ ] if `pg-mcp` container is ever removed, recreate:
-      `docker run -d --name pg-mcp --network cu130-db --restart
-      unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
-      mcp_reader@social-postgres:5432/social_automation -e
-      PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
-      crystaldba/postgres-mcp:latest infinity`
+- [x] **Throwaway report containers stale-env class — FIXED 2026-11-16**:
+  `strategy-report-run3` baked a pre-rotation `REDIS_URL` into
+  Config.Env; pydantic env vars beat the mounted `/app/.env`, so the
+  whole report ran degraded (Redis auth fails → GPU arbiter
+  unserialized; the "comfyui invalid username-password" error is the
+  same stale-Redis class, NOT ComfyUI auth — ComfyUI has no credential
+  env and prompt submission succeeded). New launcher
+  `scripts/run-backend-once.sh <name> '<cmd>'` always injects the LIVE
+  `.env` (baked-image + docker-cp path works even while the fsbridge is
+  poisoned; `--mounted` refuses when the probe fails). Verified: env
+  hash inside container == host `.env`.
+- [ ] **IG↔FB Page link — Meta escalation path (researched 2026-11-16)**:
+  Account Quality (`business.facebook.com/accountquality`) is the only
+  review surface; admin-only, ~3 review attempts max, reviews take
+  ~24–72h for minor cases and a completed review is FINAL. Check the
+  PERSONAL profile's restrictions there (the 2021 ad-account + profile
+  restrictions contaminate the portfolio), have identity/business
+  verification ready before requesting, and file ONE well-prepared
+  review — past failed appeals (Aug–Oct) likely lacked it. Business
+  portfolio `cloudless.gr` is clean; the personal profile is the
+  restricted asset. `ig_onboarding_drive.py` stays parked until then.
