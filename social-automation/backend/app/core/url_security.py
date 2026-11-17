@@ -30,6 +30,10 @@ _BLOCKED_HOSTNAMES = {
     "instance-data",
 }
 
+# 100.64.0.0/10 (CGNAT / shared address space — Tailscale, ISP NAT) is not
+# covered by ipaddress.is_private on Python < 3.12.4, so block it explicitly.
+_BLOCKED_NETWORKS = (ipaddress.ip_network("100.64.0.0/10"),)
+
 
 class URLValidationError(ValueError):
     """Raised when an outbound URL fails SSRF validation."""
@@ -43,6 +47,7 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified
+        or any(ip in net for net in _BLOCKED_NETWORKS)
     )
 
 
