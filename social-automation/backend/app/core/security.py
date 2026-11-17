@@ -46,6 +46,30 @@ def decrypt_token(encrypted: bytes) -> str:
     return f.decrypt(encrypted).decode()
 
 
+SECRET_ENC_PREFIX = "enc:v1:"
+
+
+def encrypt_secret(value: str) -> str:
+    """Encrypt a secret for storage in a TEXT column.
+
+    Returns ASCII ciphertext prefixed with a version marker so readers can
+    distinguish encrypted values from legacy plaintext rows.
+    """
+    return SECRET_ENC_PREFIX + encrypt_token(value).decode()
+
+
+def decrypt_secret(value: str) -> str:
+    """Inverse of encrypt_secret; legacy plaintext rows pass through.
+
+    Raises ValueError (missing/invalid ENCRYPTION_KEY) or InvalidToken
+    (wrong key / corrupt ciphertext) for prefixed values — callers decide
+    whether to fail open or closed.
+    """
+    if not value.startswith(SECRET_ENC_PREFIX):
+        return value
+    return decrypt_token(value[len(SECRET_ENC_PREFIX):].encode())
+
+
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
