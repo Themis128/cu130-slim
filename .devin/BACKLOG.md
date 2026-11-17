@@ -3204,49 +3204,61 @@ Resolved this pass (details inline above):
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
 
-## 2026-11-16 (night) — recovery tooling + ops codification
+## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
 
-- [x] **`scripts/recover_rendered_video.py`** — orphaned-render rescue
-  (render succeeded, task died pre-save_uploaded_media): `--check` a
-  post's pending_video_task state, `--file --post` persists the bytes via
-  save_uploaded_media + attaches with the report_videos materialize
-  recipe. Proven need: post c4dff316 / asset 37d483f0 recovered manually.
-- [x] **New skills**: `video-render-recovery` (orphan signature + tool
-  runbook), `external-call-budget` (per-call timeout < soft limit,
-  persist-before-analyze, advisory fail-soft, budget-gated retries).
-- [x] **Skill updates**: `meta-account-lock-ops` gained the Meta-wide
-  session-invalidation event class (token sweep `session invalidated` +
-  sidecar `handleProfilePicker` click loop + publish stalls);
-  `publish-ops` gained the stuck-`publishing` triage ladder.
-- [ ] **FB/IG sessions invalidated (Meta security event)** —
-  `facebook-browser-sidecar` wedged at the profile-picker re-auth wall;
-  `instagram/cloudless.gr` token invalid. Post c4dff316 publishing-blocked
-  (asset is safe, retries land once auth heals). Needs interactive
-  re-login: picker → "Use another profile" → creds → 2FA on phone.
-- [ ] **watch: PR #2087** — video QA fix (4th rebuild) rebased + force-pushed
-  past the BACKLOG treadmill, auto-merge armed.
+- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
+      the task layer was never the flash source.
+- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
+      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
+      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
+      `.bat` launchers, Chrome native hosts (inherent).
+- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
+      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
+      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
+      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
+      mcp-health-watch, mail-outbound-secret-heal (+ new
+      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
+- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
+      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
+      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
+      `npx`/`.cmd` shim chains are gone.
+- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
+- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
+      classes, the grandchild rule, and why `-WindowStyle Hidden` /
+      `conhost --headless` (for output capture) don't work.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
-## 2026-11-17 — lead-sync self-check alert = restart-window blip (hardened)
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
 
-- [x] Two `linkedin-lead-sync webhook self-check failed` P2s at 16:33 EET —
-  root cause NOT the endpoint: the whole stack mass-restarted ~16:32:24
-  (WSL restart after the 13:55 UTC fsbridge bind-mount poisonings; uptime
-  + `social-stack-watchdog.log` show recreate failures on hashed mounts).
-  Two queued `route_linkedin_leads` deliveries (16:33:09 + 16:33:28, beat
-  catch-up double-delivery) both probed while social-api/cloudflared were
-  still booting → 2 alerts. Endpoint verified healthy 3min later
-  (challenge → 200 + valid HMAC in ~0.8s, subscription `7676113` intact
-  via `list_lead_notifications`). LinkedIn block needs 3 consecutive
-  failed re-validations at ~2h cadence — a ~2min outage cannot trigger it.
-- [x] **Hardened**: `_webhook_selfcheck` now requires 3 CONSECUTIVE
-  failures (Redis key `linkedin:lead_sync:selfcheck_fails`, resets on
-  success, fails open on Redis error) before paging — covers ~60-90min of
-  real outage, suppresses restart-window blips. Alert body now includes
-  the failure detail (HTTP status / exception). +3 unit tests.
-- [ ] **watch**: LinkedIn portal "Validated" state not re-verified (sidecar
-  session logged out — `logged_in:false`, needs credential re-login;
-  CDP :9222 not running). Low risk: poller `route_linkedin_leads` covers
-  delivery + subscription intact. If leads stall, revalidate via portal
-  like 2026-11-16 (Webhooks tab → Revalidate URL).
-- [ ] linkedin-browser-sidecar session dead post-restart — session-ops
-  hourly sweep may heal; DM/engage lanes depend on it (webhook does not).
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
