@@ -3119,80 +3119,146 @@ Resolved this pass (details inline above):
   successfully submitted your request." Watch for case-reply email via
   devapp_mail_watch (4h cron).
 
-- [ ] **IG↔FB Page link blocked by 2021 ad restriction (root cause found 2026-11-16)**:
-  Page `116436681562585` Linked accounts shows "Instagram — Connected to
-  @cloudless.gr" but LIMITED features; Graph `instagram_business_account`/
-  `connected_instagram_account` both absent. The upgrade flow (Page
-  settings → Linked accounts → Instagram → Review connection → Confirm →
-  IG OIDC login) completes the IG auth then fails with **"Unable to
-  connect to Instagram — resolve some issues with your Facebook
-  account"** → Account Quality shows the ONLY issue: personal FB account
-  `Themistoklis Baltzakis` **"Account restricted" Feb 12, 2021** +
-  personal ad account `657781691826702` **Disabled Jan 24, 2021**
-  ("can't be reviewed — too much time passed"). Vera Symeonidou ad
-  account `2771400643144250` also restricted same date.
-  **Human gate**: needs Meta support escalation / business verification
-  (`business.facebook.com/business-support-home/1134463867/` → "Chat with
-  Meta AI" or new ad account in Business Settings). Business portfolio
-  `cloudless.gr` (1558125105019725) is clean. Chat history shows many
-  past failed appeals (Aug–Oct). IG-app "Edit profile → Page" is
-  mobile-only and phone was covered; likely hits the same FB-side gate.
-  Driver `ig_onboarding_drive.py` stays parked until restriction lifts —
-  retries only refresh Meta's rate bucket.
-- [ ] **Throwaway report containers carry stale env**: `strategy-report-run3`
-  Redis auth failed all run (`REDIS_URL` password predates the
-  2026-11-16 ~12:37 pgrotate) → GPU arbiter "DMR unserialized" + ComfyUI
-  "invalid username-password" (same stale-env class). social-api env is
-  fresh and works. Fix: always launch report containers with
-  `--env-file` pointed at the LIVE `.env`, or recreate on rotation.
-- [ ] **ComfyUI credentials**: invalid username-password inside the
-  throwaway container — verify `COMFYUI_*` env in live `.env` vs the
-  ComfyUI container's actual auth (may also be rotation drift).
+## 2026-11-16 (evening) — leftovers sweep
 
-## 2026-11-16 (night) — fsbridge healed: rescue→managed hand-back + Meta lock state (Devin)
+- [x] **Skills+tools update landed in PR #2070** — meta-oauth-ops gained the
+  REAL IG↔FB link surface (Page Settings → Linked accounts → Review
+  connection accordion → IG OIDC), the account-standing gate, Graph field
+  semantics, CDP mechanics + `ig_link_probe.py`; meta-account-lock-ops
+  gained the ad-restriction failure class + Account Quality URL map;
+  report-delivery-ops gained the stale-env throwaway gotcha; DMR skill
+  gained the unload-requeue loop + stale-env arbiter bypass.
+- [x] **Strategy report relaunched with FRESH env** — `strategy-report-run3`
+  wedged: baked-in stale `REDIS_URL` → Celery result-store retry loop
+  (20× reconnect forever). Root cause found: `.env` on disk is a
+  **placeholder file** (`REDIS_URL=redis://:redis_password@…`) — real
+  secrets live in Infisical/inject into managed containers. Relaunched
+  as `strategy-report-run4` with live `REDIS_URL` pulled from
+  `social-api`'s env + `COMFYUI_URL=http://stack-ops:8199` (the real
+  path — `.env`'s `http://comfyui:8000` resolves nowhere). Redis ping
+  now OK. **run-backend-once.sh caveat: `docker cp .env` alone is NOT
+  enough when `.env` holds placeholders — the env_file path must also
+  inject live values** (PR #2069 script updated for fsbridge but not
+  for placeholder-vs-live secrets; see below).
+- [x] **PR #2066 coverage fixed** — frontend-test failed on marginal
+  thresholds (lines 99.4/99.5, functions 99.28/99.5, statements
+  99.14/99.2). Added surface-table rows (blueskyApi.connect/status,
+  emailCampaignsApi.nudge) + `useConnectBluesky` mutation case →
+  pushed `a7908fd1` to `chore/dependabot-sweep`.
+- [x] **IG onboarding driver PARKED** (pid 293484 killed) — verified the
+  wizard is hard-blocked by the FB account restriction (not rate
+  limits); each attempt burns ~4 forced-auth IG logins against Meta's
+  rate bucket for zero progress. Re-arm only after Account Quality
+  restriction lifts.
+- [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
+  (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
+  (active coverage fix).
+- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
+  `run-backend-once.sh` copies the placeholder `.env`; for
+  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
+  container env (`docker exec social-api printenv`) as done for run4,
+  or extend the script with `--live-secrets` that diffs against
+  `social-api`'s env.
+- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
+  `Loading...` under the known thrash); inference already failed →
+  rule-based fallback active, still executing.
+- [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
+  push; auto-merge armed on all 13 open PRs, 0 other failures.
 
-- [x] **fsbridge healed** — fresh-mount probe OK for every worker bind
-  source (`.env`, `app`, `scripts`, `dbt`, `tests`, `uploads`; `mlruns`
-  legitimately empty). No `wsl --shutdown` needed this time.
-- [x] **Rescue→managed hand-back done**: removed the 6 unlabeled rescue
-  containers (`social-api`, 4 workers, `celery-beat`), `docker compose up
-  -d` recreated them on `social-backend-latest` (new pull = latest master)
-  with live `.env` mounts. Verified: API `{"status":"ok"}` :8083, **4
-  celery nodes online**, all 6 healthy, `.deploy.lock` released.
-  `social-api-gateway` was already managed+healthy — untouched.
-- [x] **slack-token-sync blockage resolved by the hand-back**: its
-  `compose up` failures were name conflicts with the rescue containers.
-  Fresh containers booted after the `SLACK_BOT_TOKEN` env update, so the
-  new token is live; the `.pending` marker will no-op or recreate cleanly
-  on the next cron run. (`SLACK_CHANNEL_ID channel_not_found` remains a
-  separate minor config gap.)
-- [x] **FACEBOOK_PASSWORD rotated** — the phone unlock flow completed the
-  in-app password change; new password written to both `.env` copies.
-- [ ] **FB :9229 debug Chrome still logged out** — `fb_session_heal.py
-  heal` cannot pass the Meta account lock ("log in with another device");
-  checkpoint persists, 0 stored cookies. Human gate: finish the phone
-  unlock (fresh email code needed — the earlier `16919622` code expired),
-  then re-run `fb_session_heal.py heal` → `capture`.
-- [ ] **Meta account lock / IG↔FB link**: unchanged — personal FB
-  restricted since 2021 + account locked Nov 16; unlock must complete on
-  a recognized device before Business Settings → Instagram accounts → Add
-  can be retried. Support case was submitted pre-lock (registration
-  unverified).
+## 2026-11-16 late — Meta lock cleared via phone; WA Business app still gated
 
-## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
+- **Meta device-verification lock CLEARED** on the Galaxy S22+ (a
+  previously-used device): Gmail on the phone delivered the code →
+  mandatory password reset → reused `.env` `FACEBOOK_PASSWORD` (accepted —
+  zero credential drift) → FB app logged in. New runbook in
+  `meta-account-lock-ops`.
+- **WABA token still dead** (190/460 invalidated by the lock) — needs
+  SocialAuto-console re-auth, then `account_truth.py` before trusting rows.
+- **WhatsApp Business app verify still blocked**: SMS never arrived
+  (likely suppressed by the lock — re-request now post-unlock). Verify
+  screen filters ALL injected input; Samsung Pass passkey prompt for
+  ********7838 appeared on fresh install — **fingerprint = human gate**
+  (user was asked to scan, or Cancel → SMS path). App-only registration
+  would migrate the number OFF Cloud API — coexistence needs the
+  `whatsapp_business_app_onboarding` Embedded-Signup feature from the
+  partner side; decide app-only vs coexistence before completing.
+- New tool: `human-gate-bridges/scripts/phone_gmail_otp.py` — reads OTPs
+  from the phone's Gmail (notification extras + inbox dump).
+- Rules added: `docker-mcp-first` (#2076 merged), `web-search-when-stuck`
+  (#2079) + AGENTS.md note.
 
-- Audited both backend issues against the live codebase — every checklist
-  item already implemented; closed both as Done with evidence comments on
-  the issues (no code change needed).
-- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
-  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
-  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
-- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
-  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
-  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
-  chain; composite indexes throughout.
-- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
-  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
-  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
-  D1 primary intentionally left plaintext (SSM of record for external
-  tooling).
+## 2026-11-16 night — console-flash (cmd/PowerShell popup) elimination
+
+- Root cause: every WSL→Windows interop spawn (`powershell.exe`, `*.exe`
+  under /mnt/c, `wsl.exe`, `adb.exe`, `docker.exe`) allocates a visible
+  console; unconditional per-pass cron calls produced ~500 flashes/day.
+- New skill **`win-interop-quiet`** (.devin + .cursor): the 5 quiet
+  patterns (batch probes → one spawn, stamp-throttle, shared state files,
+  WSL-native-first + .exe fallback, headless scheduled tasks) +
+  `scripts/win_spawn_audit.py` crontab scanner (HOT/GUARD/REVIEW).
+- Applied: `host_gates_check.py` single batched powershell spawn/pass +
+  persists `host-ram-available-mb`; `fb_session_heal.py` reads that file;
+  `docker_engine_guard.py` exe probe hourly-stamped; `cdp-debug-watch.py`
+  hourly batched janitor (home-ops); `tt_profile_link.py` Linux-adb-first;
+  `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
+- Residual flashes are deliberate rare remediations (wsl --shutdown,
+  401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
+
+## 2026-11-17 — Windows cmd/conhost popup remediation (winrun lane)
+
+- [x] Audited all 178 scheduled tasks — `popup_task_audit.ps1` reports risky=0;
+      the task layer was never the flash source.
+- [x] Fresh `_popup-watch` capture identified the real sources: bare WSL→Windows
+      interop calls (docker.exe/powershell.exe/cmd.exe/adb.exe each allocate a
+      conhost), `npx`/`.cmd`-shim grandchildren of MCP launches, Run-key/startup
+      `.bat` launchers, Chrome native hosts (inherent).
+- [x] `~/scripts/win-hidden.sh` — `winrun`/`winps`/`wincmd` helpers routing every
+      interop call through `pythonw.exe mcp-hide.pyw` (CREATE_NO_WINDOW, stdio
+      preserved). Patched: social-stack-watchdog, wsl-vsock-autoheal,
+      c-drive-watch, groqbot-device-check, phone-adb-watch, mcp-toolkit-heal,
+      mcp-health-watch, mail-outbound-secret-heal (+ new
+      `devin-scripts/mail-outbound-secret-put.ps1`), docker-mcp-gateway wrapper.
+- [x] MCP configs rewritten (Devin `mcp_config.json` + ZCode `mcp_servers.json`):
+      hidden wrapper/direct `.js` entrypoints; @playwright/mcp 0.0.83,
+      ms-365-mcp 0.175.0, firebase-tools 15.36.0 installed globally so
+      `npx`/`.cmd` shim chains are gone.
+- [x] `ChromeDebugWatch` Run key re-wrapped as `conhost --headless powershell`.
+- [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
+      classes, the grandchild rule, and why `-WindowStyle Hidden` /
+      `conhost --headless` (for output capture) don't work.
+- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
+      `_popup-watch` captures in the loop if popups are reported again —
+      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
+
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
+
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
