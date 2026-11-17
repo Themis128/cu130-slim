@@ -65,7 +65,9 @@ async def _run(stale_min, pend_min):
             SELECT a.platform, count(*)
             FROM post_targets pt JOIN social_accounts a
               ON a.id = pt.social_account_id
+            JOIN posts p ON p.id = pt.post_id
             WHERE pt.status='pending'
+              AND p.status IN ('scheduled','publishing')
               AND coalesce(pt.updated_at, pt.published_at) < now() - make_interval(mins => $1)
             GROUP BY 1 ORDER BY 2 DESC""",
             pend_min,
