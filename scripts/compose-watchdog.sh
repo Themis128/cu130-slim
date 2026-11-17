@@ -375,6 +375,7 @@ if [ -n "$SOCK_INO" ]; then
       case "$dest" in
         */docker.sock)
           ino=$(docker exec "$c" ls -i "$dest" 2>/dev/null | awk '{print $1; exit}')
+          case "$ino" in ''|*[!0-9]*) ino="" ;; esac
           if [ -n "$ino" ] && [ "$ino" != "$SOCK_INO" ]; then
             stale_hit "$c" "stale docker.sock bind (inode $ino != host $SOCK_INO)"
           fi
