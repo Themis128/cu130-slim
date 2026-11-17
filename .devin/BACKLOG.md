@@ -3178,3 +3178,31 @@ Resolved this pass (details inline above):
   a recognized device before Business Settings → Instagram accounts → Add
   can be retried. Support case was submitted pre-lock (registration
   unverified).
+
+## 2026-11-17 — Linear CLO-6/CLO-7 pass + PR sweep (Devin agent, Windows side)
+
+- [x] **CLO-6 (Configure Greptile)** — all 130 themis128 repos already
+  connected + reviews Enabled (cu130-slim has 222+ reviews). Created
+  REST API key `devin-indexing` → Infisical prod `GREPTILE_API_KEY` +
+  `%APPDATA%\devin\secrets\greptile-api-key`. FINDING: manual KB indexing
+  is RETIRED (`POST /v2/repositories` → 410 `repository_indexing_retired`);
+  KBs build automatically per-org rollout — 0 KBs org-wide as of today,
+  no dashboard/API trigger; may need Greptile support or paid plan.
+  Verify later: `list_knowledge_bases` via greptile MCP (org cloudless-gr).
+- [x] **CLO-7 (Backend tracker)** — verified live: social-api healthy,
+  550 OpenAPI paths / 61 routers, 4/4 celery nodes + beat, postgres at
+  alembic head `nlw001q2e3u4` (57 versions), Redis AUTH ok, D1 dual-write
+  healthy. Backend already exists and runs — issue is a tracker.
+- [x] **PR sweep** — `pr_sweep_all.py` run from Windows host (see gotcha):
+  7 DIRTY PRs clean-rebuilt onto master → new PRs #2222-#2225,#2227-#2229
+  (superseded #2211-#2213,#2215-#2218). All 27 open PRs auto-merge armed.
+  #2222 (ex-#2218) will still fail `frontend-test` until #2219's coverage
+  gap fix lands — expected, not a rebuild problem.
+- **Windows-host gotchas for the sweep**: `python3` resolves to the
+  Microsoft Store stub — shim `python3.exe` exists at
+  `~/.zcode/bin/python3.exe` (copy of Python312); prepend to PATH.
+  `pr_rebuild.py` can't resolve repo on UNC paths → set
+  `GH_REPO=Themis128/cu130-slim`. `wsl.exe` calls still flake
+  (WSAETIMEDOUT) — Windows-side `gh` + UNC file access works fine.
+- [ ] watch: re-run sweep after the current CI wave lands; merge queue
+  keeps invalidating branches (treadmill) — ~30 pending checks per PR.
