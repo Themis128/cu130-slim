@@ -3203,61 +3203,16 @@ Resolved this pass (details inline above):
   `mcp-toolkit-heal.sh` WSL-local checks + `--win-only` headless lane.
 - Residual flashes are deliberate rare remediations (wsl --shutdown,
   401-heal, McpToolkit-WinCheck headless task). Audit: 0 unexpected HOT.
-
-## 2026-11-16 night — Meta drift reconciled; engagement starvation root-caused
-
-- **fsbridge flap #9**: Docker Desktop Linux engine died (~22:5x) —
-  `docker-desktop` WSL distro stopped, npipe gone. Recovered via
-  `wsl.exe -t docker-desktop` + engine respawn; deploy-watch recreated
-  stack, then second 127-wave → manual `compose up -d` (mounts healthy),
-  hash-dupes removed, lock released. API healthy.
-- **account_truth.py**: 4 FALSE-ACTIVE Meta rows (fb×2, ig×1, threads×1).
-  Fired `reconcile_account_status` manually — all Meta rows now honestly
-  `revoked` (13 checked, 5 drifted). Publish paths stop attempting dead
-  tokens; heal lanes must re-auth before any Meta action.
-- **Engagement engine dormant since ~Oct 25** (4 actions ever, all
-  failed). Ingest still runs but candidates are stale (IG max Nov 11,
-  TT Nov 12, FB trickles while locked). True blocker = revoked Meta
-  sessions, NOT the brain/scoring layer — no model upgrade needed.
-- **FB :9229** still parked on expired two_step_verification checkpoint;
-  heal can't pass — needs ONE manual facebook.com login in debug Chrome,
-  then `fb_session_heal.py capture`. IG/Threads re-auth same gate.
-- **strategy-report-run4** completed degraded (engine outage window):
-  255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
-  (200 from container); next run uses live inference.
-## 2026-11-17 — Postgres MCP for agents (read-only lane) + MCP-catalog findings
-
-- [x] `pg-mcp` container live: `crystaldba/postgres-mcp` on `cu130-db`
-      (name-based `social-postgres:5432`, immune to IP churn),
-      `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
-      `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
-      mounts `~/.pgpass` (chmod 600, has `social-postgres:5432:*:mcp_reader`
-      + `localhost:5433` lines). Restricted mode = read-only tools only.
-- [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
-      USAGE(public) + SELECT all tables + default-privileges for future
-      tables (owner social_user). Verified: 61 public tables visible,
-      `execute_sql select 1` OK. Password lives ONLY in ~/.pgpass + the
-      role itself — nowhere in configs/inspect/env.
-- [x] Devin MCP config `~/.config/devin/mcp_config.json` gained a
-      `postgres` stdio server: `docker exec -i pg-mcp postgres-mcp
-      --access-mode=restricted` (activates next session; heal script only
-      rewrites the file if missing — safe). 9 tools incl. execute_sql,
-      explain_query, analyze_db_health, get_top_queries.
-- [x] Why not catalog `database-server`: MCP-toolkit containers can't
-      reach the DB — `127.0.0.1:5433` publish is loopback-only
-      (host.docker.internal refused), container IPs are ephemeral, and
-      the gateway spec has no network/host-network field. The
-      docker-exec bridge sidesteps all of it. Catalog path would need a
-      compose static-IP PR — not pursued (name-based is strictly better).
-- [x] Filed docker/mcp-gateway issues #621 (mcp-find hides oauth.providers
-      secret requirements) + #622 (BM25 whole-token recall misses
-      "PostgreSQL" for query "postgres"). Findings also in
-      ~/AGENTS.md (home-ops, commit 517a3c8).
-- [ ] optional: grant `mcp_reader` on the `n8n` DB too if agents need it
-      (currently social_automation only).
-- [ ] if `pg-mcp` container is ever removed, recreate:
-      `docker run -d --name pg-mcp --network cu130-db --restart
-      unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
-      mcp_reader@social-postgres:5432/social_automation -e
-      PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
-      crystaldba/postgres-mcp:latest infinity`
+- [x] **Video render task: persist-before-QA + bounded vision calls**
+  (2026-11-16). `generate_video_asset_task` saved the MediaAsset only
+  AFTER semantic QA — a DMR vision cold-load ate the 2700s soft limit and
+  a finished Wan2.2 render (`socialauto_00015.mp4`, post c4dff316) was
+  discarded (SoftTimeLimitExceeded; asset recovered manually as
+  37d483f0). Fix: asset persists immediately post-render; QA wrapped in
+  `asyncio.wait_for` (180s) so timeout/unavailability is metadata
+  (`reason: "qa timeout"`), never a task kill; the QA-mismatch re-render
+  now runs only when elapsed + render cost + QA + margin < soft limit
+  (a second Wan2.2 render never fit anyway — flagged `retry: skipped`),
+  and its output saves as a NEW asset with the original marked
+  `superseded_by` (non-destructive). CF vision clients got per-phase
+  `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.
