@@ -935,10 +935,14 @@ async def warmup_models(*, force: bool = False) -> None:
 
 async def _warm_models_locked() -> None:
     """Warm-up body; runs while holding the warmup lock (or forced)."""
-    # Apply best-practice runtime configurations before warming.
-    # These match the `docker model configure` settings and ensure
-    # the configs are applied even after a DMR restart.
-    await apply_best_practice_configs()
+    # NOTE: do NOT call apply_best_practice_configs() here — every
+    # /engines/_configure triggers a background PRELOAD of that model
+    # (model-runner http_handler.go), so configuring the whole table
+    # stampedes N simultaneous cold loads per worker process. Canonical
+    # configs for the models actually warmed are pushed lazily by
+    # _ensure_model_configured inside _call_dmr_chat_internal below;
+    # dmr-watchdog covers the runner-restart case (staggered, one model
+    # per tick).
 
     # Always warm the mid instruct (chatbots + short-form platform copy,
     # latency-critical, ~2.7GB resident). The 8B text model only joins

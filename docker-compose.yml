@@ -2147,6 +2147,16 @@ services:
         # so runtime flags must be included or they'd be stripped.
         # (The docker-model CLI plugin is Desktop-internal and I/O-errors
         # inside containers — use the HTTP endpoint like the app does.)
+        #
+        # IMPORTANT: every POST /engines/_configure triggers a BACKGROUND
+        # PRELOAD of that model (model-runner http_handler.go Configure).
+        # Pushing all configs at once = N simultaneous cold loads = the
+        # RAM storm this watchdog used to cause every ~60s. So configs are
+        # applied ONLY when the runner restarts (StartedAt change — the
+        # only event that wipes in-memory configs wholesale), ONE model
+        # per tick to stagger the preloads. Per-model config loss on
+        # keep-alive unload is already covered app-side by
+        # _ensure_model_configured (60s TTL) in dmr.py.
         configure() {
           wget -q -O /dev/null -T 10 \
             --header "Content-Type: application/json" \
@@ -2154,37 +2164,34 @@ services:
             http://host.docker.internal:12435/engines/_configure
         }
 
-        apply_configs() {
-          echo "[dmr-watchdog] applying canonical model configs"
-          ok=0
-          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"15m","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}' || ok=1
-          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"cloudless/qwen3-4b-media:latest","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          # Return 0 only if every push landed; a failed push retries next tick
-          return $$ok
-        }
+        MODEL_CONFIGS='{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}
+        {"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}
+        {"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}
+        {"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}
+        {"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"15m","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}
+        {"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}'
+
+        pending_configs=""
 
         tick=0
         while true; do
           tick=$$((tick+1))
           # Heartbeat for the container healthcheck — proves the loop is ticking.
           touch /tmp/dmr-watchdog.beat
-          # Configs are in-memory per loaded model — wiped on runner restart
-          # AND on model unload (keep-alive expiry). Re-apply on StartedAt
-          # change and periodically (~every 6th tick = 60s).
           started=$$(docker inspect -f '{{.State.StartedAt}}' docker-model-runner 2>/dev/null)
-          if { [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; } || [ $$((tick % 6)) -eq 0 ]; then
-            if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
-              if apply_configs; then
-                last_started=$$started
-              else
-                echo "[dmr-watchdog] config apply failed - retrying next tick"
-              fi
-            fi
+          if [ -n "$$started" ] && [ "$$started" != "$$last_started" ]; then
+            # Runner (re)started — in-memory configs are gone. Queue the
+            # canonical set; one model is configured per tick below so the
+            # background preloads stagger instead of stampeding.
+            pending_configs="$$MODEL_CONFIGS"
+            last_started="$$started"
+            echo "[dmr-watchdog] runner restarted — queued canonical model configs"
+          fi
+          if [ -n "$$pending_configs" ] && wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
+            cfg=$$(printf '%s\n' "$$pending_configs" | sed -n '1p')
+            pending_configs=$$(printf '%s\n' "$$pending_configs" | sed '1d')
+            echo "[dmr-watchdog] configuring $$(printf '%s' "$$cfg" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')"
+            configure "$$cfg" || echo "[dmr-watchdog] config push failed — continuing queue"
           fi
 
           # Deep health: /engines/v1/models stays 200 even when the scheduler
