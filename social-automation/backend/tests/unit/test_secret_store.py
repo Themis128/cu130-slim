@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import app.services.secret_store as SS
+from app.core.security import decrypt_secret
 from app.services.secret_store import SecretStore
 
 
@@ -138,6 +139,13 @@ class TestPostgresLayer:
         assert await s._get_from_postgres("K") is None
 
     @pytest.mark.asyncio
+    async def test_get_undecryptable_ciphertext_returns_none(self, monkeypatch):
+        row = SimpleNamespace(value="enc:v1:not-a-valid-token")
+        res = SimpleNamespace(scalar_one_or_none=lambda: row)
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res])))
+        assert await SecretStore()._get_from_postgres("K") is None
+
+    @pytest.mark.asyncio
     async def test_set_update_existing(self, monkeypatch):
         row = SimpleNamespace(value="old", description="d", updated_at=None)
         res = SimpleNamespace(scalar_one_or_none=lambda: row)
@@ -145,7 +153,9 @@ class TestPostgresLayer:
         monkeypatch.setattr(SS, "async_session_maker", _session_maker(sess))
         s = SecretStore()
         assert await s._set_in_postgres("K", "new", "desc2") is True
-        assert row.value == "new"
+        # stored encrypted at rest; readable back through decrypt_secret
+        assert row.value.startswith("enc:v1:")
+        assert decrypt_secret(row.value) == "new"
         assert row.description == "desc2"
         assert row.updated_at is not None
         assert sess.commits == 1
@@ -159,11 +169,28 @@ class TestPostgresLayer:
         assert await s._set_in_postgres("K", "v") is True
         assert len(sess.added) == 1
         assert sess.added[0].key == "K"
+        assert sess.added[0].value.startswith("enc:v1:")
+        assert decrypt_secret(sess.added[0].value) == "v"
         # error → False
         bad = SimpleNamespace()
         bad.execute = AsyncMock(side_effect=RuntimeError())
         monkeypatch.setattr(SS, "async_session_maker", _session_maker(bad))
         assert await s._set_in_postgres("K", "v") is False
+
+    @pytest.mark.asyncio
+    async def test_write_then_read_roundtrip(self, monkeypatch):
+        s = SecretStore()
+        stored_row = SimpleNamespace(value=None, description=None, updated_at=None)
+        monkeypatch.setattr(
+            SS, "async_session_maker",
+            _session_maker(_Session([SimpleNamespace(scalar_one_or_none=lambda: stored_row)])),
+        )
+        assert await s._set_in_postgres("K", "s3cr3t") is True
+        monkeypatch.setattr(
+            SS, "async_session_maker",
+            _session_maker(_Session([SimpleNamespace(scalar_one_or_none=lambda: stored_row)])),
+        )
+        assert await s._get_from_postgres("K") == "s3cr3t"
 
     @pytest.mark.asyncio
     async def test_delete(self, monkeypatch):
