@@ -3179,25 +3179,30 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear "cu130-slim Platform" project reconciled with live stack (Devin)
+## 2026-11-17 — Linear CLO-6/CLO-7 pass + PR sweep (Devin agent, Windows side)
 
-- [x] **Verified all 12 Linear issues against the codebase** — the
-  greenfield planning tickets describe a platform that already exists in
-  production. Closed as Done: CLO-7 (backend epic: FastAPI ~60 API
-  modules, SQLAlchemy async, Celery+Redis+Postgres live), CLO-8
-  (frontend epic: Next.js 16.4.2 + TS 5.3 + Tailwind 4 + TanStack Query
-  5 — exact spec), CLO-9 (API CRUD/auth/social + app/core/limiter.py),
-  CLO-10 (27 models, encrypted `access_token_enc` + `social_secrets`, 57
-  Alembic revs), CLO-11 (4 queue workers + beat, dozens of task
-  modules), CLO-12 (dashboard/accounts UI), CLO-13 (composer +
-  calendar/campaigns scheduler), CLO-14 (analytics + reports pages),
-  CLO-16 (Greptile MCP re-auth verified live — `get_me` returns ADMIN on
-  org cloudless-gr; "expired token" premise was stale). Evidence comment
-  posted on tracking epic CLO-5 (left open as tracker).
-- [ ] **CLO-15 Greptile KB builds — genuinely open**: all 6 repos
-  (cu130-slim, cloudless-nextcloud, cloudless.gr, devoptimizer,
-  galaxy-s22-toolkit, home-ops) are registered with
-  `reviewsEnabled: true`, but `list_knowledge_bases` returns ZERO
-  indexes for every repo. Human/agent step: trigger index builds at
-  app.greptile.com — the MCP exposes no index-trigger tool. CLO-6
-  remains In Progress on this.
+- [x] **CLO-6 (Configure Greptile)** — all 130 themis128 repos already
+  connected + reviews Enabled (cu130-slim has 222+ reviews). Created
+  REST API key `devin-indexing` → Infisical prod `GREPTILE_API_KEY` +
+  `%APPDATA%\devin\secrets\greptile-api-key`. FINDING: manual KB indexing
+  is RETIRED (`POST /v2/repositories` → 410 `repository_indexing_retired`);
+  KBs build automatically per-org rollout — 0 KBs org-wide as of today,
+  no dashboard/API trigger; may need Greptile support or paid plan.
+  Verify later: `list_knowledge_bases` via greptile MCP (org cloudless-gr).
+- [x] **CLO-7 (Backend tracker)** — verified live: social-api healthy,
+  550 OpenAPI paths / 61 routers, 4/4 celery nodes + beat, postgres at
+  alembic head `nlw001q2e3u4` (57 versions), Redis AUTH ok, D1 dual-write
+  healthy. Backend already exists and runs — issue is a tracker.
+- [x] **PR sweep** — `pr_sweep_all.py` run from Windows host (see gotcha):
+  7 DIRTY PRs clean-rebuilt onto master → new PRs #2222-#2225,#2227-#2229
+  (superseded #2211-#2213,#2215-#2218). All 27 open PRs auto-merge armed.
+  #2222 (ex-#2218) will still fail `frontend-test` until #2219's coverage
+  gap fix lands — expected, not a rebuild problem.
+- **Windows-host gotchas for the sweep**: `python3` resolves to the
+  Microsoft Store stub — shim `python3.exe` exists at
+  `~/.zcode/bin/python3.exe` (copy of Python312); prepend to PATH.
+  `pr_rebuild.py` can't resolve repo on UNC paths → set
+  `GH_REPO=Themis128/cu130-slim`. `wsl.exe` calls still flake
+  (WSAETIMEDOUT) — Windows-side `gh` + UNC file access works fine.
+- [ ] watch: re-run sweep after the current CI wave lands; merge queue
+  keeps invalidating branches (treadmill) — ~30 pending checks per PR.
