@@ -3229,90 +3229,36 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
 
-- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
-      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
-
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
-
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
-BACKLOG_EOF
-cd /tmp/backlog-wt2 && git add .devin/BACKLOG.md && git commit -qm "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" && git push -qu origin docs/backlog-stack-recovery-20261117 && gh pr create --base master --title "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" --body "Session notes: DD-bounce container/image vanish recovery, social-api crash-loop root-caused to in-flight url_security WIP, sshd + WSL-Permanent-Fix items verified already-fixed." | tail -2
-
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
-
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
