@@ -3225,3 +3225,39 @@ Resolved this pass (details inline above):
 - **strategy-report-run4** completed degraded (engine outage window):
   255 teams, 2 emailed, llm_used=0. DMR verified healthy post-recovery
   (200 from container); next run uses live inference.
+## 2026-11-17 — Postgres MCP for agents (read-only lane) + MCP-catalog findings
+
+- [x] `pg-mcp` container live: `crystaldba/postgres-mcp` on `cu130-db`
+      (name-based `social-postgres:5432`, immune to IP churn),
+      `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
+      `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
+      mounts `~/.pgpass` (chmod 600, has `social-postgres:5432:*:mcp_reader`
+      + `localhost:5433` lines). Restricted mode = read-only tools only.
+- [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
+      USAGE(public) + SELECT all tables + default-privileges for future
+      tables (owner social_user). Verified: 61 public tables visible,
+      `execute_sql select 1` OK. Password lives ONLY in ~/.pgpass + the
+      role itself — nowhere in configs/inspect/env.
+- [x] Devin MCP config `~/.config/devin/mcp_config.json` gained a
+      `postgres` stdio server: `docker exec -i pg-mcp postgres-mcp
+      --access-mode=restricted` (activates next session; heal script only
+      rewrites the file if missing — safe). 9 tools incl. execute_sql,
+      explain_query, analyze_db_health, get_top_queries.
+- [x] Why not catalog `database-server`: MCP-toolkit containers can't
+      reach the DB — `127.0.0.1:5433` publish is loopback-only
+      (host.docker.internal refused), container IPs are ephemeral, and
+      the gateway spec has no network/host-network field. The
+      docker-exec bridge sidesteps all of it. Catalog path would need a
+      compose static-IP PR — not pursued (name-based is strictly better).
+- [x] Filed docker/mcp-gateway issues #621 (mcp-find hides oauth.providers
+      secret requirements) + #622 (BM25 whole-token recall misses
+      "PostgreSQL" for query "postgres"). Findings also in
+      ~/AGENTS.md (home-ops, commit 517a3c8).
+- [ ] optional: grant `mcp_reader` on the `n8n` DB too if agents need it
+      (currently social_automation only).
+- [ ] if `pg-mcp` container is ever removed, recreate:
+      `docker run -d --name pg-mcp --network cu130-db --restart
+      unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
+      mcp_reader@social-postgres:5432/social_automation -e
+      PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
+      crystaldba/postgres-mcp:latest infinity`
