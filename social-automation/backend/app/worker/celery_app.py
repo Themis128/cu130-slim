@@ -55,6 +55,7 @@ celery_app = Celery(
         "app.worker.tasks.publish_verify",
         "app.worker.tasks.report_videos",
         "app.worker.tasks.linkedin_session_check",
+        "app.worker.tasks.linkedin_token_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
         "app.worker.tasks.threads_messenger",
@@ -363,6 +364,7 @@ celery_app.conf.update(
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
         "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
+        "app.worker.tasks.linkedin_token_check.check_linkedin_tokens": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
@@ -1073,6 +1075,13 @@ celery_app.conf.update(
         "check-instagram-sessions": {
             "task": "app.worker.tasks.instagram_session_check.check_instagram_sessions",
             "schedule": crontab(minute=30, hour="*/6"),  # every 6h at :30
+        },
+        # LinkedIn OAuth token health — /v2/userinfo probe per active
+        # account; P2 alert on 401/403 or <7d expiry. Covers the silent
+        # grant-revocation class the sidecar session check can't see.
+        "linkedin-token-check": {
+            "task": "app.worker.tasks.linkedin_token_check.check_linkedin_tokens",
+            "schedule": crontab(minute=20, hour="*/6"),
         },
         # Check and refresh LinkedIn browser sidecar session every 12 hours.
         # Exports fresh cookies and persists them to the secret store.
