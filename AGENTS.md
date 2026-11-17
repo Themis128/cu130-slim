@@ -1,5 +1,11 @@
 # Agent working notes for cu130-slim / SocialAuto
 
+## When stuck — web search first
+
+User directive 2026-11-16: **when you get stuck, use web search** — symptom-
+based queries, official docs first, document durable findings back into the
+matching skill or BACKLOG. Search is the alternative to grinding retries.
+
 ## Persistent backlog (read first, update last)
 
 `.devin/BACKLOG.md` is the living to-do list across sessions. Every session MUST:
