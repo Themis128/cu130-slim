@@ -3229,90 +3229,43 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
+### battle-test addendum (same day, evening)
 
-- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
-      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
+- [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
+      desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
+      the PRE-EDIT config in memory (on-disk configs already clean).
+- [x] Patched: `cdp-debug-watch.py` (`_winps`), `phone_fb_approve.py`,
+      `phone_exitnode.py`, `phone_net_diag.py` (`_a()` .exe-fallback wrap).
+- [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
+      `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
+      with the old flash-prone command line.
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
 
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
+### Leftover sweep — optimal pass (2026-11-17)
 
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
-BACKLOG_EOF
-cd /tmp/backlog-wt2 && git add .devin/BACKLOG.md && git commit -qm "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" && git push -qu origin docs/backlog-stack-recovery-20261117 && gh pr create --base master --title "docs(backlog): 2026-11-17 stack recovery + stale-item sweep" --body "Session notes: DD-bounce container/image vanish recovery, social-api crash-loop root-caused to in-flight url_security WIP, sshd + WSL-Permanent-Fix items verified already-fixed." | tail -2
-
-## 2026-11-17 (late) — stack recovery after DD bounce + stale-item sweep (Devin Desktop)
-
-- **Stack incident**: Docker Desktop/engine restarted ~06:45 EEST
-  (WSL-Permanent-Fix pre-stabilization). ~20 compose service
-  containers + their images vanished (social-api, 4 workers,
-  celery-beat, stack-ops, stack-watchers, env-manager-backend,
-  metabase, portainer, flower, comfyui, autoheal,
-  docker-socket-proxy, dmr-watchdog, compose-healer,
-  linkedin-mcp-server, airbyte-mcp-server, chroma) — known
-  docker/for-win bug class (issues #13089/#14499/#14528).
-  Gateway crash-looped on host-not-found upstream social-api:8000
-  until recreate.
-- Recovery: docker compose up -d re-pulled all missing images
-  (pull_policy:always => multi-GB marathon ~40min). Mid-create the
-  engine flapped again (docker.sock vanished) then self-recovered;
-  creates flushed. social-api + 4 workers + celery-beat + chroma +
-  env-manager-backend now Up/healthy.
-- **social-api unhealthy root cause = ANOTHER agent live WIP**:
-  uncommitted edits at 08:13 add url_security imports
-  (SafeAsyncClient) to auth.py/analytics.py (+8 more files, SSRF
-  hardening pass) but app/core/url_security.py not yet created —
-  bind-mounted checkout crash-loops the API until that agent
-  finishes + restarts. Do NOT revert; do NOT stub — mid-flight work.
-- Second docker compose up -d (another agent, 08:14) still running
-  for the remaining stragglers — left to finish (two concurrent ups
-  = recreate-removal race; killed my duplicate).
-- **Stale backlog items verified already-fixed** (mark done next
-  sweep): Windows sshd on 192.168.1.23 — Sshd-Watch task +
-  sshd-repair.ps1 self-heal every ~15min, service Running + port 22
-  open; WSL-Permanent-Fix task — already repointed to
-  conhost --headless + local pwsh.exe, last run result 0.
-- watch: after other agent up completes, verify stack-ops +
-  stack-watchers exist (they own idle-sleep + watcher respawn);
-  social-api health returns once url_security.py lands.
+- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
+      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
+      Remaining "failures" are only the cancelled `notify` job — the
+      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
+- [x] IG reauth ran (fast path): connected a DIFFERENT IG
+      (`17841463022505300` — personal, new active row
+      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
+      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
+      lane, still the Meta wizard gate.
+- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
+      from containers; only WSL `localhost` forwarding is dead (vsock class).
+- [ ] threads heal blocked further upstream than expected: threads.net/oauth
+      redirects to login — the sidecar has NO instagram.com session; needs a
+      real IG login (backup code + trust-device) before consent can run.
+- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
+      via SocialAuto console; wa_verify daemon retry-loops until then.
+- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
+      needs one human tap → "Call me" (voice channel bypasses SMS throttle).
