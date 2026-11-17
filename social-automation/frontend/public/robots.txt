@@ -2,6 +2,11 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+# Platform media fetchers (FB/IG/Threads video_reels file_url, IG image_url,
+# TikTok PULL_FROM_URL) must reach /api/v1/media/view — longest-match Allow
+# wins over Disallow: /api/. Without this Meta refuses with
+# "403 Restricted by robots.txt" on every URL-fetched upload.
+Allow: /api/v1/media/
 Disallow: /dashboard/
 Disallow: /settings/
 Disallow: /admin/

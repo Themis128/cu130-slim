@@ -3226,18 +3226,43 @@ Resolved this pass (details inline above):
 - [x] `windows-host-ops` SKILL.md (both mirrors) documents the five flash
       classes, the grandchild rule, and why `-WindowStyle Hidden` /
       `conhost --headless` (for output capture) don't work.
-- [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
-      `_popup-watch` captures in the loop if popups are reported again —
-      stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
-      are already headless or need the same wrap.
-- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
-      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
-      clean through the wrapper.
+- [x] `ChromeDebugWatch` verified flash-free 2026-11-16 — interactive
+      logon 23:44 spawned both watcher instances under `conhost --headless`;
+      12min `popup-flash-watch` capture post-logon: 0 console-window events.
+      Full autostart surface audited: Run key (conheadless), Startup folder
+      (.vbs hidden launchers, `Run ...,0,False`), logon/boot tasks (headless
+      or GUI). Only `Monitoring` (MS system task, session 0) runs bare cmd —
+      not user-visible. Keep `_popup-watch` captures in the loop if popups
+      are reported again — stale watch logs mis-attribute sources.
+- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
+      already run under `conhost.exe --headless` (docker-socket-watch,
+      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
+      EvidencePipeline-DmrTunnel). No wrap needed.
+- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
+      resolver.v1 wedged after the engine death; full `docker desktop
+      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
+      `mcp secret ls` verified live; gateway unaffected (cached secrets).
+      Note: `desktop stop`+immediate `start` races — if start says
+      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
 
-### battle-test addendum (same day, evening)
+- [x] `termux-first` rule committed (both mirrors) — standing directive to use
+      Termux as the primary on-device lane for any phone-side task.
 
+### WhatsApp Business registration — number submitted, Meta send-cooldown (2026-11-17)
+
+- [x] DPAD_CENTER clicked EULA "Agree" → RegisterPhone; human pasted
+      `6977777838` + Next → `VerifyPhoneNumber` armed (auto-detect waiting).
+- [x] Server throttled tonight's requests: "WhatsApp is temporarily
+      unavailable. Please try again in 1 hour" — no fresh SMS (last WA code
+      in inbox is 2026-11-10, stale). Cooldown likely from app requests +
+      stacked request_code attempts earlier.
+- [ ] human: when the in-app timer ends, tap **Didn't receive code?** →
+      prefer **Call me** (voice channel ≠ SMS cooldown; code spoken/auto-captured).
+      Do NOT re-request before the timer — each request extends the cooldown.
+- [ ] on success: reconcile `phone_number_id` into the SocialAuto account
+      meta_data + verify Cloud API/coexistence status (skill runbook).
+- [ ] WABA token needs SocialAuto-console re-auth (190/460 after the lock).
 - [x] Fresh 5-min `_popup-watch` under live exercise — wrapped lanes emit zero
       desktop flashes; surviving `pwsh→npx` MCP spawns traced to clients holding
       the PRE-EDIT config in memory (on-disk configs already clean).
@@ -3246,26 +3271,24 @@ Resolved this pass (details inline above):
 - [ ] human/ops: restart Devin/Windsurf/ZCode clients once to flush the cached
       `pwsh -Command 'npx -y …'` MCP argv — until then dead MCP servers respawn
       with the old flash-prone command line.
-- [x] `termux-first` rule committed (both mirrors) — standing directive to use
-      Termux as the primary on-device lane for any phone-side task.
+## 2026-11-17 — Meta session-invalidation event + robots.txt publish block
 
-### Leftover sweep — optimal pass (2026-11-17)
-
-- [x] PR queue swept: 29 open PRs update-branched + auto-merge armed; DIRTY
-      #2107/#2108/#2109 rebuilt as #2119/#2118/#2117 (originals closed).
-      Remaining "failures" are only the cancelled `notify` job — the
-      queue-flood flake #2102 fixes. #2105's 18 stale fails cleared on rebase.
-- [x] IG reauth ran (fast path): connected a DIFFERENT IG
-      (`17841463022505300` — personal, new active row
-      `d2215106-7e54-4c43-a5f4-383b1ae0c61e`); `cloudless.gr`
-      (`28747382798219804`) stays `expired` — needs IG↔Page link / IG_WIZARD
-      lane, still the Meta wizard gate.
-- [x] DMR probe false-alarm cleared: `host.docker.internal:12435` serves 200
-      from containers; only WSL `localhost` forwarding is dead (vsock class).
-- [ ] threads heal blocked further upstream than expected: threads.net/oauth
-      redirects to login — the sidecar has NO instagram.com session; needs a
-      real IG login (backup code + trust-device) before consent can run.
-- [ ] `WHATSAPP_ACCESS_TOKEN` dead (190/460, Nov-16 password reset) — re-auth
-      via SocialAuto console; wa_verify daemon retry-loops until then.
-- [ ] WhatsApp app verify: cooldown over, `Didn't receive code?` visible —
-      needs one human tap → "Call me" (voice channel bypasses SMS throttle).
+- [x] FB browser session restored via sidecar (profile-picker -> remembered-
+  device login); OAuth re-auth completed: facebook user + page rows -> active
+  at 22:12 UTC (page token exp 2027-01-28). instagram business -> active
+  21:55 via instagram-onboarding callback.
+- [x] Post c4dff316 (Wan2.2 reel) PUBLISHED manually —
+  facebook.com/reel/2579079235925469. Graph file_url fetch was blocked by
+  robots.txt (Disallow: /api/ covers /api/v1/media/view); bypassed with a
+  3-phase bytes upload (script: /tmp/manual_reel_upload.py).
+- [ ] watch: PR #2107 (robots.txt Allow: /api/v1/media/) must merge+deploy
+  before URL-fetched publishes work again — same block hits IG image_url,
+  Threads, TikTok PULL_FROM_URL.
+- [ ] human: `wsl --shutdown` still needed (workstation policy blocks me) —
+  4th fsbridge wave tonight killed 17 containers; manual heals only buy
+  ~20-30min windows.
+- [ ] consider: facebook_api.create_reel_post has no binary-upload lane —
+  add bytes fallback when file_url fetch fails (same pattern used in the
+  manual publish tonight).
+- [ ] minor: unknown .wslconfig key experimental.virtiofs warns on every
+  wsl.exe call.
