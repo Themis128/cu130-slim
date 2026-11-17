@@ -3251,6 +3251,17 @@ Resolved this pass (details inline above):
 - [ ] linkedin-browser-sidecar session dead post-restart — session-ops
   hourly sweep may heal; DM/engage lanes depend on it (webhook does not).
 
+## 2026-11-17 — LinkedIn Advertising API Dev Tier approved (264925843)
+- [x] **Advertising API (Development Tier) APPROVED on app 264925843
+  "Cloudless Analytics App"** — LinkedIn welcome email 2026-11-17
+  ("Welcome to the Advertising API!"), decision on the 2026-11-16
+  Qualtrics access request. `rw_ads` was already re-consented 11-16
+  ~16:25 UTC (both person + org accounts); live scope audit confirms
+  `r_ads` granted + adAccounts readable (512642510 ACTIVE).
+  Unblocks: `linkedin_ads_control` migration from sidecar UI-scraping
+  to Marketing API calls; Reporting API reads once a reporting scope
+  is confirmed on the token.
+
 ## 2026-11-17 — salvaged leftovers (IG↔FB gate + stale-env containers)
 
 - [ ] **IG↔FB Page link blocked by 2021 ad restriction (root cause found 2026-11-16)**:
