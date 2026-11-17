@@ -28,7 +28,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.inbox_snapshot import InboxSnapshot
-from app.models.social_account import SocialAccount
 from app.models.whatsapp_message import WhatsAppMessage
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,6 @@ funnel monthly. Same-day dedupe via Redis so watcher resends can't double-mail.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from celery import shared_task

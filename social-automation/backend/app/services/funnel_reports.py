@@ -436,7 +436,8 @@ async def build_content_weekly() -> FunnelReport:
     plat: dict[str, list[int]] = {}
     for r in rows:
         p = plat.setdefault(r["platform"], [0, 0])
-        p[0] += r["engagement"]; p[1] += r["impressions"]
+        p[0] += r["engagement"]
+        p[1] += r["impressions"]
     report.line("Per-platform totals (7d)",
                 *[f"• {k}: {v[0]} eng / {v[1]} imp" for k, v in sorted(plat.items())] or ["none"])
 
