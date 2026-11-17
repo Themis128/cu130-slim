@@ -2189,9 +2189,15 @@ services:
           fi
           if [ -n "$$pending_configs" ] && wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
             cfg=$$(printf '%s\n' "$$pending_configs" | sed -n '1p')
-            pending_configs=$$(printf '%s\n' "$$pending_configs" | sed '1d')
-            echo "[dmr-watchdog] configuring $$(printf '%s' "$$cfg" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')"
-            configure "$$cfg" || echo "[dmr-watchdog] config push failed — continuing queue"
+            if configure "$$cfg"; then
+              pending_configs=$$(printf '%s\n' "$$pending_configs" | sed '1d')
+              echo "[dmr-watchdog] configured $$(printf '%s' "$$cfg" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')"
+            else
+              # Keep cfg at the head of the queue — a failed push retries
+              # next tick instead of silently dropping the model until the
+              # next runner restart.
+              echo "[dmr-watchdog] config push failed — will retry next tick"
+            fi
           fi
 
           # Deep health: /engines/v1/models stays 200 even when the scheduler
