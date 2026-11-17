@@ -3216,3 +3216,28 @@ Resolved this pass (details inline above):
   and its output saves as a NEW asset with the original marked
   `superseded_by` (non-destructive). CF vision clients got per-phase
   `httpx.Timeout(60, connect=5)`. Tests: +5 in test_media_tasks.py.
+
+## 2026-11-17 (pm) — fsbridge flap #11 + gate-lane repairs (Devin)
+
+- [x] **PR #2322 merged** — nested-skill `_common.py` `_lib` path fix
+  (parents-walk; was ModuleNotFoundError since skill consolidation) +
+  new `human-gate-ops/scripts/meta_app_review_draft.py` (paste-ready
+  leads_retrieval text; `gate_drive.py meta-submit` now returns it).
+- [ ] **fsbridge flap #11 ACTIVE** — post-merge deploy window: dd proxy
+  alive but 22/34 hashed mounts EMPTY, `probe` = MOUNT POISONED;
+  stack-ops/docker-socket-proxy/portainer/compose-healer/autoheal/
+  dmr-watchdog/airbyte/env-manager-backend/social-media-comfyui-gpu/
+  stack-watchers all Exited(127). Durable heal = `wsl --shutdown`
+  (scheduled: Devin-exit vhdx-compact + Nightly 05:00). Do NOT
+  force-recreate onto poisoned mounts; post-heal run
+  `fsbridge_doctor.py casualties` then compose up --force-recreate.
+- [ ] **FB sidecar session still dead** — heal attempt 15:15-15:19 reached
+  profile picker → Continue → 2FA checkpoint (4× Continue clicks) but my
+  300s wrapper killed it mid-approval; sidecar then slept mid-flow
+  ("sidecar unreachable" 15:21). Exponential backoff was reset once
+  (failures 17→0, infra-caused); cron */30 retries. Next attempt needs
+  sidecar keepawake (`stackctl.py keepawake facebook-browser-sidecar`)
+  once stack-ops is back — sleep cycles keep killing heal runs.
+- [ ] Phone still zero-ADB (unreachable, not just locked); CDP debug
+  Chrome :9222 alive Windows-side, WSL path = relay
+  `http://172.22.144.1:9229` (NOT localhost — localhostForwarding dead).
