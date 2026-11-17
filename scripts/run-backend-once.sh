@@ -49,6 +49,11 @@ live_env() {
   f=$(mktemp /tmp/run-once-env.XXXXXX)
   chmod 600 "$f"
   if docker exec "$DONOR" printenv > "$f" 2>/dev/null && [ -s "$f" ]; then
+    # JWT_SECRET_KEY is read by pydantic from the mounted /app/.env, not the
+    # process env — printenv misses it. Pull it from the donor's env file.
+    if ! grep -q '^JWT_SECRET_KEY=' "$f"; then
+      docker exec "$DONOR" sh -c 'grep "^JWT_SECRET_KEY=" /app/.env' >> "$f" 2>/dev/null || true
+    fi
     echo "$f"
   elif [ -f "$PWD/.env" ]; then
     echo "warn: $DONOR unreachable — falling back to on-disk .env" >&2
@@ -78,7 +83,9 @@ if [ "$MODE" = "--mounted" ]; then
     -v "$PWD/notebooks:/notebooks" \
     -v "$PWD/social-automation/backend/app:/app/app" \
     -v "$PWD/social-automation/backend/scripts:/app/scripts" \
-    "$IMAGE" sh -c "$CMD"
+    "$IMAGE" sh -c "$CMD" >/dev/null
+  echo "started $NAME (mounted code) — logs: docker logs -f $NAME"
+  exit 0
 fi
 
 if [ "$MODE" != "--bare" ]; then
