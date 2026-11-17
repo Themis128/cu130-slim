@@ -1697,3 +1697,63 @@ async def test_pq_exception_refreshes_item_when_supported(monkeypatch):
     db.refresh.assert_awaited_once_with(item)
     assert item.status == QueueStatus.PENDING
     assert item.attempts == 1
+
+
+# ── meta queue lane split ─────────────────────────────────────────────
+
+
+class _RecordingDB(_FakeDB):
+    """_FakeDB that also records executed statements for SQL assertions."""
+
+    def __init__(self, results=None, scalars=None):
+        super().__init__(results, scalars)
+        self.queries = []
+
+    async def execute(self, q, *args):
+        self.queries.append(q)
+        return await super().execute(q, *args)
+
+
+@pytest.mark.asyncio
+async def test_pq_platforms_filter_adds_account_subquery(monkeypatch):
+    db = _RecordingDB([_res(scalars_all=[])])
+    _patch_db(monkeypatch, db)
+    await W._process_publish_queue_async(platforms=W._META_PLATFORMS)
+    sql = str(db.queries[0]).lower()
+    assert "social_accounts" in sql
+    assert "in (select" in sql
+
+
+@pytest.mark.asyncio
+async def test_pq_exclude_platforms_adds_notin_subquery(monkeypatch):
+    db = _RecordingDB([_res(scalars_all=[])])
+    _patch_db(monkeypatch, db)
+    await W._process_publish_queue_async(exclude_platforms=W._META_PLATFORMS)
+    sql = str(db.queries[0]).lower()
+    assert "social_accounts" in sql
+    assert "not in" in sql
+
+
+@pytest.mark.asyncio
+async def test_pq_no_filter_leaves_claim_unchanged(monkeypatch):
+    db = _RecordingDB([_res(scalars_all=[])])
+    _patch_db(monkeypatch, db)
+    await W._process_publish_queue_async()
+    assert "social_accounts" not in str(db.queries[0]).lower()
+
+
+def test_main_sweep_excludes_meta_platforms(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(W, "_process_publish_queue_async", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(W, "run_async", lambda _c: None)
+    W.process_publish_queue()
+    assert seen["exclude_platforms"] == W._META_PLATFORMS
+
+
+def test_meta_sweep_claims_only_meta_platforms(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(W, "_process_publish_queue_async", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(W, "run_async", lambda _c: None)
+    W.process_meta_publish_queue()
+    assert seen["platforms"] == W._META_PLATFORMS
+    assert seen["platforms"] == frozenset({"facebook", "instagram", "threads"})
