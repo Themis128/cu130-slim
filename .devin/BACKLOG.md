@@ -3298,8 +3298,11 @@ Resolved this pass (details inline above):
       (name-based `social-postgres:5432`, immune to IP churn),
       `--restart unless-stopped`, `--entrypoint sleep infinity` keepalive.
       `DATABASE_URI` carries NO password — `PGPASSFILE=/run/secrets/pgpass`
-      mounts `~/.pgpass` (chmod 600, has `social-postgres:5432:*:mcp_reader`
-      + `localhost:5433` lines). Restricted mode = read-only tools only.
+      reads a named volume `pg-mcp-pgpass` seeded once from `~/.pgpass`
+      (chmod 600 inside; has `social-postgres:5432:*:mcp_reader` +
+      `localhost:5433` lines). Volume chosen over bind mount after the
+      2026-11-17 fsbridge flap killed the `~/.pgpass` bind — named volumes
+      bypass the 9p hashed-mount path entirely. Restricted = read-only.
 - [x] DB role `mcp_reader` created on social-postgres: LOGIN + CONNECT +
       USAGE(public) + SELECT all tables + default-privileges for future
       tables (owner social_user). Verified: 61 public tables visible,
@@ -3324,8 +3327,39 @@ Resolved this pass (details inline above):
       USAGE(public) + SELECT all 178 tables + default privileges — same
       read-only posture. pgpass `*` db field already covers it.
 - [ ] if `pg-mcp` container is ever removed, recreate:
-      `docker run -d --name pg-mcp --network cu130-db --restart
+      `docker volume create pg-mcp-pgpass` (skip if exists), seed it:
+      `docker run --rm -i -v pg-mcp-pgpass:/dst postgres:17-alpine sh -c
+      'cat > /dst/pgpass && chmod 600 /dst/pgpass' < ~/.pgpass`,
+      then `docker run -d --name pg-mcp --network cu130-db --restart
       unless-stopped --entrypoint sleep -e DATABASE_URI=postgresql://
       mcp_reader@social-postgres:5432/social_automation -e
-      PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
+      PGPASSFILE=/run/secrets/pgpass -v pg-mcp-pgpass:/run/secrets:ro
       crystaldba/postgres-mcp:latest infinity`
+
+## 2026-11-17 — fsbridge flap: mass Exited(127), force-recreate recovery
+
+- ~01:20 UTC Docker Desktop restarted; on engine restart every container
+  with a restart policy tried to re-mount `\\wsl.localhost` sources through
+  the dd-user-distro-proxy hashed-mount path. The proxy had died on the
+  vsock flap → all hashed mounts resolved dead → 19 containers Exited(127),
+  including social-api + all 4 workers + every docker.sock consumer
+  (portainer, stack-ops, compose-healer, docker-socket-proxy, autoheal,
+  stack-watchers, dmr-watchdog, env-manager-backend, airbyte-mcp-server,
+  comfyui, pg-mcp).
+- `fsbridge_doctor.py` reported "fs bridge nominal" (proxy ALIVE again) but
+  casualties still couldn't start — plain `docker start` reuses the stored
+  dead mount hash. social-api + workers recovered with plain `docker start`
+  once the proxy re-declared their mounts; the docker.sock-mount set needed
+  `docker compose up -d --force-recreate` (fresh mount declarations).
+- Gotchas hit: recreate removal race produced hash-dupe containers
+  (`<hash>_autoheal`, `<hash>_env-manager-backend`, and the running
+  `<hash>_docker-socket-proxy`/`<hash>_dmr-watchdog` — left in place, they
+  are the live containers); `--force-recreate` on comfyui triggered a
+  multi-GB `pull_policy: always` pull — killed it and used `--pull never`
+  (local image) to restore service fast; next normal `compose up` pulls.
+- pg-mcp moved OFF the `~/.pgpass` bind mount onto named volume
+  `pg-mcp-pgpass` (see recipe above) — immune to this failure class.
+- Durable heal remains full `wsl --shutdown` (kills agent sessions); the
+  proxy self-healed this time so it wasn't needed. Worker healthchecks
+  flapped "unhealthy" for ~10 min post-restart (inspect ping >10s timeout)
+  then recovered on their own — tasks were processing throughout.
