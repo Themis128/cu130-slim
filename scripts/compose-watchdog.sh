@@ -342,6 +342,60 @@ for c in $CORE $EXTRA; do
     safe_restart "$c" "oom" && ALERT "oom-$c" ":warning: $c was OOM-killed — restarted (check memory pressure)"
   fi
 done
+# 1b. stale bind mounts — two classes a plain restart can't see:
+#   a) docker.sock inode drift: engine/socket restart re-creates
+#      /var/run/docker.sock with a NEW inode; running containers keep the
+#      dead one (HAProxy SC-- 503, "unix socket is currently not available").
+#      Seen 2026-11-18 taking out docker-socket-proxy + every docker-API
+#      consumer. Only force-recreate rebinds.
+#   b) fsbridge empty-dir poison: \\wsl.localhost-sourced dir mounts
+#      materialize EMPTY in new containers (compose-healer /w losing
+#      scripts/compose-converge.sh). Detected by empty-vs-nonempty compare.
+SOCK_INO=$(stat -c %i /var/run/docker.sock 2>/dev/null || true)
+stale_hit() {  # $1 container $2 reason — recreate capped at 2/hour
+  local c="$1" why="$2" f="$WD_STATE_DIR/stale-mount-$1" t n
+  t=$(now)
+  if [ -f "$f" ]; then awk -v c=$((t-3600)) '$1>=c' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; fi
+  n=0; [ -f "$f" ] && n=$(wc -l < "$f")
+  n=${n// /}
+  if [ "$n" -ge 2 ]; then
+    ALERT "stale-cap-$c" ":rotating_light: $c stale-mount recreate attempted $n times in 1h ($why) — needs a human"
+    return 1
+  fi
+  echo "$t" >> "$f"
+  ALERT "stale-mount-$c" ":warning: $c has a $why — force-recreating to rebind mounts"
+  recreate_container "$c"
+}
+if [ -n "$SOCK_INO" ]; then
+  for c in $(docker ps --format '{{.Names}}'); do
+    m=$(docker inspect -f '{{range .Mounts}}{{.Destination}}|{{.Source}}|{{.Type}}{{"\n"}}{{end}}' "$c" 2>/dev/null)
+    [ -n "$m" ] || continue
+    while IFS='|' read -r dest src typ; do
+      [ -n "$dest" ] || continue
+      case "$dest" in
+        */docker.sock)
+          ino=$(docker exec "$c" ls -i "$dest" 2>/dev/null | awk '{print $1; exit}')
+          if [ -n "$ino" ] && [ "$ino" != "$SOCK_INO" ]; then
+            stale_hit "$c" "stale docker.sock bind (inode $ino != host $SOCK_INO)"
+          fi
+          ;;
+        *)
+          [ "$typ" = "bind" ] || continue
+          case "$src" in
+            "$REPO_DIR"|"$REPO_DIR"/*|/mnt/c/Users/tbaltzakis/cu130-slim|/mnt/c/Users/tbaltzakis/cu130-slim/*) ;;
+            *) continue ;;
+          esac
+          [ -d "$src" ] || continue
+          [ -n "$(ls -A "$src" 2>/dev/null | head -1)" ] || continue
+          inner=$(docker exec "$c" sh -c "ls -A '$dest' 2>/dev/null | head -1" 2>/dev/null)
+          if [ -z "$inner" ]; then
+            stale_hit "$c" "empty/poisoned bind mount $dest (host src $src non-empty)"
+          fi
+          ;;
+      esac
+    done <<< "$m"
+  done
+fi
 # 2. Redis auth drift — env password must ping live redis
 P=$(grep -oP '^REDIS_PASSWORD=\K.*' .env 2>/dev/null)
 if [ -n "$P" ] && ! docker exec redis redis-cli -a "$P" ping 2>/dev/null | grep -q PONG; then
