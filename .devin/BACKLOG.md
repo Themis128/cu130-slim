@@ -3196,3 +3196,33 @@ Resolved this pass (details inline above):
   transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
   D1 primary intentionally left plaintext (SSM of record for external
   tooling).
+
+## 2026-11-17 — CI watch + merge-throughput findings (devin session)
+
+- [x] **frontend-test coverage gate fixed**: PR #2219 merged 12:05Z —
+  measured coverage raised above vitest floors (was failing repo-wide
+  since 11-12 on every PR: lines 99.4<99.5, funcs 99.28<99.5,
+  stmts 99.14<99.2). Watch fails.log entries #2181/#2222/#2233/#2244/
+  #2248/#2271/#2299 were all this one root cause.
+- [x] **merge_group triggers landed**: PR #2080 merged 12:22Z — the 5
+  required-check workflows now trigger on merge_group.
+- [x] **MERGE QUEUE VERDICT: unavailable on this repo.** GitHub gates
+  merge queue to org-owned public repos / Enterprise Cloud private.
+  Themis128 is a personal account with 0 orgs; REST rulesets API
+  returns 422 "Invalid rule 'merge_queue'". Unlocks only via
+  transfer to a GitHub org (owner decision).
+- [x] **Reaper workaround deployed** (ciwatch/reaper.sh): cancels
+  queued+in-progress NON-required runs every 2 min (Docker CI, Trivy,
+  SAST, dependency audits, frontend/env-manager CI — advisory only;
+  required = validate, secret-scan, ruff, test, integration-test).
+  Took merges from ~2-3/hr to 2 in 20 min (#2219+#2080 both landed).
+- [x] **#2134 mypy fix pushed**: facebook_api.py basename(local_path or
+  "video.mp4") — _raise_for_status isn't NoReturn so mypy couldn't
+  narrow str|None. test now green; auto-merge armed.
+- [x] **#2258 integration-test fix** (earlier): commit 22d8375 —
+  repatched test seams to SafeAsyncClient, getattr APP_ENV, corrected
+  path guards. 421/421 local.
+- [ ] Optional follow-ups: (a) org transfer -> real merge queue;
+  (b) trim heavy advisory workflows to master-only via PR (permanent
+  queue cut vs reaper churn); (c) vitest thresholds.autoUpdate ratchet;
+  (d) GHCR sidecar-base manifest poll/retry if race recurs.
