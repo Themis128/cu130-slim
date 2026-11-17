@@ -58,6 +58,7 @@ SERVICES = [
     "social-worker-media",
     "social-worker-default",
     "social-worker-messenger",
+    "social-worker-meta",
     "celery-beat",
     "n8n",
 ]
