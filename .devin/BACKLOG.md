@@ -3179,17 +3179,20 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear board reconcile + PR sweep (Devin Desktop)
+## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
 
-- Linear (cloudless-gr, team CLO): CLO-1..4 onboarding stubs closed
-  Done (workspace demonstrably connected/configured); CLO-6..16
-  engineering issues all Done; CLO-5 platform tracker moved
-  Backlog → In Progress (standing tracker for social-automation dev).
-- PR sweep: 25 open PRs, all auto-merge armed; 7 DIRTY rebuilt onto
-  master as #2222–#2228 (superseding #2211–#2218); final state zero
-  actionable failures.
-- watch: #2219 (frontend coverage-threshold gaps) fixes the recurring
-  `frontend-test` failure that flagged #2218 — 99.4% lines vs 99.5%
-  global threshold; once it lands, rebuilt PRs stop tripping the gate.
-- watch: rebuilt PR queue merges serially under the strict
-  up-to-date rule; re-run pr_sweep_all.py if any stall DIRTY/BEHIND.
+- Audited both backend issues against the live codebase — every checklist
+  item already implemented; closed both as Done with evidence comments on
+  the issues (no code change needed).
+- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
+  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
+  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
+- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
+  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
+  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
+  chain; composite indexes throughout.
+- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
+  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
+  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
+  D1 primary intentionally left plaintext (SSM of record for external
+  tooling).
