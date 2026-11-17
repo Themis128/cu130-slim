@@ -3620,7 +3620,7 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 - [x] PR merge queue drained — 0 open PRs (was ~30). Named PRs all landed;
       #2220's audit content merged via rebuild #2300. Structural fixes kept:
       "require branches up to date" OFF on master + advisory-run reaper.
-- [x] Alembic deploy verified —  = x9y0z1a2b3c4 (head);
+- [x] Alembic deploy verified — alembic current = x9y0z1a2b3c4 (head);
       social_secrets all enc:v1: at rest, transparent decrypt spot-checked.
 - [x] FB heal validated — cookie heal via :9229 → loggedIn:True, 311 cookies,
       c_user+xs. Fixed CDP relay (Chrome is IPv6-only [::1]:9229; relay now
