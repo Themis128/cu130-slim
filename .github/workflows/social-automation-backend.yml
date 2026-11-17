@@ -13,6 +13,7 @@ name: Social Automation Backend CI
   # gated inside the `changes` job instead.
   pull_request:
     branches: [master]
+  merge_group:
   workflow_dispatch:
 
 permissions:

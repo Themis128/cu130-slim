@@ -21,6 +21,7 @@ name: Full Stack Integration Tests
   # unrelated PRs. Relevance is gated inside the `changes` job instead.
   pull_request:
     branches: [master]
+  merge_group:
   workflow_dispatch:
 
 permissions:
