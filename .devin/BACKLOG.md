@@ -3179,30 +3179,20 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear CLO-6/CLO-7 pass + PR sweep (Devin agent, Windows side)
+## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
 
-- [x] **CLO-6 (Configure Greptile)** — all 130 themis128 repos already
-  connected + reviews Enabled (cu130-slim has 222+ reviews). Created
-  REST API key `devin-indexing` → Infisical prod `GREPTILE_API_KEY` +
-  `%APPDATA%\devin\secrets\greptile-api-key`. FINDING: manual KB indexing
-  is RETIRED (`POST /v2/repositories` → 410 `repository_indexing_retired`);
-  KBs build automatically per-org rollout — 0 KBs org-wide as of today,
-  no dashboard/API trigger; may need Greptile support or paid plan.
-  Verify later: `list_knowledge_bases` via greptile MCP (org cloudless-gr).
-- [x] **CLO-7 (Backend tracker)** — verified live: social-api healthy,
-  550 OpenAPI paths / 61 routers, 4/4 celery nodes + beat, postgres at
-  alembic head `nlw001q2e3u4` (57 versions), Redis AUTH ok, D1 dual-write
-  healthy. Backend already exists and runs — issue is a tracker.
-- [x] **PR sweep** — `pr_sweep_all.py` run from Windows host (see gotcha):
-  7 DIRTY PRs clean-rebuilt onto master → new PRs #2222-#2225,#2227-#2229
-  (superseded #2211-#2213,#2215-#2218). All 27 open PRs auto-merge armed.
-  #2222 (ex-#2218) will still fail `frontend-test` until #2219's coverage
-  gap fix lands — expected, not a rebuild problem.
-- **Windows-host gotchas for the sweep**: `python3` resolves to the
-  Microsoft Store stub — shim `python3.exe` exists at
-  `~/.zcode/bin/python3.exe` (copy of Python312); prepend to PATH.
-  `pr_rebuild.py` can't resolve repo on UNC paths → set
-  `GH_REPO=Themis128/cu130-slim`. `wsl.exe` calls still flake
-  (WSAETIMEDOUT) — Windows-side `gh` + UNC file access works fine.
-- [ ] watch: re-run sweep after the current CI wave lands; merge queue
-  keeps invalidating branches (treadmill) — ~30 pending checks per PR.
+- Audited both backend issues against the live codebase — every checklist
+  item already implemented; closed both as Done with evidence comments on
+  the issues (no code change needed).
+- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
+  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
+  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
+- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
+  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
+  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
+  chain; composite indexes throughout.
+- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
+  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
+  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
+  D1 primary intentionally left plaintext (SSM of record for external
+  tooling).

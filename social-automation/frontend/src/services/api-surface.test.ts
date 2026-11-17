@@ -152,6 +152,11 @@ const CASES: Case[] = [
   ['threads.reply', (m) => m.threadsApi.replyToPost('m1', ACC, 'hi'), 'post', '/threads/posts/m1/reply'],
   ['threads.delete', (m) => m.threadsApi.deletePost('m1', ACC), 'delete', '/threads/posts/m1'],
 
+  // --- bluesky ---
+  ['bluesky.connect', (m) => m.blueskyApi.connect('h', 'p'), 'post', '/bluesky/connect'],
+  ['bluesky.connectPds', (m) => m.blueskyApi.connect('h', 'p', 'https://pds.example'), 'post', '/bluesky/connect'],
+  ['bluesky.status', (m) => m.blueskyApi.status(ID), 'get', `/bluesky/${ID}/status`],
+
   // --- secrets ---
   ['secrets.list', (m) => m.secretsApi.list(), 'get', '/secrets'],
   ['secrets.get', (m) => m.secretsApi.get('K'), 'get', '/secrets/K'],
@@ -430,6 +435,7 @@ const CASES: Case[] = [
   ['email.delete', (m) => m.emailCampaignsApi.delete(ID), 'delete', `/email-campaigns/${ID}`],
   ['email.recipients', (m) => m.emailCampaignsApi.recipients(ID), 'get', `/email-campaigns/${ID}/recipients`],
   ['email.responses', (m) => m.emailCampaignsApi.responses(ID), 'get', `/email-campaigns/${ID}/responses`],
+  ['email.nudge', (m) => m.emailCampaignsApi.nudge(ID), 'post', `/email-campaigns/${ID}/nudge`],
   ['email.suppressions', (m) => m.emailCampaignsApi.suppressions(), 'get', '/email-campaigns/suppressions/list'],
   ['email.addSuppression', (m) => m.emailCampaignsApi.addSuppression('a@b.c', 'manual'), 'post', '/email-campaigns/suppressions/list'],
   ['email.crmSummary', (m) => m.emailCampaignsApi.crmSummary(), 'get', '/email-campaigns/crm/summary'],
@@ -677,6 +683,20 @@ describe('API argument transforms', () => {
     await apiModule.threadsApi.listPosts('a1')
     expect(mockAxiosInstance.get).toHaveBeenCalledWith('/threads/posts', {
       params: { account_id: 'a1', limit: 25, after: undefined },
+    })
+  })
+
+  it('blueskyApi.connect sends snake_case body and omits pds_url by default', async () => {
+    await apiModule.blueskyApi.connect('handle', 'app-pw')
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith('/bluesky/connect', {
+      handle: 'handle',
+      app_password: 'app-pw',
+    })
+    await apiModule.blueskyApi.connect('handle', 'app-pw', 'https://pds.example')
+    expect(mockAxiosInstance.post).toHaveBeenLastCalledWith('/bluesky/connect', {
+      handle: 'handle',
+      app_password: 'app-pw',
+      pds_url: 'https://pds.example',
     })
   })
 
