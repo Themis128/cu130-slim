@@ -3179,25 +3179,20 @@ Resolved this pass (details inline above):
   can be retried. Support case was submitted pre-lock (registration
   unverified).
 
-## 2026-11-17 — Linear "cu130-slim Platform" project reconciled with live stack (Devin)
+## 2026-11-17 — Linear CLO-9 / CLO-10 audit (cu130-slim Platform project)
 
-- [x] **Verified all 12 Linear issues against the codebase** — the
-  greenfield planning tickets describe a platform that already exists in
-  production. Closed as Done: CLO-7 (backend epic: FastAPI ~60 API
-  modules, SQLAlchemy async, Celery+Redis+Postgres live), CLO-8
-  (frontend epic: Next.js 16.4.2 + TS 5.3 + Tailwind 4 + TanStack Query
-  5 — exact spec), CLO-9 (API CRUD/auth/social + app/core/limiter.py),
-  CLO-10 (27 models, encrypted `access_token_enc` + `social_secrets`, 57
-  Alembic revs), CLO-11 (4 queue workers + beat, dozens of task
-  modules), CLO-12 (dashboard/accounts UI), CLO-13 (composer +
-  calendar/campaigns scheduler), CLO-14 (analytics + reports pages),
-  CLO-16 (Greptile MCP re-auth verified live — `get_me` returns ADMIN on
-  org cloudless-gr; "expired token" premise was stale). Evidence comment
-  posted on tracking epic CLO-5 (left open as tracker).
-- [ ] **CLO-15 Greptile KB builds — genuinely open**: all 6 repos
-  (cu130-slim, cloudless-nextcloud, cloudless.gr, devoptimizer,
-  galaxy-s22-toolkit, home-ops) are registered with
-  `reviewsEnabled: true`, but `list_knowledge_bases` returns ZERO
-  indexes for every repo. Human/agent step: trigger index builds at
-  app.greptile.com — the MCP exposes no index-trigger tool. CLO-6
-  remains In Progress on this.
+- Audited both backend issues against the live codebase — every checklist
+  item already implemented; closed both as Done with evidence comments on
+  the issues (no code change needed).
+- CLO-9 (API endpoints): CRUD in app/api/accounts.py + content.py +
+  publishing.py; JWT + OAuth (LI/FB/TikTok/X) in auth.py; per-platform
+  routers; slowapi limiter (Redis, 300/min); /api/v1 versioning.
+- CLO-10 (models/migrations): social_accounts w/ Fernet-encrypted
+  access_token_enc/refresh_token_enc BYTEA; PostStatus 9-state enum +
+  PostTarget + RecurrencePattern; User/Team/agency; ~60-rev Alembic
+  chain; composite indexes throughout.
+- [x] Hardening follow-up: social_secrets.value plaintext-at-rest —
+  FIXED by PR #2226 (enc:v1: Fernet envelope on Postgres failover copy,
+  transparent legacy passthrough, alembic x9y0z1a2b3c4 data migration).
+  D1 primary intentionally left plaintext (SSM of record for external
+  tooling).
