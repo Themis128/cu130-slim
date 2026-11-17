@@ -3229,18 +3229,36 @@ Resolved this pass (details inline above):
 - [ ] watch: verify `ChromeDebugWatch` is flash-free at next logon; keep
       `_popup-watch` captures in the loop if popups are reported again —
       stale watch logs mis-attribute sources (guard-exec.ps1 vs .py).
-- [x] `dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
-      | llm-tunnel.cmd` chains verified 2026-11-16 — ALL scheduled-task actions
-      already run under `conhost.exe --headless` (docker-socket-watch,
-      WslRestartRecover, DMR-Health-Check, DevOptimizer-DMR-RAM-Guard,
-      EvidencePipeline-DmrTunnel). No wrap needed.
-- [x] Docker MCP secrets engine `deadline_exceeded` FIXED 2026-11-16 —
-      resolver.v1 wedged after the engine death; full `docker desktop
-      stop`→`start` (GUI relaunch — engine had half-stopped) restored it.
-      `mcp secret ls` verified live; gateway unaffected (cached secrets).
-      Note: `desktop stop`+immediate `start` races — if start says
-      "already running" but engine stays down, relaunch `Docker Desktop.exe`.
+- [ ] `? → cmd /c dmr-tunnel.bat | wsl-restart-recover.bat | docker-socket-watch.bat
+      | llm-tunnel.cmd` chains seen in the watch — verify whether their launchers
+      are already headless or need the same wrap.
+- [ ] Docker MCP secrets engine timeout (`Failed to fetch secrets from secrets
+      engine: deadline_exceeded`) — separate from popups; gateway otherwise runs
+      clean through the wrapper.
 
+- [x] `termux-ops` skill + `termux_drive.py` tool — on-device Termux driving
+      (run/push-run/screen/sms/clipboard/watch-sms); clipboard + sms-list lanes
+      verified live on the S22+.
+- [ ] build when needed: `pkg install openssh` + authorized_keys via push-run
+      → unlock wa_verify :8022 lane; termux.boot startup script for
+      persistent on-device watchers.
 
-- [x] `popup-free-host` rule committed (both mirrors) — standing directive to
-      hunt every cmd/conhost flash to its spawn config; the five fix lanes.
+- [x] "FB heal: token invalid/expired" — root-caused + fixed in
+      `facebook_token_check.py` (2026-11-17): (1) Threads tokens were
+      introspected with the FB app token via /debug_token — wrong app, always
+      fails; now probed via `GET graph.threads.net/v1.0/me`. (2) Error bodies
+      without `data` were treated as invalid — now inconclusive unless the
+      error code is a known token-dead code (190/102/463/467). (3) Revoked
+      rows were scanned — now only `status='active'` rows are probed.
+      Verified live: {scanned:3, healthy:3, expired:0, inconclusive:0}.
+- [x] `threads @cloudless.gr` — permanently retired: the Threads profile
+      itself 404s (verified live /@cloudless.gr "page gone"). DB row
+      already carried retired_reason "superseded by t_baltzakis row".
+      No re-auth possible — no profile exists to authorize.
+- [x] `threads @t_baltzakis` — OAuth rebound 2026-11-16 (account
+      c0c6bf77…), token valid to ~2027-01-15, /me probe returns
+      id 38255289647418861.
+- [ ] remaining human gates: WhatsApp verify ("Didn't receive code?"→"Call
+      me" on phone — synthetic input filtered), WHATSAPP_ACCESS_TOKEN
+      re-auth in SocialAuto console, `cloudless.gr` IG↔Page link in Meta
+      Business Suite (excluded/rate-blocked), Gmail token re-auth, X OAuth.
