@@ -55,6 +55,12 @@ _WORST_CASE_TARGET_S = 420  # longest single-target publish observed
 # after the first publish commits).
 _STALE_LOCK_MINUTES = 25
 
+# Meta-family platforms handled by the dedicated `meta` queue lane
+# (process_meta_publish_queue on social-worker-meta). Mirrors
+# META_PLATFORMS in app/api/meta_growth.py — kept local so the worker
+# module never imports from the API layer.
+_META_PLATFORMS = frozenset({"facebook", "instagram", "threads"})
+
 _DEFER_STATE_KEY = "publish_defer"
 _SWEEP_STATE_KEY = "publish_defer_sweep"
 
@@ -505,7 +511,11 @@ _worker_db = task_session
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _process_publish_queue_async() -> None:
+async def _process_publish_queue_async(
+    *,
+    platforms: frozenset[str] | None = None,
+    exclude_platforms: frozenset[str] | None = None,
+) -> None:
     async with _worker_db() as db:
         # Atomic claim via FOR UPDATE SKIP LOCKED: concurrent queue processors
         # each receive a disjoint set of rows — a second worker skips rows the
@@ -516,18 +526,35 @@ async def _process_publish_queue_async() -> None:
         run_started = time.monotonic()
         now = datetime.now(UTC)
         stale_cutoff = now - timedelta(minutes=_STALE_LOCK_MINUTES)
+        claim_where = [
+            PublishQueue.scheduled_at <= now,
+            or_(
+                PublishQueue.status == QueueStatus.PENDING,
+                and_(
+                    PublishQueue.status == QueueStatus.PROCESSING,
+                    PublishQueue.locked_at < stale_cutoff,
+                ),
+            ),
+        ]
+        # Platform lane split: an IN/NOT IN subquery keeps FOR UPDATE scoped to
+        # publish_queue rows only (a JOIN would also try to lock
+        # social_accounts rows). Rows whose account row is gone fall through
+        # to the main sweep, which fails them with "account not found".
+        if platforms is not None:
+            claim_where.append(
+                PublishQueue.social_account_id.in_(
+                    select(SocialAccount.id).where(SocialAccount.platform.in_(platforms)).scalar_subquery()
+                )
+            )
+        if exclude_platforms is not None:
+            claim_where.append(
+                PublishQueue.social_account_id.notin_(
+                    select(SocialAccount.id).where(SocialAccount.platform.in_(exclude_platforms)).scalar_subquery()
+                )
+            )
         result = await db.execute(
             select(PublishQueue)
-            .where(
-                PublishQueue.scheduled_at <= now,
-                or_(
-                    PublishQueue.status == QueueStatus.PENDING,
-                    and_(
-                        PublishQueue.status == QueueStatus.PROCESSING,
-                        PublishQueue.locked_at < stale_cutoff,
-                    ),
-                ),
-            )
+            .where(*claim_where)
             .order_by(PublishQueue.priority.desc(), PublishQueue.scheduled_at.asc())
             .limit(_QUEUE_BATCH_SIZE)
             .with_for_update(skip_locked=True)
@@ -1175,7 +1202,21 @@ async def _cleanup_publish_queue_async(days: int = 3) -> dict:
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_publish_queue(self) -> None:
-    run_async(_process_publish_queue_async())
+    run_async(_process_publish_queue_async(exclude_platforms=_META_PLATFORMS))
+    # Push worker writes (publish_queue, posts, post_targets) to D1 primary
+    run_async(sync_after_worker_task(["publish_queue", "posts", "post_targets"]))
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def process_meta_publish_queue(self) -> None:
+    """Meta-lane publish sweep — claims queue rows for facebook/instagram/threads.
+
+    Dedicated `meta` queue consumed by social-worker-meta so a wedged Meta
+    call (sidecar checkpoint, Graph outage) cannot starve or be starved by
+    the other platforms' publishes. Falls back to the main sweep's behavior
+    verbatim; the claim is disjoint by platform.
+    """
+    run_async(_process_publish_queue_async(platforms=_META_PLATFORMS))
     # Push worker writes (publish_queue, posts, post_targets) to D1 primary
     run_async(sync_after_worker_task(["publish_queue", "posts", "post_targets"]))
 
