@@ -61,7 +61,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
 5. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
-6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 4 nodes (publishing, media, default, messenger).
+6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 5 nodes (publishing, media, default, messenger, meta).
 7. Validate all Mermaid diagrams in `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (e.g. via mermaid.ink) when they change.
 8. Frontend: `tsc --noEmit --incremental false` in `social-automation/frontend` using local `./node_modules/.bin/tsc` — no TS errors. The frontend container only ships the built output, so run tsc on the host.
 9. If n8n workflows changed: import, publish, and trigger a dry run.
@@ -114,7 +114,7 @@ rm -f .deploy.lock                                                 # release
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Files are bind-mounted — pull/checkout then restart; no cp needed.
-- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Files are bind-mounted — pull/checkout then restart all four + `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger`, `social-worker-meta` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Files are bind-mounted — pull/checkout then restart all five + `social-api`. The five queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
 - **Worker async model** — every Celery task runs its coroutines on ONE persistent asyncio loop per prefork child (`app/worker/_async.py`, started by `worker_process_init`). Use `run_async(coro)` instead of `asyncio.run()` and `task_session()` / `get_session_factory()` instead of `async_session_maker()` or a per-task engine. Combining `asyncio.run()` with the shared session pool is the 'Future attached to a different loop' crash — eliminated by construction here. `docker cp` does NOT reload modules in a running worker — always restart after hot-syncing.
 - `comfyui` — restart after CLI args or env changes.
@@ -141,7 +141,7 @@ docker compose exec -T social-api python -m ruff check <paths>
 docker compose config --quiet
 
 # restart key containers (4 queue-dedicated workers + beat)
-docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat
+docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-worker-meta celery-beat
 
 # health
 curl http://localhost:8083/health
@@ -659,9 +659,10 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 | `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
 | `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, `run_notebook_report` (papermill executes `/notebooks/reports/*.ipynb` — worker mounts `./notebooks`, needs papermill/ipykernel/pandas/matplotlib from `social-worker-latest`), `export_datalake`, `linkedin_ads_*`, unrouted tasks |
 | `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
+| `meta` | `social-worker-meta` | 2 | 200 | Facebook/Instagram/Threads publish sweep + Meta-only tasks (`facebook_token_check`, IG reconcile) — dedicated lane so a wedged Meta call can't starve other platforms' publishes |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
-- Total: 9 concurrent prefork processes across 4 containers (was 4 in a single container before).
+- Total: 11 concurrent prefork processes across 5 containers (was 4 in a single container before).
 - Publishing gets 3 slots (I/O-bound, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
 - Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this memory-constrained Docker Desktop allocation (~16 GiB visible to WSL/Docker; Windows host is ~32 GiB).
 - Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
