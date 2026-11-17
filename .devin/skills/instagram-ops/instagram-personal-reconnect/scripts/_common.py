@@ -9,7 +9,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
+for _p in Path(__file__).resolve().parents:
+    if (_p / "_lib" / "skill_http.py").is_file():
+        sys.path.insert(0, str(_p / "_lib"))
+        break
 from skill_http import env, request, social_api  # noqa: E402
 
 SIDECAR = "http://localhost:8011"
