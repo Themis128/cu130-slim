@@ -151,9 +151,7 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                         )
                         if proc.returncode == 0 and frame_png.exists():
                             return await asyncio.wait_for(
-                                media_ai.verify_media_semantics(
-                                    frame_png.read_bytes(), prompt, media_type="video"
-                                ),
+                                media_ai.verify_media_semantics(frame_png.read_bytes(), prompt, media_type="video"),
                                 timeout=timeout,
                             )
                 except TimeoutError:

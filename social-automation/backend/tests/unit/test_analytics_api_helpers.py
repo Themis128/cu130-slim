@@ -370,7 +370,6 @@ class TestTikTokFollowers:
                     return _Resp(403, {})
                 return _Resp(200, {"stats": {"followers": 55}})
 
-
         monkeypatch.setattr(analytics, "SafeAsyncClient", SeqHTTP)
         a = _account("tiktok", username="@cloudless.gr")
         assert await analytics._tiktok_follower_count(a) == 55

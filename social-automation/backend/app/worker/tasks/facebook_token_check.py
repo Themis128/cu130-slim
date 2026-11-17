@@ -86,13 +86,17 @@ async def _check() -> dict:
     stats = {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0, "inconclusive": 0}
     async with task_session() as db:
         rows = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform.in_(["facebook", "threads"]),
-                    SocialAccount.status == "active",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform.in_(["facebook", "threads"]),
+                        SocialAccount.status == "active",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         settings = get_settings()
         app_token = f"{settings.FACEBOOK_CLIENT_ID}|{settings.FACEBOOK_CLIENT_SECRET}"

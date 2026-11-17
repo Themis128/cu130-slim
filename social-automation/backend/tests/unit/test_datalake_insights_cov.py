@@ -216,16 +216,14 @@ async def test_funnel_answer_lead_fallback(monkeypatch):
 def test_survey_pain_answer_stopwords_skipped():
     """Stopwords in free-text survey answers must not enter pain_topics —
     covers the stopword-filter branch in compute_survey_signals."""
-    out = D.compute_survey_signals(
-        [{"answers": {"it_support": "that cost is the problem"}, "email": "a@b.c"}]
-    )
+    out = D.compute_survey_signals([{"answers": {"it_support": "that cost is the problem"}, "email": "a@b.c"}])
     words = [w for w, _ in out["pain_topics"]]
     assert "that" not in words and "cost" in words
 
 
 def test_email_funnel_multi_kind_and_unsent():
     """A second campaign kind + an unsent kind cover the loop-back and
-     the sent-guard falsy arc in compute_email_signals."""
+    the sent-guard falsy arc in compute_email_signals."""
     rows = [
         {"kind": "marketing", "status": "sent", "n": 10},
         {"kind": "news", "status": "sent", "n": 0},

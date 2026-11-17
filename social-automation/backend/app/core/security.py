@@ -67,7 +67,7 @@ def decrypt_secret(value: str) -> str:
     """
     if not value.startswith(SECRET_ENC_PREFIX):
         return value
-    return decrypt_token(value[len(SECRET_ENC_PREFIX):].encode())
+    return decrypt_token(value[len(SECRET_ENC_PREFIX) :].encode())
 
 
 def verify_password(plain: str, hashed: str) -> bool:

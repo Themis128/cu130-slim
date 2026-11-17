@@ -256,9 +256,7 @@ async def test_create_video_post_bytes_fallback(client, tmp_path):
     with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
 
-        result = await client.create_video_post(
-            "https://example.com/video.mp4", "desc", local_path=str(video_file)
-        )
+        result = await client.create_video_post("https://example.com/video.mp4", "desc", local_path=str(video_file))
 
     assert result["id"] == "video-bytes-1"
     assert len(fake.calls) == 2
@@ -296,9 +294,7 @@ async def test_create_reel_post_bytes_fallback(client, tmp_path):
     with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
 
-        result = await client.create_reel_post(
-            "https://example.com/reel.mp4", "caption", local_path=str(video_file)
-        )
+        result = await client.create_reel_post("https://example.com/reel.mp4", "caption", local_path=str(video_file))
 
     assert result["id"] == "v2"
     assert len(fake.calls) == 5
