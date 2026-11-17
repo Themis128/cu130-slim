@@ -145,6 +145,11 @@ def check_docker():
 
 def check_chromedebug_task():
     out = str(win_batch().get("task", ""))
+    if not out:
+        # Empty probe output is a batch/interop flake, not a task failure —
+        # report unknown rather than a false degraded (seen 2026-11-17:
+        # empty detail warned while the task was Ready/Result 0).
+        return {"ok": None, "detail": "probe empty", "raw": ""}
     if out.startswith("ERR:") or "Cannot find" in out or "ERROR" in out:
         return {"ok": None, "detail": f"task query failed: {out[:120]}",
                 "raw": out[:200]}
