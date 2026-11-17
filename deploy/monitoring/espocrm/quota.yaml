@@ -1,0 +1,15 @@
+# EspoCRM namespace ResourceQuota.
+# Raised 2026-11-17: the espocrm-daemon memory-limit bump (256Mi->512Mi)
+# left zero headroom for the hourly mariadb-xbstream-backup pod
+# (512Mi limit) — next run would have been quota-blocked.
+# 3072Mi prod limits + 512Mi backup pod = 3584Mi.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: espocrm-quota
+  namespace: espocrm
+spec:
+  hard:
+    limits.memory: 3584Mi
+    requests.memory: 1536Mi
+    pods: "16"
