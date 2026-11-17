@@ -593,8 +593,10 @@ Leftovers:
   Mautic 200, `social.cloudless.gr/pricing` 200 via cloudflared.
 - Synigoros monitor OTP gate fixed same day (PRs #1561/#1563/#1564) — see
   Synigoros section above.
-- [ ] Take a fresh post-recovery NAS backup once stack is confirmed stable
-  (nightly job should do it; verify tomorrow's run).
+- [x] Take a fresh post-recovery NAS backup once stack is confirmed stable
+  (nightly job should do it; verify tomorrow's run). Verified 2026-11-17:
+  `backup_freshness_watch` reports ok — newest `manifest-20261116-0430.csv`
+  (20h at last check), nightly job running on schedule.
 - [ ] `docker model`/DMR + GPU services (`social-media-comfyui-gpu`,
   `instagram-private-api`, sidecars) are stack-ops sleep-managed Exited —
   expected idle state, not a fault. Wake on demand via stackctl.
@@ -617,9 +619,18 @@ Leftovers:
   cluster workflow when needed; do not export pod env as artifacts.
 - [ ] 61 placeholder/empty `.env` keys intentionally skipped — revisit if any
   become real (e.g. SLACK_*_WEBHOOK_URL family).
-- [ ] Rotate `POSTGRES_PASSWORD` (metabase role) — value was printed in a tool
-  transcript 2026-11-09; also rotate Infisical UA client secret (same exposure
-  window earlier) per secret-safety policy.
+- [x] Rotate `POSTGRES_PASSWORD` (metabase role) — DONE 2026-11-17: the
+  `postgres` container's superuser is `metabase` (= `METABASE_DB_PASS`,
+  shared by metabase app DB + the `infisical` DB via `INFISICAL_DB_URI`).
+  Rotated: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`.
+  Verified SCRAM auth on both DBs, metabase+infisical healthy. ALSO fixed
+  a stale Metabase *data-source* credential found during verification:
+  "SocialAuto" source (id 1 → social-postgres/social_user) held the
+  pre-2026-11-13 `SOCIAL_POSTGRES_PASSWORD` → `PUT /api/database/1` with
+  the current secret; `/api/database/1/healthcheck` now `ok`.
+- [ ] Rotate Infisical UA client secret (same 2026-11-09 exposure window)
+  per secret-safety policy — tracked at the STILL OPEN item below.
 - [ ] Docker Desktop flapped repeatedly tonight (engine down ~02:30–02:40,
   Infisical wedged once — restarted). Watchdog covers social stack only;
   consider adding `infisical`+`postgres` to its critical-container list.
@@ -2693,9 +2704,14 @@ via `test_linkedin_scope_infra3.py`; pyotp pinned <2.12 for TOTP):
   PUT/DELETE role keys; REQUESTED=invite, APPROVED=active.
 - [x] #8 Member DP diff alerts — per-domain sha256 in Redis
   (`linkedin:dma:hash:*`); changed domains → TG ops alert on next sync.
-- [ ] watch: first live runs of the 3 new beats after deploy —
+- [x] watch: first live runs of the 3 new beats after deploy —
   community-moderation (dry-run until LINKEDIN_COMMENT_HIDE=1),
   offline-conversions (needs a won LinkedIn lead to fire), ads-guard.
+  Verified 2026-11-17: `moderate_linkedin_community` ran 02:07 UTC,
+  succeeded (10 posts scanned, dry-run). ads-guard (daily 08:00) +
+  offline-conversions (daily 06:40) had no slot yet — celery-beat was
+  recreated 00:53 UTC in the fsbridge recovery; both fire on their next
+  scheduled slot today.
 
 ## 2026-11-16 — LinkedIn DMA/Matched-Audiences research pass (web-verified)
 
@@ -3153,15 +3169,15 @@ Resolved this pass (details inline above):
 - [x] **Stale worktrees removed**: /tmp/pr2047-fix, /tmp/qa-budget
   (branches pushed, PRs #2047/#2063 open). /tmp/pr2066-fix kept
   (active coverage fix).
-- [ ] **OPEN: throwaway-launcher needs a live-secrets lane** —
-  `run-backend-once.sh` copies the placeholder `.env`; for
-  Redis-dependent tasks inject `REDIS_URL` + `COMFYUI_URL` from a live
-  container env (`docker exec social-api printenv`) as done for run4,
-  or extend the script with `--live-secrets` that diffs against
-  `social-api`'s env.
-- [ ] **watch: strategy-report-run4** — blocked on DMR (all 6 models
-  `Loading...` under the known thrash); inference already failed →
-  rule-based fallback active, still executing.
+- [x] **throwaway-launcher live-secrets lane — DONE in PR #2187**:
+  `scripts/run-backend-once.sh` defaults to exporting the live env from
+  the `social-api` container (`--env-file`), so placeholder `.env`
+  values can't leak into throwaway runs; `--mounted` refuses when the
+  fsbridge probe fails.
+- [x] **watch: strategy-report-run4** — COMPLETED degraded 2026-11-16
+  (engine outage window): 255 teams, 2 emailed, llm_used=0, rule-based
+  fallback. Container gone; DMR verified healthy post-recovery — next
+  scheduled run uses live inference via the fixed launcher (#2187).
 - [ ] **watch: PR #2066 CI** — frontend-test re-running after coverage
   push; auto-merge armed on all 13 open PRs, 0 other failures.
 
@@ -3261,3 +3277,30 @@ Resolved this pass (details inline above):
       mcp_reader@social-postgres:5432/social_automation -e
       PGPASSFILE=/run/secrets/pgpass -v ~/.pgpass:/run/secrets/pgpass:ro
       crystaldba/postgres-mcp:latest infinity`
+
+## 2026-11-17 — leftovers pass: metabase-role rotation + stale data-source fix (Devin)
+
+- [x] **`METABASE_DB_PASS` rotated** (the 2026-11-09 transcript-exposure
+  item): postgres superuser `metabase` is shared by the metabase app DB
+  AND the `infisical` DB (`INFISICAL_DB_URI` embeds the password).
+  Sequence: Infisical prod `METABASE_DB_PASS` + `INFISICAL_DB_URI` →
+  `ALTER ROLE` → `.env` → `compose up -d postgres metabase infisical`
+  under deploy lock. Verified: SCRAM auth OK on `metabase`+`infisical`
+  DBs, both containers healthy, `127.0.0.1:8090/api/status` = Ok.
+- [x] **Metabase "SocialAuto" data source repaired** — its stored
+  `social_user` password predated the 2026-11-13 rotation → startup
+  health check `password-incorrect`. Fixed via admin session +
+  `PUT /api/database/1` (details.password = current
+  `SOCIAL_POSTGRES_PASSWORD`); `/api/database/1/healthcheck` = ok.
+  Metabase has no published port — reach it via `docker exec metabase
+  curl localhost:3000` or the stack-ops wake path.
+- [x] Verified-and-closed watches: NAS nightly backup fresh
+  (manifest-20261116), linkedin-community-moderation beat live (02:07
+  UTC success), strategy-report-run4 completed, run-backend-once
+  live-secrets lane shipped in PR #2187.
+- [ ] STILL OPEN (need humans/external): INFISICAL_UA_CLIENT_SECRET
+  rotation (dedicated window — it IS the Infisical credential),
+  LinkedIn `rw_dmp_segments`/Matched Audiences approvals (expire
+  ~2026-12-06 — reapply if lapsed), Meta re-auths (WABA token, IG/FB/Threads
+  revoked rows), WhatsApp Business in-app "Call me" verify after cooldown,
+  FB :9229 manual login, X quota reset, host RAM/vsock flaps.
