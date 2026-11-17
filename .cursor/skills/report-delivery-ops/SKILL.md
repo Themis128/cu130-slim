@@ -61,3 +61,16 @@ morning batch, midday stragglers, and an evening final pass.
   a send-side outage makes every report "missing".
 - Keep `REPORTS` in sync with `celery_app.py` beat entries and the n8n
   daily-digest workflow; stale entries cause false MISSING alerts.
+- **Throwaway report containers carry stale env** (verified 2026-11-16):
+  a `docker run --env-file .env` snapshot taken BEFORE a credential
+  rotation (e.g. pgrotate ~12:37 that day) keeps the old
+  `REDIS_URL`/password forever → `[gpu-arbiter] Redis unreachable
+  (AuthenticationError) — DMR unserialized` all run + ComfyUI
+  `invalid username-password pair` (same stale-env class). Workers and
+  social-api pick up the fresh env on restart and are fine — only
+  long-lived throwaway containers drift. Always launch report
+  containers with `--env-file` pointed at the LIVE `.env`, or recreate
+  them after any rotation; `social-api` `redis ping` is the canary.
+- Stale `nbreport:running:<nb>:<day>` Redis keys wedge re-runs after a
+  worker death — PR #2039 added owner/liveness steal; verify the lock
+  before clearing manually (`nbreport:done:*` marks delivered).
