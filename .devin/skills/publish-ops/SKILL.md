@@ -85,6 +85,40 @@ that row is the tracked one. The tool marks deleted rows
 | `Browser busy with <p> session` | Same as above |
 | `401` on tweets | OAuth2 token stale — auto-refresh attempted once at publish time |
 | stuck `processing` | worker was restarted mid-task — `unstick` or wait 15 min |
+| stuck `publishing` >5 min | not a queue wedge — an in-flight publish op is holding the row; triage below |
+
+### Stuck-`publishing` triage (verified 2026-11-16)
+
+`status='publishing'` means a live `process_publish_queue` task holds the
+post — it is NOT lost. Triage before touching it:
+
+```bash
+docker exec social-worker-publishing python - <<'PY'
+from app.worker.celery_app import celery_app
+import time
+for w, tasks in (celery_app.control.inspect().active() or {}).items():
+    for t in tasks:
+        if "publish" in t["name"]:
+            print(t["name"], t["id"][:8], "age:", round(time.time() - t["time_start"]))
+PY
+```
+
+Then, in order:
+
+1. **Sidecar-backed platform (facebook/linkedin/instagram web)** — check
+   `docker logs <platform>-browser-sidecar --since 15m`. A
+   click-retry/`intercepts pointer events`/`handleProfilePicker` loop =
+   **auth wall** (dead session), not a code bug → `meta-account-lock-ops`
+   (session-invalidation section). The task exits on the client's HTTP
+   timeout (sidecar `post_video` = 300s) → post retries; media assets
+   survive. Don't kill it — let the timeout fire, fix auth, requeue.
+2. **Quiet logs, task aging normally** — a bounded external call
+   (DMR cold-start ~minutes, FB reel processing poll). Wait; the
+   `external-call-budget` skill lists every call's bound.
+3. **Task gone but row still `publishing`** — stale state after a worker
+   kill; the retry sweep (`publish_retry` beat) reclaims it, or `unstick`.
+4. **Task failed with a real error** — read it, then classify per the
+   signature runbook below.
 
 ### Quality-gate prewarm (DMR-contention failure class, 2026-11-13)
 
