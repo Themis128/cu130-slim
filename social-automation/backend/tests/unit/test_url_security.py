@@ -33,10 +33,10 @@ def _patch_dns(monkeypatch, result=None, exc=None):
 
 # ---------- _is_blocked_ip ----------
 
+
 @pytest.mark.parametrize(
     "ip",
-    ["10.0.0.1", "192.168.1.1", "127.0.0.1", "169.254.169.254",
-     "224.0.0.1", "240.0.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1"],
+    ["10.0.0.1", "192.168.1.1", "127.0.0.1", "169.254.169.254", "224.0.0.1", "240.0.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1"],
 )
 def test_blocked_ips(ip):
     assert _is_blocked_ip(ipaddress.ip_address(ip)) is True
@@ -48,6 +48,7 @@ def test_public_ips_allowed(ip):
 
 
 # ---------- validate_url: scheme / hostname ----------
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("url", ["ftp://example.com/x", "file:///etc/passwd", "gopher://h/1"])
@@ -65,8 +66,7 @@ async def test_no_hostname():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "host",
-    ["localhost", "foo.localhost", "LOCALHOST.", "metadata.google.internal",
-     "instance-data", "Instance-Data"],
+    ["localhost", "foo.localhost", "LOCALHOST.", "metadata.google.internal", "instance-data", "Instance-Data"],
 )
 async def test_blocked_hostnames(host):
     with pytest.raises(URLValidationError, match="Blocked hostname"):
@@ -74,6 +74,7 @@ async def test_blocked_hostnames(host):
 
 
 # ---------- validate_url: IP literals ----------
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -106,6 +107,7 @@ async def test_public_ip_literal_ok_no_dns(monkeypatch):
 
 
 # ---------- validate_url: DNS resolution ----------
+
 
 @pytest.mark.asyncio
 async def test_dns_public_ok(monkeypatch):
@@ -157,6 +159,7 @@ async def test_dns_resolves_to_blocked(monkeypatch, ip):
 
 
 # ---------- SafeAsyncClient ----------
+
 
 @pytest.mark.asyncio
 async def test_client_blocks_private_url():

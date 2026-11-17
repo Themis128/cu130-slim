@@ -541,16 +541,10 @@ async def _process_publish_queue_async(
         # social_accounts rows). Rows whose account row is gone fall through
         # to the main sweep, which fails them with "account not found".
         if platforms is not None:
-            claim_where.append(
-                PublishQueue.social_account_id.in_(
-                    select(SocialAccount.id).where(SocialAccount.platform.in_(platforms)).scalar_subquery()
-                )
-            )
+            claim_where.append(PublishQueue.social_account_id.in_(select(SocialAccount.id).where(SocialAccount.platform.in_(platforms)).scalar_subquery()))
         if exclude_platforms is not None:
             claim_where.append(
-                PublishQueue.social_account_id.notin_(
-                    select(SocialAccount.id).where(SocialAccount.platform.in_(exclude_platforms)).scalar_subquery()
-                )
+                PublishQueue.social_account_id.notin_(select(SocialAccount.id).where(SocialAccount.platform.in_(exclude_platforms)).scalar_subquery())
             )
         result = await db.execute(
             select(PublishQueue)

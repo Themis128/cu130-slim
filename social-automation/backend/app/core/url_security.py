@@ -95,9 +95,7 @@ async def validate_url(url: str | httpx.URL) -> None:
         except ValueError:
             raise URLValidationError(f"Unparseable address for {host!r}")
         if _is_blocked_ip(ip):
-            raise URLValidationError(
-                f"Host {host!r} resolves to blocked address {ip}"
-            )
+            raise URLValidationError(f"Host {host!r} resolves to blocked address {ip}")
 
 
 class SafeAsyncClient(httpx.AsyncClient):

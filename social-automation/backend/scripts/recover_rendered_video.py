@@ -68,7 +68,9 @@ def _probe(path: str) -> tuple[int | None, int | None, float | None, bool]:
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         info = json.loads(out.stdout or "{}")
         vstream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
@@ -85,9 +87,7 @@ def _probe(path: str) -> tuple[int | None, int | None, float | None, bool]:
 
 async def _check(post_prefix: str) -> None:
     async with async_session_maker() as db:
-        post = (
-            await db.execute(select(Post).where(cast(Post.id, String).like(f"{post_prefix}%")))
-        ).scalars().first()
+        post = (await db.execute(select(Post).where(cast(Post.id, String).like(f"{post_prefix}%")))).scalars().first()
         if post is None:
             print(f"no post matching {post_prefix!r}")
             return
@@ -118,16 +118,13 @@ async def _recover(args: argparse.Namespace) -> None:
     print(f"file {path}: {len(data)} bytes  {width}x{height}  {duration}s  audio={'yes' if has_audio else 'NO'}")
     if not has_audio and not args.allow_silent:
         raise SystemExit(
-            "render has no audio stream — Wan2.2 frame-combine output is silent. "
-            "Mux audio first, or pass --allow-silent if the publish path adds music."
+            "render has no audio stream — Wan2.2 frame-combine output is silent. Mux audio first, or pass --allow-silent if the publish path adds music."
         )
 
     async with async_session_maker() as db:
         post = None
         if args.post:
-            post = (
-                await db.execute(select(Post).where(cast(Post.id, String).like(f"{args.post}%")))
-            ).scalars().first()
+            post = (await db.execute(select(Post).where(cast(Post.id, String).like(f"{args.post}%")))).scalars().first()
             if post is None:
                 raise SystemExit(f"no post matching {args.post!r}")
             team_id, user_id = post.team_id, post.user_id
@@ -170,22 +167,14 @@ async def _recover(args: argparse.Namespace) -> None:
             # Re-read the row under a lock: save_uploaded_media just committed,
             # and materialize_report_videos may have attached newer media in
             # the meantime — refuse to overwrite it.
-            fresh = (
-                await db.execute(
-                    select(Post)
-                    .where(Post.id == post.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).scalars().first()
+            fresh = (await db.execute(select(Post).where(Post.id == post.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
             if fresh is None:
                 raise SystemExit(f"post {post.id} vanished during recovery — asset {asset.id} saved unattached")
             fm = dict(fresh.meta_data or {})
             existing = fm.get("video_asset_id")
             if existing and str(existing) != str(asset.id):
                 raise SystemExit(
-                    f"post {fresh.id} already has video_asset_id={existing} — "
-                    f"refusing to overwrite newer media (asset {asset.id} saved unattached)"
+                    f"post {fresh.id} already has video_asset_id={existing} — refusing to overwrite newer media (asset {asset.id} saved unattached)"
                 )
             for k in _PENDING_KEYS:
                 fm.pop(k, None)

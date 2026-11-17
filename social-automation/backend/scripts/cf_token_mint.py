@@ -211,6 +211,7 @@ def main() -> int:
         if p.exists():
             print(f"\n$ python {script}")
             import subprocess
+
             subprocess.run([sys.executable, str(p)], check=False)
     return 0
 

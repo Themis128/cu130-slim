@@ -182,12 +182,14 @@ class TestPostgresLayer:
         s = SecretStore()
         stored_row = SimpleNamespace(value=None, description=None, updated_at=None)
         monkeypatch.setattr(
-            SS, "async_session_maker",
+            SS,
+            "async_session_maker",
             _session_maker(_Session([SimpleNamespace(scalar_one_or_none=lambda: stored_row)])),
         )
         assert await s._set_in_postgres("K", "s3cr3t") is True
         monkeypatch.setattr(
-            SS, "async_session_maker",
+            SS,
+            "async_session_maker",
             _session_maker(_Session([SimpleNamespace(scalar_one_or_none=lambda: stored_row)])),
         )
         assert await s._get_from_postgres("K") == "s3cr3t"
