@@ -3904,3 +3904,57 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 - [ ] stack-ops manual rescue container STILL unmanaged — re-adopt
       via `docker rm -f stack-ops && docker compose up -d stack-ops`
       after next fsbridge heal (carried from earlier entry).
+
+## 2026-11-18 (night2) — @t_baltzakis IG → Personal+private; Meta restriction verdict; phone-cover automation lessons (Devin)
+
+- [x] @t_baltzakis IG state REVERTED same-day: Professional(public,
+      business) → Personal(PRIVATE). User request "make my personal
+      profile private". Path: profile → Options → Settings and activity
+      → scroll to "Your insights and tools" → "Profile type and tools"
+      → Profile type → "Switch profile type" → "Switch to personal
+      profile" → confirm (took ~60s to apply server-side; page showed
+      stale "Professional" right after confirm — re-dump before
+      judging). Then Settings → "Who can see your content" → "Profile
+      privacy" → "Private profile" toggle → verified settings row now
+      reads "Profile privacy, Private". IMPACT: professional tools
+      gone for this account (Insights, professional dashboard,
+      branded-content/partnership-ads upsells). Any IG automation or
+      Graph test that assumed @t_baltzakis was professional now sees a
+      private personal account. @cloudless.gr untouched throughout —
+      verified active account = t_baltzakis on every screen.
+- [x] Meta personal-ad-account restriction — NO APPEAL PATH (dead
+      end, do not re-investigate): business.facebook.com
+      business-support-home Account Quality shows restriction since
+      Feb 12 2021 (Advertising Standards, "affecting business assets");
+      "What you can do" offers ONLY "Go to court" and "Contact a
+      dispute settlement body" (EU ADR) — no Request Review button.
+      Both ad accounts restricted since Jan 24 2021. Effectively
+      permanent; paid ads off the table. Organic publishing uses
+      different permissions and is unaffected (everything still posts).
+- [x] Report dedupe shipped + merged: PR #2362 evolved into #2366
+      ("bounded self-heal requeue on dedupe-unavailable") — MERGED.
+      ops_health self-delivered 16:21 after ~6h queue stall. WATCH
+      item from eve entry still stands for tomorrow's batch.
+- [ ] Phone UI-automation under flip cover — lessons for next session:
+      * KEYEVENT_BACK is eaten by CoverHomeActivity (cover holds
+        mFocusedApp) — always tap the on-screen Back node instead.
+      * Taps leak into wrong apps when IG loses foreground (landed in
+        Google Messages, TikTok, launcher search). RULE: before EVERY
+        tap verify `topResumedActivity` AND `package=` in the uiautomator
+        dump; relaunch via `monkey -p com.instagram.android -c
+        android.intent.category.LAUNCHER 1` + ~8s settle when drifted.
+      * IG settings list rows drift between dump and tap (relayout +
+        cover) — tap row-CONTAINER bounds ([0,x][1080,y] clickable
+        View), not text-node centers; do dump→parse→`input tap` in ONE
+        shell chain to minimize drift.
+      * Long flings eject to other tabs/apps — use 250-350ms swipes,
+        re-dump after each.
+      * IG Settings "Search" field steals focus unreliably under cover
+        (typed text dumped to feed) — scroll-and-tap is more reliable.
+- [ ] Standing dead-token residuals (unchanged, known):
+      X access token expired since Nov 9 (needs re-auth when wanted);
+      IG legacy row 28747382798219804 (@cloudless.gr) still needs the
+      INSTAGRAM2_CLIENT_ID/SECRET business_login lane (both EMPTY in
+      .env) or IG↔FB Page relink; TikTok access token rotates ~daily
+      (refresh lane live, normal); FB personal user row expired
+      (account restriction, expected).
