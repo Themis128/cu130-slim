@@ -124,8 +124,9 @@ rm -f .deploy.lock                                                 # release
 
 ## Android phone / ADB (SMS-OTP lane)
 
-- Galaxy S22+ `RFCTA0AEKZP` is USB-connected to the Windows host with USB debugging authorized. WSL `adb` is **blind** to it (only sees a stale offline `emulator-5554`) — always call the Windows binary: `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` (or `adb.exe` via powershell interop).
-- SMS-OTP automation: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` over those adb paths (+ Termux `:8022`, doveadm mail fallback). Unblocks WhatsApp WABA phone registration and any SMS-2FA gate while the phone stays plugged in. UI automation: `phone-access` skill (`scripts/phone-mcp-server.py`).
+- Galaxy S22+ `RFCTA0AEKZP` — **primary lane is wireless ADB**: persistent TCP mode at `192.168.1.77:5555` (set once via `adb tcpip 5555`; survives until reboot or wireless-debugging toggle). WSL-native `~/.local/bin/adb connect 192.168.1.77:5555` works directly — `adb devices` shows `device` (ignore the stale offline `emulator-5554`). Tailscale IP `100.84.31.85` also works when LAN is unreachable.
+- If `:5555` refuses, wireless debugging reverted to TLS-pairing: run `adb mdns services` and connect to the `_adb-tls-connect._tcp` endpoint (port rotates per session, e.g. `:46439`). USB fallback: `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` via interop. Termux SSH `:8022` (`u0_a357`) is the no-ADB fallback.
+- SMS-OTP automation: `human-gate-bridges/scripts/wa_verify.py`, `phone-2fa-ops/scripts/fb_code.py`, `phone_gmail_otp.py` poll `content://sms/inbox` over adb (+ doveadm mail fallback). Workers have the phone RSA key mounted at `/run/li-adb-keys` (compose `LINKEDIN_ADB_KEY_DIR`) — container-side SMS reads verified. UI automation: `phone-access` skill (`scripts/phone-mcp-server.py`).
 
 ## Common commands
 
