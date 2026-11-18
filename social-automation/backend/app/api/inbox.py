@@ -85,6 +85,28 @@ async def get_unified_inbox(
     if cached and (time.monotonic() - cached[0]) < _INBOX_CACHE_TTL_S:
         return cached[1]
 
+    conversations = await fetch_team_conversations(team_id)
+
+    by_platform: dict[str, int] = {}
+    for c in conversations:
+        by_platform[c.platform] = by_platform.get(c.platform, 0) + 1
+
+    response = UnifiedInboxResponse(
+        conversations=conversations,
+        total=len(conversations),
+        by_platform=by_platform,
+    )
+    _inbox_cache[cache_key] = (time.monotonic(), response)
+    return response
+
+
+async def fetch_team_conversations(team_id: uuid.UUID) -> list[UnifiedConversation]:
+    """Fetch + normalize every conversation for a team across all platforms.
+
+    Shared by the inbox API (60s cache) and the inbox-snapshot service
+    (periodic persistence for reports). Failed platform fetches are skipped
+    (non-fatal) so callers always get whatever is available.
+    """
     conversations: list[UnifiedConversation] = []
 
     # Fetch all social accounts for the user's team
@@ -123,18 +145,7 @@ async def get_unified_inbox(
 
     # Sort by unread first, then by name
     conversations.sort(key=lambda c: (not c.unread, c.sender_name.lower()))
-
-    by_platform: dict[str, int] = {}
-    for c in conversations:
-        by_platform[c.platform] = by_platform.get(c.platform, 0) + 1
-
-    response = UnifiedInboxResponse(
-        conversations=conversations,
-        total=len(conversations),
-        by_platform=by_platform,
-    )
-    _inbox_cache[cache_key] = (time.monotonic(), response)
-    return response
+    return conversations
 
 
 async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversation]:

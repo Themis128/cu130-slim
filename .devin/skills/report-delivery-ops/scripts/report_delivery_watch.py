@@ -125,6 +125,48 @@ REPORTS = [
                    {}),
     },
     {
+        "key": "lead_pulse",
+        "label": "Daily lead & inbox pulse",
+        "kind": "count",
+        "pattern": r"\[Cloudless\] Lead pulse",
+        "expected": 1,
+        "due_hour": 11,          # beat 10:30 + margin
+        "resend": ("app.worker.tasks.funnel_reports.run_lead_pulse",
+                   {"send": True}),
+    },
+    {
+        "key": "attribution",
+        "label": "Daily attribution digest",
+        "kind": "count",
+        "pattern": r"\[Cloudless\] Attribution digest",
+        "expected": 1,
+        "due_hour": 12,          # beat 11:00 + margin
+        "resend": ("app.worker.tasks.funnel_reports.run_attribution_digest",
+                   {"send": True}),
+    },
+    {
+        "key": "content_weekly",
+        "label": "Weekly content scoreboard",
+        "kind": "count",
+        # Mondays only — expected=0 on other days makes got>=need always true.
+        "pattern": r"\[Cloudless\] Content scoreboard",
+        "expected": lambda d: 1 if d.weekday() == 0 else 0,
+        "due_hour": 9,           # beat Mon 08:30 + margin
+        "resend": ("app.worker.tasks.funnel_reports.run_content_weekly",
+                   {"send": True}),
+    },
+    {
+        "key": "funnel_monthly",
+        "label": "Monthly funnel economics",
+        "kind": "count",
+        # 1st of month only.
+        "pattern": r"\[Cloudless\] Funnel economics",
+        "expected": lambda d: 1 if d.day == 1 else 0,
+        "due_hour": 10,          # beat 09:00 + margin
+        "resend": ("app.worker.tasks.funnel_reports.run_funnel_monthly",
+                   {"send": True}),
+    },
+    {
         "key": "omv_health",
         "label": "OMV daily health / maintenance mail",
         "kind": "fresh",

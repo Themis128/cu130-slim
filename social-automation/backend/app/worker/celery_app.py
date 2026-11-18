@@ -129,6 +129,8 @@ celery_app = Celery(
         "app.worker.tasks.workforce_audit",
         "app.worker.tasks.bluesky_credential",
         "app.worker.tasks.meeting_notes",
+        "app.worker.tasks.funnel_reports",
+        "app.worker.tasks.inbox_snapshot",
     ],
 )
 
@@ -996,6 +998,62 @@ celery_app.conf.update(
                 "send": True,
                 "fallback_to_code": False,
             },
+        },
+        # Daily lead & inbox pulse → email. New SocialAuto/EspoCRM leads,
+        # opportunities/bookings, unanswered WhatsApp threads and consultation
+        # visits in the last 24h. Operational scan — fires mid-morning so the
+        # day's response workload is visible before it goes stale.
+        "daily-lead-pulse": {
+            "task": "app.worker.tasks.funnel_reports.run_lead_pulse",
+            "schedule": crontab(
+                hour=settings.LEAD_PULSE_HOUR,
+                minute=settings.LEAD_PULSE_MINUTE,
+            ),
+            "kwargs": {"send": True},
+        },
+        # Daily UTM/referrer → consultation → lead attribution digest → email.
+        # 7-day window: joins web-analytics events, SocialAuto leads and
+        # EspoCRM opportunities so the report shows which channel actually
+        # converts, not just which one gets traffic.
+        "daily-attribution-digest": {
+            "task": "app.worker.tasks.funnel_reports.run_attribution_digest",
+            "schedule": crontab(
+                hour=settings.ATTRIBUTION_DIGEST_HOUR,
+                minute=settings.ATTRIBUTION_DIGEST_MINUTE,
+            ),
+            "kwargs": {"send": True},
+        },
+        # Weekly top/flop content review → email (Monday). Compares the last
+        # 7 days of post snapshots against the prior 7, surfaces per-platform
+        # totals and follower movement — the input for next week's content
+        # allocation decisions.
+        "weekly-content-scoreboard": {
+            "task": "app.worker.tasks.funnel_reports.run_content_weekly",
+            "schedule": crontab(
+                day_of_week=str(settings.CONTENT_WEEKLY_DAY),
+                hour=settings.CONTENT_WEEKLY_HOUR,
+                minute=settings.CONTENT_WEEKLY_MINUTE,
+            ),
+            "kwargs": {"send": True},
+        },
+        # Monthly funnel economics → email (1st of month). CRM leads →
+        # opportunities → won, Polar orders and LinkedIn ad spend for the
+        # closing month.
+        "monthly-funnel-economics": {
+            "task": "app.worker.tasks.funnel_reports.run_funnel_monthly",
+            "schedule": crontab(
+                day_of_month=str(settings.FUNNEL_MONTHLY_DAY),
+                hour=settings.FUNNEL_MONTHLY_HOUR,
+                minute=settings.FUNNEL_MONTHLY_MINUTE,
+            ),
+            "kwargs": {"send": True},
+        },
+        # Unified-inbox snapshot every 6h — persists Messenger/IG/WhatsApp
+        # conversation state so the lead-pulse report and future SLA trends
+        # don't depend on live provider calls.
+        "inbox-snapshot": {
+            "task": "app.worker.tasks.inbox_snapshot.run_inbox_snapshot",
+            "schedule": crontab(minute=15, hour="*/6"),
         },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {

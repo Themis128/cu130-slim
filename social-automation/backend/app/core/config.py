@@ -517,6 +517,18 @@ class Settings(BaseSettings):
     # calendar when the briefs generate.
     CENTRAL_BRAIN_HOUR: int = 6  # Europe/Athens via Celery timezone
     CENTRAL_BRAIN_MINUTE: int = 30  # Europe/Athens via Celery timezone
+    # Funnel reports — lead pulse + attribution daily, content weekly,
+    # funnel economics monthly. Europe/Athens via Celery timezone.
+    LEAD_PULSE_HOUR: int = 10
+    LEAD_PULSE_MINUTE: int = 30
+    ATTRIBUTION_DIGEST_HOUR: int = 11
+    ATTRIBUTION_DIGEST_MINUTE: int = 0
+    CONTENT_WEEKLY_DAY: int = 1  # Monday (Celery crontab)
+    CONTENT_WEEKLY_HOUR: int = 8
+    CONTENT_WEEKLY_MINUTE: int = 30
+    FUNNEL_MONTHLY_DAY: int = 1  # 1st of month
+    FUNNEL_MONTHLY_HOUR: int = 9
+    FUNNEL_MONTHLY_MINUTE: int = 0
     # LLM refinement pass — the rule-scored post decisions are rewritten by
     # the inference chain (DMR → Cloudflare fallback) using company-brain
     # recall + platform-fit knowledge. Fail-soft: any error keeps the
