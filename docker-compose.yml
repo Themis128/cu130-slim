@@ -260,6 +260,11 @@ x-worker-volumes: &worker-volumes
   # workers; rendered outputs go to /notebooks/output (visible in Jupyter
   # at work/output since the same host dir is mounted there).
   - ./notebooks:/notebooks
+  # Galaxy phone WiFi-ADB RSA keypair — SMS-2FA fetch during sidecar re-auth
+  # (instagram_reauth / linkedin_reauth). Read-only; adbkey + adbkey.pub only.
+  # Same mount social-api already has — without it the beat task's
+  # _fetch_*_sms_code returns None and every re-auth stalls at the code gate.
+  - ${LINKEDIN_ADB_KEY_DIR:-/home/tbaltzakis/.android}:/run/li-adb-keys:ro
 
 # Shared depends_on for all worker containers.
 x-worker-depends: &worker-depends
