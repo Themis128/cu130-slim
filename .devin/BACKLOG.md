@@ -3982,3 +3982,30 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       `.env` reads `/accounts/{id}/billing/history` fine — invoice
       IN-88049721 $12.08 CLOSED (Stripe). cf-billing-ops skill has the
       pay-lane details.
+- [ ] VHDX compaction verification (2026-11-19): nightly 05:00 run
+      (`logs/nightly-wsl-vhdx-compact.ps1` on Windows) is the first
+      test of the WSL-probe quiesce fix — ~30 scheduled tasks exec'ing
+      wsl.exe/docker/UNC-wsl were re-launching the utility VM after
+      `wsl --shutdown` and re-locking the VHDXs every night
+      ("still locked after 5min - SKIP" x days). Script now discovers
+      probe tasks dynamically by action text, disables them for the
+      window, re-enables in `finally`; same quiesce/re-enable added to
+      `devin-scripts/vhdx-compact.ps1` (C:-space emergency compactor,
+      <20GB free gate — C: was ~22GB). Check `nightly-vhdx-compact.log`
+      for `reclaimed X GB` / `sparse VHD - skipped` lines; expect tens
+      of GB back on C: (docker_data.vhdx ~218GB allocated,
+      ext4.vhdx ~118GB). If it still SKIPs, next suspect is a probe
+      class the action-regex missed — log which tasks got quiesced.
+- [ ] Meta reauth human gate (still open, 2026-11-19): `instagram
+      cloudless.gr` (business/page-linked IG) + `threads cloudless.gr`
+      remain `revoked` after Meta password change. Personal
+      `instagram@cloudless.gr` (account 17841463022505300) recovered
+      to active via OAuth once. Remaining blocker is Meta's
+      `two_step_verification` "Invalid request" checkpoint — needs
+      user device approval (FB app push) or the :9330 OAuth Chrome
+      lane (`meta_oauth_drive.py`, self-launches on demand). ADB
+      SMS-2FA lane works from workers (`/run/li-adb-keys` mounted,
+      PR #2368). FB-side `sidecar_fb_login.py` reaches 2FA but Meta
+      rejects the request — do NOT loop-retry; approve on device or
+      wait for checkpoint to clear, then `instagram_reauth.py` beat
+      finishes the reconnect.
