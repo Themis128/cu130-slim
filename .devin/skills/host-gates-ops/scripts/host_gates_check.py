@@ -167,6 +167,13 @@ def check_docker_desktop_proc():
     # simplified Where-Object syntax (no scriptblock, no $_) instead.
     out = str(win_batch().get("proc", ""))
     if not out:
+        # Interop/batch flake, not a process death: a responsive engine
+        # means the DD backend is alive (it hosts the Linux engine).
+        # Only report unknown when the engine is also unreachable.
+        if docker_ok():
+            return {"ok": True,
+                    "detail": "engine responsive; proc probe unavailable "
+                              "(interop dead)"}
         return {"ok": None, "detail": "probe failed: interop dead"}
     m = re.search(r"(com\.docker\.\S+|Docker Desktop|docker(?:-\S+)?)",
                   out, re.I)
