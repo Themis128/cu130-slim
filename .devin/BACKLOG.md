@@ -3868,3 +3868,39 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       "t_baltzakis" at profile-name row (~y785-852). Resume after user
       opens cover: tap chip → switch to 2nd account → Profile type and
       tools → verify/convert → re-probe Graph.
+
+## 2026-11-18 (late) — IG (#10) root cause CONFIRMED via Meta docs; Linear/Greptile audit state (Devin)
+
+- [x] (#10) "Application does not have permission" on
+      17841463022505300 /media + /insights ROOT CAUSE CONFIRMED:
+      official Meta docs state the Instagram API with Facebook Login
+      CANNOT access consumer (non-Business/non-Creator) IG accounts.
+      Token is valid never-expiring with full scopes — the denial is
+      because @cloudless.gr's IG profile is still PERSONAL. Same
+      failure class as @t_baltzakis pre-conversion. No token/scope/
+      app-review change can fix this — only in-app Professional
+      conversion. Sources: developers.facebook.com IG Platform docs.
+- [ ] REMAINING HUMAN GATE: open the phone flip cover
+      (CoverHomeActivity holds focus; taps leak into other apps).
+      Then: switch IG to 2nd account (AccountManager id
+      36910035385, likely @cloudless.gr) via igds_prism_chip →
+      Profile type and tools → convert Personal→Business →
+      re-probe Graph /media + /insights → heal legacy
+      28747382798219804 row via account_truth.py once the
+      page-backed account comes alive.
+- [x] Linear audit (MCP): ALL CLO issues are Done (CLO-5/6/7/9/10/
+      16/17). CLO-17 description is STALE — it still lists ~30 open
+      PRs + secrets-migration + FB-heal + llama-server RAM items;
+      gh pr list confirms 0 open PRs and those lanes shipped since.
+      Either reopen CLO-17 for the residual checklist or mark the
+      description superseded — needs user decision.
+- [ ] Greptile audit INCOMPLETE: org cloudless-gr
+      (1ffc6765…) authenticated; 131 repos indexed under
+      themis128/*. cu130-slim not yet located (paginated 20/page,
+      ~7 pages). MCP filtered calls failed to serialize args this
+      session (empty {} sent repeatedly) — retry list_repositories
+      offset pagination + list_code_reviews / analytics_findings on
+      the cu130-slim tuple next session.
+- [ ] stack-ops manual rescue container STILL unmanaged — re-adopt
+      via `docker rm -f stack-ops && docker compose up -d stack-ops`
+      after next fsbridge heal (carried from earlier entry).
