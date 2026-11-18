@@ -212,9 +212,12 @@ celery_app.conf.update(
             "time_limit": 180,
         },
         # ── media queue: CPU-heavy, allow up to 40 min ───────────────────
+        # auto-tag runs up to two sequential DMR vision calls; a cold vision
+        # model pays the multi-minute GGUF load per call, so 120s guaranteed
+        # SoftTimeLimitExceeded on cold starts. Advisory tagging can afford it.
         "app.worker.tasks.media.auto_tag_asset_task": {
-            "soft_time_limit": 120,
-            "time_limit": 300,
+            "soft_time_limit": 600,
+            "time_limit": 720,
         },
         # WebDAV PUT to the omv Nextcloud — I/O bound, same budget as auto-tag.
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {
