@@ -177,6 +177,25 @@ def _manifest(tmp_path: Path, **kw):
     return m, tmp_path
 
 
+class _NullRedis:
+    """In-memory lock store — send=True paths require a working dedupe lock."""
+
+    def __init__(self):
+        self.kv: dict = {}
+
+    def get(self, k):
+        return self.kv.get(k)
+
+    def set(self, k, v, nx=False, ex=None):
+        if nx and k in self.kv:
+            return None
+        self.kv[k] = v
+        return True
+
+    def delete(self, k):
+        self.kv.pop(k, None)
+
+
 def test_notebook_report_success_send_off(monkeypatch, tmp_path):
     import app.services.notebook_runner as runner
 
@@ -196,6 +215,7 @@ def test_notebook_report_success_send_on(monkeypatch, tmp_path):
     mp = tmp_path / "manifest.json"
     mp.write_text("{}")
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"})
+    monkeypatch.setattr(NR, "_report_lock", lambda: _NullRedis())
     sent = AsyncMock(return_value=True)
     monkeypatch.setattr(ed, "send_email", sent)
     out = NR.run_notebook_report("nb-on", send=True)
@@ -217,6 +237,7 @@ def test_notebook_report_multi_manifest(monkeypatch, tmp_path):
         "run_report_notebook",
         lambda nb, p: {"manifest": {"reports": [m1, m2]}, "manifest_path": str(tmp_path / "a" / "x"), "duration_s": 1, "notebook": "n"},
     )
+    monkeypatch.setattr(NR, "_report_lock", lambda: _NullRedis())
     monkeypatch.setattr(ed, "send_email", AsyncMock(return_value=True))
     out = NR.run_notebook_report("nb-multi", send=True)
     assert out["emailed"] == 1 and "missing html_file" in out["email_error"]
@@ -226,6 +247,7 @@ def test_notebook_report_failure_fallback(monkeypatch):
     import app.services.notebook_runner as runner
 
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
+    monkeypatch.setattr(NR, "_report_lock", lambda: _NullRedis())
     monkeypatch.setattr(NR, "run_async", lambda c: (c.close(), {"sent": 1})[1])
     out = NR.run_notebook_report("nb-fail", fallback_to_code=True)
     assert out["executed"] is False and "kernel died" in out["error"]
@@ -236,6 +258,7 @@ def test_notebook_report_failure_no_fallback(monkeypatch):
     import app.services.notebook_runner as runner
 
     monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(NR, "_report_lock", lambda: _NullRedis())
     with pytest.raises(RuntimeError):
         NR.run_notebook_report("nb-nofail", fallback_to_code=False)
 
@@ -328,6 +351,7 @@ def test_notebook_report_monetization_fallback(monkeypatch):
         coro.close()
         return {"ok": True}
 
+    monkeypatch.setattr(NR, "_report_lock", lambda: _NullRedis())
     monkeypatch.setattr(NR, "run_async", _fake_run_async)
     out = NR.run_notebook_report("monetization_daily", fallback_to_code=True)
     assert out["executed"] is False
@@ -534,3 +558,39 @@ def test_notebook_report_finally_swallows_redis_errors(monkeypatch, tmp_path):
     )
     out = NR.run_notebook_report("nb-flaky", send=False)
     assert out["executed"] is True
+
+
+def test_notebook_report_send_requires_dedupe(monkeypatch):
+    """send=True with no lock store must skip — a duplicate email is worse
+    than a missed one (delivery watcher resends once Redis recovers)."""
+    monkeypatch.setattr(NR, "_report_lock", lambda: None)
+    out = NR.run_notebook_report("nb-noredis", send=True)
+    assert out["executed"] is False and out["skipped"] == "dedupe-unavailable"
+
+
+def test_notebook_report_lock_error_send_skips(monkeypatch):
+    """A Redis error mid-check fails closed for sends, open for renders."""
+
+    class _ExplodingRedis:
+        def get(self, k):
+            raise ConnectionError("redis down")
+
+        def set(self, *a, **kw):
+            raise ConnectionError("redis down")
+
+        def delete(self, k):
+            pass
+
+    monkeypatch.setattr(NR, "_report_lock", lambda: _ExplodingRedis())
+    out = NR.run_notebook_report("nb-err", send=True)
+    assert out["executed"] is False and out["skipped"] == "dedupe-unavailable"
+
+
+def test_fallback_delivered_shapes():
+    assert NR._fallback_delivered({"emailed": 2}, True) is True
+    assert NR._fallback_delivered({"emailed": 0}, True) is False
+    assert NR._fallback_delivered([{"emailed": False}, {"emailed": True}], True) is True
+    assert NR._fallback_delivered([{"emailed": False}], True) is False
+    assert NR._fallback_delivered({"emailed": 5}, False) is False
+    assert NR._fallback_delivered({"sent": 1}, True) is False
+    assert NR._fallback_delivered("opaque", True) is True

@@ -118,6 +118,10 @@ def run_notebook_report(
 
     task_id = self.request.id or f"eager-{uuid4()}"
     r = _report_lock()
+    if send and r is None:
+        # Dedupe unavailable — a report email is worth less than a duplicate;
+        # the delivery watcher resends once Redis recovers.
+        return {"notebook": notebook, "executed": False, "skipped": "dedupe-unavailable"}
     day = datetime.now(ZoneInfo("Europe/Athens")).date().isoformat()
     done_key = f"nbreport:done:{notebook}:{day}"
     running_key = f"nbreport:running:{notebook}:{day}"
@@ -138,7 +142,9 @@ def run_notebook_report(
             if owner != task_id and not r.set(running_key, task_id, nx=True, ex=3 * 3600):
                 return {"notebook": notebook, "executed": False, "skipped": "run-in-progress"}
         except Exception:  # noqa: BLE001
-            logger.warning("report dedupe lock check failed — proceeding")
+            logger.warning("report dedupe lock check failed — %s", "skipping send" if send else "proceeding without it")
+            if send:
+                return {"notebook": notebook, "executed": False, "skipped": "dedupe-unavailable"}
             r = None
 
     delivered = False
@@ -150,7 +156,7 @@ def run_notebook_report(
             if not fallback_to_code:
                 raise
             fallback = run_async(_CODE_FALLBACKS.get(notebook, _fallback_strategy)(parameters or {}, send=send))
-            delivered = bool(send)
+            delivered = _fallback_delivered(fallback, send)
             return {
                 "notebook": notebook,
                 "executed": False,
@@ -192,6 +198,19 @@ def run_notebook_report(
                     r.delete(running_key)
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _fallback_delivered(fallback: Any, send: bool) -> bool:
+    """Did the code-path fallback actually email? ``delivered`` gates the
+    same-day done-key — marking it on a failed send would suppress the
+    watcher resend and lose the day's report."""
+    if not send:
+        return False
+    if isinstance(fallback, dict):
+        return bool(fallback.get("emailed"))
+    if isinstance(fallback, list):
+        return any(isinstance(r, dict) and r.get("emailed") for r in fallback)
+    return True  # unknown shape — assume delivered rather than risk a resend duplicate
 
 
 async def _deliver_manifest(manifest: dict[str, Any], base_dir: Path) -> tuple[bool, str | None]:

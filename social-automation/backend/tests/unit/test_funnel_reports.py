@@ -438,7 +438,7 @@ def test_dedupe_lock_returns_pair_or_none(monkeypatch):
 def test_execute_skips_when_lock_held(monkeypatch):
     import app.worker.tasks.funnel_reports as T
 
-    r = SimpleNamespace(get=lambda k: "1", set=lambda *a, **k: True,
+    r = SimpleNamespace(get=lambda k: "1", set=lambda *a, **k: None,
                         delete=lambda k: True)
     monkeypatch.setattr(T, "_dedupe_lock", lambda k: (r, "lockkey"))
     out = T._execute("lead_pulse", send=True)

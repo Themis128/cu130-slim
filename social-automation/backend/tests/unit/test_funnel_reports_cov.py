@@ -220,6 +220,9 @@ class _LockRedis:
         return self._existing if self._existing is not None else self.store.get(k)
 
     def set(self, k, v, ex=None, nx=None):
+        exists = self._existing is not None or k in self.store
+        if nx and exists:
+            return None
         self.store[k] = v
         return True
 
@@ -611,3 +614,22 @@ async def test_inbox_pulse_frt_failure(monkeypatch):
                         AsyncMock(side_effect=RuntimeError("frt down")))
     by_plat, unread, frt = await FR._inbox_pulse()
     assert by_plat == {} and frt == {"error": "frt down"}
+
+
+def test_funnel_task_send_requires_dedupe(monkeypatch):
+    """send=True with no Redis lock must skip — duplicate emails are worse
+    than a missed report (watcher resends once Redis recovers)."""
+    monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (None, None))
+    out = FT.run_lead_pulse(send=True)
+    assert out == {"report": "lead_pulse", "skipped": "dedupe-unavailable"}
+
+
+def test_funnel_task_send_false_runs_without_dedupe(monkeypatch):
+    monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (None, None))
+    monkeypatch.setattr(
+        FT, "run_async",
+        lambda coro: (coro.close(), {"report": "lead_pulse", "emailed": False,
+                      "email_error": None, "sections": 1})[1],
+    )
+    out = FT.run_lead_pulse(send=False)
+    assert out["report"] == "lead_pulse"
