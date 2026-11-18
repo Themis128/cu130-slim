@@ -95,8 +95,10 @@ def main() -> None:
             print(f"  {l}")
     if report["ROOT-OWNED"]:
         print("\nFIX: sudo chown -R $(id -un):$(id -gn) " + repo)
-    print("\nNOTE: Docker mounts C:\\Users\\tbaltzakis\\cu130-slim — "
-          "container file ops see the WINDOWS checkout, not this one.")
+    print("\nNOTE: compose project dir is /home/tbaltzakis/cu130-slim (WSL) — "
+          "containers bind-mount THIS checkout. The C:\\ copy survives only "
+          "as the stack-watchers repo mirror (.devin/skills subset) + "
+          ".docker-bin via docker-compose.override.yml.")
 
 
 if __name__ == "__main__":

@@ -19,18 +19,27 @@ fixes. Run it before touching an unfamiliar dirty checkout.
 
 ## The dual checkout (read first)
 
-Two working copies exist:
+Two trees exist (post wsl-distro-migrate, verified 2026-11-18):
 
-- `/home/tbaltzakis/cu130-slim` — WSL-native checkout (this repo's git ops
-  happened here; agent sessions default to it).
+- `/home/tbaltzakis/cu130-slim` — **the live checkout.** The compose
+  project working_dir IS this path; containers bind-mount it
+  (`docker inspect social-api` → `Source: /home/tbaltzakis/cu130-slim/...`).
+  A `git pull`/checkout here IS the container file sync — no `docker cp`.
 - `C:\Users\tbaltzakis\cu130-slim` = `/mnt/c/Users/tbaltzakis/cu130-slim` —
-  **the one Docker Compose bind-mounts** (`docker inspect social-api` →
-  `Source: C:\Users\...\social-automation\backend\app → /app/app`).
-  Container file edits/tests see the WINDOWS tree, not the WSL one.
+  **no longer the runtime checkout.** It survives only as (a) the
+  `stack-watchers` repo mirror mounted at `/app:ro` by
+  `docker-compose.override.yml`, and (b) `.docker-bin/` (docker CLI +
+  cli-plugins) for that container. It is intentionally partial — only the
+  five watcher skill dirs (`cdp-watch-ops`, `fb-reauth-ops`,
+  `li-vetting-watch`, `pending-triggers-ops`, `wa-verify-ops`) plus
+  `.devin`-adjacent files the heal_supervisor spawns. Do NOT expect the
+  backend code there; `social-automation/backend/app` does not exist on C:.
 
-Drift between them is expected; sync WSL→upstream and treat /mnt/c as the
-runtime checkout. Don't assume `docker compose cp` targets the files you
-see in WSL.
+Drift that matters: when a watcher skill's scripts change in WSL, mirror
+the changed files into the C: copy or stack-watchers keeps running stale
+code (fsbridge bypass workaround — see override comments). Verified drift
+2026-11-18: `fb-reauth-ops` was stale on C: (single-CDP-lane fb_reauth.py)
+while the container ran it — resynced WSL→C: and restarted stack-watchers.
 
 ## Diagnostic playbook (what bit us 2026-10-27)
 
