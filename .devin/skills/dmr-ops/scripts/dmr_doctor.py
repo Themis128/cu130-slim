@@ -123,7 +123,69 @@ def probe() -> dict:
     return out
 
 
+def _list_models() -> list[str]:
+    """Local model names from `docker model ls` (CLI table parse)."""
+    try:
+        r = subprocess.run(["docker", "model", "ls"],
+                           capture_output=True, text=True, timeout=30)
+    except Exception:
+        return []
+    names = []
+    for line in (r.stdout or "").splitlines()[1:]:
+        parts = line.split()
+        if parts:
+            names.append(parts[0])
+    return names
+
+
+def _inspect(name: str) -> dict | None:
+    try:
+        r = subprocess.run(["docker", "model", "inspect", name],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return None
+        return json.loads(r.stdout or "null")
+    except Exception:
+        return None
+
+
+def _is_stub(info: dict | None) -> bool:
+    """Corrupted model stub: a pull interrupted mid-write leaves a row whose
+    inspect shows epoch/zero created and empty params — the engine then hangs
+    loading it (the 2026-11-17 'DMR runner load failed … healing GPU state'
+    wedge that parked the publish queue's quality gate)."""
+    if not isinstance(info, dict):
+        return True
+    created = str(info.get("created") or "")
+    if not created or created.startswith(("0001-01-01", "1970-01-01")):
+        return True
+    cfg = info.get("config") or {}
+    if not cfg.get("parameters") and not info.get("parameters"):
+        return True
+    return False
+
+
+def stub_check(fix: bool = False) -> dict:
+    """Report (and optionally re-pull) corrupted model stubs."""
+    names = _list_models()
+    bad = [n for n in names if _is_stub(_inspect(n))]
+    out = {"models": names, "stubs": bad}
+    if fix:
+        fixed = []
+        for n in bad:
+            subprocess.run(["docker", "model", "rm", n],
+                           capture_output=True, timeout=60)
+            r = subprocess.run(["docker", "model", "pull", n],
+                               capture_output=True, text=True, timeout=1200)
+            fixed.append({"model": n, "pulled": r.returncode == 0})
+        out["fixed"] = fixed
+    return out
+
+
 def main() -> int:
+    if "--stubs" in sys.argv or "--fix-stubs" in sys.argv:
+        print(json.dumps(stub_check(fix="--fix-stubs" in sys.argv), indent=2)[:3000])
+        return 0
     if "--warm" in sys.argv:
         if _gpu_busy():
             print("gpu busy (arbiter lock held) — refusing to warm; retry when idle")

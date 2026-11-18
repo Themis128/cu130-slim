@@ -28,7 +28,9 @@ Consolidated skill — each section below was a standalone skill. Member scripts
 - The claim commits before external API calls; `locked_by` holds the
   worker identity.
 - Rows stuck in `processing` (killed worker, mid-task restart) are
-  reclaimed after ~15 min by the stale-lock sweep — or force it with
+  reclaimed after **25 min** (`_STALE_LOCK_MINUTES` — must exceed the
+  1200s hard task limit so a live run's rows are never double-published)
+  by the stale-lock sweep — or force it with
   `scripts/publish_queue.py unstick`.
 - `attempts < max_attempts` (default 3) auto-retries on failure.
 
@@ -84,7 +86,7 @@ that row is the tracked one. The tool marks deleted rows
 | `Browser bridge error 409 ... busy` | Another platform holds the browser busy-hold; retried automatically next cycle |
 | `Browser busy with <p> session` | Same as above |
 | `401` on tweets | OAuth2 token stale — auto-refresh attempted once at publish time |
-| stuck `processing` | worker was restarted mid-task — `unstick` or wait 15 min |
+| stuck `processing` | worker was restarted mid-task — `unstick` or wait 25 min |
 | stuck `publishing` >5 min | not a queue wedge — an in-flight publish op is holding the row; triage below |
 
 ### Stuck-`publishing` triage (verified 2026-11-16)
@@ -148,6 +150,29 @@ matching-hash gate cache. Idempotent — safe to re-run after container
 restarts; progress persists in Postgres. Pair with
 `docker-model-runner/scripts/dmr_pressure.py` to confirm the DMR side
 is actually serving before launching it.
+
+**Bounded gate (2026-11-18):** `_enforce_publish_quality` is wrapped in
+`asyncio.wait_for` (`_GATE_TIMEOUT_S = 300`). A wedged gate now DEFERS
+the target to `pending` 15 min out (`_GATE_RETRY_DELAY_S`) + Slack-alert,
+instead of dying at the soft limit and orphaning the row. Before this,
+the silent-hang signature was: `celery inspect active` shows a
+`process_publish_queue` task aging past ~5min in 'loading model /
+healing GPU state' — the row then orphaned at `processing`.
+
+**Root cause seen 2026-11-17:** the gate wedge was a **corrupted DMR
+model stub** — `ai/qwen3:8b-q4_K_M` inspect showed `created:0` + empty
+params (an interrupted pull); the engine hung loading it forever.
+Detect + repair: `.devin/skills/dmr-ops/scripts/dmr_doctor.py --stubs`
+(`--fix-stubs` does rm + re-pull).
+
+**Dead LinkedIn session mid-publish (same incident):** the sidecar's
+`logged_in:false` made every `post_*` call die inside the publish.
+`_publish_linkedin_via_sidecar` now runs a pre-publish session gate —
+on `not logged_in` it calls `run_reauth` (auto SMS-OTP) once, persists
+the fresh `storage_state` back to `social_accounts.meta_data`, and
+retries; on failure it returns a soft deferral (`retry_after` +30min)
+instead of burning attempts. Manual equivalent lives in
+`linkedin-reauth-ops`.
 
 ## Publish alert triage
 

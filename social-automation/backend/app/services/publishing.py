@@ -37,6 +37,7 @@ from typing import Any
 import httpx
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.core.security import decrypt_field, decrypt_token
@@ -1937,6 +1938,42 @@ async def _publish_linkedin_via_sidecar(
         await client.set_session(storage)
     except LinkedInSidecarError as e:
         return PublishResult(success=False, error=e.detail)
+
+    # Pre-publish session gate: a dead browser session once parked the whole
+    # queue (every attempt died mid-publish). Verify logged_in BEFORE the
+    # post call; on a dead session run the stack's own reauth lane once,
+    # persist the fresh storage_state back to the account, and retry.
+    try:
+        sess = await client.check_session()
+    except LinkedInSidecarError:
+        sess = {}
+    if not sess.get("logged_in"):
+        from app.services.linkedin_reauth import resolve_linkedin_credentials, run_reauth
+
+        try:
+            username, password = await resolve_linkedin_credentials(str(account.id))
+            reauth = await run_reauth(username, password, method="sms", auto_sms=True)
+        except Exception as exc:
+            return PublishResult(
+                success=False,
+                retry_after=datetime.now(UTC) + timedelta(minutes=30),
+                error=f"LinkedIn session dead and reauth failed: {str(exc)[:300]}",
+            )
+        if not reauth.get("logged_in"):
+            return PublishResult(
+                success=False,
+                retry_after=datetime.now(UTC) + timedelta(minutes=30),
+                error="LinkedIn session dead — reauth needs a human step (2FA/manual login)",
+            )
+        fresh = (reauth.get("detail") or {}).get("storage_state")
+        if fresh:
+            meta["browser_storage_state"] = fresh
+            account.meta_data = meta
+            flag_modified(account, "meta_data")
+        try:
+            await client.set_session(fresh or storage)
+        except LinkedInSidecarError as e:
+            return PublishResult(success=False, retry_after=datetime.now(UTC) + timedelta(minutes=30), error=e.detail)
 
     try:
         image_paths = [p for p in media_paths if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]

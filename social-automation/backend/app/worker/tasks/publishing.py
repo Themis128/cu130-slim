@@ -54,6 +54,13 @@ _WORST_CASE_TARGET_S = 420  # longest single-target publish observed
 # (that race can double-post: the idempotency guard only sees "published"
 # after the first publish commits).
 _STALE_LOCK_MINUTES = 25
+# Pre-publish advisory steps (quality gate's DMR spellcheck/NLP pass) get
+# their own deadline: a wedged model load once parked a task in the gate
+# until the soft limit killed it, orphaning the row at PROCESSING. On
+# timeout the item defers (PENDING, scheduled forward) so it retries when
+# the dependency recovers instead of burning attempts or dying locked.
+_GATE_TIMEOUT_S = 300.0
+_GATE_RETRY_DELAY_S = 900
 
 # Meta-family platforms handled by the dedicated `meta` queue lane
 # (process_meta_publish_queue on social-worker-meta). Mirrors
@@ -728,7 +735,32 @@ async def _process_publish_queue_async(
                 # spellcheck + NLP fix + auto-improvement, with zero
                 # residual gibberish. A miss skips the target — no burned
                 # retries — and alerts for manual fix + requeue.
-                gate = await _enforce_publish_quality(post, account, db)
+                try:
+                    gate = await asyncio.wait_for(
+                        _enforce_publish_quality(post, account, db),
+                        timeout=_GATE_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    # Gate wedged (DMR cold-load loop, dead model entry) —
+                    # defer the target rather than hang until the soft
+                    # limit kills the batch and orphans the row.
+                    item.status = QueueStatus.PENDING
+                    item.locked_at = None
+                    item.locked_by = None
+                    item.scheduled_at = datetime.now(UTC) + timedelta(seconds=_GATE_RETRY_DELAY_S)
+                    await db.commit()
+                    logger.warning(
+                        "[publishing] quality gate timed out after %.0fs for post %s — deferred %ss",
+                        _GATE_TIMEOUT_S,
+                        post.id,
+                        _GATE_RETRY_DELAY_S,
+                    )
+                    await post_alert_to_slack(
+                        ":warning: *Quality gate timed out* — "
+                        f"{account.platform} target of post `{post.id}` deferred {_GATE_RETRY_DELAY_S}s. "
+                        "Check DMR model health (ai/qwen3:8b) — a wedged gate parks publishes."
+                    )
+                    continue
                 if gate is not None and not gate.passed:
                     item.status = QueueStatus.COMPLETED
                     if target:
