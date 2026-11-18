@@ -24,7 +24,7 @@ def ntfy_cli(*args: str, env: dict | None = None) -> str:
     prefix = ""
     if env:
         prefix = "env " + " ".join(f"{k}={v}" for k, v in env.items()) + " "
-    cmd = (f"ssh -o ConnectTimeout=10 {HOST} "
+    cmd = (f"ssh -i ~/.ssh/omv_id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 {HOST} "
            f"\"sudo k3s kubectl -n {NS} exec -i deploy/ntfy -- {prefix}ntfy {' '.join(args)}\"")
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
