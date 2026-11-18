@@ -8,6 +8,18 @@ import subprocess
 import sys
 import time
 import urllib.request
+import os
+
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
 
 BAT = r"C:\Users\tbaltzakis\chrome-debug-launch.bat"
 PS1 = r"C:\Users\tbaltzakis\chrome-debug-watch.ps1"
@@ -35,7 +47,7 @@ def status():
         if len(f) > 2 and f[1] == "00000000":
             h = f[2]
             gw.append(".".join(str(int(h[i:i+2], 16)) for i in (6, 4, 2, 0)))
-    gw = gw or ["172.22.144.1"]
+    gw = gw or ["" + WSL_HOST_IP + ""]
     try:
         r = urllib.request.urlopen(f"http://{gw[0]}:9222/json/version", timeout=4)
         return {"bound": True, "browser": json.loads(r.read()).get("Browser"), "via": gw[0]}

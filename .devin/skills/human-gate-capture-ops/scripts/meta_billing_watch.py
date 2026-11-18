@@ -16,7 +16,7 @@ page, scrapes the DOM for card rows vs the "Add payment method" CTA, and:
     meta_billing_watch.py --json   # machine-readable probe result
 
 CDP endpoints tried in order: localhost:9222 (Windows debug Chrome),
-172.22.144.1:9229 (WSL relay -> chrome-debug-profile :9330).
+' + WSL_HOST_IP + ':9229 (WSL relay -> chrome-debug-profile :9330).
 State: ~/.local/state/meta-billing-watch/state.json
 Log:   ~/logs/meta-billing-watch.log
 """
@@ -27,7 +27,18 @@ import sys
 import time
 import urllib.request
 
-CDP_CANDIDATES = ["http://localhost:9222", "http://172.22.144.1:9229"]
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
+CDP_CANDIDATES = ["http://localhost:9222", "http://" + WSL_HOST_IP + ":9229"]
 BILLING_URL = ("https://business.facebook.com/billing_hub/payment_methods"
                "?business_id=1558125105019725")
 STATE_DIR = os.path.expanduser("~/.local/state/meta-billing-watch")

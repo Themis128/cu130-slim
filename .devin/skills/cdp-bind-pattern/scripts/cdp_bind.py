@@ -8,6 +8,17 @@ import subprocess
 import sys
 import urllib.request
 
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
 FLAG = "/mnt/c/Users/tbaltzakis/cu130-slim/.devin/triggers/launch-chrome.flag"
 
 
@@ -22,7 +33,7 @@ def status():
         if len(f) > 2 and f[1] == "00000000":
             h = f[2]
             gw.append(".".join(str(int(h[i:i+2], 16)) for i in (6, 4, 2, 0)))
-    gw = gw or ["172.22.144.1"]
+    gw = gw or ["" + WSL_HOST_IP + ""]
     out = {"gw": gw[0]}
     for h in ("localhost", gw[0]):
         try:

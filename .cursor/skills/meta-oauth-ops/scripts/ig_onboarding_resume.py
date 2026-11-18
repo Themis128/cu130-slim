@@ -9,8 +9,21 @@ Once the block clears, clicks through the remaining wizard steps
 Run:  nohup python3 ig_onboarding_resume.py >> logs/ig_onboarding_resume.log 2>&1 &
 """
 import json, time, urllib.request, sys
+import os
+import subprocess
 
-CDP = "http://172.22.144.1:9229"
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
+CDP = "http://" + WSL_HOST_IP + ":9229"
 INTERVAL = 600          # seconds between retries while blocked
 MAX_TRIES = 18          # ~3h budget
 STEP_CLICK = """(()=>{

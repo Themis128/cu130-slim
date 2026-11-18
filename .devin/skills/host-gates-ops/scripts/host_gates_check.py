@@ -19,6 +19,17 @@ import subprocess
 import sys
 import time
 
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
 STATE_DIR = os.path.expanduser("~/.local/state/host-gates-ops")
 STATE = os.path.join(STATE_DIR, "state.json")
 LOG = os.path.expanduser("~/logs/host-gates-check.log")
@@ -239,7 +250,7 @@ def check_cdp_lane():
     Windows listener)."""
     import urllib.request
     host_ip = sh("ip route | awk '/default/ {print $3; exit}'",
-                 timeout=5).strip() or "172.22.144.1"
+                 timeout=5).strip() or "" + WSL_HOST_IP + ""
     try:
         with urllib.request.urlopen(
                 f"http://{host_ip}:9229/json/version", timeout=6) as r:

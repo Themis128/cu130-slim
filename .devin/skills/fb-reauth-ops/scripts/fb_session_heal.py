@@ -32,7 +32,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]
                      / "linkedin-portal-gates-ops" / "scripts"))
 from li_session_heal import (CDP, _cdp_base, _close_tab,  # noqa: E402
+
                              _env)
+
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
 
 REPO = Path(__file__).resolve().parents[4]
 STATE_DIR = Path.home() / ".local/state/fb-debug-session"
@@ -351,7 +362,7 @@ def probe_state(c):
 def cmd_status(_args):
     base = _cdp_base()
     if not base:
-        print("no-cdp: tried localhost:9229, 172.22.144.1:9229, :9222")
+        print("no-cdp: tried localhost:9229, " + WSL_HOST_IP + ":9229, :9222")
         return 2
     cookies = _load_cookies()
     pair = {c.get("name") for c in cookies} >= {"c_user", "xs"}

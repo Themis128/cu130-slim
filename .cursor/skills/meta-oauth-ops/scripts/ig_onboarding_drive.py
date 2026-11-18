@@ -9,8 +9,21 @@ INTERVAL (default 2h — faster retries re-trigger the block).
 Run:  nohup python3 ig_onboarding_drive.py >> logs/ig_onboarding_drive.log 2>&1 &
 """
 import json, re, subprocess, sys, time, urllib.parse, urllib.request
+import os
+import subprocess
 
-CDP = "http://172.22.144.1:9229"
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
+CDP = "http://" + WSL_HOST_IP + ":9229"
 INTERVAL = 7200            # seconds between full attempts
 MAX_ATTEMPTS = 12          # ~24h budget
 ENV_PATH = "/home/tbaltzakis/cu130-slim/.env"
