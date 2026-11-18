@@ -2124,6 +2124,7 @@ async def test_linkedin_sidecar_post_error(account, post, monkeypatch):
     post.link_url = None
     fake_client = SimpleNamespace(
         set_session=AsyncMock(),
+        check_session=AsyncMock(return_value={"logged_in": True}),
         post_text=AsyncMock(side_effect=pub.LinkedInSidecarError(500, "send failed")),
     )
     monkeypatch.setattr(pub, "LinkedInSidecarClient", lambda: fake_client)

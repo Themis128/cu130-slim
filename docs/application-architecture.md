@@ -773,10 +773,16 @@ Beat Schedule:
 ├──────────────────────────┼────────────────────────────────┼──────────┤
 │ process-publish-queue    │ publishing.process_publish_queue│ 30s      │
 │                          │  (claims via FOR UPDATE SKIP     │          │
-│                          │   LOCKED; stale locks >15min     │          │
+│                          │   LOCKED; stale locks >25min     │          │
 │                          │   auto-reclaimed; dedupe via     │          │
 │                          │   ux_publish_queue_active_target │          │
-│                          │   + already-published guard)     │          │
+│                          │   + already-published guard;     │          │
+│                          │   quality gate bounded 300s —    │          │
+│                          │   timeout defers target +15min  │          │
+│                          │   instead of dying locked;      │          │
+│                          │   LinkedIn sidecar dead session │          │
+│                          │   auto-reauths (SMS) + persists │          │
+│                          │   storage_state pre-publish)    │          │
 │ check-scheduled-posts    │ publishing.check_scheduled_posts│ 60s      │
 │ cleanup-publish-queue    │ publishing.cleanup_publish_queue│ Sun 03:00│
 │ sync-analytics           │ analytics.sync_all_analytics   │ 1800s    │

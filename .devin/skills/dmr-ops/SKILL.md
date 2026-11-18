@@ -21,6 +21,19 @@ probes each loaded model with a real chat call and reports
 - `ai/smollm3` → Timeout
 - `ai/smollm2-vllm` → HTTPError
 
+## Corrupted model stubs
+
+An interrupted `docker model pull` leaves a row that `docker model ls`
+lists normally but `inspect` shows `created` at epoch (0001-01-01) with
+empty parameters — the engine **hangs forever** loading it ("DMR runner
+load failed … healing GPU state" loop), which once parked the publish
+queue's quality gate until the soft limit orphaned the row.
+
+```bash
+dmr_doctor.py --stubs       # flag corrupted entries
+dmr_doctor.py --fix-stubs   # rm + re-pull each stub
+```
+
 ## Note on call_dmr_chat
 
 `call_dmr_chat(model_override="ai/smollm2")` still hangs — the service's
