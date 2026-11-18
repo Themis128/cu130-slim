@@ -3692,3 +3692,33 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       surface real grant state on next sync.
 - [ ] Optional: LinkedIn Advertising API Standard Tier application
       after Dev Tier proves out (separate review).
+
+## 2026-11-18 — Stack outage postmortem: deleted containers + .env bind-mount break (Devin)
+
+- [x] Root cause chain: compose-up recreated social stack after containers
+      were deleted; DB had already been stamped alembic `d4e5f6a7b8c9`
+      (inbox_snapshots, lives on PR #2351 / feat/funnel-reports) while the
+      migration file existed only as an UNTRACKED copy in this checkout —
+      social-api crash-looped "Can't locate revision" until the file was
+      present in the bind-mounted /app/alembic.
+- [ ] FOLLOW-UP: untracked `alembic/versions/d4e5f6a7b8c9_add_inbox_snapshots.py`
+      in this checkout is byte-identical to the feat/funnel-reports version.
+      KEEP it until PR #2351 merges (removing it re-breaks alembic), then
+      `rm` it before `git pull` or the merge refuses on untracked-file
+      overwrite. DB is already at head=d4e5f6a7b8c9.
+- [x] `.env` single-file bind mount (`./.env:/app/.env:ro`) breaks whenever
+      .env is atomically replaced (infisical/env sync rewrote it 01:55) —
+      container then fails OCI mount "no such file or directory" Exited(127)
+      until force-recreated. Recurred twice tonight.
+- [ ] FOLLOW-UP: durable fix = stop bind-mounting .env as a file (use
+      env_file: or a synced directory mount), or make the .env writer
+      update in place instead of atomic rename. Affects every service with
+      the `./.env:/app/.env` mount.
+- [x] home-ops watchdog gap fixed + pushed (de637c0): deleted containers
+      have no compose label to inspect — heal_container now falls back to
+      matching container_name in `docker compose config --format json`
+      (handles name!=service: social-api-gateway->api-gateway,
+      social-cloudflared->cloudflared). Unknown names still alert manual.
+- [x] LinkedIn OAuth re-consent completed + verified live (token-inspect:
+      active, full 22-scope union, exp 2027-01). Personal + cloudless-gr
+      org rows both healthy.
