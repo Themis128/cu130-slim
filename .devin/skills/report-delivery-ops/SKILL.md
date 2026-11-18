@@ -74,3 +74,12 @@ morning batch, midday stragglers, and an evening final pass.
 - Stale `nbreport:running:<nb>:<day>` Redis keys wedge re-runs after a
   worker death — PR #2039 added owner/liveness steal; verify the lock
   before clearing manually (`nbreport:done:*` marks delivered).
+- **Dedupe fail-closed + bounded self-heal** (PR #2362): when the Redis
+  dedupe lock is unavailable, `send=True` report tasks skip delivery
+  (a duplicate email is worse than a missed one) AND re-queue themselves
+  up to 6 times, 10 min apart (`_dedupe_retries` kwarg on
+  `run_lead_pulse`/`run_attribution_digest`/`run_content_weekly`/
+  `run_funnel_monthly`/`run_notebook_report`). A `dedupe-unavailable`
+  skip in logs is therefore not final — the requeued copy retries after
+  Redis recovers; only after 6 attempts does the watcher's daily resend
+  remain the last resort.

@@ -17,8 +17,39 @@ from celery import shared_task
 from celery.result import AsyncResult
 
 from app.worker._async import run_async
+from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+# Dedupe-unavailable requeue: same contract as funnel_reports — a Redis
+# outage must not consume the delivery watcher's only daily resend.
+_DEDUPE_RETRY_MAX = 6
+_DEDUPE_RETRY_COUNTDOWN = 600  # 10 min — ~1h of outage coverage per attempt chain
+_TASK_NAME = "app.worker.tasks.notebook_reports.run_notebook_report"
+
+
+def _requeue_for_dedupe(notebook: str, parameters: dict | None, send: bool,
+                        fallback_to_code: bool, retries: int) -> None:
+    """Re-queue this report a bounded number of times when the dedupe lock
+    is unavailable, so a transient Redis outage self-heals instead of
+    burning the watcher's single daily resend."""
+    if retries >= _DEDUPE_RETRY_MAX:
+        return
+    try:
+        celery_app.send_task(
+            _TASK_NAME,
+            kwargs={
+                "notebook": notebook,
+                "parameters": parameters,
+                "send": send,
+                "fallback_to_code": fallback_to_code,
+                "_dedupe_retries": retries + 1,
+            },
+            countdown=_DEDUPE_RETRY_COUNTDOWN,
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _fallback_strategy(parameters: dict[str, Any], *, send: bool) -> Any:
@@ -52,7 +83,10 @@ _CODE_FALLBACKS = {
 def _report_lock() -> Any:
     """Sync Redis client for the same-day report dedupe lock.
 
-    Fail-open: a Redis outage must never block report delivery.
+    Fail-closed for sends: a duplicate report email is worse than a missed
+    one, so ``send=True`` skips delivery when the lock is unavailable and
+    re-queues a bounded number of times (``_requeue_for_dedupe``). Renders
+    (``send=False``) still proceed without it.
     """
     try:
         import redis
@@ -91,6 +125,7 @@ def run_notebook_report(
     *,
     send: bool = True,
     fallback_to_code: bool = True,
+    _dedupe_retries: int = 0,
 ) -> dict[str, Any]:
     """Execute ``reports/<notebook>.ipynb`` and email the rendered report.
 
@@ -103,6 +138,10 @@ def run_notebook_report(
     (notebook, Athens date): ``running`` blocks concurrent duplicates for
     3h, ``done`` (set only after ≥1 email actually sent) blocks same-day
     reruns for 20h. Failures release ``running`` so retries stay possible.
+    When Redis itself is unavailable the send path fails closed
+    (``dedupe-unavailable``) and re-queues itself up to
+    ``_DEDUPE_RETRY_MAX`` times, 10 min apart, so a transient outage does
+    not consume the delivery watcher's only daily resend.
 
     The ``running`` value is the owning task id. A worker killed mid-run
     (deploy, Docker restart, OOM) can never reach the ``finally`` that
@@ -120,7 +159,9 @@ def run_notebook_report(
     r = _report_lock()
     if send and r is None:
         # Dedupe unavailable — a report email is worth less than a duplicate;
-        # the delivery watcher resends once Redis recovers.
+        # re-queue a bounded number of times so a Redis outage doesn't
+        # consume the watcher's only daily resend.
+        _requeue_for_dedupe(notebook, parameters, send, fallback_to_code, _dedupe_retries)
         return {"notebook": notebook, "executed": False, "skipped": "dedupe-unavailable"}
     day = datetime.now(ZoneInfo("Europe/Athens")).date().isoformat()
     done_key = f"nbreport:done:{notebook}:{day}"
@@ -144,6 +185,7 @@ def run_notebook_report(
         except Exception:  # noqa: BLE001
             logger.warning("report dedupe lock check failed — %s", "skipping send" if send else "proceeding without it")
             if send:
+                _requeue_for_dedupe(notebook, parameters, send, fallback_to_code, _dedupe_retries)
                 return {"notebook": notebook, "executed": False, "skipped": "dedupe-unavailable"}
             r = None
 

@@ -530,7 +530,7 @@ def test_task_wrappers_map_keys(monkeypatch):
     import app.worker.tasks.funnel_reports as T
 
     seen = []
-    monkeypatch.setattr(T, "_execute", lambda k, s: seen.append((k, s)) or {"k": k})
+    monkeypatch.setattr(T, "_execute", lambda k, s, r=0: seen.append((k, s)) or {"k": k})
     assert T.run_lead_pulse.run(send=False)["k"] == "lead_pulse"
     assert T.run_attribution_digest.run(send=True)["k"] == "attribution"
     assert T.run_content_weekly.run(send=False)["k"] == "content_weekly"
