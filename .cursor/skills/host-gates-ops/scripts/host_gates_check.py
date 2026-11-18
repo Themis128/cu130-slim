@@ -69,15 +69,54 @@ def win(cmd, timeout=25):
               timeout=timeout)
 
 
+_WIN_BATCH = None
+
+
+def win_batch():
+    """One powershell.exe spawn returning every always-on Windows probe as
+    JSON. The */10min cron used to spawn powershell.exe 3-4x per pass
+    (~500 console flashes/day); batching cuts it to 1. Returns {} on
+    interop failure — callers degrade exactly like a failed win() probe."""
+    global _WIN_BATCH
+    if _WIN_BATCH is not None:
+        return _WIN_BATCH
+    # NB: win() runs through bash double-quotes — every `$` must be escaped
+    # as `\$` or bash expands it before powershell sees the script.
+    payload = (
+        "\\$o = @{"
+        " ram = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory)"
+        ".AvailableMBytes;"
+        " task = ((schtasks /query /tn ChromeDebug /fo list /v 2>\\$null |"
+        " Select-String 'Status|Last Run|Next Run') -join ' | ');"
+        " proc = ((Get-Process -ErrorAction SilentlyContinue |"
+        " Where-Object Name -match 'docker' | Select-Object -First 1"
+        " -ExpandProperty Name));"
+        " wsl = ((wsl.exe -l -v 2>\\$null) -join ' | ')"
+        "}; \\$o | ConvertTo-Json -Compress")
+    out = win(payload, timeout=40)
+    try:
+        _WIN_BATCH = json.loads(out) if out.startswith("{") else {}
+    except Exception:
+        _WIN_BATCH = {}
+    return _WIN_BATCH
+
+
 def check_ram():
     mb = mem_available_mb()
     # Win32_OperatingSystem.FreePhysicalMemory excludes standby cache and
     # reads ~0 under normal pressure; AvailableMBytes is the number Task
     # Manager calls "available" — the real flap predictor.
-    host = win("(Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory)"
-               ".AvailableMBytes", timeout=15)
+    host = str(win_batch().get("ram", ""))
     m = re.search(r"(\d+)", host)
     host_gb = round(int(m.group(1)) / 1024, 1) if m else None
+    if m:
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(os.path.join(STATE_DIR, "host-ram-available-mb"),
+                      "w") as fh:
+                fh.write(m.group(1))
+        except Exception:
+            pass
     wsl_gb = round(mb / 1024, 1) if mb >= 0 else None
     degraded = ((mb >= 0 and mb < RAM_WARN_MB) or
                 (host_gb is not None and host_gb < 1.0))
@@ -92,7 +131,7 @@ def check_ram():
 
 def check_docker():
     ok = docker_ok()
-    distro = sh("wsl.exe -l -v 2>/dev/null | tr -d '\\0'", timeout=15)
+    distro = str(win_batch().get("wsl", "")) or "interop-dead"
     dd_dead = "docker-desktop" in distro and not ok
     return {
         "ok": ok and not dd_dead,
@@ -105,8 +144,12 @@ def check_docker():
 
 
 def check_chromedebug_task():
-    out = win("schtasks /query /tn ChromeDebug /fo list /v | "
-              "Select-String 'Status|Last Run|Next Run'", timeout=20)
+    out = str(win_batch().get("task", ""))
+    if not out:
+        # Empty probe output is a batch/interop flake, not a task failure —
+        # report unknown rather than a false degraded (seen 2026-11-17:
+        # empty detail warned while the task was Ready/Result 0).
+        return {"ok": None, "detail": "probe empty", "raw": ""}
     if out.startswith("ERR:") or "Cannot find" in out or "ERROR" in out:
         return {"ok": None, "detail": f"task query failed: {out[:120]}",
                 "raw": out[:200]}
@@ -122,12 +165,16 @@ def check_docker_desktop_proc():
     # expanded by bash before powershell sees it (bit us 2026-11-13: this
     # probe returned "NONE found" while Docker Desktop was running). Use
     # simplified Where-Object syntax (no scriptblock, no $_) instead.
-    out = win("Get-Process -ErrorAction SilentlyContinue | "
-              "Where-Object Name -match 'docker' | "
-              "Select-Object -First 1 -ExpandProperty Name",
-              timeout=15)
-    if out.startswith("ERR:"):
-        return {"ok": None, "detail": f"probe failed: {out[:100]}"}
+    out = str(win_batch().get("proc", ""))
+    if not out:
+        # Interop/batch flake, not a process death: a responsive engine
+        # means the DD backend is alive (it hosts the Linux engine).
+        # Only report unknown when the engine is also unreachable.
+        if docker_ok():
+            return {"ok": True,
+                    "detail": "engine responsive; proc probe unavailable "
+                              "(interop dead)"}
+        return {"ok": None, "detail": "probe failed: interop dead"}
     m = re.search(r"(com\.docker\.\S+|Docker Desktop|docker(?:-\S+)?)",
                   out, re.I)
     alive = bool(m)
