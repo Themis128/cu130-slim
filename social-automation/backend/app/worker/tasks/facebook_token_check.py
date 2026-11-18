@@ -77,8 +77,11 @@ async def _probe_token(acct: SocialAccount, token: str, app_token: str) -> tuple
         body = r.json()
         d = body.get("data")
         if d is None:
-            err = (body.get("error") or {}).get("code")
-            return (False if err in DEAD_TOKEN_CODES else None), 0
+            # A top-level error here is about the app token or the request
+            # itself (e.g. rotated FACEBOOK_CLIENT_*), not the input token —
+            # an invalid input_token comes back as data.is_valid=false.
+            # Flagging it dead would mass-alert every FB account.
+            return None, 0
         return bool(d.get("is_valid")), int(d.get("expires_at") or 0)
 
 

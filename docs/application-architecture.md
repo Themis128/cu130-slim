@@ -984,6 +984,23 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+The worker fleet is five queue-dedicated Celery workers sharing one image
+and env (the `x-worker-env` compose anchor):
+
+| Worker | Queue | Purpose |
+|---|---|---|
+| `social-worker-publishing` | `publishing` | `process_publish_queue`, `process_publishing`, `check_scheduled`, `publish_retry` |
+| `social-worker-media` | `media` | render/media generation tasks |
+| `social-worker-default` | `default` | general beat + ad-hoc tasks |
+| `social-worker-messenger` | `messenger` | DM/inbox polling and replies |
+| `social-worker-meta` | `meta` | Meta-platform blast-radius isolation (`process_meta_publish_queue`, `reconcile_instagram_publish`, `check_facebook_tokens`) |
+
+All five are listed in `CORE_RESTART` in `scripts/master-deploy-watch.sh`
+and in `SERVICES` in `.devin/skills/slack-ops/scripts/slack_token_sync.py`,
+so backend deploys and Slack-token rotation reach every worker. Restart
+all five plus `social-api` after changes to `app/worker/`,
+`app/services/publishing.py`, or compose env.
+
 ### Infrastructure
 
 ```

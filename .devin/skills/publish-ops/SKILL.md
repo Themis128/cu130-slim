@@ -93,7 +93,7 @@ that row is the tracked one. The tool marks deleted rows
 post — it is NOT lost. Triage before touching it:
 
 ```bash
-docker exec social-worker-publishing python - <<'PY'
+docker exec -i social-worker-publishing python - <<'PY'
 from app.worker.celery_app import celery_app
 import time
 for w, tasks in (celery_app.control.inspect().active() or {}).items():
@@ -116,7 +116,9 @@ Then, in order:
    (DMR cold-start ~minutes, FB reel processing poll). Wait; the
    `external-call-budget` skill lists every call's bound.
 3. **Task gone but row still `publishing`** — stale state after a worker
-   kill; the retry sweep (`publish_retry` beat) reclaims it, or `unstick`.
+   kill; the next `process_publish_queue` run reclaims the stale lock
+   (>15 min), or `unstick`. `publish_retry` only retries `failed`
+   targets — it does not reclaim `publishing` rows.
 4. **Task failed with a real error** — read it, then classify per the
    signature runbook below.
 
