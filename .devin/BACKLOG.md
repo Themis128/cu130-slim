@@ -3740,3 +3740,30 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 - [x] LinkedIn OAuth re-consent completed + verified live (token-inspect:
       active, full 22-scope union, exp 2027-01). Personal + cloudless-gr
       org rows both healthy.
+
+## 2026-11-18 (eve) — Report dedupe fail-closed + ops_health queue stall (Devin)
+
+- [x] Duplicate report emails root-caused: during the ~13:00-14:20Z
+      compose flap (fsbridge "not a directory" on docker.sock mounts,
+      mass exited/created, watchdog recreate failures) lead_pulse +
+      monetization_daily each emailed TWICE ~3-5s apart — verified via
+      distinct Postfix queue IDs + different MIME boundaries in the
+      mailbox (not transport dup). ops_health beat task dispatched
+      10:05 sat unconsumed ~6h, self-delivered 16:21 when workers
+      stabilized.
+- [x] Fix shipped (PR #2362, auto-merge armed): funnel_reports dedupe is
+      now an atomic SET NX claim (was racy get→set, ignored nx result);
+      BOTH report paths fail CLOSED for send=True when Redis/lock
+      unavailable (was fail-open — the exact churn window that
+      duplicated). send=False renders unaffected. notebook fallback no
+      longer marks `delivered` when the code fallback emailed 0 teams
+      (_fallback_delivered reads emailed counts) — previously the
+      done-key suppressed the watcher resend and lost the day's report.
+- [ ] WATCH: if tomorrow's batch still duplicates, look at celery-beat
+      overlap (two beats during recreate windows dispatch the same
+      entry twice) — the worker-side dedupe now covers it, but a
+      single-writer beat would remove the class entirely.
+- [ ] The 15:32/16:06 duplicate pairs came from the SAME container IP —
+      consistent with redelivery-after-kill (acks_late +
+      reject_on_worker_lost) racing a Redis flap, not two beats. If it
+      recurs, capture `docker events` during the window.
