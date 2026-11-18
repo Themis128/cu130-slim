@@ -1066,6 +1066,9 @@ async def test_li_sidecar_org_and_personal(monkeypatch, tmp_path):
         async def set_session(self, storage):
             calls.append(("session",))
 
+        async def check_session(self):
+            return {"logged_in": True}
+
         async def company_post_image(self, vanity, images, message):
             calls.append(("org-img", vanity, len(images)))
             return {"url": "https://li/co/1", "post_id": "c1"}
@@ -1108,6 +1111,9 @@ async def test_li_sidecar_org_no_vanity(monkeypatch):
     class _Sidecar:
         async def set_session(self, storage):
             return {}
+
+        async def check_session(self):
+            return {"logged_in": True}
 
     monkeypatch.setattr(P, "LinkedInSidecarClient", _Sidecar)
     org = _account("linkedin", account_type="organization", username=None, meta_data={"browser_storage_state": {"s": 1}})
