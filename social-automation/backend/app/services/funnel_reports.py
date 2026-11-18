@@ -406,7 +406,7 @@ async def build_content_weekly() -> FunnelReport:
     plat: dict[str, list[int]] = {}
     for r in cur:
         p = prev_map.get(_key(r))
-        prev_eng = int(p[4]) if p else 0
+        prev_eng = int(p[3]) if p else 0
         totals = plat.setdefault(str(r[1]), [0, 0])
         totals[0] += int(r[3] or 0)
         totals[1] += int(r[2] or 0)
