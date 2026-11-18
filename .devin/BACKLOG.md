@@ -3824,13 +3824,13 @@ All 8 ranked lanes implemented on master pending this PR's merge:
 
 ## 2026-11-18 (night) — Phone ADB lane live + @t_baltzakis professional conversion; IG account-truth resolved (Devin)
 
-- [x] Phone ADB re-established: wireless debugging is TLS-pairing, NOT
-      :5555 — `adb connect 100.84.31.85:5555`/`192.168.1.77:5555` refused.
-      `adb mdns services` showed `_adb-tls-connect._tcp` at
-      `192.168.1.77:46439`; `adb connect 192.168.1.77:46439` works on BOTH
-      WSL-native `~/.local/bin/adb` and Windows adb.exe (two adb servers,
-      same device — fine). Port rotates per wireless-debugging session;
-      always re-run `adb mdns services` if connect fails.
+- [x] Phone ADB re-established: SUPERSEDED same night — `adb tcpip 5555`
+      switched the phone to persistent TCP mode; `192.168.1.77:5555` (and
+      `100.84.31.85:5555` over tailnet) now connects from WSL-native adb
+      and inside containers via `/run/li-adb-keys`. The TLS-pairing lane
+      below still applies if `:5555` refuses after a reboot:
+      `adb mdns services` → `_adb-tls-connect._tcp` at `192.168.1.77:46439`
+      (port rotates per wireless-debugging session).
 - [x] @t_baltzakis IG converted Personal(private) → Business(professional,
       PUBLIC) entirely via ADB uiautomator: profile → Options → "Profile
       type and tools" → Switch to professional → category search
