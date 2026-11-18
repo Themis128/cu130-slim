@@ -740,7 +740,7 @@ async def _process_publish_queue_async(
                         _enforce_publish_quality(post, account, db),
                         timeout=_GATE_TIMEOUT_S,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Gate wedged (DMR cold-load loop, dead model entry) —
                     # defer the target rather than hang until the soft
                     # limit kills the batch and orphans the row.
