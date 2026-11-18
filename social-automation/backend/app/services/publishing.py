@@ -1952,7 +1952,13 @@ async def _publish_linkedin_via_sidecar(
 
         try:
             username, password = await resolve_linkedin_credentials(str(account.id))
-            reauth = await run_reauth(username, password, method="sms", auto_sms=True)
+            # Bound well under the worker's 120s per-item deadline: full SMS
+            # recovery can take ~240s — cancel early and soft-defer instead
+            # of burning an attempt on the deadline kill.
+            reauth = await asyncio.wait_for(
+                run_reauth(username, password, method="sms", auto_sms=True),
+                timeout=90.0,
+            )
         except Exception as exc:
             return PublishResult(
                 success=False,
@@ -1964,6 +1970,38 @@ async def _publish_linkedin_via_sidecar(
                 success=False,
                 retry_after=datetime.now(UTC) + timedelta(minutes=30),
                 error="LinkedIn session dead — reauth needs a human step (2FA/manual login)",
+            )
+        # Identity guard: global creds could have signed in a DIFFERENT
+        # person than the account being published. Verify the logged-in
+        # profile against the account's person identity before persisting
+        # cookies and posting under it.
+        try:
+            profile = await client.get_profile()
+        except LinkedInSidecarError:
+            profile = {}
+        expected_ids = {
+            str(x).rsplit(":", 1)[-1]
+            for x in (
+                getattr(account, "account_id", None),
+                (account.meta_data or {}).get("author_urn"),
+            )
+            if x
+        }
+        actual_ids = {
+            str(x).rsplit(":", 1)[-1]
+            for x in (
+                profile.get("urn"),
+                profile.get("id"),
+                profile.get("vanity_name") or profile.get("vanityName"),
+            )
+            if x
+        }
+        person_acct = (getattr(account, "account_type", "person") or "person") == "person"
+        if person_acct and expected_ids and actual_ids and not (expected_ids & actual_ids):
+            return PublishResult(
+                success=False,
+                retry_after=datetime.now(UTC) + timedelta(minutes=30),
+                error="Reauth logged into a different LinkedIn identity — refusing to post under it",
             )
         fresh = (reauth.get("detail") or {}).get("storage_state")
         if fresh:
@@ -2027,10 +2065,11 @@ async def _publish_linkedin(
     storage_paths: list[str] | None = None,
 ) -> PublishResult:
     # If we have a browser session, try the sidecar first (supports personal + company)
+    sidecar_res: PublishResult | None = None
     if _has_linkedin_browser_session(account):
-        result = await _publish_linkedin_via_sidecar(account, text, post, media_paths)
-        if result.success:
-            return result
+        sidecar_res = await _publish_linkedin_via_sidecar(account, text, post, media_paths)
+        if sidecar_res.success:
+            return sidecar_res
         # If sidecar fails, fall through to official API below
 
     client = LinkedInAPIClient(access_token=access_token)
@@ -2102,7 +2141,13 @@ async def _publish_linkedin(
             container_urn=group_urn,
         )
 
-    return PublishResult(**dataclasses.asdict(result))
+    out = PublishResult(**dataclasses.asdict(result))
+    # Preserve a soft deferral earned on the sidecar lane (dead session,
+    # reauth in flight): when the API fallback also fails, carry its
+    # retry_after so the queue re-queues instead of burning attempts.
+    if not out.success and out.retry_after is None and sidecar_res is not None:
+        out.retry_after = sidecar_res.retry_after
+    return out
 
 
 # ── Facebook ──────────────────────────────────────────────────────────────────

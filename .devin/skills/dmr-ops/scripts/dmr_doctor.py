@@ -149,13 +149,16 @@ def _inspect(name: str) -> dict | None:
         return None
 
 
-def _is_stub(info: dict | None) -> bool:
+def _is_stub(info: dict | None) -> bool | None:
     """Corrupted model stub: a pull interrupted mid-write leaves a row whose
     inspect shows epoch/zero created and empty params — the engine then hangs
     loading it (the 2026-11-17 'DMR runner load failed … healing GPU state'
-    wedge that parked the publish queue's quality gate)."""
+    wedge that parked the publish queue's quality gate).
+    Returns None when inspection itself failed — 'unknown' is never deleted:
+    a failed inspect on a healthy model must not cost a re-pull (or worse,
+    lose the model when the pull fails)."""
     if not isinstance(info, dict):
-        return True
+        return None
     created = str(info.get("created") or "")
     if not created or created.startswith(("0001-01-01", "1970-01-01")):
         return True
@@ -166,10 +169,20 @@ def _is_stub(info: dict | None) -> bool:
 
 
 def stub_check(fix: bool = False) -> dict:
-    """Report (and optionally re-pull) corrupted model stubs."""
+    """Report (and optionally re-pull) corrupted model stubs. Only
+    inspect-verified stubs are removed — 'unknown' entries are reported,
+    never touched."""
     names = _list_models()
-    bad = [n for n in names if _is_stub(_inspect(n))]
+    bad, unknown = [], []
+    for n in names:
+        verdict = _is_stub(_inspect(n))
+        if verdict is True:
+            bad.append(n)
+        elif verdict is None:
+            unknown.append(n)
     out = {"models": names, "stubs": bad}
+    if unknown:
+        out["unknown"] = unknown
     if fix:
         fixed = []
         for n in bad:
