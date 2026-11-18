@@ -14,6 +14,19 @@ from app.worker.celery_app import celery_app
 celery_app.set_default()
 celery_app.set_current()
 
+# Dedupe-unavailable requeue: a Redis outage must not silently consume the
+# delivery watcher's only daily resend — re-queue the same report a bounded
+# number of times so it self-heals once Redis recovers.
+_DEDUPE_RETRY_MAX = 6
+_DEDUPE_RETRY_COUNTDOWN = 600  # 10 min — ~1h of outage coverage per attempt chain
+
+_TASK_NAMES = {
+    "lead_pulse": "app.worker.tasks.funnel_reports.run_lead_pulse",
+    "attribution": "app.worker.tasks.funnel_reports.run_attribution_digest",
+    "content_weekly": "app.worker.tasks.funnel_reports.run_content_weekly",
+    "funnel_monthly": "app.worker.tasks.funnel_reports.run_funnel_monthly",
+}
+
 
 def _dedupe_lock(key: str) -> Any:
     """Redis same-day lock — one delivery per (report, Athens date)."""
@@ -49,7 +62,7 @@ async def _run_report(key: str, send: bool) -> dict[str, Any]:
     }
 
 
-def _execute(key: str, send: bool) -> dict[str, Any]:
+def _execute(key: str, send: bool, _dedupe_retries: int = 0) -> dict[str, Any]:
     r, lock_key = _dedupe_lock(key)
     claimed = False
     if r is not None and lock_key:
@@ -64,8 +77,18 @@ def _execute(key: str, send: bool) -> dict[str, Any]:
         if r is not None and lock_key:
             return {"report": key, "skipped": "already-delivered-today"}
         if send:
-            # Dedupe unavailable — never risk a duplicate email; the
-            # delivery watcher resends once Redis recovers.
+            # Dedupe unavailable — never risk a duplicate email, but don't
+            # let a transient Redis outage consume the watcher's only daily
+            # resend either: re-queue a bounded number of times.
+            if _dedupe_retries < _DEDUPE_RETRY_MAX:
+                try:
+                    celery_app.send_task(
+                        _TASK_NAMES[key],
+                        kwargs={"send": True, "_dedupe_retries": _dedupe_retries + 1},
+                        countdown=_DEDUPE_RETRY_COUNTDOWN,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             return {"report": key, "skipped": "dedupe-unavailable"}
     try:
         result = run_async(_run_report(key, send))
@@ -85,20 +108,20 @@ def _execute(key: str, send: bool) -> dict[str, Any]:
 
 
 @shared_task(name="app.worker.tasks.funnel_reports.run_lead_pulse")
-def run_lead_pulse(send: bool = True) -> dict[str, Any]:
-    return _execute("lead_pulse", send)
+def run_lead_pulse(send: bool = True, _dedupe_retries: int = 0) -> dict[str, Any]:
+    return _execute("lead_pulse", send, _dedupe_retries)
 
 
 @shared_task(name="app.worker.tasks.funnel_reports.run_attribution_digest")
-def run_attribution_digest(send: bool = True) -> dict[str, Any]:
-    return _execute("attribution", send)
+def run_attribution_digest(send: bool = True, _dedupe_retries: int = 0) -> dict[str, Any]:
+    return _execute("attribution", send, _dedupe_retries)
 
 
 @shared_task(name="app.worker.tasks.funnel_reports.run_content_weekly")
-def run_content_weekly(send: bool = True) -> dict[str, Any]:
-    return _execute("content_weekly", send)
+def run_content_weekly(send: bool = True, _dedupe_retries: int = 0) -> dict[str, Any]:
+    return _execute("content_weekly", send, _dedupe_retries)
 
 
 @shared_task(name="app.worker.tasks.funnel_reports.run_funnel_monthly")
-def run_funnel_monthly(send: bool = True) -> dict[str, Any]:
-    return _execute("funnel_monthly", send)
+def run_funnel_monthly(send: bool = True, _dedupe_retries: int = 0) -> dict[str, Any]:
+    return _execute("funnel_monthly", send, _dedupe_retries)
