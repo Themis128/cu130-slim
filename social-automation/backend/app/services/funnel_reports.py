@@ -88,7 +88,7 @@ async def _send(report: FunnelReport, *, email_to: str = "") -> FunnelReport:
             text_body=report.to_text(),
             html_body=report.to_html(),
             to_addrs=[a.strip() for a in to.split(",") if a.strip()],
-            category="report",
+            category="ops-alert",
         )
         report.emailed = True
     except Exception as exc:  # noqa: BLE001

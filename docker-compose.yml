@@ -476,6 +476,10 @@ services:
       - N8N_ERROR_SLACK_WEBHOOK_URL=${N8N_ERROR_SLACK_WEBHOOK_URL:-}
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     mem_limit: 768m
     memswap_limit: 2560m
     cpus: '3'
@@ -1217,6 +1221,10 @@ services:
     command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       social-postgres:
         condition: service_healthy
@@ -1335,6 +1343,10 @@ services:
     volumes: *worker-volumes
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
     # conc=3: publishing is I/O-bound (LinkedIn/Twitter/Meta API calls), low
@@ -1380,6 +1392,10 @@ services:
     volumes: *worker-volumes
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
     # conc=2: media tasks are CPU/RAM-heavy (Pillow, AI calls).  max-tasks-per-
@@ -1427,6 +1443,10 @@ services:
     volumes: *worker-volumes
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
     # -Q default,celery catches both routed "default" tasks and any unrouted
@@ -1471,6 +1491,10 @@ services:
     volumes: *worker-volumes
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
     # Dedicated queue for Messenger bot tasks: personal Messenger polling
@@ -1516,6 +1540,10 @@ services:
     volumes: *worker-volumes
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
     # Dedicated `meta` queue lane: facebook/instagram/threads publish sweep
@@ -1564,6 +1592,10 @@ services:
       - ./social-automation/backend/app:/app/app
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     command: celery -A app.worker.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
     stop_grace_period: 90s
     depends_on:
@@ -2111,6 +2143,10 @@ services:
       - TZ=Europe/Athens
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9230/health || exit 1"]
       interval: 30s
@@ -2245,6 +2281,10 @@ services:
       - /run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     mem_limit: 96m
     memswap_limit: 192m
     cpus: '1'
@@ -2286,6 +2326,10 @@ services:
       - "12436:12436"
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     healthcheck:
       test:
         [
@@ -2332,6 +2376,10 @@ services:
     # semantic vision check silently skip).
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     <<: *public-dns
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8888/api || exit 1"]

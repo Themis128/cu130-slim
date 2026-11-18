@@ -539,7 +539,7 @@ async def test_send_delivers_and_marks_emailed(monkeypatch):
     out = await FR._send(r, email_to="override@x.y")
     assert out.emailed is True
     assert sent.await_args.kwargs["to_addrs"] == ["override@x.y"]
-    assert sent.await_args.kwargs["category"] == "report"
+    assert sent.await_args.kwargs["category"] == "ops-alert"
 
 
 @pytest.mark.asyncio
