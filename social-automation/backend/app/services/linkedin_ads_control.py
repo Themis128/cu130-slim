@@ -45,13 +45,7 @@ async def _api_token() -> str:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        acc = (
-            await db.execute(
-                select(SocialAccount)
-                .where(SocialAccount.platform == "linkedin", SocialAccount.status == "active")
-                .limit(1)
-            )
-        ).scalars().first()
+        acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin", SocialAccount.status == "active").limit(1))).scalars().first()
     if not acc or not acc.access_token_enc:
         raise RuntimeError("no active LinkedIn account token")
     return decrypt_token(bytes(acc.access_token_enc))

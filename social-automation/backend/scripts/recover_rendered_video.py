@@ -74,15 +74,11 @@ _API_BASE = os.environ.get("SOCIAL_API_URL", "http://social-api:8000")
 async def _resolve_post(db, prefix: str) -> Post:
     """Exactly one post must match — a short/shared prefix must never
     silently pick the wrong row."""
-    rows = (
-        await db.execute(select(Post).where(cast(Post.id, String).like(f"{prefix}%")))
-    ).scalars().all()
+    rows = (await db.execute(select(Post).where(cast(Post.id, String).like(f"{prefix}%")))).scalars().all()
     if not rows:
         raise SystemExit(f"no post matching {prefix!r}")
     if len(rows) > 1:
-        raise SystemExit(
-            f"{len(rows)} posts match {prefix!r} ({', '.join(str(p.id) for p in rows[:5])}) — use a longer prefix"
-        )
+        raise SystemExit(f"{len(rows)} posts match {prefix!r} ({', '.join(str(p.id) for p in rows[:5])}) — use a longer prefix")
     return rows[0]
 
 
@@ -118,7 +114,9 @@ def _probe(path: str) -> tuple[int | None, int | None, float | None, bool]:
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         info = json.loads(out.stdout or "{}")
         vstream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
@@ -163,8 +161,7 @@ async def _recover(args: argparse.Namespace) -> None:
     print(f"file {path}: {len(data)} bytes  {width}x{height}  {duration}s  audio={'yes' if has_audio else 'NO'}")
     if not has_audio and not args.allow_silent:
         raise SystemExit(
-            "render has no audio stream — Wan2.2 frame-combine output is silent. "
-            "Mux audio first, or pass --allow-silent if the publish path adds music."
+            "render has no audio stream — Wan2.2 frame-combine output is silent. Mux audio first, or pass --allow-silent if the publish path adds music."
         )
 
     async with async_session_maker() as db:
@@ -209,9 +206,7 @@ async def _recover(args: argparse.Namespace) -> None:
             asset_id = asset.id
             print(f"asset {asset_id} saved via --direct (source={asset.source})")
         else:
-            asset_id = await asyncio.to_thread(
-                _upload_via_api, team_id, user_id, path, data, args
-            )
+            asset_id = await asyncio.to_thread(_upload_via_api, team_id, user_id, path, data, args)
             # Annotate provenance on the API-created row — creation itself
             # already went through the platform path (probe/quality/phash).
             asset = await db.get(MediaAsset, uuid.UUID(asset_id))
@@ -229,27 +224,18 @@ async def _recover(args: argparse.Namespace) -> None:
             # Re-read the row under a lock: the asset save just committed,
             # and materialize_report_videos may have attached newer media in
             # the meantime — refuse to overwrite it.
-            fresh = (
-                await db.execute(
-                    select(Post)
-                    .where(Post.id == post.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).scalars().first()
+            fresh = (await db.execute(select(Post).where(Post.id == post.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
             if fresh is None:
                 raise SystemExit(f"post {post.id} vanished during recovery — asset {asset_id} saved unattached")
             if fresh.status in (PostStatus.PUBLISHING, PostStatus.PUBLISHED):
                 raise SystemExit(
-                    f"post {fresh.id} is {fresh.status.value} — refusing to rewrite "
-                    f"media on a post that already shipped (asset {asset_id} saved unattached)"
+                    f"post {fresh.id} is {fresh.status.value} — refusing to rewrite media on a post that already shipped (asset {asset_id} saved unattached)"
                 )
             fm = dict(fresh.meta_data or {})
             existing = fm.get("video_asset_id")
             if existing and str(existing) != str(asset_id):
                 raise SystemExit(
-                    f"post {fresh.id} already has video_asset_id={existing} — "
-                    f"refusing to overwrite newer media (asset {asset_id} saved unattached)"
+                    f"post {fresh.id} already has video_asset_id={existing} — refusing to overwrite newer media (asset {asset_id} saved unattached)"
                 )
             for k in _PENDING_KEYS:
                 fm.pop(k, None)
@@ -279,9 +265,11 @@ def main() -> None:
     ap.add_argument("--alt-text"), ap.add_argument("--tags", help="comma-separated")
     ap.add_argument("--schedule", help="ISO datetime to re-slot the post (default: keep, or +2h if NULL)")
     ap.add_argument("--allow-silent", action="store_true", help="permit a render with no audio stream")
-    ap.add_argument("--direct", action="store_true",
-                    help="bypass POST /api/v1/media/upload and write via save_uploaded_media "
-                         "(escape hatch for when social-api is down); default is the platform API")
+    ap.add_argument(
+        "--direct",
+        action="store_true",
+        help="bypass POST /api/v1/media/upload and write via save_uploaded_media (escape hatch for when social-api is down); default is the platform API",
+    )
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 

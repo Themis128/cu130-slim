@@ -64,9 +64,7 @@ async def _token(account_uuid: str | None = None) -> str:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        q = select(SocialAccount).where(
-            SocialAccount.platform == "linkedin", SocialAccount.status == "active"
-        )
+        q = select(SocialAccount).where(SocialAccount.platform == "linkedin", SocialAccount.status == "active")
         if account_uuid:
             import uuid as uuid_mod
 
@@ -112,26 +110,20 @@ async def cmd_campaigns(args) -> None:
     token = await _token(args.account)
     statuses = args.status or "ACTIVE,PAUSED,DRAFT,COMPLETED"
     vals = ",".join(f"{s}" for s in statuses.split(","))
-    path = (
-        f"adAccounts/{_account_id()}/adCampaigns?q=search"
-        f"&search=(status:(values:List({vals})))&count=100"
-    )
+    path = f"adAccounts/{_account_id()}/adCampaigns?q=search&search=(status:(values:List({vals})))&count=100"
     r = await _req("GET", path, token)
     if r.status_code != 200:
         _show(r)
         return
     for c in r.json().get("elements", []):
-        print(
-            f"{c.get('id')}\t{(c.get('status') or '?'):10}\t{(c.get('name') or '')[:70]}"
-        )
+        print(f"{c.get('id')}\t{(c.get('status') or '?'):10}\t{(c.get('name') or '')[:70]}")
 
 
 async def cmd_groups(args) -> None:
     token = await _token(args.account)
     r = await _req(
         "GET",
-        f"adAccounts/{_account_id()}/adCampaignGroups?q=search"
-        "&search=(status:(values:List(ACTIVE,PAUSED,DRAFT)))&count=100",
+        f"adAccounts/{_account_id()}/adCampaignGroups?q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT)))&count=100",
         token,
     )
     if r.status_code == 200:
@@ -168,8 +160,11 @@ async def cmd_create(args) -> None:
         print("DRY RUN — would POST:", json.dumps(body, indent=1))
         return
     r = await _req(
-        "POST", f"adAccounts/{acct}/adCampaigns", token,
-        restli_method="CREATE", json=body,
+        "POST",
+        f"adAccounts/{acct}/adCampaigns",
+        token,
+        restli_method="CREATE",
+        json=body,
         headers={"Content-Type": "application/json"},
     )
     print("create ->", r.status_code)
@@ -177,8 +172,7 @@ async def cmd_create(args) -> None:
     if r.status_code == 201:
         r2 = await _req(
             "GET",
-            f"adAccounts/{acct}/adCampaigns?q=search"
-            "&search=(status:(values:List(PAUSED,DRAFT)))&count=10",
+            f"adAccounts/{acct}/adCampaigns?q=search&search=(status:(values:List(PAUSED,DRAFT)))&count=10",
             token,
         )
         if r2.status_code == 200:
@@ -197,10 +191,7 @@ async def cmd_analytics(args) -> None:
     days = args.days or 30
     end = dt.datetime.now(dt.UTC).date()
     start = end - dt.timedelta(days=days)
-    dr = (
-        f"(start:(year:{start.year},month:{start.month},day:{start.day}),"
-        f"end:(year:{end.year},month:{end.month},day:{end.day}))"
-    )
+    dr = f"(start:(year:{start.year},month:{start.month},day:{start.day}),end:(year:{end.year},month:{end.month},day:{end.day}))"
     acct = urllib.parse.quote(f"urn:li:sponsoredAccount:{_account_id()}", safe="")
     path = (
         f"adAnalytics?q=analytics&pivot=CAMPAIGN&timeGranularity=ALL"
@@ -251,8 +242,7 @@ async def cmd_allowlist(args) -> None:
     acct = _account_id()
     camps_r = await _req(
         "GET",
-        f"adAccounts/{acct}/adCampaigns?q=search"
-        "&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,COMPLETED)))&count=1",
+        f"adAccounts/{acct}/adCampaigns?q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,COMPLETED)))&count=1",
         token,
     )
     if camps_r.status_code == 403:
