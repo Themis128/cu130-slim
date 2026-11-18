@@ -20,6 +20,8 @@ Commands:
     analytics [--days N]            spend/clicks/impressions per campaign
     pause <id> [--execute]          set campaign status PAUSED (dry-run default)
     resume <id> [--execute]         set campaign status ACTIVE (dry-run default)
+    create "<name>" --group <id>    create a PAUSED campaign under a group
+                                    (dry-run default; --budget/--currency)
     allowlist                       is the ad account in the app's Dev-Tier
                                     portal allowlist? (probes the write path)
     member-analytics                memberFollowersCount + memberCreatorPostAnalytics
@@ -129,10 +131,59 @@ async def cmd_groups(args) -> None:
     r = await _req(
         "GET",
         f"adAccounts/{_account_id()}/adCampaignGroups?q=search"
-        "&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,COMPLETED,ARCHIVED)))&count=100",
+        "&search=(status:(values:List(ACTIVE,PAUSED,DRAFT)))&count=100",
         token,
     )
+    if r.status_code == 200:
+        for g in r.json().get("elements", []):
+            print(f"{g.get('id')}\t{(g.get('status') or '?'):10}\t{(g.get('name') or '')[:70]}")
+    else:
+        _show(r)
+
+
+async def cmd_create(args) -> None:
+    """Create a PAUSED adCampaign under a campaign group.
+    Verified live 2026-11-18 (campaign 930234026): CREATE takes a FLAT
+    body (no patch wrapper); dailyBudget is an {amount,currencyCode}
+    object; politicalIntent enum is NOT_POLITICAL; resume to ACTIVE
+    requires dailyBudget set first."""
+    token = await _token(args.account)
+    acct = _account_id()
+    start = int(dt.datetime.now(dt.UTC).timestamp() * 1000) + 86400000
+    body = {
+        "account": f"urn:li:sponsoredAccount:{acct}",
+        "campaignGroup": f"urn:li:sponsoredCampaignGroup:{args.group}",
+        "name": args.name,
+        "type": "SPONSORED_UPDATES",
+        "status": "PAUSED",
+        "runSchedule": {"start": start, "end": start + 7 * 86400000},
+        "locale": {"country": "US", "language": "en"},
+        "offsiteDeliveryEnabled": False,
+        "politicalIntent": "NOT_POLITICAL",
+        "associatedEntity": "urn:li:organization:108614163",
+        "costType": "CPM",
+        "dailyBudget": {"amount": args.budget, "currencyCode": args.currency},
+    }
+    if not args.execute:
+        print("DRY RUN — would POST:", json.dumps(body, indent=1))
+        return
+    r = await _req(
+        "POST", f"adAccounts/{acct}/adCampaigns", token,
+        restli_method="CREATE", json=body,
+        headers={"Content-Type": "application/json"},
+    )
+    print("create ->", r.status_code)
     _show(r)
+    if r.status_code == 201:
+        r2 = await _req(
+            "GET",
+            f"adAccounts/{acct}/adCampaigns?q=search"
+            "&search=(status:(values:List(PAUSED,DRAFT)))&count=10",
+            token,
+        )
+        if r2.status_code == 200:
+            for c in r2.json().get("elements", []):
+                print(f"{c.get('id')}\t{(c.get('status') or '?'):10}\t{(c.get('name') or '')[:70]}")
 
 
 async def cmd_campaign(args) -> None:
@@ -260,6 +311,7 @@ async def _main(args) -> None:
         "analytics": cmd_analytics,
         "pause": lambda a: _set_status(a, "PAUSED"),
         "resume": lambda a: _set_status(a, "ACTIVE"),
+        "create": cmd_create,
         "allowlist": cmd_allowlist,
         "member-analytics": cmd_member_analytics,
     }[args.cmd](args)
@@ -284,6 +336,13 @@ def main() -> None:
         s.add_argument("campaign_id")
         s.add_argument("--execute", action="store_true", help="actually write (default dry-run)")
         s.add_argument("--account")
+    s = sub.add_parser("create")
+    s.add_argument("name")
+    s.add_argument("--group", required=True, help="adCampaignGroup id (see `groups`)")
+    s.add_argument("--budget", default="10.00", help="dailyBudget amount (account currency)")
+    s.add_argument("--currency", default="EUR")
+    s.add_argument("--execute", action="store_true", help="actually write (default dry-run)")
+    s.add_argument("--account")
     args = p.parse_args()
     asyncio.run(_main(args))
 
