@@ -333,3 +333,281 @@ async def test_inbox_snapshot_task_isolates_team_failure(monkeypatch):
     out = await IT._run()
     assert out["teams"] == 2
     assert all("error" in r for r in out["results"])
+
+
+# ---------------------------------------------------------------- build_* coverage
+
+
+class _Q:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+    def one(self):
+        return self._rows[0]
+
+    def scalars(self):
+        return self
+
+
+class _Sess:
+    """Fake async_session_maker: pops one canned result per execute()."""
+
+    def __init__(self, queue):
+        self._queue = queue
+
+    async def execute(self, *a, **k):
+        return _Q(self._queue.pop(0) if self._queue else [])
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _patch_fr_db(monkeypatch, results):
+    queue = list(results)
+    monkeypatch.setattr(FR, "async_session_maker", lambda: _Sess(queue))
+
+
+_INBOX = (
+    {"whatsapp": {"total": 3, "unread": 2}, "messenger": {"total": 1, "unread": 0}},
+    [{"platform": "whatsapp", "sender": "Sara", "preview": "hello?"}],
+    {"replies_measured": 2, "median_frt": "10m", "p90_frt": "1h",
+     "slowest_frt": "3h", "within_target": 2, "breaches_24h": 0,
+     "unanswered": [{"name": "Kostas", "waiting_hours": 5}]},
+)
+
+
+@pytest.mark.asyncio
+async def test_build_lead_pulse(monkeypatch):
+    _patch_fr_db(monkeypatch, [[("linkedin", 3), (None, 2)]])
+    monkeypatch.setattr(FR, "_social_leads_by_source",
+                        AsyncMock(return_value={"linkedin": 2}))
+    monkeypatch.setattr(FR, "_espo_count",
+                        AsyncMock(side_effect=[{"web": 2}, {"proposal": 1}]))
+    monkeypatch.setattr(FR, "_inbox_pulse", AsyncMock(return_value=_INBOX))
+    r = await FR.build_lead_pulse()
+    assert r.key == "lead_pulse"
+    text = r.to_text()
+    assert "SOCIALAUTO LEADS" in text and "linkedin: 2" in text
+    assert "unread conversations" in text.lower() or "Unread" in text
+    assert "Kostas" in text and "Sara" in text
+
+
+@pytest.mark.asyncio
+async def test_build_lead_pulse_espo_failure_and_empty_inbox(monkeypatch):
+    _patch_fr_db(monkeypatch, [[]])
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
+    monkeypatch.setattr(FR, "_espo_count",
+                        AsyncMock(return_value={"(query failed)": -1}))
+    monkeypatch.setattr(FR, "_inbox_pulse",
+                        AsyncMock(return_value=({}, [], {"error": "provider down"})))
+    r = await FR.build_lead_pulse()
+    text = r.to_text()
+    assert "query failed" in text
+    assert "stats unavailable" in text
+
+
+@pytest.mark.asyncio
+async def test_build_attribution(monkeypatch):
+    _patch_fr_db(monkeypatch, [
+        [("https://www.google.com/x", 10), ("linkedin", 5), (None, 3)],
+        [("cmp-a", 4), ("https://fb.com/y", 2)],
+        [("linkedin", 2), (None, 1)],
+    ])
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={"x": 4}))
+    monkeypatch.setattr(FR, "_espo_count",
+                        AsyncMock(side_effect=[{"src": 3}, {"new": 1, "won": 2}]))
+    r = await FR.build_attribution()
+    assert r.key == "attribution"
+    text = r.to_text()
+    assert "google.com" in text and "BOOKINGS BY SOURCE" in text
+
+
+@pytest.mark.asyncio
+async def test_build_content_weekly(monkeypatch):
+    sid1, sid2 = uuid.uuid4(), uuid.uuid4()
+    _patch_fr_db(monkeypatch, [
+        # current-week snapshots: post_id, platform, impressions, engagement,
+        # reach, engagement_rate, content_text
+        [("post-aaaa-1111", "linkedin", 100, 20, 80, 4.5, "hello world post"),
+         ("post-bbbb-2222", "x", 30, 5, 25, 2.0, "low imp")],
+        # previous-week snapshots
+        [("post-aaaa-1111", "linkedin", 200, 30, 150, 3.0, "hello world post")],
+        # latest follower snaps: account_id, followers, platform, username
+        [(sid1, 100, "linkedin", "user1"), (sid2, 50, "x", "user2")],
+        # older follower snaps: account_id, followers
+        [(sid1, 90), (sid2, 50)],
+    ])
+    r = await FR.build_content_weekly()
+    assert r.key == "content_weekly"
+    text = r.to_text()
+    assert "TOP POSTS" in text and "hello world post" in text
+    assert "+10" in text  # follower delta for sid1
+    assert "linkedin" in text
+
+
+@pytest.mark.asyncio
+async def test_build_funnel_monthly(monkeypatch):
+    _patch_fr_db(monkeypatch, [[(12.5, 30, 500, 2)]])
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={"li": 2}))
+    monkeypatch.setattr(FR, "_espo_count",
+                        AsyncMock(side_effect=[{"a": 1}, {"a": 2}, {"won": 1, "lost": 1}]))
+    import app.services.polar_api as polar
+    monkeypatch.setattr(polar, "polar_configured", lambda: False)
+    r = await FR.build_funnel_monthly()
+    assert r.key == "funnel_monthly"
+    text = r.to_text()
+    assert "Polar not configured" in text
+    assert "€12.50" in text
+
+
+@pytest.mark.asyncio
+async def test_build_funnel_monthly_polar_orders(monkeypatch):
+    _patch_fr_db(monkeypatch, [[(0.0, 0, 0, 0)]])
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(return_value={}))
+    import app.services.polar_api as polar
+    monkeypatch.setattr(polar, "polar_configured", lambda: True)
+    monkeypatch.setattr(polar, "_request", AsyncMock(
+        return_value={"items": [{"status": "paid", "total_amount": 1999,
+                                 "currency": "eur"}]}))
+    r = await FR.build_funnel_monthly()
+    assert "1 orders" in r.to_text() and "19.99" in r.to_text()
+
+
+@pytest.mark.asyncio
+async def test_build_funnel_monthly_polar_failure(monkeypatch):
+    _patch_fr_db(monkeypatch, [[(0.0, 0, 0, 0)]])
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(return_value={}))
+    import app.services.polar_api as polar
+    monkeypatch.setattr(polar, "polar_configured", lambda: True)
+    monkeypatch.setattr(polar, "_request", AsyncMock(side_effect=RuntimeError("api down")))
+    r = await FR.build_funnel_monthly()
+    assert "query failed" in r.to_text()
+
+
+# ---------------------------------------------------------------- task gaps
+
+
+def test_dedupe_lock_returns_pair(monkeypatch):
+    out = FT._dedupe_lock("lead_pulse")
+    assert isinstance(out, tuple) and len(out) == 2
+
+
+def test_execute_releases_lock_on_exception(monkeypatch):
+    redis = _LockRedis()
+    monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (redis, "k"))
+
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("worker died")
+
+    monkeypatch.setattr(FT, "run_async", _boom)
+    with pytest.raises(RuntimeError):
+        FT.run_lead_pulse(send=False)
+    assert "k" not in redis.store
+
+
+# ---------------------------------------------------------------- helper coverage
+
+
+@pytest.mark.asyncio
+async def test_send_no_recipient_sets_error(monkeypatch):
+    monkeypatch.setattr(FR, "get_settings",
+                        lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
+    r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
+    out = await FR._send(r)
+    assert out.email_error == "DIGEST_EMAIL_TO not set"
+    assert out.emailed is False
+
+
+@pytest.mark.asyncio
+async def test_send_delivers_and_marks_emailed(monkeypatch):
+    monkeypatch.setattr(FR, "get_settings",
+                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c, d@e.f"))
+    import app.services.email_digest as ed
+    sent = AsyncMock()
+    monkeypatch.setattr(ed, "send_email", sent)
+    r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
+    r.line("S", "body")
+    out = await FR._send(r, email_to="override@x.y")
+    assert out.emailed is True
+    assert sent.await_args.kwargs["to_addrs"] == ["override@x.y"]
+    assert sent.await_args.kwargs["category"] == "report"
+
+
+@pytest.mark.asyncio
+async def test_send_failure_records_error(monkeypatch):
+    monkeypatch.setattr(FR, "get_settings",
+                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
+    import app.services.email_digest as ed
+    monkeypatch.setattr(ed, "send_email", AsyncMock(side_effect=RuntimeError("smtp down")))
+    r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
+    out = await FR._send(r)
+    assert out.emailed is False and "smtp down" in (out.email_error or "")
+
+
+@pytest.mark.asyncio
+async def test_espo_count_unconfigured_and_counts(monkeypatch):
+    import app.services.espocrm_client as espo
+    monkeypatch.setattr(espo, "configured", lambda: False)
+    assert await FR._espo_count("Lead", since=datetime.now(UTC)) == {}
+
+    monkeypatch.setattr(espo, "configured", lambda: True)
+    monkeypatch.setattr(espo, "list_all", AsyncMock(return_value=[
+        {"source": "web"}, {"source": "web"}, {"source": None}, {},
+    ]))
+    counts = await FR._espo_count("Lead", since=datetime.now(UTC),
+                                  extra_where=[{"type": "equals", "attribute": "x", "value": 1}])
+    assert counts == {"web": 2, "(unset)": 2}
+    assert espo.list_all.await_args.kwargs["where"][1]["attribute"] == "x"
+
+
+@pytest.mark.asyncio
+async def test_espo_count_query_failure(monkeypatch):
+    import app.services.espocrm_client as espo
+    monkeypatch.setattr(espo, "configured", lambda: True)
+    monkeypatch.setattr(espo, "list_all", AsyncMock(side_effect=RuntimeError("espo 500")))
+    counts = await FR._espo_count("Lead", since=datetime.now(UTC))
+    assert counts == {"(query failed)": -1}
+
+
+@pytest.mark.asyncio
+async def test_social_leads_by_source_enum_and_plain(monkeypatch):
+    _patch_fr_db(monkeypatch, [[(SimpleNamespace(value="linkedin"), 2), ("web", 1), (None, 3)]])
+    out = await FR._social_leads_by_source(datetime.now(UTC))
+    assert out == {"linkedin": 2, "web": 1, "None": 3}
+
+
+@pytest.mark.asyncio
+async def test_inbox_pulse_aggregates_and_isolates_failures(monkeypatch):
+    t1, t2 = uuid.uuid4(), uuid.uuid4()
+    _patch_fr_db(monkeypatch, [[t1, t2]])
+    import app.services.inbox_snapshot as ISVC
+    monkeypatch.setattr(ISVC, "capture", AsyncMock(side_effect=[None, RuntimeError("boom")]))
+    summary = SimpleNamespace(
+        by_platform={"whatsapp": {"total": 2, "unread": 1}},
+        unread_conversations=[{"platform": "whatsapp", "sender": "A", "preview": "p"}],
+    )
+    monkeypatch.setattr(ISVC, "latest_summary", AsyncMock(return_value=summary))
+    monkeypatch.setattr(ISVC, "whatsapp_frt_stats",
+                        AsyncMock(return_value={"replies_measured": 1}))
+    by_plat, unread, frt = await FR._inbox_pulse()
+    assert by_plat == {"whatsapp": {"total": 2, "unread": 1}}
+    assert unread and frt == {"replies_measured": 1}
+
+
+@pytest.mark.asyncio
+async def test_inbox_pulse_frt_failure(monkeypatch):
+    _patch_fr_db(monkeypatch, [[]])
+    import app.services.inbox_snapshot as ISVC
+    monkeypatch.setattr(ISVC, "whatsapp_frt_stats",
+                        AsyncMock(side_effect=RuntimeError("frt down")))
+    by_plat, unread, frt = await FR._inbox_pulse()
+    assert by_plat == {} and frt == {"error": "frt down"}
