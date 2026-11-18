@@ -16,7 +16,7 @@ developer-portal work.
   python3 li_cdp.py tabs                       # list page targets
   python3 li_cdp.py close <target_substr>      # close a tab by url match
 
-Env: CDP_URL (default tries 172.22.144.1:9229 then localhost:9229).
+Env: CDP_URL (default tries " + WSL_HOST_IP + ":9229 then localhost:9229).
 """
 import base64
 import json
@@ -26,9 +26,21 @@ import time
 import urllib.request
 
 import websocket
+import subprocess
+
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
 
 CDP_CANDIDATES = [os.environ["CDP_URL"]] if os.environ.get("CDP_URL") else [
-    "http://172.22.144.1:9229", "http://localhost:9229"]
+    "http://" + WSL_HOST_IP + ":9229", "http://localhost:9229"]
 CDP = None
 
 

@@ -19,7 +19,7 @@ logged-out sidecar session):
 - cdp: opens its OWN tab via /json/new on the Windows debug Chrome
   (never hijacks existing tabs), background-reader websocket, closes
   the tab when done. Endpoints tried: localhost:9229,
-  172.22.144.1:9229 (WSL->Windows relay), localhost:9222. Requires
+  " + WSL_HOST_IP + ":9229 (WSL->Windows relay), localhost:9222. Requires
   websocket-client.
 
 Never submits forms — reports what it sees.
@@ -32,7 +32,18 @@ import time
 import urllib.parse
 import urllib.request
 
-CDP_CANDIDATES = ["http://localhost:9229", "http://172.22.144.1:9229",
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
+
+CDP_CANDIDATES = ["http://localhost:9229", "http://" + WSL_HOST_IP + ":9229",
                   "http://localhost:9222"]
 SIDECAR_BASE = os.environ.get("LI_SIDECAR", "http://localhost:9225")
 STACKCTL = os.environ.get(

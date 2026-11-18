@@ -4,10 +4,22 @@ import json
 import subprocess
 import sys
 import urllib.request
+import os
+
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
 
 
 def status():
-    for h in ("localhost", "172.22.144.1"):
+    for h in ("localhost", "" + WSL_HOST_IP + ""):
         try:
             r = urllib.request.urlopen(f"http://{h}:9222/json/version", timeout=4)
             return {"bound": True, "via": h, "browser": json.loads(r.read()).get("Browser")}

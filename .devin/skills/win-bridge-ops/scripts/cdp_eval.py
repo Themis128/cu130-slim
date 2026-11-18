@@ -9,7 +9,7 @@ runs Runtime.evaluate in the tab matching --url-contains.
   cdp_eval.py --url-contains developers --js "document.querySelector('button').click()"
 
 Requires the win_agent reachable at WIN_AGENT_URL (default
-http://172.22.144.1:8765). Chrome must run with --remote-debugging-port=9222.
+http://" + WSL_HOST_IP + ":8765). Chrome must run with --remote-debugging-port=9222.
 """
 from __future__ import annotations
 
@@ -19,12 +19,25 @@ import json
 import sys
 import urllib.request
 
-GATEWAY = "172.22.144.1"
+GATEWAY = "" + WSL_HOST_IP + ""
 AGENT = f"http://{GATEWAY}:8765"
 TOKEN = ""  # WIN_AGENT_TOKEN
 
 WIN_SCRIPT = r'''
 import json, sys, urllib.request
+import os
+import subprocess
+
+# WSL host IP — the Windows gateway moves subnets on vSwitch rebuilds
+# (172.22.144.1 -> 192.168.96.1 observed 2026-11-18). Resolve live.
+try:
+    WSL_HOST_IP = os.environ.get("WSL_HOST_IP") or subprocess.run(
+        ["sh", "-c", "ip route | awk '/default/ {print $3; exit}'"],
+        capture_output=True, text=True, timeout=5).stdout.strip() \
+        or "172.22.144.1"
+except Exception:
+    WSL_HOST_IP = "172.22.144.1"
+
 try:
     import websocket
 except ImportError:
