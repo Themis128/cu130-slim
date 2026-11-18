@@ -71,6 +71,10 @@ def run_report_notebook(
         cwd=cwd,  # kernels see /app on sys.path → `import app.services.*` works
         progress_bar=False,
         log_output=False,
+        # Kernel startup under RAM pressure / cold python env regularly
+        # exceeds papermill's 60s default ("Kernel didn't respond in 60
+        # seconds") → report falls back to the code path every run.
+        start_timeout=300,
     )
     duration = round(time.monotonic() - t0, 1)
 
