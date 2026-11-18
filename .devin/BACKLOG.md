@@ -3958,3 +3958,27 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       .env) or IG↔FB Page relink; TikTok access token rotates ~daily
       (refresh lane live, normal); FB personal user row expired
       (account restriction, expected).
+- [x] ntfy read lane built (2026-11-18): new `ntfy-triage-ops` skill
+      (`.devin` + `.cursor` mirrors) — `ntfy_triage.py`
+      digest/read/routes/probe/mint-token over topic history, noise
+      filter, signature clustering, and a ROUTES table mapping ~25
+      observed alert signatures to owning skills + safe probes.
+      Read token = `phone` user `tk_` minted via `ssh -i
+      ~/.ssh/omv_id_rsa github-omv` (cached `~/.cache/ntfy-reader-token`;
+      `NTFY_READ_TOKEN` env overrides). `ntfy_ops.py` now passes the
+      key itself. PR #2375.
+- [x] 7-day ntfy sweep triaged (2026-11-18): 920 msgs -> 73 open
+      clusters. Biggest real classes: RAM guard DMR evictions (57),
+      docker/WSL flaps (workers DOWN self-healed), CDP :9229 wedge,
+      IG/FB re-auth human gate, mail probe blip (recovered ~2s),
+      tunnel endpoint flaps, missing daily reports, media-integrity
+      635 missing objects (workforce escalation, needs regen/human),
+      C: drive 11GB free, Termux sshd down.
+- [ ] Standing residual: `social-worker-media` flaps unhealthy during
+      docker/WSL events; media-integrity 635 missing media objects is
+      a real data gap (workforce escalation) — needs a regen pass or
+      human call, not a restart.
+- [ ] CF billing (from same session): `CLOUDFLARE_BILLING_TOKEN` in
+      `.env` reads `/accounts/{id}/billing/history` fine — invoice
+      IN-88049721 $12.08 CLOSED (Stripe). cf-billing-ops skill has the
+      pay-lane details.
