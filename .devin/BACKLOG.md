@@ -3816,3 +3816,8 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       Gmail (45d search). Re-application gated on LinkedIn business
       verification, not a portal probe. Both portal lanes were
       rate-limited (CDP 429, sidecar circuit) at check time.
+- [ ] stack-ops rescue container is MANUAL (no compose labels) — after the
+      next wsl --shutdown heals fsbridge, run `docker rm -f stack-ops &&
+      docker compose up -d stack-ops` to return it to compose management.
+      Until then `docker compose` commands targeting stack-ops will see an
+      unmanaged name conflict.
