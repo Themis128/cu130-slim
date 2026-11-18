@@ -3821,3 +3821,50 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       docker compose up -d stack-ops` to return it to compose management.
       Until then `docker compose` commands targeting stack-ops will see an
       unmanaged name conflict.
+
+## 2026-11-18 (night) — Phone ADB lane live + @t_baltzakis professional conversion; IG account-truth resolved (Devin)
+
+- [x] Phone ADB re-established: wireless debugging is TLS-pairing, NOT
+      :5555 — `adb connect 100.84.31.85:5555`/`192.168.1.77:5555` refused.
+      `adb mdns services` showed `_adb-tls-connect._tcp` at
+      `192.168.1.77:46439`; `adb connect 192.168.1.77:46439` works on BOTH
+      WSL-native `~/.local/bin/adb` and Windows adb.exe (two adb servers,
+      same device — fine). Port rotates per wireless-debugging session;
+      always re-run `adb mdns services` if connect fails.
+- [x] @t_baltzakis IG converted Personal(private) → Business(professional,
+      PUBLIC) entirely via ADB uiautomator: profile → Options → "Profile
+      type and tools" → Switch to professional → category search
+      "Software" → selected "Information Technology Company" (radio
+      checked=true) → type Business → skipped contact-info publish +
+      FB-page connect → confirmed OK. Verified end state on-device:
+      "Profile type | Professional", Professional dashboard live
+      (469 views/30d), "Business profile can't be private" dialog proves
+      public business. IG settings layout changed post-conversion —
+      "Account type and tools" is now "Profile type and tools".
+- [x] 17841463022505300 IDENTITY RESOLVED: it is @cloudless.gr's
+      page-backed IG account — proven via
+      `GET /116436681562585/page_backed_instagram_accounts` →
+      `[{"id":"17841463022505300"}]`. NOT @t_baltzakis, NOT an unrelated
+      placeholder. The legacy row 28747382798219804 (@cloudless.gr,
+      revoked) and this row are the SAME IG profile under old/new Meta
+      ID namespaces. DB meta_data "NOT proven to be @cloudless.gr" is
+      now settled.
+- [ ] 17841463022505300 Graph access still denied: bare `{"id":...}` on
+      field reads + (#10) "Application does not have permission" on
+      /media + /insights — despite debug_token showing VALID never-
+      expiring token with full scopes (instagram_basic,
+      instagram_manage_insights, instagram_content_publish,
+      instagram_manage_messages, business_management, pages_*). Object-
+      level denial → the @cloudless.gr IG profile itself is likely
+      unpublished/personal/incomplete stub (page_backed edge reported
+      is_published=false). FIX PATH: check @cloudless.gr's actual IG
+      account type in the app (phone AccountManager shows 2nd IG
+      account 36910035385 — likely it) → convert to professional if
+      personal → then relink IG↔FB Page so legacy ig_id heals too.
+- [ ] Phone UI-automation blocker: flip cover CLOSED (CoverHomeActivity
+      holds window focus) — taps leak into wrong apps (one landed in
+      Google Messages). IG account-switcher chip found but untapped:
+      `android.widget.Button` with `igds_prism_chip_label` =
+      "t_baltzakis" at profile-name row (~y785-852). Resume after user
+      opens cover: tap chip → switch to 2nd account → Profile type and
+      tools → verify/convert → re-probe Graph.
