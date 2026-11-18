@@ -3767,3 +3767,57 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       consistent with redelivery-after-kill (acks_late +
       reject_on_worker_lost) racing a Redis flap, not two beats. If it
       recurs, capture `docker events` during the window.
+
+## 2026-11-18 (late) — Next-step sweep: stack-ops rescue, FB sidecar heal, SMTP verify, IG/LinkedIn gates (Devin)
+
+- [x] stack-ops wake-proxy outage fixed WITHOUT wsl --shutdown: container
+      exited 127 on poisoned fsbridge mounts; recreated manually with
+      identical image/env/ports but /run/docker.sock (not
+      /var/run/docker.sock — that src materializes as an EMPTY DIR under
+      fsbridge poison) + WSL-path mounts for compose/.env/services.json.
+      Fully functional: proxy + sleeper + compose-recreate path restored.
+      GOTCHA for future rescues: `-v /var/run/docker.sock:` breaks, use
+      `-v /run/docker.sock:`.
+- [x] facebook-browser-sidecar FB session restored: cookie-consent banner
+      was poisoning the 2FA flow ("Invalid request" on
+      two_step_verification — documented gotcha); accepted cookies once,
+      sidecar_fb_login.py then logged in w/o 2FA (trusted device).
+- [x] instagram_reauth.py ran end-to-end: minted URL → sidecar consent →
+      callback succeeded for account d2215106 (17841463022505300) — BUT
+      that row was already active; live Graph probe still returns only
+      {"id":...} because the IG account itself is PERSONAL now. Token
+      refresh does NOT fix account type — needs IG-app switch to
+      Creator/Business (phone ADB was offline: galaxy-s22 refused :5555).
+- [ ] IG 28747382798219804 (@cloudless.gr, legacy ig_id, revoked): the
+      FB-login fast path binds the NEW-namespace account, not this one.
+      Needs either IG↔FB Page link first (meta-oauth-ops §7 flow) or the
+      business_login lane (INSTAGRAM2_CLIENT_ID/SECRET are EMPTY in .env).
+- [x] PR #2361 merged: host_gates_check docker_desktop_proc now infers
+      ok from responsive docker engine when Windows interop is dead
+      (was permanent '?' artifact); .cursor copy synced to .devin
+      (gains win_batch — kills ~500 console flashes/day pattern).
+- [x] PR #2364 armed: SMTP_SSL_VERIFY=false→true via
+      mail.cloudless.gr extra_hosts mapping (LE cert, LAN postfix
+      192.168.1.130, no public :587) + funnel_reports mail-outbound
+      category "report"→"ops-alert" (worker rejects "report" → every
+      report was silently falling back to SMTP). .env flipped locally;
+      takes effect on next backend recreate after merge.
+- [x] Dependabot picomatch triage CLOSED: alerts #202/#205 dismissed
+      correctly — vuln range <=4.0.7 has NO patched release upstream
+      (first_patched_version=null); dep is build-tool-only (vite/vitest/
+      micromatch), never shipped to runtime. Nothing to upgrade to.
+- [x] LinkedIn Ads Standard tier assessed: NOT needed — Dev tier already
+      grants read-unlimited + edit up to 5 ad accounts; we manage ONE
+      (512642510). Standard requires a Developer Support Portal ticket
+      for >5 accounts/unlimited create — revisit only if account count
+      grows. Documented to avoid a wasted support case.
+- [ ] rw_dmp_segments (Matched Audiences): prior support case was
+      DENIED ("business verification failed") — no decision email in
+      Gmail (45d search). Re-application gated on LinkedIn business
+      verification, not a portal probe. Both portal lanes were
+      rate-limited (CDP 429, sidecar circuit) at check time.
+- [ ] stack-ops rescue container is MANUAL (no compose labels) — after the
+      next wsl --shutdown heals fsbridge, run `docker rm -f stack-ops &&
+      docker compose up -d stack-ops` to return it to compose management.
+      Until then `docker compose` commands targeting stack-ops will see an
+      unmanaged name conflict.
