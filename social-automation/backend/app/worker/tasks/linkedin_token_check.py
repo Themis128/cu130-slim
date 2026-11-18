@@ -114,8 +114,7 @@ async def _check() -> dict:
                         stats["expiring"] += 1
                         await send_telegram_alert(
                             "ops",
-                            f"LinkedIn token for {acct.username or acct.account_id} expires in {days}d — "
-                            "re-consent via scripts/linkedin_consent_url.py soon.",
+                            f"LinkedIn token for {acct.username or acct.account_id} expires in {days}d — re-consent via scripts/linkedin_consent_url.py soon.",
                         )
                     else:
                         stats["healthy"] += 1
