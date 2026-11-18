@@ -26,8 +26,7 @@ class InboxSnapshot(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     # One capture run shares a batch id so reports can isolate a snapshot.
     batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
 
@@ -44,5 +43,4 @@ class InboxSnapshot(Base):
     last_activity_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
     meta: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
 
-    captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

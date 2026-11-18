@@ -131,12 +131,9 @@ async def test_latest_summary_empty_and_populated():
     newest = datetime.now(UTC)
     batch = uuid.uuid4()
     rows = [
-        SimpleNamespace(batch_id=batch, platform="messenger", unread=True,
-                        sender_name="Alice", thread_id="t1", preview="hi"),
-        SimpleNamespace(batch_id=batch, platform="messenger", unread=False,
-                        sender_name="Bob", thread_id="t2", preview=None),
-        SimpleNamespace(batch_id=batch, platform="instagram", unread=True,
-                        sender_name=None, thread_id="ig9", preview="yo"),
+        SimpleNamespace(batch_id=batch, platform="messenger", unread=True, sender_name="Alice", thread_id="t1", preview="hi"),
+        SimpleNamespace(batch_id=batch, platform="messenger", unread=False, sender_name="Bob", thread_id="t2", preview=None),
+        SimpleNamespace(batch_id=batch, platform="instagram", unread=True, sender_name=None, thread_id="ig9", preview="yo"),
     ]
     db = _FakeDB([_ScalarResult(newest), _ScaleResult(rows)])
     s = await IS.latest_summary(db, team)
@@ -153,12 +150,30 @@ async def test_latest_summary_empty_and_populated():
 async def test_capture_persists_batch(monkeypatch):
     team = uuid.uuid4()
     convs = [
-        SimpleNamespace(platform="messenger", account_id="a1", account_name="Page",
-                        thread_id="t1", sender_name="A", preview="x" * 600,
-                        unread=True, e2ee=False, timestamp=datetime.now(UTC), url="http://u"),
-        SimpleNamespace(platform="whatsapp", account_id="a2", account_name=None,
-                        thread_id="t2", sender_name=None, preview=None,
-                        unread=False, e2ee=True, timestamp=None, url=None),
+        SimpleNamespace(
+            platform="messenger",
+            account_id="a1",
+            account_name="Page",
+            thread_id="t1",
+            sender_name="A",
+            preview="x" * 600,
+            unread=True,
+            e2ee=False,
+            timestamp=datetime.now(UTC),
+            url="http://u",
+        ),
+        SimpleNamespace(
+            platform="whatsapp",
+            account_id="a2",
+            account_name=None,
+            thread_id="t2",
+            sender_name=None,
+            preview=None,
+            unread=False,
+            e2ee=True,
+            timestamp=None,
+            url=None,
+        ),
     ]
     import app.api.inbox as inbox_api
 
@@ -241,9 +256,9 @@ def test_funnel_task_runs_report_and_clears_lock_on_failure(monkeypatch):
     redis = _LockRedis()
     monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (redis, "k"))
     monkeypatch.setattr(
-        FT, "run_async",
-        lambda coro: (coro.close(), {"report": "attribution", "emailed": False,
-                      "email_error": "boom", "sections": 3})[1],
+        FT,
+        "run_async",
+        lambda coro: (coro.close(), {"report": "attribution", "emailed": False, "email_error": "boom", "sections": 3})[1],
     )
     out = FT.run_attribution_digest(send=True)
     assert out["report"] == "attribution" and out["emailed"] is False
@@ -254,9 +269,9 @@ def test_funnel_task_keeps_lock_when_emailed(monkeypatch):
     redis = _LockRedis()
     monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (redis, "k"))
     monkeypatch.setattr(
-        FT, "run_async",
-        lambda coro: (coro.close(), {"report": "content_weekly", "emailed": True,
-                      "email_error": None, "sections": 5})[1],
+        FT,
+        "run_async",
+        lambda coro: (coro.close(), {"report": "content_weekly", "emailed": True, "email_error": None, "sections": 5})[1],
     )
     out = FT.run_content_weekly(send=True)
     assert out["emailed"] is True
@@ -266,9 +281,9 @@ def test_funnel_task_keeps_lock_when_emailed(monkeypatch):
 def test_funnel_task_no_redis_fallback(monkeypatch):
     monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (None, None))
     monkeypatch.setattr(
-        FT, "run_async",
-        lambda coro: (coro.close(), {"report": "funnel_monthly", "emailed": False,
-                      "email_error": None, "sections": 2})[1],
+        FT,
+        "run_async",
+        lambda coro: (coro.close(), {"report": "funnel_monthly", "emailed": False, "email_error": None, "sections": 2})[1],
     )
     out = FT.run_funnel_monthly(send=False)
     assert out["report"] == "funnel_monthly"
@@ -286,8 +301,7 @@ async def test_run_report_builds_and_sends(monkeypatch):
     monkeypatch.setattr(svc, "BUILDERS", {"lead_pulse": AsyncMock(return_value=report)})
     monkeypatch.setattr(svc, "_send", AsyncMock(return_value=sent))
     out = await FT._run_report("lead_pulse", send=True)
-    assert out == {"report": "lead_pulse", "emailed": True,
-                   "email_error": None, "sections": 1}
+    assert out == {"report": "lead_pulse", "emailed": True, "email_error": None, "sections": 1}
 
 
 class _TeamResult:
@@ -379,19 +393,23 @@ def _patch_fr_db(monkeypatch, results):
 _INBOX = (
     {"whatsapp": {"total": 3, "unread": 2}, "messenger": {"total": 1, "unread": 0}},
     [{"platform": "whatsapp", "sender": "Sara", "preview": "hello?"}],
-    {"replies_measured": 2, "median_frt": "10m", "p90_frt": "1h",
-     "slowest_frt": "3h", "within_target": 2, "breaches_24h": 0,
-     "unanswered": [{"name": "Kostas", "waiting_hours": 5}]},
+    {
+        "replies_measured": 2,
+        "median_frt": "10m",
+        "p90_frt": "1h",
+        "slowest_frt": "3h",
+        "within_target": 2,
+        "breaches_24h": 0,
+        "unanswered": [{"name": "Kostas", "waiting_hours": 5}],
+    },
 )
 
 
 @pytest.mark.asyncio
 async def test_build_lead_pulse(monkeypatch):
     _patch_fr_db(monkeypatch, [[("linkedin", 3), (None, 2)]])
-    monkeypatch.setattr(FR, "_social_leads_by_source",
-                        AsyncMock(return_value={"linkedin": 2}))
-    monkeypatch.setattr(FR, "_espo_count",
-                        AsyncMock(side_effect=[{"web": 2}, {"proposal": 1}]))
+    monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={"linkedin": 2}))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(side_effect=[{"web": 2}, {"proposal": 1}]))
     monkeypatch.setattr(FR, "_inbox_pulse", AsyncMock(return_value=_INBOX))
     r = await FR.build_lead_pulse()
     assert r.key == "lead_pulse"
@@ -405,10 +423,8 @@ async def test_build_lead_pulse(monkeypatch):
 async def test_build_lead_pulse_espo_failure_and_empty_inbox(monkeypatch):
     _patch_fr_db(monkeypatch, [[]])
     monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
-    monkeypatch.setattr(FR, "_espo_count",
-                        AsyncMock(return_value={"(query failed)": -1}))
-    monkeypatch.setattr(FR, "_inbox_pulse",
-                        AsyncMock(return_value=({}, [], {"error": "provider down"})))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(return_value={"(query failed)": -1}))
+    monkeypatch.setattr(FR, "_inbox_pulse", AsyncMock(return_value=({}, [], {"error": "provider down"})))
     r = await FR.build_lead_pulse()
     text = r.to_text()
     assert "query failed" in text
@@ -417,14 +433,16 @@ async def test_build_lead_pulse_espo_failure_and_empty_inbox(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_build_attribution(monkeypatch):
-    _patch_fr_db(monkeypatch, [
-        [("https://www.google.com/x", 10), ("linkedin", 5), (None, 3)],
-        [("cmp-a", 4), ("https://fb.com/y", 2)],
-        [("linkedin", 2), (None, 1)],
-    ])
+    _patch_fr_db(
+        monkeypatch,
+        [
+            [("https://www.google.com/x", 10), ("linkedin", 5), (None, 3)],
+            [("cmp-a", 4), ("https://fb.com/y", 2)],
+            [("linkedin", 2), (None, 1)],
+        ],
+    )
     monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={"x": 4}))
-    monkeypatch.setattr(FR, "_espo_count",
-                        AsyncMock(side_effect=[{"src": 3}, {"new": 1, "won": 2}]))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(side_effect=[{"src": 3}, {"new": 1, "won": 2}]))
     r = await FR.build_attribution()
     assert r.key == "attribution"
     text = r.to_text()
@@ -434,18 +452,20 @@ async def test_build_attribution(monkeypatch):
 @pytest.mark.asyncio
 async def test_build_content_weekly(monkeypatch):
     sid1, sid2 = uuid.uuid4(), uuid.uuid4()
-    _patch_fr_db(monkeypatch, [
-        # current-week snapshots: post_id, platform, impressions, engagement,
-        # reach, engagement_rate, content_text
-        [("post-aaaa-1111", "linkedin", 100, 20, 80, 4.5, "hello world post"),
-         ("post-bbbb-2222", "x", 30, 5, 25, 2.0, "low imp")],
-        # previous-week snapshots
-        [("post-aaaa-1111", "linkedin", 200, 30, 150, 3.0, "hello world post")],
-        # latest follower snaps: account_id, followers, platform, username
-        [(sid1, 100, "linkedin", "user1"), (sid2, 50, "x", "user2")],
-        # older follower snaps: account_id, followers
-        [(sid1, 90), (sid2, 50)],
-    ])
+    _patch_fr_db(
+        monkeypatch,
+        [
+            # current-week snapshots: post_id, platform, impressions, engagement,
+            # reach, engagement_rate, content_text
+            [("post-aaaa-1111", "linkedin", 100, 20, 80, 4.5, "hello world post"), ("post-bbbb-2222", "x", 30, 5, 25, 2.0, "low imp")],
+            # previous-week snapshots
+            [("post-aaaa-1111", "linkedin", 200, 30, 150, 3.0, "hello world post")],
+            # latest follower snaps: account_id, followers, platform, username
+            [(sid1, 100, "linkedin", "user1"), (sid2, 50, "x", "user2")],
+            # older follower snaps: account_id, followers
+            [(sid1, 90), (sid2, 50)],
+        ],
+    )
     r = await FR.build_content_weekly()
     assert r.key == "content_weekly"
     text = r.to_text()
@@ -458,9 +478,9 @@ async def test_build_content_weekly(monkeypatch):
 async def test_build_funnel_monthly(monkeypatch):
     _patch_fr_db(monkeypatch, [[(12.5, 30, 500, 2)]])
     monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={"li": 2}))
-    monkeypatch.setattr(FR, "_espo_count",
-                        AsyncMock(side_effect=[{"a": 1}, {"a": 2}, {"won": 1, "lost": 1}]))
+    monkeypatch.setattr(FR, "_espo_count", AsyncMock(side_effect=[{"a": 1}, {"a": 2}, {"won": 1, "lost": 1}]))
     import app.services.polar_api as polar
+
     monkeypatch.setattr(polar, "polar_configured", lambda: False)
     r = await FR.build_funnel_monthly()
     assert r.key == "funnel_monthly"
@@ -475,10 +495,9 @@ async def test_build_funnel_monthly_polar_orders(monkeypatch):
     monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
     monkeypatch.setattr(FR, "_espo_count", AsyncMock(return_value={}))
     import app.services.polar_api as polar
+
     monkeypatch.setattr(polar, "polar_configured", lambda: True)
-    monkeypatch.setattr(polar, "_request", AsyncMock(
-        return_value={"items": [{"status": "paid", "total_amount": 1999,
-                                 "currency": "eur"}]}))
+    monkeypatch.setattr(polar, "_request", AsyncMock(return_value={"items": [{"status": "paid", "total_amount": 1999, "currency": "eur"}]}))
     r = await FR.build_funnel_monthly()
     assert "1 orders" in r.to_text() and "19.99" in r.to_text()
 
@@ -489,6 +508,7 @@ async def test_build_funnel_monthly_polar_failure(monkeypatch):
     monkeypatch.setattr(FR, "_social_leads_by_source", AsyncMock(return_value={}))
     monkeypatch.setattr(FR, "_espo_count", AsyncMock(return_value={}))
     import app.services.polar_api as polar
+
     monkeypatch.setattr(polar, "polar_configured", lambda: True)
     monkeypatch.setattr(polar, "_request", AsyncMock(side_effect=RuntimeError("api down")))
     r = await FR.build_funnel_monthly()
@@ -522,8 +542,7 @@ def test_execute_releases_lock_on_exception(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_no_recipient_sets_error(monkeypatch):
-    monkeypatch.setattr(FR, "get_settings",
-                        lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
+    monkeypatch.setattr(FR, "get_settings", lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
     r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
     out = await FR._send(r)
     assert out.email_error == "DIGEST_EMAIL_TO not set"
@@ -532,9 +551,9 @@ async def test_send_no_recipient_sets_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_delivers_and_marks_emailed(monkeypatch):
-    monkeypatch.setattr(FR, "get_settings",
-                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c, d@e.f"))
+    monkeypatch.setattr(FR, "get_settings", lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c, d@e.f"))
     import app.services.email_digest as ed
+
     sent = AsyncMock()
     monkeypatch.setattr(ed, "send_email", sent)
     r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
@@ -547,9 +566,9 @@ async def test_send_delivers_and_marks_emailed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_failure_records_error(monkeypatch):
-    monkeypatch.setattr(FR, "get_settings",
-                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
+    monkeypatch.setattr(FR, "get_settings", lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
     import app.services.email_digest as ed
+
     monkeypatch.setattr(ed, "send_email", AsyncMock(side_effect=RuntimeError("smtp down")))
     r = FR.FunnelReport(key="k", title="T", subject="s", preheader="p")
     out = await FR._send(r)
@@ -559,15 +578,24 @@ async def test_send_failure_records_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_espo_count_unconfigured_and_counts(monkeypatch):
     import app.services.espocrm_client as espo
+
     monkeypatch.setattr(espo, "configured", lambda: False)
     assert await FR._espo_count("Lead", since=datetime.now(UTC)) == {}
 
     monkeypatch.setattr(espo, "configured", lambda: True)
-    monkeypatch.setattr(espo, "list_all", AsyncMock(return_value=[
-        {"source": "web"}, {"source": "web"}, {"source": None}, {},
-    ]))
-    counts = await FR._espo_count("Lead", since=datetime.now(UTC),
-                                  extra_where=[{"type": "equals", "attribute": "x", "value": 1}])
+    monkeypatch.setattr(
+        espo,
+        "list_all",
+        AsyncMock(
+            return_value=[
+                {"source": "web"},
+                {"source": "web"},
+                {"source": None},
+                {},
+            ]
+        ),
+    )
+    counts = await FR._espo_count("Lead", since=datetime.now(UTC), extra_where=[{"type": "equals", "attribute": "x", "value": 1}])
     assert counts == {"web": 2, "(unset)": 2}
     assert espo.list_all.await_args.kwargs["where"][1]["attribute"] == "x"
 
@@ -575,6 +603,7 @@ async def test_espo_count_unconfigured_and_counts(monkeypatch):
 @pytest.mark.asyncio
 async def test_espo_count_query_failure(monkeypatch):
     import app.services.espocrm_client as espo
+
     monkeypatch.setattr(espo, "configured", lambda: True)
     monkeypatch.setattr(espo, "list_all", AsyncMock(side_effect=RuntimeError("espo 500")))
     counts = await FR._espo_count("Lead", since=datetime.now(UTC))
@@ -593,14 +622,14 @@ async def test_inbox_pulse_aggregates_and_isolates_failures(monkeypatch):
     t1, t2 = uuid.uuid4(), uuid.uuid4()
     _patch_fr_db(monkeypatch, [[t1, t2]])
     import app.services.inbox_snapshot as ISVC
+
     monkeypatch.setattr(ISVC, "capture", AsyncMock(side_effect=[None, RuntimeError("boom")]))
     summary = SimpleNamespace(
         by_platform={"whatsapp": {"total": 2, "unread": 1}},
         unread_conversations=[{"platform": "whatsapp", "sender": "A", "preview": "p"}],
     )
     monkeypatch.setattr(ISVC, "latest_summary", AsyncMock(return_value=summary))
-    monkeypatch.setattr(ISVC, "whatsapp_frt_stats",
-                        AsyncMock(return_value={"replies_measured": 1}))
+    monkeypatch.setattr(ISVC, "whatsapp_frt_stats", AsyncMock(return_value={"replies_measured": 1}))
     by_plat, unread, frt = await FR._inbox_pulse()
     assert by_plat == {"whatsapp": {"total": 2, "unread": 1}}
     assert unread and frt == {"replies_measured": 1}
@@ -610,8 +639,8 @@ async def test_inbox_pulse_aggregates_and_isolates_failures(monkeypatch):
 async def test_inbox_pulse_frt_failure(monkeypatch):
     _patch_fr_db(monkeypatch, [[]])
     import app.services.inbox_snapshot as ISVC
-    monkeypatch.setattr(ISVC, "whatsapp_frt_stats",
-                        AsyncMock(side_effect=RuntimeError("frt down")))
+
+    monkeypatch.setattr(ISVC, "whatsapp_frt_stats", AsyncMock(side_effect=RuntimeError("frt down")))
     by_plat, unread, frt = await FR._inbox_pulse()
     assert by_plat == {} and frt == {"error": "frt down"}
 
@@ -627,9 +656,9 @@ def test_funnel_task_send_requires_dedupe(monkeypatch):
 def test_funnel_task_send_false_runs_without_dedupe(monkeypatch):
     monkeypatch.setattr(FT, "_dedupe_lock", lambda key: (None, None))
     monkeypatch.setattr(
-        FT, "run_async",
-        lambda coro: (coro.close(), {"report": "lead_pulse", "emailed": False,
-                      "email_error": None, "sections": 1})[1],
+        FT,
+        "run_async",
+        lambda coro: (coro.close(), {"report": "lead_pulse", "emailed": False, "email_error": None, "sections": 1})[1],
     )
     out = FT.run_lead_pulse(send=False)
     assert out["report"] == "lead_pulse"

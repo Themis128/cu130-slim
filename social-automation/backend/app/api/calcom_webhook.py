@@ -63,24 +63,25 @@ async def _record_booking_attribution(db: AsyncSession, payload: dict) -> None:
         if isinstance(nested, str):
             try:
                 import json
+
                 nested = json.loads(nested)
             except Exception:  # noqa: BLE001
                 nested = None
         source_meta = nested if isinstance(nested, dict) else flat
 
-        attrs = {out_k: source_meta[in_k] for in_k, out_k in _ATTRIBUTION_KEYS.items()
-                 if source_meta.get(in_k)}
+        attrs = {out_k: source_meta[in_k] for in_k, out_k in _ATTRIBUTION_KEYS.items() if source_meta.get(in_k)}
         # camelCase site fields (utmSource etc.) as fallback
-        for ck, uk in (("utmSource", "utm_source"), ("utmMedium", "utm_medium"),
-                       ("utmCampaign", "utm_campaign"), ("utmTerm", "utm_term"),
-                       ("utmContent", "utm_content")):
+        for ck, uk in (
+            ("utmSource", "utm_source"),
+            ("utmMedium", "utm_medium"),
+            ("utmCampaign", "utm_campaign"),
+            ("utmTerm", "utm_term"),
+            ("utmContent", "utm_content"),
+        ):
             if not attrs.get(uk) and source_meta.get(ck):
                 attrs[uk] = str(source_meta[ck])[:300]
 
-        config = (await db.execute(
-            select(WebAnalyticsConfig).where(WebAnalyticsConfig.domain == "cloudless.gr")
-            .limit(1)
-        )).scalar_one_or_none()
+        config = (await db.execute(select(WebAnalyticsConfig).where(WebAnalyticsConfig.domain == "cloudless.gr").limit(1))).scalar_one_or_none()
         if config is None:
             return
 
@@ -96,9 +97,9 @@ async def _record_booking_attribution(db: AsyncSession, payload: dict) -> None:
                 **attrs,
                 "booking_uid": inner.get("uid"),
                 "start": inner.get("startTime") or inner.get("start"),
-                "attendee_email_sha": hashlib.sha256(
-                    str(attendee.get("email") or "").strip().lower().encode()
-                ).hexdigest()[:16] if attendee.get("email") else None,
+                "attendee_email_sha": hashlib.sha256(str(attendee.get("email") or "").strip().lower().encode()).hexdigest()[:16]
+                if attendee.get("email")
+                else None,
             },
             path="/consultation",
             referrer=attrs.get("referrer"),

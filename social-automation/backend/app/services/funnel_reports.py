@@ -114,17 +114,16 @@ def _referrer_host(ref: str | None) -> str:
         return "(direct)"
 
 
-async def _espo_count(entity: str, *, since: datetime, group_attr: str = "source",
-                      select_attrs: list[str] | None = None,
-                      extra_where: list[dict[str, Any]] | None = None) -> dict[str, int]:
+async def _espo_count(
+    entity: str, *, since: datetime, group_attr: str = "source", select_attrs: list[str] | None = None, extra_where: list[dict[str, Any]] | None = None
+) -> dict[str, int]:
     """Count EspoCRM entities created since ``since``, grouped by an attr."""
     from app.services import espocrm_client as espo
 
     if not espo.configured():
         return {}
     where = [
-        {"type": "greaterThan", "attribute": "createdAt",
-         "value": since.astimezone(UTC).isoformat()},
+        {"type": "greaterThan", "attribute": "createdAt", "value": since.astimezone(UTC).isoformat()},
         *(extra_where or []),
     ]
     try:
@@ -146,11 +145,7 @@ async def _espo_count(entity: str, *, since: datetime, group_attr: str = "source
 
 async def _social_leads_by_source(since: datetime) -> dict[str, int]:
     async with async_session_maker() as db:
-        rows = (await db.execute(
-            select(Lead.source, func.count())
-            .where(Lead.created_at >= since)
-            .group_by(Lead.source)
-        )).all()
+        rows = (await db.execute(select(Lead.source, func.count()).where(Lead.created_at >= since).group_by(Lead.source))).all()
     out: dict[str, int] = {}
     for r in rows:
         src = r[0]
@@ -223,46 +218,43 @@ async def build_lead_pulse() -> FunnelReport:
 
     # Unified inbox snapshot (all platforms) + WhatsApp reply-time stats
     inbox_platforms, unread_convos, frt = await _inbox_pulse()
-    report.line("Unified inbox (live capture)", *[
-        f"• {plat}: {c.get('total', 0)} threads, {c.get('unread', 0)} unread"
-        for plat, c in sorted(inbox_platforms.items())
-    ] or ["no conversations / all fetches failed"])
+    report.line(
+        "Unified inbox (live capture)",
+        *[f"• {plat}: {c.get('total', 0)} threads, {c.get('unread', 0)} unread" for plat, c in sorted(inbox_platforms.items())]
+        or ["no conversations / all fetches failed"],
+    )
     if unread_convos:
-        report.line("Unread conversations needing reply",
-                    *[f"• [{u['platform']}] {u['sender']}: {u['preview']}" for u in unread_convos[:10]])
+        report.line("Unread conversations needing reply", *[f"• [{u['platform']}] {u['sender']}: {u['preview']}" for u in unread_convos[:10]])
     if frt.get("error"):
         report.line("WhatsApp response time (7d)", f"• stats unavailable: {frt['error']}")
     elif frt.get("replies_measured"):
-        report.line("WhatsApp response time (7d)",
-                    f"• {frt['replies_measured']} replies measured — "
-                    f"median {frt.get('median_frt')}, p90 {frt.get('p90_frt')}, "
-                    f"slowest {frt.get('slowest_frt')}",
-                    f"• within 4h target: {frt.get('within_target')}, "
-                    f"over 24h: {frt.get('breaches_24h')}")
+        report.line(
+            "WhatsApp response time (7d)",
+            f"• {frt['replies_measured']} replies measured — median {frt.get('median_frt')}, p90 {frt.get('p90_frt')}, slowest {frt.get('slowest_frt')}",
+            f"• within 4h target: {frt.get('within_target')}, over 24h: {frt.get('breaches_24h')}",
+        )
         for u in frt.get("unanswered", []):
-            report.line("WhatsApp unanswered >2h",
-                        f"• {u.get('name', u.get('phone'))} — waiting {u.get('waiting_hours')}")
+            report.line("WhatsApp unanswered >2h", f"• {u.get('name', u.get('phone'))} — waiting {u.get('waiting_hours')}")
     else:
         report.line("WhatsApp response time (7d)", "• no inbound messages in window")
 
     # consultation intent on the site
     utm_src = WebAnalyticsEvent.payload["utm_source"].astext
     async with async_session_maker() as db:
-        consult = (await db.execute(
-            select(utm_src, func.count())
-            .where(WebAnalyticsEvent.occurred_at >= since,
-                   WebAnalyticsEvent.path.like("%consultation%"))
-            .group_by(utm_src)
-        )).all()
-    report.line("Consultation page visits (24h, by utm_source)",
-                *([f"• {r[0] or '(untagged)'}: {r[1]}" for r in consult] or ["none recorded"]))
+        consult = (
+            await db.execute(
+                select(utm_src, func.count()).where(WebAnalyticsEvent.occurred_at >= since, WebAnalyticsEvent.path.like("%consultation%")).group_by(utm_src)
+            )
+        ).all()
+    report.line("Consultation page visits (24h, by utm_source)", *([f"• {r[0] or '(untagged)'}: {r[1]}" for r in consult] or ["none recorded"]))
 
-    total = sum(v for v in sa_leads.values()) + sum(
-        v for k, v in espo_leads.items() if v > 0)
+    total = sum(v for v in sa_leads.values()) + sum(v for k, v in espo_leads.items() if v > 0)
     total_unread = sum(c.get("unread", 0) for c in inbox_platforms.values())
-    report.line("Takeaway",
-                f"• {total} new leads + {sum(max(v,0) for v in espo_opps.values())} opportunities in 24h"
-                + (f" — {total_unread} unread conversations across {len(inbox_platforms)} channels" if total_unread else ""))
+    report.line(
+        "Takeaway",
+        f"• {total} new leads + {sum(max(v, 0) for v in espo_opps.values())} opportunities in 24h"
+        + (f" — {total_unread} unread conversations across {len(inbox_platforms)} channels" if total_unread else ""),
+    )
     return report
 
 
@@ -285,14 +277,15 @@ async def build_attribution() -> FunnelReport:
     )
     async with async_session_maker() as db:
         # site traffic by utm_source (payload) falling back to referrer host
-        rows = (await db.execute(
-            select(src_expr, func.count())
-            .where(WebAnalyticsEvent.occurred_at >= since,
-                   WebAnalyticsEvent.event_name == "page_view")
-            .group_by(src_expr)
-            .order_by(func.count().desc())
-            .limit(10)
-        )).all()
+        rows = (
+            await db.execute(
+                select(src_expr, func.count())
+                .where(WebAnalyticsEvent.occurred_at >= since, WebAnalyticsEvent.event_name == "page_view")
+                .group_by(src_expr)
+                .order_by(func.count().desc())
+                .limit(10)
+            )
+        ).all()
     counts: dict[str, int] = {}
     for raw, n in rows:
         s = str(raw) if raw else "(direct)"
@@ -306,12 +299,13 @@ async def build_attribution() -> FunnelReport:
         WebAnalyticsEvent.referrer,
     )
     async with async_session_maker() as db:
-        consult = (await db.execute(
-            select(consult_expr, func.count())
-            .where(WebAnalyticsEvent.occurred_at >= since,
-                   WebAnalyticsEvent.path.like("%consultation%"))
-            .group_by(consult_expr)
-        )).all()
+        consult = (
+            await db.execute(
+                select(consult_expr, func.count())
+                .where(WebAnalyticsEvent.occurred_at >= since, WebAnalyticsEvent.path.like("%consultation%"))
+                .group_by(consult_expr)
+            )
+        ).all()
     ccounts: dict[str, int] = {}
     for raw, n in consult:
         key = str(raw) if raw else "(untagged)"
@@ -324,16 +318,16 @@ async def build_attribution() -> FunnelReport:
     # from the metadata the site attaches at booking time)
     booking_src = WebAnalyticsEvent.payload["utm_source"].astext
     async with async_session_maker() as db:
-        bookings = (await db.execute(
-            select(booking_src, func.count())
-            .where(WebAnalyticsEvent.occurred_at >= since,
-                   WebAnalyticsEvent.event_name == "booking_created")
-            .group_by(booking_src)
-        )).all()
+        bookings = (
+            await db.execute(
+                select(booking_src, func.count())
+                .where(WebAnalyticsEvent.occurred_at >= since, WebAnalyticsEvent.event_name == "booking_created")
+                .group_by(booking_src)
+            )
+        ).all()
     bcounts: dict[str, int] = {}
     for raw, n in bookings:
-        bcounts[str(raw) if raw else "(unattributed)"] = bcounts.get(
-            str(raw) if raw else "(unattributed)", 0) + int(n)
+        bcounts[str(raw) if raw else "(unattributed)"] = bcounts.get(str(raw) if raw else "(unattributed)", 0) + int(n)
     report.line("Bookings by source (7d)", *_fmt_counts(bcounts))
 
     sa = await _social_leads_by_source(since)
@@ -345,10 +339,12 @@ async def build_attribution() -> FunnelReport:
 
     booked = sum(v for k, v in opps.items() if v > 0)
     total_bookings = sum(bcounts.values())
-    report.line("Takeaway",
-                f"• {total_bookings} attributed bookings, {booked} opportunities from "
-                f"{sum(v for v in sa.values()) + sum(max(v,0) for v in espo.values())} leads this week"
-                + (" — top consult source: " + max(ccounts, key=ccounts.get) if ccounts else ""))
+    report.line(
+        "Takeaway",
+        f"• {total_bookings} attributed bookings, {booked} opportunities from "
+        f"{sum(v for v in sa.values()) + sum(max(v, 0) for v in espo.values())} leads this week"
+        + (" — top consult source: " + max(ccounts, key=ccounts.get) if ccounts else ""),
+    )
     return report
 
 
@@ -375,8 +371,7 @@ async def build_content_weekly() -> FunnelReport:
                     PostAnalyticsSnapshot.post_id,
                     func.max(PostAnalyticsSnapshot.captured_at).label("mx"),
                 )
-                .where(PostAnalyticsSnapshot.captured_at >= start,
-                       PostAnalyticsSnapshot.captured_at < end)
+                .where(PostAnalyticsSnapshot.captured_at >= start, PostAnalyticsSnapshot.captured_at < end)
                 .group_by(PostAnalyticsSnapshot.post_id)
                 .subquery()
             )
@@ -390,8 +385,7 @@ async def build_content_weekly() -> FunnelReport:
                     PostAnalyticsSnapshot.engagement_rate,
                     Post.content_text,
                 )
-                .join(sub, (PostAnalyticsSnapshot.post_id == sub.c.post_id)
-                      & (PostAnalyticsSnapshot.captured_at == sub.c.mx))
+                .join(sub, (PostAnalyticsSnapshot.post_id == sub.c.post_id) & (PostAnalyticsSnapshot.captured_at == sub.c.mx))
                 .outerjoin(Post, Post.id == PostAnalyticsSnapshot.post_id)
             )
 
@@ -410,16 +404,18 @@ async def build_content_weekly() -> FunnelReport:
         totals = plat.setdefault(str(r[1]), [0, 0])
         totals[0] += int(r[3] or 0)
         totals[1] += int(r[2] or 0)
-        rows.append({
-            "post_id": str(r[0])[:8],
-            "platform": r[1],
-            "impressions": int(r[2] or 0),
-            "engagement": int(r[3] or 0),
-            "reach": int(r[4] or 0),
-            "er": float(r[5] or 0),
-            "prev_eng": prev_eng,
-            "text": (r[6] or "")[:70].replace("\n", " "),
-        })
+        rows.append(
+            {
+                "post_id": str(r[0])[:8],
+                "platform": r[1],
+                "impressions": int(r[2] or 0),
+                "engagement": int(r[3] or 0),
+                "reach": int(r[4] or 0),
+                "er": float(r[5] or 0),
+                "prev_eng": prev_eng,
+                "text": (r[6] or "")[:70].replace("\n", " "),
+            }
+        )
 
     # top/flop by engagement among posts with meaningful reach
     meaningful = [r for r in rows if r["impressions"] >= 50]
@@ -428,17 +424,13 @@ async def build_content_weekly() -> FunnelReport:
 
     def _fmt_post(r: dict) -> str:
         delta = f", prev-wk {r['prev_eng']}" if r["prev_eng"] else ""
-        return (f"• [{r['platform']}] {r['text'] or '(no text)'} — "
-                f"{r['engagement']} eng / {r['impressions']} imp / ER {r['er']:.1f}%{delta}")
+        return f"• [{r['platform']}] {r['text'] or '(no text)'} — {r['engagement']} eng / {r['impressions']} imp / ER {r['er']:.1f}%{delta}"
 
-    report.line("Top posts (7d, min 50 impressions)",
-                *[_fmt_post(r) for r in top] or ["not enough snapshot data yet"])
-    report.line("Flop posts (7d)",
-                *[_fmt_post(r) for r in flop] or ["none"])
+    report.line("Top posts (7d, min 50 impressions)", *[_fmt_post(r) for r in top] or ["not enough snapshot data yet"])
+    report.line("Flop posts (7d)", *[_fmt_post(r) for r in flop] or ["none"])
 
     # per-platform totals this week
-    report.line("Per-platform totals (7d)",
-                *[f"• {k}: {v[0]} eng / {v[1]} imp" for k, v in sorted(plat.items())] or ["none"])
+    report.line("Per-platform totals (7d)", *[f"• {k}: {v[0]} eng / {v[1]} imp" for k, v in sorted(plat.items())] or ["none"])
 
     # follower movement
     async with async_session_maker() as db:
@@ -453,19 +445,20 @@ async def build_content_weekly() -> FunnelReport:
             .group_by(FollowerSnapshot.social_account_id, SocialAccount.platform, SocialAccount.username)
             .subquery()
         )
-        snaps = (await db.execute(
-            select(FollowerSnapshot.social_account_id, FollowerSnapshot.followers,
-                   SocialAccount.platform, SocialAccount.username)
-            .join(latest, (FollowerSnapshot.social_account_id == latest.c.social_account_id)
-                  & (FollowerSnapshot.captured_at == latest.c.mx))
-            .join(SocialAccount, SocialAccount.id == FollowerSnapshot.social_account_id)
-        )).all()
-        old = (await db.execute(
-            select(FollowerSnapshot.social_account_id, FollowerSnapshot.followers)
-            .where(FollowerSnapshot.captured_at <= wk_start,
-                   FollowerSnapshot.captured_at >= prev_start)
-            .order_by(FollowerSnapshot.captured_at.desc())
-        )).all()
+        snaps = (
+            await db.execute(
+                select(FollowerSnapshot.social_account_id, FollowerSnapshot.followers, SocialAccount.platform, SocialAccount.username)
+                .join(latest, (FollowerSnapshot.social_account_id == latest.c.social_account_id) & (FollowerSnapshot.captured_at == latest.c.mx))
+                .join(SocialAccount, SocialAccount.id == FollowerSnapshot.social_account_id)
+            )
+        ).all()
+        old = (
+            await db.execute(
+                select(FollowerSnapshot.social_account_id, FollowerSnapshot.followers)
+                .where(FollowerSnapshot.captured_at <= wk_start, FollowerSnapshot.captured_at >= prev_start)
+                .order_by(FollowerSnapshot.captured_at.desc())
+            )
+        ).all()
     old_map: dict[Any, int] = {}
     for sid, f in old:
         old_map.setdefault(sid, int(f))
@@ -479,8 +472,7 @@ async def build_content_weekly() -> FunnelReport:
             deltas.append(f"• {platform} @{username or sid}: {d:+d} → {followers:,}")
     report.line("Follower movement (7d)", *(deltas[:12] or ["no change / no baseline"]))
 
-    report.line("Takeaway",
-                "• double down on the top format/topic; review flop hooks before reposting similar angles")
+    report.line("Takeaway", "• double down on the top format/topic; review flop hooks before reposting similar angles")
     return report
 
 
@@ -501,18 +493,12 @@ async def build_funnel_monthly() -> FunnelReport:
 
     # EspoCRM pipeline
     leads_m = await _espo_count("Lead", since=month_start)
-    leads_prev = await _espo_count("Lead", since=prev_start,
-                                   extra_where=[{"type": "lessThan", "attribute": "createdAt",
-                                                 "value": month_start.isoformat()}])
-    report.line(f"EspoCRM leads ({label})",
-                *_fmt_counts(leads_m),
-                f"— prev month total: {sum(max(v,0) for v in leads_prev.values())}")
+    leads_prev = await _espo_count("Lead", since=prev_start, extra_where=[{"type": "lessThan", "attribute": "createdAt", "value": month_start.isoformat()}])
+    report.line(f"EspoCRM leads ({label})", *_fmt_counts(leads_m), f"— prev month total: {sum(max(v, 0) for v in leads_prev.values())}")
 
     opps = await _espo_count("Opportunity", since=month_start, group_attr="stage")
     won = sum(v for k, v in opps.items() if "won" in k.lower() and "lost" not in k.lower())
-    report.line("Opportunities by stage",
-                *_fmt_counts(opps),
-                f"— Closed Won this month: {won}")
+    report.line("Opportunities by stage", *_fmt_counts(opps), f"— Closed Won this month: {won}")
 
     # SocialAuto-side leads
     sa = await _social_leads_by_source(month_start)
@@ -521,19 +507,15 @@ async def build_funnel_monthly() -> FunnelReport:
     # Polar revenue
     try:
         from app.services import polar_api
+
         if polar_api.polar_configured():
-            orders = await polar_api._request(
-                "GET", "/orders", params={"limit": 100,
-                                          "created_at__gte": month_start.isoformat()})
+            orders = await polar_api._request("GET", "/orders", params={"limit": 100, "created_at__gte": month_start.isoformat()})
             items = orders.get("items") or orders.get("data") or []
-            paid = [o for o in items if isinstance(o, dict)
-                    and o.get("status") in (None, "paid")]
+            paid = [o for o in items if isinstance(o, dict) and o.get("status") in (None, "paid")]
             # Polar amounts are in the currency's smallest unit (cents).
             total = sum(float(o.get("total_amount") or 0) / 100.0 for o in paid)
-            currency = next((o.get("currency") for o in paid
-                             if o.get("currency")), "eur")
-            report.line("Polar orders (month)",
-                        f"• {len(paid)} orders, ~{total:.2f} {str(currency).upper()}")
+            currency = next((o.get("currency") for o in paid if o.get("currency")), "eur")
+            report.line("Polar orders (month)", f"• {len(paid)} orders, ~{total:.2f} {str(currency).upper()}")
         else:
             report.line("Polar orders (month)", "• Polar not configured")
     except Exception as exc:  # noqa: BLE001
@@ -541,18 +523,21 @@ async def build_funnel_monthly() -> FunnelReport:
 
     # LinkedIn ads spend
     async with async_session_maker() as db:
-        spend = (await db.execute(
-            select(func.sum(AdDailyMetric.spend_eur), func.sum(AdDailyMetric.clicks),
-                   func.sum(AdDailyMetric.impressions), func.sum(AdDailyMetric.leads))
-            .where(AdDailyMetric.day >= month_start.date())
-        )).one()
-    report.line("LinkedIn ads (month)",
-                f"• spend €{float(spend[0] or 0):.2f} · {int(spend[1] or 0)} clicks · "
-                f"{int(spend[2] or 0)} impressions · {int(spend[3] or 0)} leads")
+        spend = (
+            await db.execute(
+                select(
+                    func.sum(AdDailyMetric.spend_eur), func.sum(AdDailyMetric.clicks), func.sum(AdDailyMetric.impressions), func.sum(AdDailyMetric.leads)
+                ).where(AdDailyMetric.day >= month_start.date())
+            )
+        ).one()
+    report.line(
+        "LinkedIn ads (month)",
+        f"• spend €{float(spend[0] or 0):.2f} · {int(spend[1] or 0)} clicks · {int(spend[2] or 0)} impressions · {int(spend[3] or 0)} leads",
+    )
 
-    report.line("Takeaway",
-                f"• funnel: {sum(max(v,0) for v in leads_m.values())} CRM leads → "
-                f"{sum(max(v,0) for v in opps.values())} opportunities → {won} won")
+    report.line(
+        "Takeaway", f"• funnel: {sum(max(v, 0) for v in leads_m.values())} CRM leads → {sum(max(v, 0) for v in opps.values())} opportunities → {won} won"
+    )
     return report
 
 

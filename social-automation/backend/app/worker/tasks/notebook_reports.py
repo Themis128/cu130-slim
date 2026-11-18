@@ -29,8 +29,7 @@ _DEDUPE_RETRY_COUNTDOWN = 600  # 10 min — ~1h of outage coverage per attempt c
 _TASK_NAME = "app.worker.tasks.notebook_reports.run_notebook_report"
 
 
-def _requeue_for_dedupe(notebook: str, parameters: dict | None, send: bool,
-                        fallback_to_code: bool, retries: int) -> None:
+def _requeue_for_dedupe(notebook: str, parameters: dict | None, send: bool, fallback_to_code: bool, retries: int) -> None:
     """Re-queue this report a bounded number of times when the dedupe lock
     is unavailable, so a transient Redis outage self-heals instead of
     burning the watcher's single daily resend."""

@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 
 # First-response SLA tiers (research: DM questions ~1h, complaints ~30min;
 # we run a single SMB operation so one business-hours-ish target applies).
-FRT_TARGET_SECONDS = 4 * 3600   # 4h — generous SMB target
-FRT_HARD_SECONDS = 24 * 3600    # 24h — anything past this is a breach
+FRT_TARGET_SECONDS = 4 * 3600  # 4h — generous SMB target
+FRT_HARD_SECONDS = 24 * 3600  # 24h — anything past this is a breach
 
 
 @dataclass
@@ -49,10 +49,7 @@ class InboxSummary:
     def platform_line(self) -> list[str]:
         lines = []
         for plat, counts in sorted(self.by_platform.items()):
-            lines.append(
-                f"• {plat}: {counts.get('total', 0)} threads, "
-                f"{counts.get('unread', 0)} unread"
-            )
+            lines.append(f"• {plat}: {counts.get('total', 0)} threads, {counts.get('unread', 0)} unread")
         return lines or ["no snapshot data"]
 
 
@@ -64,21 +61,23 @@ async def capture(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]:
     conversations = await fetch_team_conversations(team_id)
     now = datetime.now(UTC)
     for c in conversations:
-        db.add(InboxSnapshot(
-            team_id=team_id,
-            batch_id=batch_id,
-            platform=c.platform,
-            account_id=c.account_id,
-            account_name=c.account_name,
-            thread_id=c.thread_id,
-            sender_name=c.sender_name,
-            preview=(c.preview or "")[:500] or None,
-            unread=c.unread,
-            e2ee=c.e2ee,
-            last_activity_at=c.timestamp,
-            meta={"url": c.url} if c.url else {},
-            captured_at=now,
-        ))
+        db.add(
+            InboxSnapshot(
+                team_id=team_id,
+                batch_id=batch_id,
+                platform=c.platform,
+                account_id=c.account_id,
+                account_name=c.account_name,
+                thread_id=c.thread_id,
+                sender_name=c.sender_name,
+                preview=(c.preview or "")[:500] or None,
+                unread=c.unread,
+                e2ee=c.e2ee,
+                last_activity_at=c.timestamp,
+                meta={"url": c.url} if c.url else {},
+                captured_at=now,
+            )
+        )
     await db.commit()
     by_platform: dict[str, int] = {}
     for c in conversations:
@@ -89,32 +88,35 @@ async def capture(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]:
 
 async def latest_summary(db: AsyncSession, team_id: uuid.UUID) -> InboxSummary:
     """Summarize the newest snapshot batch for a team."""
-    newest = (await db.execute(
-        select(func.max(InboxSnapshot.captured_at))
-        .where(InboxSnapshot.team_id == team_id)
-    )).scalar()
+    newest = (await db.execute(select(func.max(InboxSnapshot.captured_at)).where(InboxSnapshot.team_id == team_id))).scalar()
     if newest is None:
         return InboxSummary()
 
-    rows = (await db.execute(
-        select(InboxSnapshot)
-        .where(InboxSnapshot.team_id == team_id,
-               InboxSnapshot.captured_at == newest)
-        .order_by(InboxSnapshot.platform, InboxSnapshot.sender_name)
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(InboxSnapshot)
+                .where(InboxSnapshot.team_id == team_id, InboxSnapshot.captured_at == newest)
+                .order_by(InboxSnapshot.platform, InboxSnapshot.sender_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
-    summary = InboxSummary(batch_id=str(rows[0].batch_id) if rows else None,
-                           captured_at=newest.isoformat(), total=len(rows))
+    summary = InboxSummary(batch_id=str(rows[0].batch_id) if rows else None, captured_at=newest.isoformat(), total=len(rows))
     for r in rows:
         p = summary.by_platform.setdefault(r.platform, {"total": 0, "unread": 0})
         p["total"] += 1
         if r.unread:
             p["unread"] += 1
-            summary.unread_conversations.append({
-                "platform": r.platform,
-                "sender": r.sender_name or r.thread_id or "?",
-                "preview": (r.preview or "")[:80],
-            })
+            summary.unread_conversations.append(
+                {
+                    "platform": r.platform,
+                    "sender": r.sender_name or r.thread_id or "?",
+                    "preview": (r.preview or "")[:80],
+                }
+            )
     return summary
 
 
@@ -125,12 +127,13 @@ async def whatsapp_frt_stats(db: AsyncSession, *, since: datetime) -> dict[str, 
     message in the same thread. Threads still awaiting a reply are counted
     separately as ``unanswered``.
     """
-    msgs = (await db.execute(
-        select(WhatsAppMessage.sender_phone, WhatsAppMessage.direction,
-               WhatsAppMessage.created_at, WhatsAppMessage.sender_name)
-        .where(WhatsAppMessage.created_at >= since)
-        .order_by(WhatsAppMessage.sender_phone, WhatsAppMessage.created_at)
-    )).all()
+    msgs = (
+        await db.execute(
+            select(WhatsAppMessage.sender_phone, WhatsAppMessage.direction, WhatsAppMessage.created_at, WhatsAppMessage.sender_name)
+            .where(WhatsAppMessage.created_at >= since)
+            .order_by(WhatsAppMessage.sender_phone, WhatsAppMessage.created_at)
+        )
+    ).all()
 
     # group by phone → ordered (direction, ts)
     threads: dict[str, list[tuple[str, datetime]]] = {}
@@ -153,15 +156,18 @@ async def whatsapp_frt_stats(db: AsyncSession, *, since: datetime) -> dict[str, 
                 frts.append((ts - pending_inbound).total_seconds())
                 pending_inbound = None
         if pending_inbound is not None and (now - pending_inbound) > timedelta(hours=2):
-            unanswered.append({
-                "phone": phone,
-                "name": names.get(phone, phone),
-                "waiting_hours": f"{(now - pending_inbound).total_seconds() / 3600:.0f}h",
-            })
+            unanswered.append(
+                {
+                    "phone": phone,
+                    "name": names.get(phone, phone),
+                    "waiting_hours": f"{(now - pending_inbound).total_seconds() / 3600:.0f}h",
+                }
+            )
 
     frts_sorted = sorted(f for f in frts if f >= 0)
+
     def _fmt(secs: float) -> str:
-        return f"{secs/60:.0f}m" if secs < 3600 else f"{secs/3600:.1f}h"
+        return f"{secs / 60:.0f}m" if secs < 3600 else f"{secs / 3600:.1f}h"
 
     return {
         "threads": len(threads),
