@@ -222,8 +222,13 @@ def check_dmr_tunnel():
     return {"ok": False, "detail": detail}
 
 
-CDP_LAUNCH_BAT = ("C:\\Users\\tbaltzakis\\AppData\\Roaming\\Microsoft\\Windows"
-                  "\\Start Menu\\Programs\\Startup\\cdp-launch.bat")
+# Startup\cdp-launch.bat no longer exists — the lane moved to the hidden
+# VBS wrapper (popup-free-host rule), which routes through
+# startup-hidden\cdp-launch.bat to the guarded canonical launcher at
+# C:\Users\tbaltzakis\devin-scripts\cdp-launch.bat. Launch via wscript so
+# no console window is allocated.
+CDP_LAUNCH_VBS = ("C:\\Users\\tbaltzakis\\AppData\\Roaming\\Microsoft\\Windows"
+                  "\\Start Menu\\Programs\\Startup\\cdp-launch-hidden.vbs")
 
 
 def check_cdp_lane():
@@ -243,8 +248,9 @@ def check_cdp_lane():
             return {"ok": True, "detail": "CDP :9229 responding"}
         return {"ok": False, "detail": f"unexpected /json/version: {body[:80]}"}
     except Exception as e:
-        rel = win(f"Start-Process -FilePath '{CDP_LAUNCH_BAT}' "
-                  "-WindowStyle Hidden; 'launched'", timeout=15)
+        rel = win(f"Start-Process wscript.exe -ArgumentList "
+                  f"'\"{CDP_LAUNCH_VBS}\"' -WindowStyle Hidden; 'launched'",
+                  timeout=15)
         return {"ok": False,
                 "detail": f"CDP :9229 down ({str(e)[:60]}); "
                           f"relaunched cdp-launch={rel.strip()[:40]}"}
