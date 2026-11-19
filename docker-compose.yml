@@ -1754,6 +1754,7 @@ services:
     container_name: warp-proxy
     networks:
       - backend
+      - socialauto-standalone
     environment:
       - WARP_SLEEP=2
       - TZ=Europe/Athens
