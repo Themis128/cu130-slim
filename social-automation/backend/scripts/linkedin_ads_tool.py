@@ -204,7 +204,7 @@ async def cmd_analytics(args) -> None:
     path = (
         f"adAnalytics?q=analytics&pivot=CAMPAIGN&timeGranularity=ALL"
         f"&dateRange={urllib.parse.quote(dr, safe='():,')}"
-        f"&campaigns=List({acct})"
+        f"&accounts=List({acct})"
         "&fields=impressions,clicks,costInLocalCurrency"
     )
     r = await _req("GET", path, token)

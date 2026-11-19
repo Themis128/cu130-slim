@@ -20,6 +20,57 @@ celery_app.set_current()
 _DEDUPE_RETRY_MAX = 6
 _DEDUPE_RETRY_COUNTDOWN = 600  # 10 min — ~1h of outage coverage per attempt chain
 
+# Durable outbox on the shared uploads bind mount: celery's broker IS
+# Redis, so when Redis is down send_task() itself fails and in-memory
+# requeues die with the worker. Records here survive restarts; _execute
+# drains them once the broker is reachable again.
+_OUTBOX_DIR = "/app/uploads/.report-outbox"
+_OUTBOX_MAX = _DEDUPE_RETRY_MAX
+
+
+def _outbox_write(key: str, send: bool, retries: int) -> None:
+    import json
+    import os
+
+    try:
+        os.makedirs(_OUTBOX_DIR, exist_ok=True)
+        tmp = os.path.join(_OUTBOX_DIR, f"{key}.{os.getpid()}.tmp")
+        with open(tmp, "w") as f:
+            json.dump({"key": key, "send": send, "retries": retries}, f)
+        os.replace(tmp, os.path.join(_OUTBOX_DIR, f"{key}.json"))
+    except Exception:  # noqa: BLE001 — outbox is best-effort; never break delivery
+        pass
+
+
+def _outbox_drain() -> None:
+    """Re-enqueue outbox records once the broker accepts tasks again."""
+    import glob
+    import json
+    import os
+
+    for path in glob.glob(os.path.join(_OUTBOX_DIR, "*.json")):
+        try:
+            rec = json.load(open(path))
+            key, send, retries = rec["key"], bool(rec.get("send")), int(rec.get("retries", 0))
+        except Exception:  # noqa: BLE001
+            continue
+        if key not in _TASK_NAMES or retries >= _OUTBOX_MAX:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            continue
+        try:
+            celery_app.send_task(
+                _TASK_NAMES[key],
+                kwargs={"send": send, "_dedupe_retries": retries + 1},
+                countdown=_DEDUPE_RETRY_COUNTDOWN,
+            )
+            os.unlink(path)
+        except Exception:  # noqa: BLE001 — broker still down; keep the record
+            pass
+
+
 _TASK_NAMES = {
     "lead_pulse": "app.worker.tasks.funnel_reports.run_lead_pulse",
     "attribution": "app.worker.tasks.funnel_reports.run_attribution_digest",
@@ -63,6 +114,7 @@ async def _run_report(key: str, send: bool) -> dict[str, Any]:
 
 
 def _execute(key: str, send: bool, _dedupe_retries: int = 0) -> dict[str, Any]:
+    _outbox_drain()
     r, lock_key = _dedupe_lock(key)
     claimed = False
     if r is not None and lock_key:
@@ -80,11 +132,14 @@ def _execute(key: str, send: bool, _dedupe_retries: int = 0) -> dict[str, Any]:
             # Dedupe unavailable — never risk a duplicate email, but don't
             # let a transient Redis outage consume the watcher's only daily
             # resend either: re-queue a bounded number of times.
+            # Persist before requeueing: if the broker is down too, the
+            # outbox record is the only thing that retains this delivery.
+            _outbox_write(key, send, _dedupe_retries + 1)
             if _dedupe_retries < _DEDUPE_RETRY_MAX:
                 try:
                     celery_app.send_task(
                         _TASK_NAMES[key],
-                        kwargs={"send": True, "_dedupe_retries": _dedupe_retries + 1},
+                        kwargs={"send": send, "_dedupe_retries": _dedupe_retries + 1},
                         countdown=_DEDUPE_RETRY_COUNTDOWN,
                     )
                 except Exception:  # noqa: BLE001

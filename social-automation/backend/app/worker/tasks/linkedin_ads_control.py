@@ -27,7 +27,8 @@ async def _run(action: str, response_url: str | None, user: str) -> dict[str, An
         await notify_slack(text, response_url)
         return {"ok": True, "status": metrics.status}
 
-    result = await set_campaign_status(action)
+    async with task_session() as db:
+        result = await set_campaign_status(action, db=db)
     verb = "pause" if action == "pause" else "resume"
     if result["ok"]:
         icon = ":pause_button:" if action == "pause" else ":arrow_forward:"
