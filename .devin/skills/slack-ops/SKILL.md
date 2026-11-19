@@ -109,7 +109,7 @@ scope `chat:write`) works as `SLACK_BOT_TOKEN` — `auth.test` + `chat.postMessa
 verified live against `wwwcloudlessgr` (T09AF5VTK4G). `xoxe` tokens last 12h
 and rotate a refresh_token, so `scripts/slack_token_sync.py` refreshes via
 `oauth.v2.user.access`, writes rotated tokens back to the mcp-remote file
-(keeps the MCP server in sync, mode 0600), updates `.env`, and recreates
+(keeps the MCP server in sync, mode 0600), updates `.env` **and** `deploy/socialauto-standalone/.env` (the live stack's env — missing it was a 2026-11-19 outage), then recreates
 **every long-lived SLACK_BOT_TOKEN consumer** — social-api, the four Celery
 workers, celery-beat and **n8n** (compose injects the token at startup;
 recreating only social-api leaves worker digests and the n8n failure-alert

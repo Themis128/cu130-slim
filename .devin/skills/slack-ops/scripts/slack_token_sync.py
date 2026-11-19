@@ -36,7 +36,23 @@ TOKEN_DIR = Path(
     os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
 )
 ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
+# The live stack runs from the standalone compose project — its .env is
+# what containers actually read, so every sync writes BOTH files.
+EXTRA_ENV_FILES = [
+    Path(p) for p in os.environ.get(
+        "SOCIALAUTO_EXTRA_ENVS",
+        "/home/tbaltzakis/cu130-slim/deploy/socialauto-standalone/.env",
+    ).split(",") if p.strip()
+]
 COMPOSE_DIR = Path(os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim"))
+# Recreates target whichever compose project actually owns the service —
+# standalone first (live stack), repo-root compose as fallback.
+COMPOSE_DIRS = [
+    Path(p) for p in os.environ.get(
+        "SLACK_SYNC_COMPOSE_DIRS",
+        "/home/tbaltzakis/cu130-slim/deploy/socialauto-standalone,/home/tbaltzakis/cu130-slim",
+    ).split(",") if p.strip()
+]
 CLIENT_ID = os.environ.get("SLACK_MCP_CLIENT_ID", "1601185624273.8899143856786")
 PENDING_MARKER = Path(
     os.environ.get("SLACK_SYNC_PENDING", "/var/tmp/slack_token_sync.pending")
@@ -115,22 +131,27 @@ def _refresh(tok: dict) -> dict:
 
 
 def _write_env_token(token: str) -> bool:
-    """Swap SLACK_BOT_TOKEN in .env. Returns True when the value changed."""
-    lines = ENV_FILE.read_text().splitlines()
+    """Swap SLACK_BOT_TOKEN in every env file. True when any value changed."""
     changed = False
-    out: list[str] = []
-    for line in lines:
-        if line.startswith("SLACK_BOT_TOKEN="):
-            new = f"SLACK_BOT_TOKEN={token}"
-            changed = line != new
-            out.append(new)
-        else:
-            out.append(line)
-    if not any(ln.startswith("SLACK_BOT_TOKEN=") for ln in lines):
-        out.append(f"SLACK_BOT_TOKEN={token}")
-        changed = True
-    if changed:
-        ENV_FILE.write_text("\n".join(out) + "\n")
+    for env in [ENV_FILE, *EXTRA_ENV_FILES]:
+        if not env.exists():
+            continue
+        lines = env.read_text().splitlines()
+        out: list[str] = []
+        dirty = False
+        for line in lines:
+            if line.startswith("SLACK_BOT_TOKEN="):
+                new = f"SLACK_BOT_TOKEN={token}"
+                dirty = dirty or line != new
+                out.append(new)
+            else:
+                out.append(line)
+        if not any(ln.startswith("SLACK_BOT_TOKEN=") for ln in lines):
+            out.append(f"SLACK_BOT_TOKEN={token}")
+            dirty = True
+        if dirty:
+            env.write_text("\n".join(out) + "\n")
+            changed = True
     return changed
 
 
@@ -279,23 +300,32 @@ def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
                 print(f"compose stop n8n failed rc={stop.returncode}: {tail}", file=sys.stderr)
                 pending.append(svc)
                 continue
-        r = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "up",
-                "-d",
-                "--force-recreate",
-                "--no-deps",
-                "--pull",
-                "never",
-                svc,
-            ],
-            cwd=COMPOSE_DIR,
-            check=False,
-            timeout=180,
-            capture_output=True,
-        )
+        r = None
+        for cdir in COMPOSE_DIRS:
+            if not (cdir / "docker-compose.yml").exists() and not (cdir / "docker-compose.yaml").exists():
+                continue
+            owns = subprocess.run(
+                ["docker", "compose", "ps", "--services", "--filter", "status=running"],
+                cwd=cdir, check=False, timeout=30, capture_output=True, text=True,
+            )
+            if svc not in (owns.stdout or "").split():
+                continue
+            r = subprocess.run(
+                [
+                    "docker", "compose", "--env-file", ".env",
+                    "up", "-d", "--force-recreate", "--no-deps",
+                    "--pull", "never", svc,
+                ],
+                cwd=cdir,
+                check=False,
+                timeout=180,
+                capture_output=True,
+            )
+            break
+        if r is None:
+            print(f"{svc}: not running in any known compose project — skipped", file=sys.stderr)
+            pending.append(svc)
+            continue
         if r.returncode != 0:
             worst = worst or r.returncode
             pending.append(svc)
