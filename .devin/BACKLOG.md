@@ -4073,3 +4073,31 @@ Open items:
   deployed files (remove docker-cp drift).
 - `decide:` expand ALLOWED_RERUN_TASKS beyond read-only tasks
   (dmr_health/devapps_sync/analytics_sync)? Requires safety review.
+
+## 2026-11-19 (pm) — Slack + ntfy archive → same incident loop (Devin)
+
+Landed on `feat/tg-channel-post-ingest` (PR #2389, auto-merge armed):
+
+- `notify_archive_ingest` (5-min beat :03): Slack `conversations.history`
+  on the alert channels (paginated backfill — 514 msgs scanned first run,
+  310 inserted / 204 deduped) + ntfy `/<topic>/json` poll. Rows land as
+  `slack:<name>` / `ntfy:<topic>` in `telegram_channel_messages` via
+  ON CONFLICT DO NOTHING — `telegram-incidents-ingest` picks them up
+  unchanged. Verified live: a real `slack:ops-alerts` failure became an
+  `ops_incidents` row.
+- `msg_id` int→bigint migration `u0a1b2c3d4e5` (applied to live DB) —
+  Slack ts-as-µs overflows int4. Slack ids are exact `ts` µs.
+- Cursors (`notify_archive:cursor` Redis hash) advance only after
+  db.commit — crash-safe.
+- ntfy reader-token mint workflow `ntfy-reader-token.yml` in
+  cloudless.gr (PR #2450): omv-runner kubectl → dedicated read-only
+  ntfy account, token stored to Infisical `NTFY_READER_TOKEN` + artifact.
+
+Open items:
+- `watch:` cloudless.gr #2450 merge → workflow fires → sync
+  `NTFY_READER_TOKEN` into `.env` → first ntfy ingest proves the lane.
+- `watch:` PR #2389 checks green → merge → image rebuild → verify
+  notify_archive baked (remove docker-cp drift).
+- `human:` TG_API_ID/HASH still gated on my.telegram.org daily cap —
+  retry cron 13:00 UTC daily.
+- `decide:` expand ops-agent ALLOWED_RERUN_TASKS beyond read-only?
