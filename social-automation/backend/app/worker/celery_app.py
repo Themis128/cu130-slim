@@ -126,6 +126,7 @@ celery_app = Celery(
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.newsletter_issues",
         "app.worker.tasks.ops_agent",
+        "app.worker.tasks.telegram_incidents",
         "app.worker.tasks.workforce_audit",
         "app.worker.tasks.bluesky_credential",
         "app.worker.tasks.meeting_notes",
@@ -706,6 +707,12 @@ celery_app.conf.update(
         # table is empty; the LLM pass only runs per open incident.
         "ops-agent-sweep": {
             "task": "app.worker.tasks.ops_agent.ops_agent_sweep",
+            "schedule": crontab(minute="*/5"),
+        },
+        # Telegram channel -> ops_incidents bridge — classifies new archived
+        # #critical/#ops posts into incidents the ops-agent sweep triages.
+        "telegram-incidents-ingest": {
+            "task": "app.worker.tasks.telegram_incidents.telegram_incidents_ingest",
             "schedule": crontab(minute="*/5"),
         },
         # Agent-workforce audit — verifies every registered worker clocked
