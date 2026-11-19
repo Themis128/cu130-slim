@@ -79,15 +79,6 @@ _RUNBOOKS: list[tuple[tuple[str, ...], str]] = [
         "token paths.",
     ),
     (
-        ("celery", "queue", "worker", "task", "backlog"),
-        "Worker class: queued-but-never-consumed means the task name is "
-        "unregistered in the worker image (celery-delivery-ops probe) or the "
-        "beat schedule points at a module the image lacks. Baked-image "
-        "gotcha: new task files do not exist inside running containers — "
-        "register in celery_app.py (include list + beat_schedule + route) "
-        "AND rebuild the image; docker cp is a dev-only stopgap.",
-    ),
-    (
         ("n8n",),
         "n8n class: crash-loop on 'database n8n does not exist' means the "
         "postgres db was never created — create it in the stack's postgres. "
@@ -125,6 +116,15 @@ _RUNBOOKS: list[tuple[tuple[str, ...], str]] = [
         "--format '{{.State.OOMKilled}}'` — a 137 exit with OOMKilled=true "
         "means raise the limit or move the task to the GPU/media queue, not "
         "retry forever.",
+    ),
+    (
+        ("celery", "queue", "worker", "task", "backlog"),
+        "Worker class: queued-but-never-consumed means the task name is "
+        "unregistered in the worker image (celery-delivery-ops probe) or the "
+        "beat schedule points at a module the image lacks. Baked-image "
+        "gotcha: new task files do not exist inside running containers — "
+        "register in celery_app.py (include list + beat_schedule + route) "
+        "AND rebuild the image; docker cp is a dev-only stopgap.",
     ),
 ]
 

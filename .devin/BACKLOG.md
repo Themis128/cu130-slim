@@ -4046,3 +4046,30 @@ fixes shipped in PR #2381. Still open (need design work, not drive-by patches):
   docs") across token-monitor, funnel-report, recovery-tool, and SMS-lane
   PRs — batch into the next docs pass; most canonical docs live in
   `docs/application-architecture.md` + per-skill SKILL.md files.
+
+## 2026-11-19 — Telegram archive → incident resolution loop (Devin)
+
+Landed on `feat/tg-channel-post-ingest` (PR #2389, auto-merge armed):
+
+- Three-lane archive into `telegram_channel_messages`: tg_alert
+  send-time write, `channel_post` webhook ingest (all channels,
+  title-slug naming), Telethon sync/backfill with auto-discovery of
+  every broadcast channel in the account's dialogs.
+- `telegram-incidents-ingest` (5-min beat) scans every archived channel
+  (skips intel/digest, `TG_INGEST_SKIP` extends) → `ops_incidents` →
+  ops-agent-sweep LLM RCA now grounded by `app/services/ops_runbooks.py`
+  (curated runbooks distilled from repo ops docs — **update that file
+  when ops docs gain new failure classes**; first-match ordering matters).
+- Datalake: `lake/socialauto-telegram/messages.json` full-history
+  snapshot on every export-datalake run.
+- New skill `.devin/skills/incident-resolution-ops` (mirrored .cursor).
+- Live-deployed via docker cp until image rebuild — ephemeral.
+
+Open items:
+- `human:` TG_API_ID/TG_API_HASH — tg_api_setup retry cron fires daily
+  13:00 UTC until creds land in .env (my.telegram.org per-phone daily
+  login cap; retries worsen it). Then: backfill --days 30.
+- `watch:` PR #2389 merge → image rebuild → verify baked code matches
+  deployed files (remove docker-cp drift).
+- `decide:` expand ALLOWED_RERUN_TASKS beyond read-only tasks
+  (dmr_health/devapps_sync/analytics_sync)? Requires safety review.
