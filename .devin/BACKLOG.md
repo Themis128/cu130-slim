@@ -4094,8 +4094,11 @@ Landed on `feat/tg-channel-post-ingest` (PR #2389, auto-merge armed):
   ntfy account, token stored to Infisical `NTFY_READER_TOKEN` + artifact.
 
 Open items:
-- `watch:` cloudless.gr #2450 merge → workflow fires → sync
-  `NTFY_READER_TOKEN` into `.env` → first ntfy ingest proves the lane.
+- [x] NTFY_READER_TOKEN minted directly via `ntfy_ops.py` over omv SSH
+  (archive-reader, ro on 3 topics) — `.env` + standalone `.env` updated,
+  workers recreated. First ntfy ingest: 766 rows across 3 topics; E2E
+  probe publish→archive→incident verified. cloudless.gr #2450 keeps the
+  workflow for rotation.
 - `watch:` PR #2389 checks green → merge → image rebuild → verify
   notify_archive baked (remove docker-cp drift).
 - `human:` TG_API_ID/HASH still gated on my.telegram.org daily cap —

@@ -62,3 +62,22 @@ Corrections to the 2026-10-29 traps (verified live 2026-11-12):
   tailnet :30080" guidance is obsolete for this hostname.
 - **Cloudflare 403s bare python User-Agents** (urllib `Python-urllib`,
   httpx default) — every publisher must send a browser-ish UA header.
+
+## Archive reader (2026-11-19)
+
+`archive-reader` — dedicated **read-only** ntfy user for the
+`notify_archive_ingest` collector (incident-resolution-ops). Grants:
+`cloudless-ops`, `cloudless-alerts`, `nextcloud-ops` — all `ro`.
+Never-expiring Bearer token lives in `.env`/`socialauto-standalone/.env`
+as `NTFY_READER_TOKEN`. Mint/rotate:
+
+```bash
+python ntfy_ops.py users                       # verify grants
+NTFY_PASSWORD=<rand> ... ntfy user add archive-reader
+python ntfy_ops.py grant archive-reader <topic> ro
+python ntfy_ops.py token archive-reader        # → tk_… into .env
+```
+
+The `alert-relay` publisher stays write-only by design — do not grant it
+read. The cloudless.gr workflow `ntfy-reader-token.yml` automates the
+same mint over the omv runner for rotation without local SSH.
