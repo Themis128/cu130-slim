@@ -10,8 +10,10 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 import app.api.interview_coach as IC
+from app.models.user import UserRole
 
 USER = SimpleNamespace(id="u1")
 
@@ -154,13 +156,13 @@ async def test_chat_maps_to_engines_completions(monkeypatch):
         return IC.Response(content=b"{}", media_type="application/json")
 
     monkeypatch.setattr(IC, "_proxy", fake_proxy)
-    body = IC.ChatIn(messages=[{"role": "user", "content": "hi"}], stream=True)
+    body = IC.ChatIn(messages=[{"role": "user", "content": "hi"}], stream=False)
     await IC.chat(body, USER)
     assert seen["method"] == "POST"
     assert seen["path"] == "/engines/chat/completions"
     # None fields are stripped before forwarding
     assert "model" not in seen["kw"]["json_body"]
-    assert seen["kw"]["json_body"]["stream"] is True
+    assert seen["kw"]["json_body"]["stream"] is False
 
 
 @pytest.mark.asyncio
@@ -272,7 +274,7 @@ async def test_status_upstream_error(monkeypatch):
     out = await IC.status(USER)
     assert out["configured"] is True
     assert out["upstream_status"] is None
-    assert "down" in out["error"]
+    assert out["error"] == "upstream unreachable"
 
 
 # ── /stt websocket auth + upstream url ────────────────────────────────
@@ -314,10 +316,30 @@ async def test_ws_authenticate_returns_user(monkeypatch):
     monkeypatch.setattr(
         IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
     )
+    monkeypatch.setattr(
+        IC, "get_user_role", AsyncMock(return_value=UserRole.ADMIN)
+    )
     user = SimpleNamespace(id=uid)
     res = SimpleNamespace(scalar_one_or_none=lambda: user)
     db = SimpleNamespace(execute=AsyncMock(return_value=res))
     assert await IC._ws_authenticate("tok", db) is user
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_non_admin(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(
+        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
+    )
+    monkeypatch.setattr(
+        IC, "get_user_role", AsyncMock(return_value=UserRole.VIEWER)
+    )
+    user = SimpleNamespace(id=uid)
+    res = SimpleNamespace(scalar_one_or_none=lambda: user)
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate("tok", db)
+    assert ei.value.status_code == 403
 
 
 def test_ws_upstream_url_translates_scheme_and_ch():
@@ -390,12 +412,13 @@ def _ws_db(user=None):
     return SimpleNamespace(execute=AsyncMock(return_value=res))
 
 
-def _auth_ok(monkeypatch):
+def _auth_ok(monkeypatch, role=UserRole.ADMIN):
     uid = uuid.uuid4()
     user = SimpleNamespace(id=uid)
     monkeypatch.setattr(
         IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
     )
+    monkeypatch.setattr(IC, "get_user_role", AsyncMock(return_value=role))
     return user, _ws_db(user)
 
 
@@ -463,3 +486,102 @@ async def test_pump_stt_client_disconnect_cancels_upstream():
     ws = _FakeClientWS(incoming=[{"type": "websocket.disconnect"}])
     await IC._pump_stt(ws, upstream)
     assert ws.sent == []
+
+
+# ── streaming proxy + admin gate ──────────────────────────────────────
+
+
+class _FakeStreamResp:
+    def __init__(self, status=200, chunks=(), headers=None):
+        self.status_code = status
+        self.headers = headers or {"content-type": "text/event-stream"}
+        self._chunks = list(chunks)
+        self.closed = False
+
+    async def aiter_raw(self):
+        for c in self._chunks:
+            yield c
+
+    async def aread(self):
+        return b'{"error": "boom"}'
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _FakeStreamClient:
+    def __init__(self, resp=None, exc=None):
+        self._resp = resp
+        self._exc = exc
+        self.closed = False
+        self.sent = None
+
+    def build_request(self, method, path, **kw):
+        self.sent = (method, path, kw)
+        return object()
+
+    async def send(self, req, stream=False):
+        if self._exc is not None:
+            raise self._exc
+        return self._resp
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_proxy_stream_yields_chunks_and_closes(monkeypatch):
+    resp = _FakeStreamResp(chunks=[b"data: one\n\n", b"data: two\n\n"])
+    client = _FakeStreamClient(resp=resp)
+    monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
+    out = await IC._proxy_stream(
+        "POST", "/engines/chat/completions", json_body={"stream": True}
+    )
+    assert isinstance(out, StreamingResponse)
+    assert out.media_type == "text/event-stream"
+    chunks = [c async for c in out.body_iterator]
+    assert chunks == [b"data: one\n\n", b"data: two\n\n"]
+    assert resp.closed and client.closed
+
+
+@pytest.mark.asyncio
+async def test_proxy_stream_error_status_returns_json(monkeypatch):
+    resp = _FakeStreamResp(status=500)
+    client = _FakeStreamClient(resp=resp)
+    monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
+    out = await IC._proxy_stream("GET", "/latest")
+    assert out.status_code == 500
+    assert resp.closed and client.closed
+
+
+@pytest.mark.asyncio
+async def test_proxy_stream_connect_error_502(monkeypatch):
+    client = _FakeStreamClient(exc=httpx.ConnectError("down"))
+    monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
+    with pytest.raises(HTTPException) as ei:
+        await IC._proxy_stream("GET", "/latest")
+    assert ei.value.status_code == 502
+    assert client.closed
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_uses_streaming_proxy(monkeypatch):
+    sentinel = object()
+    mock_stream = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(IC, "_proxy_stream", mock_stream)
+    body = IC.ChatIn(messages=[{"role": "user", "content": "hi"}], stream=True)
+    out = await IC.chat(body, USER)
+    assert out is sentinel
+    mock_stream.assert_awaited_once()
+    assert mock_stream.await_args.args[1] == "/engines/chat/completions"
+
+
+@pytest.mark.asyncio
+async def test_chat_non_stream_uses_buffered_proxy(monkeypatch):
+    sentinel = object()
+    mock_proxy = AsyncMock(return_value=sentinel)
+    monkeypatch.setattr(IC, "_proxy", mock_proxy)
+    body = IC.ChatIn(messages=[{"role": "user", "content": "hi"}], stream=False)
+    out = await IC.chat(body, USER)
+    assert out is sentinel
+    mock_proxy.assert_awaited_once()

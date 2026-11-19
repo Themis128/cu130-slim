@@ -32,20 +32,24 @@ import uuid
 import httpx
 import websockets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_user_role, require_admin
 from app.core.config import get_settings
 from app.core.security import decode_token
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-CurrentUser = Depends(get_current_user)
+# The worker holds a single-tenant interview_db (owner CV + session log),
+# so the whole surface is admin-gated — same role floor as other
+# operator-only routers.
+CurrentUser = Depends(require_admin)
 
 
 def _config() -> tuple[str, str]:
@@ -153,9 +157,76 @@ class ChatIn(BaseModel):
     lora: str | None = None
 
 
+def _raw_client(timeout: float) -> httpx.AsyncClient:
+    url, key = _config()
+    if not url or not key:
+        raise HTTPException(
+            503, "interview-coach not configured "
+            "(INTERVIEW_COACH_URL/INTERVIEW_COACH_KEY)"
+        )
+    return httpx.AsyncClient(base_url=url, headers={"x-key": key}, timeout=timeout)
+
+
+async def _proxy_stream(
+    method: str,
+    path: str,
+    *,
+    timeout: float = 30.0,
+    content: bytes | None = None,
+    json_body: dict | None = None,
+    headers: dict | None = None,
+) -> Response:
+    """Stream an upstream response body chunk-by-chunk (SSE etc.).
+
+    The httpx client + response stay open until the iterator finishes or the
+    client disconnects (generator ``finally`` closes both).
+    """
+    client = _raw_client(timeout)
+    try:
+        req = client.build_request(
+            method, path, content=content, json=json_body, headers=headers or {}
+        )
+        resp = await client.send(req, stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        logger.warning("interview-coach %s %s failed: %s", method, path, exc)
+        raise HTTPException(502, "interview-coach upstream error") from exc
+
+    if resp.status_code >= 400:
+        err_body = await resp.aread()
+        await resp.aclose()
+        await client.aclose()
+        try:
+            payload = json.loads(err_body)
+        except ValueError:
+            payload = {"raw": err_body[:2000].decode("utf-8", "replace")}
+        return Response(
+            content=json.dumps(payload),
+            status_code=resp.status_code,
+            media_type="application/json",
+        )
+
+    media = resp.headers.get("content-type", "application/json")
+
+    async def _body():
+        try:
+            async for chunk in resp.aiter_raw():
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(_body(), status_code=resp.status_code,
+                             media_type=media.split(";")[0])
+
+
 @router.post("/chat")
 async def chat(body: ChatIn, _: User = CurrentUser):
     payload = {k: v for k, v in body.model_dump().items() if v is not None}
+    if body.stream:
+        return await _proxy_stream(
+            "POST", "/engines/chat/completions", timeout=90.0, json_body=payload
+        )
     return await _proxy(
         "POST", "/engines/chat/completions", timeout=90.0, json_body=payload
     )
@@ -210,7 +281,8 @@ async def status(_: User = CurrentUser):
             resp = await client.get("/latest")
         return {"configured": True, "upstream_status": resp.status_code}
     except httpx.HTTPError as exc:
-        return {"configured": True, "upstream_status": None, "error": str(exc)}
+        logger.warning("interview-coach status probe failed: %r", exc)
+        return {"configured": True, "upstream_status": None, "error": "upstream unreachable"}
 
 
 __all__ = ["router"]
@@ -241,6 +313,9 @@ async def _ws_authenticate(token: str | None, db: AsyncSession) -> User:
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(401, "User not found")
+    role = await get_user_role(user, db)
+    if role not in (UserRole.ADMIN, UserRole.OWNER):
+        raise HTTPException(403, "Requires admin role or higher")
     return user
 
 
