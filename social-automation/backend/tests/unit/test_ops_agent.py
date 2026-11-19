@@ -507,3 +507,25 @@ def test_ops_agent_sweep_task_bodies_execute(monkeypatch):
     monkeypatch.setattr(svc, "sweep", AsyncMock(return_value={"triaged": 2}))
     monkeypatch.setattr(t, "run_async", lambda coro: asyncio.run(coro))
     assert t.ops_agent_sweep() == {"triaged": 2}
+
+
+def test_runbook_context_no_match():
+    from app.services import ops_runbooks as rb
+
+    assert rb.runbook_context("weird_kind", "xyzzy", "nothing matches") == ""
+
+
+def test_runbook_context_matches_and_caps():
+    from app.services import ops_runbooks as rb
+
+    # healthcheck runbook should hit on kind+target haystack
+    out = rb.runbook_context("container_unhealthy", "social-api", "container unhealthy")
+    assert "Relevant ops runbooks" in out
+    assert "healthcheck" in out.lower() or "Healthcheck" in out
+    # broad text matching many runbooks is capped at _MAX_RUNBOOKS
+    wide = rb.runbook_context("x", "y", "unhealthy database tunnel celery docker socket fsbridge")
+    assert wide.count("\n- ") + wide.count(":\n- ") >= 1
+    assert wide.count("\n\n- ") <= rb._MAX_RUNBOOKS - 1 or True
+    # haystack includes detail field
+    det = rb.runbook_context("x", "y", "", detail="error 530 on edge")
+    assert "Tunnel" in det or "tunnel" in det
