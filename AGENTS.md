@@ -111,6 +111,31 @@ rm -f .deploy.lock                                                 # release
 
 **Watchdog limits** (env-overridable): max 3 restarts per container per hour with 1/5/15-min backoff, then one Slack alert and hands off; `docker desktop restart` max 2/day; a crash loop whose logs show alembic / `Can't locate revision` / migration errors is **not** restarted — the watchdog runs `docker update --restart=no` and alerts once. After fixing, `rm ~/.local/state/compose-watchdog/migration-<container>` and `docker update --restart=unless-stopped <container>`. State: `~/.local/state/compose-watchdog/`; log: `logs/watchdog.log`.
 
+## Notification archive → incident resolution (2026-11-19)
+
+Every alert surface archives into `telegram_channel_messages` (platform
+Postgres — the "notification datalake", also exported to
+`lake/socialauto-telegram/messages.json` by `export-datalake`):
+
+| Lane | Code | Rows |
+|---|---|---|
+| Bot posts (send-time write — `channel_post` never fires for bot's own posts) | `services/telegram_notify.py` `_archive` | raw channel slug |
+| External channel posts | `api/telegram.py` webhook `channel_post` | slug from `chat_title` |
+| Telegram history | `scripts/telegram_archive.py` sync/backfill (Telethon user session; auto-discovers ALL broadcast channels) | raw channel slug |
+| Slack | `worker/tasks/notify_archive.py` — `conversations.history`, ts-as-µs bigint | `slack:<chan>` |
+| ntfy | same task — `/<topic>/json?poll=1` + `NTFY_READER_TOKEN` (ro `archive-reader`), sha1(message-id) bigint | `ntfy:<topic>` |
+| Gmail | same task — OAuth refresh → `messages.list/get`, `EMAIL_ARCHIVE_*` envs | `email:<mailbox>` |
+
+Resolution loop (both 5-min beat): `telegram-incidents-ingest` classifies
+new rows (`tg_ingest:v2` created_at-ms cursor, post-commit) into
+fingerprint-deduped `ops_incidents` — skips `intel`/`digest`,
+`slack:socialauto(-telegram)`, `_SKIP_MSG_RE` noise (digests/canary/
+reports), and non-allowlisted email senders (`_EMAIL_ALERT_RE` +
+`TG_INGEST_EMAIL_SENDERS`). Then `ops-agent-sweep` runs DMR LLM RCA
+grounded in `services/ops_runbooks.py` → whitelisted reruns
+(`ALLOWED_RERUN_TASKS`, read-only) or Telegram escalation. Skills:
+`incident-resolution-ops`, `ntfy-ops`, `telegram-archive-ops`.
+
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Files are bind-mounted — pull/checkout then restart; no cp needed.
@@ -143,6 +168,14 @@ docker compose config --quiet
 
 # restart key containers (5 queue-dedicated workers + beat)
 docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-worker-meta celery-beat
+
+# notification archive + incidents
+docker exec social-postgres psql -U social_user -d social_automation \
+  -c "SELECT channel, count(*) FROM telegram_channel_messages GROUP BY 1 ORDER BY 2 DESC;"
+docker exec social-postgres psql -U social_user -d social_automation \
+  -c "SELECT kind, target, count(*) FROM ops_incidents WHERE status='open' GROUP BY 1,2;"
+docker exec social-worker-default celery -A app.worker.celery_app call \
+  app.worker.tasks.notify_archive.notify_archive_ingest
 
 # health
 curl http://localhost:8083/health
