@@ -23,9 +23,21 @@ class _Db:
     def __init__(self, rows):
         self._rows = rows
         self.committed = False
+        self.stmts = []
 
-    async def execute(self, _stmt):
+    async def execute(self, stmt):
+        self.stmts.append(stmt)
         return _Result(self._rows)
+
+    def update_patches(self):
+        """meta_data patch dicts from UPDATE statements (Core update path)."""
+        out = []
+        for st in self.stmts:
+            params = st.compile().params
+            for v in params.values():
+                if isinstance(v, dict) and "li_token_checked_at" in v:
+                    out.append(v)
+        return out
 
     async def commit(self):
         self.committed = True
@@ -116,8 +128,9 @@ async def test_401_alerts_and_flags(monkeypatch):
     db, alert = _wire(monkeypatch, [a], _Client(_Resp({"code": "AUTHENTICATION_FAILED"}, status=401)))
     stats = await task._check()
     assert stats["expired"] == 1
-    assert a.meta_data["li_token_invalid"] is True
-    assert "li_token_checked_at" in a.meta_data
+    patches = db.update_patches()
+    assert patches and patches[0]["li_token_invalid"] is True
+    assert "li_token_checked_at" in patches[0]
     alert.assert_awaited_once()
     assert db.committed
 
@@ -133,10 +146,11 @@ async def test_403_alerts(monkeypatch):
 @pytest.mark.asyncio
 async def test_expiring_soon_alerts(monkeypatch):
     a = _acct(token_expires_at=datetime.now(UTC) + timedelta(days=3))
-    _, alert = _wire(monkeypatch, [a], _Client(_Resp({"sub": "abc"})))
+    db, alert = _wire(monkeypatch, [a], _Client(_Resp({"sub": "abc"})))
     stats = await task._check()
     assert stats["expiring"] == 1
-    assert a.meta_data["li_token_invalid"] is False
+    patches = db.update_patches()
+    assert patches and patches[0]["li_token_invalid"] is False
     alert.assert_awaited_once()
 
 
@@ -150,10 +164,11 @@ async def test_no_expiry_counts_healthy(monkeypatch):
 @pytest.mark.asyncio
 async def test_http_500_inconclusive_not_flagged(monkeypatch):
     a = _acct()
-    _, alert = _wire(monkeypatch, [a], _Client(_Resp({}, status=500)))
+    db, alert = _wire(monkeypatch, [a], _Client(_Resp({}, status=500)))
     stats = await task._check()
     assert stats["inconclusive"] == 1 and stats["expired"] == 0
-    assert "li_token_invalid" not in a.meta_data
+    patches = db.update_patches()
+    assert all("li_token_invalid" not in p for p in patches)
     alert.assert_not_awaited()
 
 
