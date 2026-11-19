@@ -72,6 +72,9 @@ Each loop must answer: **Trigger** (when it fires) · **Code** (where it lives) 
 | Token refresh | `15,45 * * * *` | `tasks/token_refresh.py` | token expiry > horizon | ✅ live |
 | TikTok inbox reconcile | `20 */6 * * *` | `tasks/tiktok_inbox_reconcile.py` | stuck inbox drained | ✅ live |
 | Tailnet policy-as-code | GH workflow | `.github/workflows/tailscale-ops.yml` | audit reports | ✅ live |
+| Notification archive ingest | `*/5 :03` + webhook + hourly sync | `tasks/notify_archive.py`, `api/telegram.py channel_post`, `scripts/telegram_archive.py`, `tg_alert.py` send-write | `telegram_channel_messages` rows (tg + `slack:`/`ntfy:`/`email:`) | ✅ live |
+| Incident bridge | `*/5` | `tasks/telegram_incidents.py` | `ops_incidents` open rows (fingerprint dedup) | ✅ live |
+| Ops-agent RCA sweep | `*/5` | `tasks/ops_agent.py` + `services/ops_runbooks.py` | resolved/escalated incidents | ✅ live |
 
 ## 6. Data & Analytics
 

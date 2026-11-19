@@ -337,7 +337,7 @@ to the business-accounts rule.
 └── usage.py         (2)  — quota usage, history
 ```
 
-### Data Models (19 model files)
+### Data Models (29 model files)
 
 ```
 app/models/
@@ -361,7 +361,18 @@ app/models/
 ├── ai_provider.py   — AIProvider
 ├── ai_usage.py      — AIUsageLog
 ├── social_secret.py — SocialSecret
-└── email_log.py     — EmailLog
+├── email_log.py     — EmailLog
+├── telegram_message.py — TelegramChannelMessage (unified notification
+│                      archive: Telegram channel posts + `slack:<chan>` +
+│                      `ntfy:<topic>` + `email:<mailbox>` rows; unique
+│                      (channel, msg_id), msg_id BIGINT)
+├── ops_incident.py  — OpsIncident (fingerprint-deduped incident store
+│                      consumed by the ops-agent sweep; open → LLM RCA →
+│                      whitelisted rerun or escalation)
+└── agency.py, ai_function_call.py, engagement.py, inbox_snapshot.py,
+   linkedin_intel.py, newsletter_issue.py, research_doc.py, trends.py —
+   feature-area models (agent workforce, engagement tracking, inbox
+   snapshots, ad-intel, newsletter issues, research docs, trends)
 ```
 
 ### Service Layer (137 services)
@@ -642,7 +653,7 @@ app/mcp/server.py
 (Bot Builder lives in the REST API + `/messenger` UI, not in MCP tools.)
 ```
 
-### Celery Tasks (46 task modules, 45 beat schedules)
+### Celery Tasks (120 task modules, 124 beat schedules)
 
 ```
 app/worker/tasks/
@@ -744,6 +755,30 @@ app/worker/tasks/
 │                             scrape via browser bridge → new DAY lessons
 │                             auto-draft LinkedIn posts + Slack alert
 ├── dmr_health.py           — check_dmr_health, keep_warm_dmr_models
+├── notify_archive.py       — notify_archive_ingest (5min, :03): polls
+│                             Slack conversations.history (paginated,
+│                             ts-as-µs bigint ids), ntfy topics
+│                             (/<topic>/json?poll=1, sha1-id bigint),
+│                             and Gmail (messages.list/get, OAuth refresh
+│                             token, internalDate cursor) →
+│                             telegram_channel_messages as slack:<chan> /
+│                             ntfy:<topic> / email:<mailbox>; Redis
+│                             `notify_archive:cursor` hset only after
+│                             db.commit (crash-safe)
+├── telegram_incidents.py   — telegram_incidents_ingest (5min): scans new
+│                             telegram_channel_messages rows across every
+│                             channel (created_at-ms `tg_ingest:v2` cursor,
+│                             post-commit) → _classify → ops_incidents via
+│                             report_incident fingerprint upsert; skips
+│                             intel/digest + slack:socialauto(-telegram) +
+│                             _SKIP_MSG_RE noise + non-alert email senders
+│                             (_EMAIL_ALERT_RE + TG_INGEST_EMAIL_SENDERS)
+├── ops_agent.py            — ops_agent_sweep (5min): triages open
+│                             ops_incidents — DMR LLM RCA grounded in
+│                             services/ops_runbooks.py (keyword-matched
+│                             curated runbooks) → whitelisted task reruns
+│                             (ALLOWED_RERUN_TASKS, read-only) or
+│                             severity-routed Telegram escalation
 ├── personal_messenger.py   — poll_personal_messenger (auto-reply, E2EE + regular, 20 convos/poll)
 ├── instagram_messenger.py  — poll_instagram_messenger (browser bridge fallback, orchestrator,
 │                               Redis breaker on Meta app-level rate limits: Graph code 4/32/613
@@ -837,6 +872,10 @@ Beat Schedule:
 │ poll-linkedin-messenger  │ linkedin_messenger.poll        │ 6h       │
 │                          │  (LinkedIn rate-limits browser  │          │
 │                          │   DM polling hard)              │          │
+│ ops-agent-sweep          │ ops_agent.ops_agent_sweep       │ */5      │
+│ telegram-incidents-ingest│ telegram_incidents.ingest       │ */5      │
+│ notify-archive-ingest    │ notify_archive.ingest           │ */5 :03  │
+│                          │  (Slack+ntfy+Gmail → archive)   │          │
 │ refresh-expiring-tokens  │ token_refresh.refresh           │ :15/:45  │
 │ check-instagram-sessions │ instagram_session_check        │ 6h :30   │
 │ refresh-instagram-tokens │ instagram_token_refresh        │ weekly   │
@@ -1829,6 +1868,21 @@ publishers (watchdogs, git hooks, kuma, ops tasks)
   `/api/v1/telegram/{acc}/send` (e.g. `micro1 alerts`, chat
   `-1004358324988`). Slack remains the third surface
   (`slack_notifications` TG_CH_* channel map).
+- **Unified notification archive → incident loop** (2026-11-19): every
+  alert surface lands in `telegram_channel_messages` (platform Postgres) —
+  bot posts via the `tg_alert.py` send-time write, external channel posts
+  via the `channel_post` webhook handler, history via the Telethon
+  `telegram_archive.py` sync/backfill (auto-discovers all broadcast
+  channels), Slack/ntfy/Gmail via `notify_archive_ingest`. From there two
+  5-min beat tasks drive automated resolution: `telegram_incidents_ingest`
+  classifies new rows into fingerprint-deduped `ops_incidents`, and
+  `ops_agent_sweep` runs documentation-grounded LLM RCA
+  (`services/ops_runbooks.py`) → whitelisted reruns or Telegram
+  escalation. `export_datalake` ships the full archive to
+  `lake/socialauto-telegram/messages.json`. ntfy archive reads use the
+  dedicated read-only `archive-reader` account (`NTFY_READER_TOKEN`);
+  Gmail reads use the OAuth refresh-token envs (`GMAIL_OAUTH_*`,
+  `EMAIL_ARCHIVE_QUERY`).
 `cloudless.gr` still reaches it server-to-server with the
 `cloudless-site-bridge` Access **service token** headers
 (`CF-Access-Client-Id` / `CF-Access-Client-Secret`); those pass through

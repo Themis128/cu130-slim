@@ -1,6 +1,6 @@
 # SocialAuto (social.cloudless.gr) — Codemap
 
-Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. The operational loop inventory (8 departments, every closed loop with trigger/code/health-signal) lives in [`ops/loop-contract.md`](ops/loop-contract.md), mirrored to Nextcloud Collectives → "Cloudless Ops" landing page. Last verified: 2026-10-19 (CRM lifecycle/engagement loops, Nextcloud sync, publish empty-caption guard, 44 task modules / 43 beat entries).
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. The operational loop inventory (8 departments, every closed loop with trigger/code/health-signal) lives in [`ops/loop-contract.md`](ops/loop-contract.md), mirrored to Nextcloud Collectives → "Cloudless Ops" landing page. Last verified: 2026-11-19 (notification archive→incident loop, 120 task modules / 124 beat entries).
 
 ## What it is
 
@@ -112,10 +112,17 @@ services/          platform clients + infra — facebook_api, instagram_api
                    publish fallback), browser_orchestrator, *_sidecar clients,
                    dmr (DMR client), inference (provider routing), media_*,
                    db_router (D1→Postgres dual-write), d1/kv/vectorize/chroma/minio
-                   clients, content_*, brand_*, lead_capture, *_chatbot
+                   clients, content_*, brand_*, lead_capture, *_chatbot,
+                   ops_agent (incident RCA + escalation), ops_runbooks
+                   (keyword-matched runbook context injected into the
+                   ops-agent LLM prompt — first-match ordering matters)
 models/            SQLAlchemy — social_account (access_token_enc, scopes, meta_data),
                    social_secret, user, content, media, lead, billing,
-                   whatsapp_message (unified-inbox persistence)…
+                   whatsapp_message (unified-inbox persistence),
+                   telegram_channel_messages (notification archive — Telegram
+                   posts + slack:/ntfy:/email: prefixed rows, unique
+                   (channel,msg_id), msg_id BIGINT), ops_incidents
+                   (fingerprint-deduped incident store)…
 worker/celery_app.py   queues + beat_schedule; worker_process_init/shutdown
                    wire the per-child asyncio loop lifecycle
 worker/_async.py     persistent asyncio loop per prefork child (daemon thread):
@@ -137,6 +144,9 @@ worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
                    crm_hygiene (Mon dedupe), crm_lifecycle (score→convert),
                    crm_engagement (IMAP reply→note+status), monetization,
                    telegram_agent (channel autopilot),
+                   notify_archive (Slack+ntfy+Gmail → telegram_channel_messages),
+                   telegram_incidents (archive → _classify → ops_incidents),
+                   ops_agent (open-incident sweep → LLM RCA → rerun/escalate),
                    skool_watch (VEC Skool scrape → LinkedIn drafts),
                    notebook_reports (papermill report runner)
 notebooks/         report templates (reports/) executed by the worker via
