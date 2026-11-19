@@ -31,6 +31,7 @@ from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsInciden
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
+from app.models.telegram_message import TelegramChannelMessage
 from app.models.trends import TrendSignal
 from app.models.user import AuditLog, Team, TeamMember, User
 from app.models.web_analytics import WebAnalyticsConfig, WebAnalyticsEvent
@@ -86,6 +87,7 @@ __all__ = [
     "DigitalCard",
     "WebAnalyticsConfig",
     "WebAnalyticsEvent",
+    "TelegramChannelMessage",
     "WhatsAppMessage",
     "InboxSnapshot",
     "AgencyAudit",
