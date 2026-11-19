@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from app.worker._async import run_async, task_session
@@ -33,6 +34,15 @@ _INCIDENT_RE = re.compile(
     re.IGNORECASE,
 )
 _RECOVERED_RE = re.compile(r"(recover|restored|back up|healthy again|resolved|fixed)", re.IGNORECASE)
+# Message-level noise inside alert channels: digest/intel posts fanned
+# out to ops topics, canary heartbeats, generated reports — archived,
+# never incidents.
+_SKIP_MSG_RE = re.compile(
+    r"(^\s*\[(digest|intel|p3|p4)\]|^\s*canary ok|^\s*self-check ok|"
+    r"daily report|daily summary|engagement sweep|drip sweep|"
+    r"new jobs posted|\*published\*|clear skies|lead research sweep)",
+    re.IGNORECASE,
+)
 _EMOJI_RE = re.compile(r":[a-z_]+:")  # strip :warning: :x: etc before target grab
 _SEV_PREFIX_RE = re.compile(r"^\s*\[[a-z0-9 /_-]+\]", re.IGNORECASE)
 # Backtick-quoted identifier first (Slack/ntfy "failed `app.worker.x.y`"),
@@ -50,13 +60,29 @@ _GENERIC_TARGETS = {
 # sane default — informational digest channels are skipped by default
 # (override with TG_INGEST_SKIP="name1,name2").
 _CHANNEL_SEVERITY = {"critical": "critical", "ops": "ops"}
-_SKIP_CHANNELS = {"intel", "digest"}
-_CURSOR_KEY = "tg_ingest:cursor"
+# v2 cursor = created_at epoch-ms. v1 used msg_id ordering which only
+# works for monotonic ids (Telegram, Slack-ts) — ntfy/email rows hash
+# their ids, so rows below a random-hash cursor were skipped forever.
+_CURSOR_KEY = "tg_ingest:v2"
+# Email surfaces carry newsletters/bulk mail whose subjects contain
+# incident words ("I Failed Google…") — for `email:` channels only
+# known ops senders classify (allowlist > denylist on a huge surface).
+# Extend via TG_INGEST_EMAIL_SENDERS="acme-alerts,monitor.foo".
+_EMAIL_ALERT_RE = re.compile(
+    r"(vercel|github\.com|gitlab|cloudflare|uptime|kuma|socialauto|"
+    r"docker|ntfy|sentry|pagerduty|datadog|grafana|prometheus|omv|"
+    r"espocrm|stripe|paddle|polar|postiz|n8n|nextcloud|"
+    r"alert|monitor|watchdog|cloudless)",
+    re.IGNORECASE,
+)
+# Content/digest channels stay archived but never classify — their
+# posts are reports, not alerts.
+_SKIP_CHANNELS = {"intel", "digest", "slack:socialauto", "slack:socialauto-telegram"}
 
 
 def _classify(channel: str, text: str) -> tuple[str, str] | None:
     """Return (kind, target) for alert-shaped posts, else None."""
-    if not text or _RECOVERED_RE.search(text):
+    if not text or _RECOVERED_RE.search(text) or _SKIP_MSG_RE.search(text):
         return None
     if not _INCIDENT_RE.search(text):
         return None
@@ -116,24 +142,42 @@ def telegram_incidents_ingest(self):
                     ).all()
                     if row[0]
                 }
+                extra_senders = tuple(
+                    s.strip()
+                    for s in (os.environ.get("TG_INGEST_EMAIL_SENDERS") or "").split(",")
+                    if s.strip()
+                )
+                email_alert = _EMAIL_ALERT_RE
+                if extra_senders:
+                    email_alert = re.compile(
+                        _EMAIL_ALERT_RE.pattern + "|" + "|".join(re.escape(s) for s in extra_senders),
+                        re.IGNORECASE,
+                    )
+                new_cursors: dict[str, int] = {}
                 for channel in sorted(channels - skip):
                     severity = _CHANNEL_SEVERITY.get(channel, "ops")
-                    cursor = int(await r.hget(_CURSOR_KEY, channel) or 0)
+                    cursor_ms = int(await r.hget(_CURSOR_KEY, channel) or 0)
+                    is_email = channel.startswith("email:")
                     rows = (
                         await db.execute(
                             select(TelegramChannelMessage)
                             .where(
                                 TelegramChannelMessage.channel == channel,
-                                TelegramChannelMessage.msg_id > cursor,
+                                TelegramChannelMessage.created_at
+                                > datetime.fromtimestamp(cursor_ms / 1000, UTC),
                             )
-                            .order_by(TelegramChannelMessage.msg_id)
+                            .order_by(TelegramChannelMessage.created_at)
                             .limit(200)
                         )
                     ).scalars().all()
                     for msg in rows:
                         stats["scanned"] += 1
-                        if msg.msg_id > cursor:
-                            cursor = msg.msg_id
+                        ms = int(msg.created_at.timestamp() * 1000)
+                        if ms > cursor_ms:
+                            cursor_ms = ms
+                        if is_email and not email_alert.search(msg.sender or ""):
+                            stats["skipped"] += 1
+                            continue
                         cls = _classify(channel, msg.text or "")
                         if not cls:
                             stats["skipped"] += 1
@@ -149,8 +193,12 @@ def telegram_incidents_ingest(self):
                             detail={"channel": channel, "msg_id": msg.msg_id},
                         )
                         stats["ingested"] += 1
-                    await r.hset(_CURSOR_KEY, channel, cursor)
+                    new_cursors[channel] = cursor_ms
+                # Cursors land only after a durable commit — a crash
+                # mid-run must re-scan, never skip.
                 await db.commit()
+                for chan, cur in new_cursors.items():
+                    await r.hset(_CURSOR_KEY, chan, cur)
         finally:
             await r.aclose()
         return stats

@@ -13,6 +13,14 @@ lanes already have. Every 5 minutes it polls:
   topics). Auth = ``NTFY_READER_TOKEN`` (minted by the
   ntfy-reader-token workflow — alert-relay is write-only). Rows land
   as ``ntfy:<topic>``.
+- **Gmail** — ``users.messages.list`` + ``get`` via OAuth refresh token
+  (``GMAIL_OAUTH_CLIENT_ID`` / ``GMAIL_OAUTH_CLIENT_SECRET`` /
+  ``GMAIL_REFRESH_TOKEN``). Query = ``EMAIL_ARCHIVE_QUERY``
+  (default ``in:inbox``); incremental via an ``internalDate`` cursor
+  with a 60s overlap — dedupe is by hashed Gmail message id. Rows
+  land as ``email:<mailbox>`` (``EMAIL_ARCHIVE_MAILBOX``, default
+  ``gmail``). First run backfills ``EMAIL_ARCHIVE_MAX_PAGES`` pages
+  (default 10 x 100).
 
 Cursors live in the ``notify_archive:cursor`` Redis hash — restart-safe.
 ``(channel, msg_id)`` unique constraint makes every write idempotent;
@@ -49,11 +57,21 @@ def _slack_msg_id(ts: str) -> int:
     return int(ts.replace(".", "")[:16].ljust(16, "0"))
 
 
+def _sha_msg_id(key: str, fallback: int) -> int:
+    """Opaque provider id -> sha1[:8] masked to signed bigint."""
+    if not key:
+        return fallback
+    return int.from_bytes(hashlib.sha1(key.encode()).digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
 def _ntfy_msg_id(nid: str, t: int) -> int:
     """ntfy 12-char base62 id -> sha1[:8] masked to signed bigint."""
-    if not nid:
-        return t
-    return int.from_bytes(hashlib.sha1(nid.encode()).digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+    return _sha_msg_id(nid, t)
+
+
+def _gmail_msg_id(mid: str, internal_ms: int) -> int:
+    """Gmail message id -> sha1[:8] masked to signed bigint."""
+    return _sha_msg_id(mid, internal_ms)
 
 
 def _slack_channel_ids() -> list[str]:
@@ -230,6 +248,100 @@ async def _collect_ntfy(db, r, model, stats: dict[str, Any], team_id) -> None:
                 stats.setdefault("pending", {})[chan] = str(newest)
 
 
+async def _gmail_access_token(client: httpx.AsyncClient) -> str:
+    r = await client.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": os.environ.get("GMAIL_OAUTH_CLIENT_ID", ""),
+            "client_secret": os.environ.get("GMAIL_OAUTH_CLIENT_SECRET", ""),
+            "refresh_token": os.environ.get("GMAIL_REFRESH_TOKEN", ""),
+            "grant_type": "refresh_token",
+        },
+        timeout=20,
+    )
+    return r.json()["access_token"]
+
+
+async def _collect_email(db, r, model, stats: dict[str, Any], team_id) -> None:
+    if not os.environ.get("GMAIL_REFRESH_TOKEN"):
+        stats["email"] = "no GMAIL_REFRESH_TOKEN"
+        return
+    mailbox = os.environ.get("EMAIL_ARCHIVE_MAILBOX", "gmail")
+    chan = f"email:{mailbox}"
+    query = os.environ.get("EMAIL_ARCHIVE_QUERY", "in:inbox")
+    max_pages = int(os.environ.get("EMAIL_ARCHIVE_MAX_PAGES", "10"))
+    cursor = int(await r.hget(_CURSOR_KEY, chan) or 0)
+    # 60s overlap — refetches dedupe via the hashed message id, so a
+    # message landing in the cursor's own second can't be skipped.
+    q = f"{query} after:{max(0, cursor // 1000 - 60)}" if cursor else query
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        try:
+            token = await _gmail_access_token(client)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("gmail token refresh failed: %s", exc)
+            stats["email"] = "token refresh failed"
+            return
+        auth = {"Authorization": f"Bearer {token}"}
+        newest = cursor
+        page_tok = ""
+        for _ in range(max_pages):
+            params: dict[str, Any] = {"q": q, "maxResults": 100}
+            if page_tok:
+                params["pageToken"] = page_tok
+            try:
+                lst = (
+                    await client.get(
+                        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                        params=params, headers=auth,
+                    )
+                ).json()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("gmail list failed %s: %s", chan, exc)
+                stats.setdefault("errors", []).append(f"{chan}: list")
+                break
+            ids = [m["id"] for m in lst.get("messages", []) if m.get("id")]
+            stats["scanned"] += len(ids)
+            for mid in ids:
+                try:
+                    full = (
+                        await client.get(
+                            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}",
+                            params={
+                                "format": "metadata",
+                                "metadataHeaders": ["From", "Subject"],
+                            },
+                            headers=auth,
+                        )
+                    ).json()
+                except Exception:  # noqa: BLE001
+                    continue
+                internal_ms = int(full.get("internalDate") or 0)
+                if internal_ms and internal_ms <= cursor:
+                    continue
+                hdrs = {
+                    h.get("name", ""): h.get("value", "")
+                    for h in (full.get("payload") or {}).get("headers", [])
+                }
+                subject = hdrs.get("Subject", "")
+                snippet = (full.get("snippet") or "").strip()
+                text = f"{subject}\n{snippet}".strip()
+                inserted = await _insert_msg(
+                    db, model, team_id, chan,
+                    _gmail_msg_id(mid, internal_ms // 1000),
+                    datetime.fromtimestamp(internal_ms / 1000, UTC),
+                    hdrs.get("From", ""), text, "",
+                )
+                stats["inserted" if inserted else "dupes"] += 1
+                if internal_ms > newest:
+                    newest = internal_ms
+            page_tok = lst.get("nextPageToken") or ""
+            if not page_tok:
+                break
+        if newest != cursor:
+            stats.setdefault("pending", {})[chan] = str(newest)
+
+
 @celery_app.task(name="app.worker.tasks.notify_archive.notify_archive_ingest", bind=True, max_retries=1)
 def notify_archive_ingest(self):
     async def _run() -> dict[str, Any]:
@@ -253,6 +365,7 @@ def notify_archive_ingest(self):
                 ).scalar()
                 await _collect_slack(db, r, TelegramChannelMessage, stats, team_id)
                 await _collect_ntfy(db, r, TelegramChannelMessage, stats, team_id)
+                await _collect_email(db, r, TelegramChannelMessage, stats, team_id)
                 try:
                     await db.commit()
                     for chan, cur in (stats.pop("pending", {}) or {}).items():

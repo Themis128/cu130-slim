@@ -115,3 +115,34 @@ def test_classify_kind_mapping():
     assert _classify("ops", "worker OOM killed")[0] == "oom_kill"
     assert _classify("ops", "tunnel returns 530")[0] == "tunnel_down"
     assert _classify("ops", "token expired for meta")[0] == "credential_expired"
+
+
+# ---- gmail id + noise filters -----------------------------------------
+
+def test_gmail_msg_id_signed_bigint_and_stable():
+    a = NA._gmail_msg_id("19abc123def", 1700000000000)
+    assert a == NA._gmail_msg_id("19abc123def", 1700000000000)
+    assert 0 <= a <= SIGNED_BIGINT_MAX
+    assert NA._gmail_msg_id("", 1700000000000) == 1700000000000
+
+
+def test_classify_skips_canary_and_digests():
+    from app.worker.tasks.telegram_incidents import _classify as c
+    assert c("ntfy:cloudless-ops", "canary ok - cloudless-ops\nself-check ok") is None
+    assert c("ntfy:cloudless-ops", "[digest] cloudless\n*CRM engagement sweep*") is None
+    assert c("ntfy:cloudless-ops", "[intel] trend digest") is None
+
+
+def test_classify_skips_reports():
+    from app.worker.tasks.telegram_incidents import _classify as c
+    assert c("email:gmail", "New jobs posted from careers.eurobank.gr") is None
+    assert c("email:gmail", "SocialAuto daily report - failed tasks below") is None
+
+
+def test_email_alert_sender_regex():
+    from app.worker.tasks.telegram_incidents import _EMAIL_ALERT_RE as R
+    assert R.search("Vercel <notifications@vercel.com>")
+    assert R.search("noreply@github.com")
+    assert R.search("alerts@cloudless.gr")
+    assert not R.search("Medium Daily Digest <noreply@medium.com>")
+    assert not R.search("careers@eurobank.gr")

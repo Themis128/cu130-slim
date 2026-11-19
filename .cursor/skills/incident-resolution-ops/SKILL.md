@@ -13,6 +13,7 @@ external post (channel_post webhook ingest)
 history (Telethon sync/backfill — telegram-archive-ops)
 Slack alert channels (notify_archive_ingest — conversations.history)
 ntfy alert topics   (notify_archive_ingest — /<topic>/json poll)
+Gmail inbox         (notify_archive_ingest — messages.list/get)
         │
         ▼
 telegram_channel_messages  ──export──▶  lake/socialauto-telegram/messages.json
@@ -49,6 +50,8 @@ send_telegram_alert → severity-routed channel reply (self-archives)
 | intel/digest informational | archived | skipped by default |
 | Slack alert channels (ops-alerts, socialauto, socialauto-telegram + `SLACK_ARCHIVE_CHANNELS`) | `notify_archive_ingest` 5-min | yes — `slack:<name>` rows |
 | ntfy topics (cloudless-ops/alerts, nextcloud-ops + `NTFY_ARCHIVE_TOPICS`) | `notify_archive_ingest` 5-min | yes — `ntfy:<topic>` rows |
+| Gmail inbox (`EMAIL_ARCHIVE_QUERY`, default `in:inbox`) | `notify_archive_ingest` 5-min | yes — `email:<mailbox>` rows, alert-sender allowlist |
+| `slack:socialauto`, `slack:socialauto-telegram` (digest channels) | archived | skipped like intel/digest |
 
 ## Runbook layer — `app/services/ops_runbooks.py`
 
@@ -117,8 +120,17 @@ re-running the workflow and re-downloading the artifact). Cursor hash:
 - `channel` values: env-mapped names (critical/ops/intel/digest),
   title-slug for other Telegram channels, `slack:<name>` / `ntfy:<topic>`
   for the new surfaces; raw chat_id as last resort.
-- `msg_id` is BIGINT — Slack ids are ts-as-µs (16 digits), ntfy epoch
-  seconds. The int4→bigint migration is `u0a1b2c3d4e5`.
+- `msg_id` is BIGINT — Slack ids are ts-as-µs (16 digits); ntfy/Gmail
+  ids are sha1(provider-id) masked to signed bigint. The int4→bigint
+  migration is `u0a1b2c3d4e5`.
+- Incident ingest cursor is `tg_ingest:v2` (created_at epoch-ms) —
+  msg_id ordering only works for monotonic ids; hashed ids made rows
+  invisible to the v1 cursor. Cursors land only after db.commit.
+- `email:` channels classify ONLY when the sender matches
+  `_EMAIL_ALERT_RE` (vercel/github/cloudflare/cloudless/…, extend via
+  `TG_INGEST_EMAIL_SENDERS`) — the inbox is too broad for denylisting.
+- `_SKIP_MSG_RE` drops noise INSIDE alert channels: [digest]/[intel]/
+  [P3]/[P4] fanout, canary self-checks, generated reports.
 - Slack cursor is the message ts STRING (e.g. "1795087811.752809"),
   stored verbatim in Redis; pagination follows `next_cursor` max 10
   pages/run — long backfills span multiple beats.
