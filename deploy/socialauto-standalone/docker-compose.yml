@@ -17,7 +17,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
@@ -60,7 +60,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -77,7 +77,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     extra_hosts:
@@ -96,7 +96,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -113,7 +113,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -132,7 +132,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -149,7 +149,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -199,12 +199,12 @@ services:
 
   # Infrastructure
   social-postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: social-postgres
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      - POSTGRES_DB=social
+      - POSTGRES_USER=${SOCIAL_POSTGRES_USER:-social_user}
+      - POSTGRES_PASSWORD=${SOCIAL_POSTGRES_PASSWORD:?set SOCIAL_POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=${SOCIAL_POSTGRES_DB:-social_automation}
     volumes:
       - social-postgres-data:/var/lib/postgresql/data
     ports:
@@ -309,6 +309,8 @@ services:
 
 volumes:
   social-postgres-data:
+    external: true
+    name: cu130-slim_social_postgres_data_v17
   redis-data:
   n8n-data:
   linkedin-browser-data:
