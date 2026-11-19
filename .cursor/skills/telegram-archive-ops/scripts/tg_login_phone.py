@@ -50,25 +50,45 @@ def ensure_adb(target):
         sys.exit(f"adb: {target} not connected — enable wireless debugging on the phone")
 
 
+def _extract_code(text: str) -> str | None:
+    """Pull the 5-digit login code out of a notification android.text line."""
+    # android.text=String (Login code: 12345. Do not give...) — Samsung
+    # redacts to 'String [length=N]' without --noredact; we always pass it.
+    for m in re.finditer(r"android\.text=(?:String \()?([^)]*)", text):
+        body = m.group(1)
+        if not re.search(r"login code|sign.?in code|κωδικός|code", body, re.I):
+            continue
+        digits = re.search(r"(?<!\d)(\d{5})(?!\d)", body)
+        if digits:
+            return digits.group(1)
+    # looser fallback: any 5-digit run inside a telegram-ish text blob
+    for m in re.finditer(r"android\.text=String \(([^)]{0,300})", text):
+        body = m.group(1)
+        if re.search(r"telegram|login|code", body, re.I):
+            digits = re.search(r"(?<!\d)(\d{5})(?!\d)", body)
+            if digits:
+                return digits.group(1)
+    return None
+
+
 def fetch_login_code(target, timeout_s=180):
-    """Poll notification dumps for Telegram's 'login code: NNNNN'."""
+    """Poll `adb shell dumpsys notification --noredact` for the Telegram
+    login-code notification (arrives in the shade as 'Login code: NNNNN')."""
     deadline = time.time() + timeout_s
     seen = set()
     while time.time() < deadline:
         out = adb(target, "dumpsys", "notification", "--noredact", timeout=20)
         text = out.stdout + out.stderr
-        for m in re.finditer(r"(?:login|code||κωδικός)[^\d]{0,40}(\d{5})", text, re.I):
-            code = m.group(1)
-            if code not in seen:
+        # scope to Telegram's package block when possible
+        tg_blocks = re.findall(
+            r"pkg=org\.telegram\.messenger.*?(?=NotificationRecord|\Z)",
+            text, re.S)
+        for blob in tg_blocks or [text]:
+            code = _extract_code(blob)
+            if code and code not in seen:
                 seen.add(code)
-                # newest match wins — keep polling briefly for a fresher one
+                # brief settle so a fresher code (re-send) can supersede
                 time.sleep(2)
-                return code
-        # fallback: bare 5-digit near 'Telegram'
-        for m in re.finditer(r"Telegram[^\n]{0,120}?(\d{5})", text):
-            code = m.group(1)
-            if code not in seen:
-                seen.add(code)
                 return code
         time.sleep(3)
     return None

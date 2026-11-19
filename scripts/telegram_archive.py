@@ -181,7 +181,7 @@ def _pg_flush():
                    ON CONFLICT (channel, msg_id) DO UPDATE SET
                      date=EXCLUDED.date, sender=EXCLUDED.sender,
                      text=EXCLUDED.text, media=EXCLUDED.media""",
-                [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in rows],
+                [tuple(r[:6]) for r in rows],
             )
     except Exception as e:
         print(f"  !! pg flush failed ({len(rows)} rows): {e}", file=sys.stderr)
@@ -189,7 +189,8 @@ def _pg_flush():
 
 
 def _stage(row):
-    _PG["pending"].append(row[:7])
+    # _msg_row is (channel,msg_id,date,sender,text,media,raw_json) — PG needs 6
+    _PG["pending"].append(row[:6])
 
 
 def _client():
@@ -397,13 +398,12 @@ def cmd_channels(args):
         print(f"{r[0]:9} {r[1]:<16} {r[2] or ''} @{r[3] or ''}")
 
 
+SYNC_CMDS = {"status": cmd_status, "search": cmd_search,
+            "export": cmd_export, "channels": cmd_channels}
+
+
 async def _async_main(args):
-    fn = {"login": cmd_login, "sync": cmd_sync, "backfill": cmd_backfill}.get(args.cmd)
-    if fn:
-        await fn(args)
-    else:
-        {"status": cmd_status, "search": cmd_search, "export": cmd_export,
-         "channels": cmd_channels}.get(args.cmd, lambda a: None)(args)
+    await {"login": cmd_login, "sync": cmd_sync, "backfill": cmd_backfill}[args.cmd](args)
 
 
 def main():
@@ -419,7 +419,7 @@ def main():
     if args.cmd in ("login", "sync", "backfill"):
         asyncio.run(_async_main(args))
     else:
-        _async_main(args)
+        SYNC_CMDS[args.cmd](args)
 
 
 if __name__ == "__main__":
