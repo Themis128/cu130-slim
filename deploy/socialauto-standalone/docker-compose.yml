@@ -287,7 +287,13 @@ services:
     restart: unless-stopped
 
   instagram-private-api:
+    # Built locally: upstream :latest ships aiograpi 1.0.9 whose password
+    # login crashes on the retired qe/sync/ endpoint (int(None)). The
+    # Dockerfile upgrades aiograpi to >=2.1.19 (launcher/sync fix).
     image: subzeroid/aiograpi-rest:latest
+    build:
+      context: ../../instagram-private-api
+      dockerfile: Dockerfile
     container_name: instagram-private-api
     ports:
       - "127.0.0.1:8011:8000"
