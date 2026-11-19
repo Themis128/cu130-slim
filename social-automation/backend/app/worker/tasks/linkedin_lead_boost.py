@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 ENABLED = os.getenv("LINKEDIN_ADVANCED", "0") == "1"
 
 _SELFCHECK_FAILS_KEY = "linkedin:lead_sync:selfcheck_fails"
+_SELFCHECK_ALERT_KEY = "linkedin:lead_sync:selfcheck_alerted"
+_SELFCHECK_STREAK_TTL_S = 3600
+_SELFCHECK_ALERT_COOLDOWN_S = 1800
 # Consecutive failures required before paging. At the */30m cadence this is
 # ~60-90min of continuous outage — a single probe landing inside a stack
 # restart window self-heals and must not page (seen 2026-11-17: two queued
@@ -48,8 +51,11 @@ async def _selfcheck_streak(ok: bool) -> int:
         try:
             if ok:
                 await r.delete(_SELFCHECK_FAILS_KEY)
+                await r.delete(_SELFCHECK_ALERT_KEY)
                 return 0
-            return int(await r.incr(_SELFCHECK_FAILS_KEY))
+            n = int(await r.incr(_SELFCHECK_FAILS_KEY))
+            await r.expire(_SELFCHECK_FAILS_KEY, _SELFCHECK_STREAK_TTL_S)
+            return n
         finally:
             await r.aclose()
     except Exception:  # noqa: BLE001 — bookkeeping must not swallow a failure
@@ -99,6 +105,19 @@ async def _webhook_selfcheck() -> None:
                 _SELFCHECK_ALERT_AFTER,
             )
         return
+    try:
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        try:
+            fresh = await r.set(_SELFCHECK_ALERT_KEY, "1", nx=True, ex=_SELFCHECK_ALERT_COOLDOWN_S)
+        finally:
+            await r.aclose()
+        if not fresh:
+            logger.info("lead-sync self-check still failing — page on cooldown (streak %d)", streak)
+            return
+    except Exception:  # noqa: BLE001 — cooldown best-effort; never suppress the page
+        pass
     await send_telegram_alert(
         "P2",
         f"linkedin-lead-sync webhook self-check failed {streak}x in a row "

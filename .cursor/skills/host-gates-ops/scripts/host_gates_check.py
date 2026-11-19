@@ -233,8 +233,13 @@ def check_dmr_tunnel():
     return {"ok": False, "detail": detail}
 
 
-CDP_LAUNCH_BAT = ("C:\\Users\\tbaltzakis\\AppData\\Roaming\\Microsoft\\Windows"
-                  "\\Start Menu\\Programs\\Startup\\cdp-launch.bat")
+# Startup\cdp-launch.bat no longer exists — the lane moved to the hidden
+# VBS wrapper (popup-free-host rule), which routes through
+# startup-hidden\cdp-launch.bat to the guarded canonical launcher at
+# C:\Users\tbaltzakis\devin-scripts\cdp-launch.bat. Launch via wscript so
+# no console window is allocated.
+CDP_LAUNCH_VBS = ("C:\\Users\\tbaltzakis\\AppData\\Roaming\\Microsoft\\Windows"
+                  "\\Start Menu\\Programs\\Startup\\cdp-launch-hidden.vbs")
 
 
 def check_cdp_lane():
@@ -244,8 +249,12 @@ def check_cdp_lane():
     Probe via the Windows host IP (localhost:9229 in WSL is NOT the
     Windows listener)."""
     import urllib.request
-    host_ip = sh("ip route | awk '/default/ {print $3; exit}'",
-                 timeout=5).strip() or "" + WSL_HOST_IP + ""
+    # Explicit WSL_HOST_IP env override wins; otherwise fresh route
+    # discovery, then the module-level resolved fallback.
+    host_ip = (os.environ.get("WSL_HOST_IP")
+               or sh("ip route | awk '/default/ {print $3; exit}'",
+                     timeout=5).strip()
+               or WSL_HOST_IP)
     try:
         with urllib.request.urlopen(
                 f"http://{host_ip}:9229/json/version", timeout=6) as r:
@@ -254,8 +263,13 @@ def check_cdp_lane():
             return {"ok": True, "detail": "CDP :9229 responding"}
         return {"ok": False, "detail": f"unexpected /json/version: {body[:80]}"}
     except Exception as e:
-        rel = win(f"Start-Process -FilePath '{CDP_LAUNCH_BAT}' "
-                  "-WindowStyle Hidden; 'launched'", timeout=15)
+        # EncodedCommand bypasses the bash->powershell quote layers entirely —
+        # the VBS path contains spaces and nested quoting broke the relaunch.
+        import base64
+        ps = (f"Start-Process wscript.exe -ArgumentList '\"{CDP_LAUNCH_VBS}\"' "
+              "-WindowStyle Hidden")
+        enc = base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
+        rel = sh(f"powershell.exe -NoProfile -EncodedCommand {enc}", timeout=15)
         return {"ok": False,
                 "detail": f"CDP :9229 down ({str(e)[:60]}); "
                           f"relaunched cdp-launch={rel.strip()[:40]}"}

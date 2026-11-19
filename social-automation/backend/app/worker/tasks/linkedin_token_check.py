@@ -26,8 +26,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import select
-from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import JSONB, cast, func, select, update
 
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
@@ -120,7 +119,19 @@ async def _check() -> dict:
                         stats["healthy"] += 1
                 else:
                     stats["healthy"] += 1
-            acct.meta_data = meta
-            flag_modified(acct, "meta_data")
+            # Merge only the token-health keys atomically — assigning the
+            # whole meta_data doc would clobber concurrent heal writes.
+            patch = {"li_token_checked_at": meta["li_token_checked_at"]}
+            if valid is not None:
+                patch["li_token_invalid"] = meta["li_token_invalid"]
+            await db.execute(
+                update(SocialAccount)
+                .where(SocialAccount.id == acct.id)
+                .values(
+                    meta_data=func.coalesce(SocialAccount.meta_data, cast({}, JSONB)).op("||")(
+                        cast(patch, JSONB)
+                    )
+                )
+            )
         await db.commit()
     return stats

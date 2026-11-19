@@ -46,12 +46,16 @@ TOPICS = ["cloudless-alerts", "cloudless-ops", "nextcloud-ops",
 BASES = ["https://ntfy.cloudless.gr", "http://github-omv:30080"]
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ntfy-triage/1.0"}
 
+# Probes that can mutate host/service state — `probe` skips them unless
+# --mutate is passed (triage's default posture is read-only).
+MUTATING_PROBES = ("host_gates_check", "mail_pipeline_probe", "docker_engine_guard")
+
 # Keepalive/noise signatures (title or first line of body).
 NOISE = [
     r"canary ok", r"token ok", r"^\[phone\]", r"You received a file",
     r"deep health ok",
 ]
-RECOVERY = re.compile(r"recover|back\b|ok\b|healed|healthy again", re.I)
+RECOVERY = re.compile(r"\brecover(?:ed|y)?\b|\bhealed\b|healthy again|back online|\bis back\b|\bresolved\b|\bfixed\b", re.I)
 
 # Ordered (regex on normalized signature, skill, probe, note).
 # probe=None means the lane is a human gate or external dashboard.
@@ -299,6 +303,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--open-only", action="store_true")
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--mutate", action="store_true",
+                    help="allow probes that can change host/service state")
     args = ap.parse_args()
 
     if args.cmd == "mint-token":
@@ -337,7 +343,10 @@ def main() -> int:
     if args.cmd == "probe":
         for c in clusters:
             if c["status"] == "open" and c["probe"]:
-                c["probe_out"] = run_probe(c["probe"], args.timeout)
+                if not args.mutate and any(m in c["probe"] for m in MUTATING_PROBES):
+                    c["probe_out"] = "(mutating probe skipped — rerun with --mutate to execute)"
+                else:
+                    c["probe_out"] = run_probe(c["probe"], args.timeout)
 
     if args.json:
         print(json.dumps({"noise_filtered": noise, "issues": clusters}, indent=1))
