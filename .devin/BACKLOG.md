@@ -4099,6 +4099,18 @@ Open items:
   workers recreated. First ntfy ingest: 766 rows across 3 topics; E2E
   probe publish→archive→incident verified. cloudless.gr #2450 keeps the
   workflow for rotation.
+- [x] Gmail lane (2026-11-19 pm): `_collect_email` archives
+  `email:gmail` via OAuth refresh token (creds already in .env) —
+  1000-row first backfill verified live. `email:` channels classify
+  only for `_EMAIL_ALERT_RE` senders (`TG_INGEST_EMAIL_SENDERS`
+  extends).
+- [x] `tg_ingest:v2` created_at cursor (hash-id surfaces broke
+  msg_id ordering) + cursors now written only after db.commit +
+  `_SKIP_MSG_RE` noise filters + `slack:socialauto(-telegram)`
+  digest-skip.
+- `human:` omv-ha dovecot (tbaltzakis@cloudless.gr) IMAP lane needs
+  MAILBOX_PASSWORD — not stored anywhere, user provides per
+  mail-triage-ops skill.
 - `watch:` PR #2389 checks green → merge → image rebuild → verify
   notify_archive baked (remove docker-cp drift).
 - `human:` TG_API_ID/HASH still gated on my.telegram.org daily cap —
