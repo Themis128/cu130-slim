@@ -1854,7 +1854,11 @@ services:
     container_name: engagement-browser
     init: true
     networks:
-      - backend
+      backend:
+      socialauto-standalone:
+        aliases:
+          - engagement-browser
+          - browser-novnc
     environment:
       - SCREEN_WIDTH=1280
       - SCREEN_HEIGHT=800
