@@ -11,6 +11,8 @@ fixes applied automatically, everything else escalated to Telegram.
 bot post (tg_alert send-time archive)
 external post (channel_post webhook ingest)
 history (Telethon sync/backfill — telegram-archive-ops)
+Slack alert channels (notify_archive_ingest — conversations.history)
+ntfy alert topics   (notify_archive_ingest — /<topic>/json poll)
         │
         ▼
 telegram_channel_messages  ──export──▶  lake/socialauto-telegram/messages.json
@@ -45,6 +47,8 @@ send_telegram_alert → severity-routed channel reply (self-archives)
 | external posts, any admined channel | webhook channel_post | yes — all channels scanned |
 | channel history | Telethon backfill (needs TG_API_ID/HASH) | yes on next ingest sweep |
 | intel/digest informational | archived | skipped by default |
+| Slack alert channels (ops-alerts, socialauto, socialauto-telegram + `SLACK_ARCHIVE_CHANNELS`) | `notify_archive_ingest` 5-min | yes — `slack:<name>` rows |
+| ntfy topics (cloudless-ops/alerts, nextcloud-ops + `NTFY_ARCHIVE_TOPICS`) | `notify_archive_ingest` 5-min | yes — `ntfy:<topic>` rows |
 
 ## Runbook layer — `app/services/ops_runbooks.py`
 
@@ -88,6 +92,21 @@ docker exec social-postgres psql -U social_user -d social_automation -c \
   "SELECT channel, max(date) FROM telegram_channel_messages GROUP BY 1;"
 ```
 
+## Slack + ntfy surfaces
+
+`app/worker/tasks/notify_archive.py::notify_archive_ingest` (beat :03
+every 5 min) is the collector. Slack ids come from
+`SLACK_ALERTS_CHANNEL_ID`/`SLACK_OPS_CHANNEL`/`SLACK_CHANNEL_ID`/
+`SLACK_TELEGRAM_CHANNEL_ID` envs (or `SLACK_ARCHIVE_CHANNELS`
+override); channel names resolve via `conversations.info`. ntfy topics
+default `cloudless-ops,cloudless-alerts,nextcloud-ops`
+(`NTFY_ARCHIVE_TOPICS` override) and read via `NTFY_READER_TOKEN` — a
+dedicated read-only account minted by the
+`cloudless.gr/.github/workflows/ntfy-reader-token.yml` workflow
+(the alert-relay publisher is write-only by design; rotate by
+re-running the workflow and re-downloading the artifact). Cursor hash:
+`notify_archive:cursor`.
+
 ## Gotchas
 
 - Baked images: new task/service files do NOT exist in running
@@ -96,5 +115,11 @@ docker exec social-postgres psql -U social_user -d social_automation -c \
 - Raw SQL inserts need `gen_random_uuid()` + `created_at` — ORM
   defaults are client-side only.
 - `channel` values: env-mapped names (critical/ops/intel/digest),
-  title-slug for other channels, raw chat_id as last resort.
+  title-slug for other Telegram channels, `slack:<name>` / `ntfy:<topic>`
+  for the new surfaces; raw chat_id as last resort.
+- `msg_id` is BIGINT — Slack ids are ts-as-µs (16 digits), ntfy epoch
+  seconds. The int4→bigint migration is `u0a1b2c3d4e5`.
+- Slack cursor is the message ts STRING (e.g. "1795087811.752809"),
+  stored verbatim in Redis; pagination follows `next_cursor` max 10
+  pages/run — long backfills span multiple beats.
 - Severity: `critical` → CRITICAL, everything else → OPS by default.
