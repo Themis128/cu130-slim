@@ -36,7 +36,23 @@ TOKEN_DIR = Path(
     os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
 )
 ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
+# The live stack runs from the standalone compose project — its .env is
+# what containers actually read, so every sync writes BOTH files.
+EXTRA_ENV_FILES = [
+    Path(p) for p in os.environ.get(
+        "SOCIALAUTO_EXTRA_ENVS",
+        "/home/tbaltzakis/cu130-slim/deploy/socialauto-standalone/.env",
+    ).split(",") if p.strip()
+]
 COMPOSE_DIR = Path(os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim"))
+# Recreates target whichever compose project actually owns the service —
+# standalone first (live stack), repo-root compose as fallback.
+COMPOSE_DIRS = [
+    Path(p) for p in os.environ.get(
+        "SLACK_SYNC_COMPOSE_DIRS",
+        "/home/tbaltzakis/cu130-slim/deploy/socialauto-standalone,/home/tbaltzakis/cu130-slim",
+    ).split(",") if p.strip()
+]
 CLIENT_ID = os.environ.get("SLACK_MCP_CLIENT_ID", "1601185624273.8899143856786")
 PENDING_MARKER = Path(
     os.environ.get("SLACK_SYNC_PENDING", "/var/tmp/slack_token_sync.pending")
@@ -73,6 +89,13 @@ N8N_BUSY_WAIT_S = int(os.environ.get("N8N_BUSY_WAIT_S", "600"))
 # graceful-shutdown window for compose stop — n8n refuses new triggers on
 # SIGTERM and drains in-flight executions for up to this long before SIGKILL
 N8N_STOP_GRACE_S = int(os.environ.get("N8N_STOP_GRACE_S", "120"))
+# infisical-sync.py push upserts dotenv keys into Infisical prod. This script
+# is the producer of truth for the rotating SLACK_BOT_TOKEN — without the
+# mirror below the Infisical copy goes stale every 12h rotation and any
+# Infisical-sourced consumer picks up a dead token (seen 2026-11-10).
+INFISICAL_SYNC = os.environ.get(
+    "INFISICAL_SYNC", "/home/tbaltzakis/home-ops/scripts/infisical-sync.py"
+)
 
 
 def _slack_token_files() -> list[tuple[float, Path]]:
@@ -80,7 +103,7 @@ def _slack_token_files() -> list[tuple[float, Path]]:
     out: list[tuple[float, Path]] = []
     for p in TOKEN_DIR.glob("*_tokens.json"):
         try:
-            d = json.loads(p.read_text())
+            d = json.loads(p.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
         if "chat:write" in (d.get("scope") or ""):
@@ -108,23 +131,66 @@ def _refresh(tok: dict) -> dict:
 
 
 def _write_env_token(token: str) -> bool:
-    """Swap SLACK_BOT_TOKEN in .env. Returns True when the value changed."""
-    lines = ENV_FILE.read_text().splitlines()
+    """Swap SLACK_BOT_TOKEN in every env file. True when any value changed."""
     changed = False
-    out: list[str] = []
-    for line in lines:
-        if line.startswith("SLACK_BOT_TOKEN="):
-            new = f"SLACK_BOT_TOKEN={token}"
-            changed = line != new
-            out.append(new)
-        else:
-            out.append(line)
-    if not any(ln.startswith("SLACK_BOT_TOKEN=") for ln in lines):
-        out.append(f"SLACK_BOT_TOKEN={token}")
-        changed = True
-    if changed:
-        ENV_FILE.write_text("\n".join(out) + "\n")
+    for env in [ENV_FILE, *EXTRA_ENV_FILES]:
+        if not env.exists():
+            continue
+        lines = env.read_text().splitlines()
+        out: list[str] = []
+        dirty = False
+        for line in lines:
+            if line.startswith("SLACK_BOT_TOKEN="):
+                new = f"SLACK_BOT_TOKEN={token}"
+                dirty = dirty or line != new
+                out.append(new)
+            else:
+                out.append(line)
+        if not any(ln.startswith("SLACK_BOT_TOKEN=") for ln in lines):
+            out.append(f"SLACK_BOT_TOKEN={token}")
+            dirty = True
+        if dirty:
+            env.write_text("\n".join(out) + "\n")
+            changed = True
     return changed
+
+
+def _push_token_to_infisical(token: str) -> None:
+    """Best-effort: mirror the live SLACK_BOT_TOKEN into Infisical prod.
+
+    Runs every sync (not only on change) so drift self-heals. Never fails
+    the sync — the next 2h cron run retries.
+    """
+    if not Path(INFISICAL_SYNC).exists():
+        return
+    import tempfile
+
+    tmp = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".env", prefix="slack-token-", delete=False
+        ) as f:
+            f.write(f"SLACK_BOT_TOKEN={token}\n")
+            tmp = f.name
+        r = subprocess.run(
+            ["python3", INFISICAL_SYNC, "push", tmp, "--overwrite"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if r.returncode != 0:
+            print(
+                f"infisical push failed rc={r.returncode}: "
+                f"{r.stderr.strip()[-200:]}",
+                file=sys.stderr,
+            )
+        else:
+            print("infisical: SLACK_BOT_TOKEN mirrored")
+    except Exception as exc:  # noqa: BLE001
+        print(f"infisical push error: {exc}", file=sys.stderr)
+    finally:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
 
 
 def _env_lookup(name: str) -> str | None:
@@ -234,23 +300,32 @@ def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
                 print(f"compose stop n8n failed rc={stop.returncode}: {tail}", file=sys.stderr)
                 pending.append(svc)
                 continue
-        r = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "up",
-                "-d",
-                "--force-recreate",
-                "--no-deps",
-                "--pull",
-                "never",
-                svc,
-            ],
-            cwd=COMPOSE_DIR,
-            check=False,
-            timeout=180,
-            capture_output=True,
-        )
+        r = None
+        for cdir in COMPOSE_DIRS:
+            if not (cdir / "docker-compose.yml").exists() and not (cdir / "docker-compose.yaml").exists():
+                continue
+            owns = subprocess.run(
+                ["docker", "compose", "ps", "--services", "--filter", "status=running"],
+                cwd=cdir, check=False, timeout=30, capture_output=True, text=True,
+            )
+            if svc not in (owns.stdout or "").split():
+                continue
+            r = subprocess.run(
+                [
+                    "docker", "compose", "--env-file", ".env",
+                    "up", "-d", "--force-recreate", "--no-deps",
+                    "--pull", "never", svc,
+                ],
+                cwd=cdir,
+                check=False,
+                timeout=180,
+                capture_output=True,
+            )
+            break
+        if r is None:
+            print(f"{svc}: not running in any known compose project — skipped", file=sys.stderr)
+            pending.append(svc)
+            continue
         if r.returncode != 0:
             worst = worst or r.returncode
             pending.append(svc)
@@ -262,11 +337,12 @@ def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
 def _pending_services() -> list[str]:
     """Services still awaiting recreation from an earlier run.
 
-    Marker holds a JSON list written by this script; a bare marker from
+    Marker holds a JSON list written by this script
+    a bare marker from
     older runs (or an unreadable file) fails safe to the full consumer set.
     """
     try:
-        data = json.loads(PENDING_MARKER.read_text())
+        data = json.loads(PENDING_MARKER.read_text(encoding="utf-8-sig"))
         return [s for s in data if s in SERVICES]
     except Exception:
         return list(SERVICES) if PENDING_MARKER.exists() else []
@@ -285,30 +361,107 @@ def _install_cron() -> int:
     return 0
 
 
-def main() -> int:
-    files = _slack_token_files()
-    if not files:
-        print("no Slack-scoped token file found", file=sys.stderr)
-        return 1
-    expires_ms, path = files[0]
-    os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
-    tok = json.loads(path.read_text())
-    now_ms = time.time() * 1000
+def _slack_api(token: str, method: str, **params) -> dict:
+    params["token"] = token
+    req = urllib.request.Request(
+        f"https://slack.com/api/{method}",
+        data=urllib.parse.urlencode(params).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.load(resp)
+    except Exception:  # noqa: BLE001
+        return {}
 
-    if expires_ms - now_ms < REFRESH_WINDOW_S * 1000:
-        resp = _refresh(tok)
-        tok["access_token"] = resp["access_token"]
-        if resp.get("refresh_token"):
-            tok["refresh_token"] = resp["refresh_token"]
-        tok["token_type"] = resp.get("token_type", "Bearer")
-        tok["expires_in"] = resp.get("expires_in", 43200)
-        tok["expires_at"] = int(now_ms + tok["expires_in"] * 1000)
-        path.write_text(json.dumps(tok))
-        os.chmod(path, 0o600)
-        print(f"refreshed token → {path.name}, new expiry in {tok['expires_in']}s")
+
+def _env_token_candidates() -> list[tuple[float, Path, dict]]:
+    """Every Slack-scoped token file, refreshed when inside the window."""
+    out: list[tuple[float, Path, dict]] = []
+    now_ms = time.time() * 1000
+    for expires_ms, path in _slack_token_files():
+        os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
+        tok = json.loads(path.read_text(encoding="utf-8-sig"))
+        if expires_ms - now_ms < REFRESH_WINDOW_S * 1000:
+            try:
+                resp = _refresh(tok)
+            except Exception as exc:  # noqa: BLE001
+                print(f"refresh failed for {path.name}: {exc}", file=sys.stderr)
+                continue
+            tok["access_token"] = resp["access_token"]
+            if resp.get("refresh_token"):
+                tok["refresh_token"] = resp["refresh_token"]
+            tok["token_type"] = resp.get("token_type", "Bearer")
+            tok["expires_in"] = resp.get("expires_in", 43200)
+            tok["expires_at"] = int(now_ms + tok["expires_in"] * 1000)
+            path.write_text(json.dumps(tok))
+            os.chmod(path, 0o600)
+            print(f"refreshed token → {path.name}, new expiry in {tok['expires_in']}s")
+        out.append((float(tok.get("expires_at") or 0), path, tok))
+    return sorted(out, key=lambda t: t[0], reverse=True)
+
+
+def _pick_workspace_token(
+    cands: list[tuple[float, Path, dict]],
+) -> tuple[Path | None, dict | None]:
+    """Prefer the token whose workspace owns SLACK_CHANNEL_ID.
+
+    mcp-remote keeps one token file per connected Slack workspace; with
+    several workspaces, picking files[0] is arbitrary and every post lands
+    in (or fails against) the wrong workspace. conversations.info resolves
+    the channel only inside its own workspace, so the first candidate that
+    can see it is the right token. Falls back to the freshest file.
+    """
+    channel = _env_lookup("SLACK_CHANNEL_ID")
+    if channel:
+        for _, path, tok in cands:
+            r = _slack_api(tok["access_token"], "conversations.info", channel=channel)
+            if r.get("ok"):
+                return path, tok
+            print(
+                f"{path.name}: cannot see SLACK_CHANNEL_ID "
+                f"({r.get('error', 'request failed')})",
+                file=sys.stderr,
+            )
+    # Offline fallback: this host cannot always reach slack.com (seen
+    # 2026-11-08 — github OK, slack/google TCP timeouts). mcp-remote keeps
+    # one token file per workspace; _team_map.json (written by auth.test
+    # probes) records which team each file belongs to, and SLACK_TEAM_ID
+    # in .env names the workspace the configured channel IDs live in.
+    want_team = _env_lookup("SLACK_TEAM_ID")
+    if want_team:
+        team_map = _team_map()
+        for _, path, tok in cands:
+            if (team_map.get(path.name) or {}).get("team_id") == want_team:
+                return path, tok
+    if cands:
+        return cands[0][1], cands[0][2]
+    return None, None
+
+
+def _team_map() -> dict:
+    try:
+        return json.loads((TOKEN_DIR / "_team_map.json").read_text(encoding="utf-8-sig"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def main() -> int:
+    cands = _env_token_candidates()
+    if not cands:
+        # Nothing to sync is not a failure — the Slack MCP remote simply has
+        # no chat:write token file right now. The token-expiry sweep already
+        # pages when the env token actually dies; exiting 1 here just spammed
+        # ops every cron run.
+        print("no Slack-scoped token file found — nothing to sync")
+        return 0
+    path, tok = _pick_workspace_token(cands)
+    if path is None or tok is None:
+        return 1
 
     changed = _write_env_token(tok["access_token"])
     print(f"env {'updated' if changed else 'unchanged'}")
+    _push_token_to_infisical(tok["access_token"])
     targets = list(SERVICES) if changed else _pending_services()
     if targets:
         print(
