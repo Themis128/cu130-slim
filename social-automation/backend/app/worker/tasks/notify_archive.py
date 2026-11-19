@@ -23,6 +23,7 @@ surfaces flow into incidents with zero extra wiring.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
@@ -198,13 +199,21 @@ async def _collect_ntfy(db, r, model, stats: dict[str, Any], team_id) -> None:
                 if m.get("event") != "message":
                     continue
                 t = int(m.get("time") or 0)
-                if t <= cursor:
-                    continue
                 stats["scanned"] += 1
+                # ntfy ids are unique 12-char base62 — hash to int64 so
+                # same-second messages can't collide on (channel, msg_id).
+                # The cursor (epoch-sec `since` window) is only a fetch
+                # bound; dedupe is ON CONFLICT on the real id.
+                nid = m.get("id") or ""
+                msg_id = (
+                    int.from_bytes(hashlib.sha1(nid.encode()).digest()[:8], "big")
+                    & 0x7FFFFFFFFFFFFFFF  # stay inside signed bigint
+                    if nid else t
+                )
                 title = m.get("title") or ""
                 text = (f"{title}\n{m.get('message', '')}" if title else m.get("message", "")).strip()
                 inserted = await _insert_msg(
-                    db, model, team_id, chan, t, datetime.fromtimestamp(t, UTC),
+                    db, model, team_id, chan, msg_id, datetime.fromtimestamp(t, UTC),
                     title or topic, text, "attachment" if m.get("attachment") else "",
                 )
                 stats["inserted" if inserted else "dupes"] += 1
