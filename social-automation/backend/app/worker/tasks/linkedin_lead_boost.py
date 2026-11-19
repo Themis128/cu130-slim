@@ -62,6 +62,29 @@ async def _selfcheck_streak(ok: bool) -> int:
         return _SELFCHECK_ALERT_AFTER
 
 
+
+async def _selfcheck_page_fresh() -> bool:
+    """True when the P2 page may fire — 30-min cooldown via Redis nx/ex.
+
+    Best-effort: Redis errors fail OPEN (return True) so a real outage
+    still pages; only a confirmed recent page suppresses the repeat.
+    """
+    try:
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        try:
+            return bool(
+                await r.set(_SELFCHECK_ALERT_KEY, "1", nx=True, ex=_SELFCHECK_ALERT_COOLDOWN_S)
+            )
+        finally:
+            await r.aclose()
+    except Exception:  # noqa: BLE001 — cooldown best-effort; never suppress the page
+        return True
+
+
 async def _webhook_selfcheck() -> None:
     """Probe our own Lead Sync webhook challenge endpoint.
 
@@ -105,21 +128,9 @@ async def _webhook_selfcheck() -> None:
                 _SELFCHECK_ALERT_AFTER,
             )
         return
-    try:
-        import redis.asyncio as aioredis
-
-        from app.core.config import get_settings
-
-        r = aioredis.from_url(get_settings().REDIS_URL)
-        try:
-            fresh = await r.set(_SELFCHECK_ALERT_KEY, "1", nx=True, ex=_SELFCHECK_ALERT_COOLDOWN_S)
-        finally:
-            await r.aclose()
-        if not fresh:
-            logger.info("lead-sync self-check still failing — page on cooldown (streak %d)", streak)
-            return
-    except Exception:  # noqa: BLE001 — cooldown best-effort; never suppress the page
-        pass
+    if not await _selfcheck_page_fresh():
+        logger.info("lead-sync self-check still failing — page on cooldown (streak %d)", streak)
+        return
     await send_telegram_alert(
         "P2",
         f"linkedin-lead-sync webhook self-check failed {streak}x in a row "
