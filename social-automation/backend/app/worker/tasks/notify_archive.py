@@ -44,6 +44,18 @@ _NTFY_BASE = "https://ntfy.cloudless.gr"
 _DEFAULT_NTFY_TOPICS = "cloudless-ops,cloudless-alerts,nextcloud-ops"
 
 
+def _slack_msg_id(ts: str) -> int:
+    """Slack ts "1795087811.752809" -> exact µs int (fits signed bigint)."""
+    return int(ts.replace(".", "")[:16].ljust(16, "0"))
+
+
+def _ntfy_msg_id(nid: str, t: int) -> int:
+    """ntfy 12-char base62 id -> sha1[:8] masked to signed bigint."""
+    if not nid:
+        return t
+    return int.from_bytes(hashlib.sha1(nid.encode()).digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
 def _slack_channel_ids() -> list[str]:
     """Configured archive set: explicit override wins, else the known
     alert-channel env IDs."""
@@ -141,7 +153,7 @@ async def _collect_slack(db, r, model, stats: dict[str, Any], team_id) -> None:
                         continue
                     inserted = await _insert_msg(
                         db, model, team_id, chan,
-                        int(ts.replace(".", "")[:16].ljust(16, "0")),
+                        _slack_msg_id(ts),
                         datetime.fromtimestamp(float(ts), UTC),
                         str(m.get("user") or m.get("bot_id") or ""),
                         text, "attachment" if m.get("attachments") else "",
@@ -204,12 +216,7 @@ async def _collect_ntfy(db, r, model, stats: dict[str, Any], team_id) -> None:
                 # same-second messages can't collide on (channel, msg_id).
                 # The cursor (epoch-sec `since` window) is only a fetch
                 # bound; dedupe is ON CONFLICT on the real id.
-                nid = m.get("id") or ""
-                msg_id = (
-                    int.from_bytes(hashlib.sha1(nid.encode()).digest()[:8], "big")
-                    & 0x7FFFFFFFFFFFFFFF  # stay inside signed bigint
-                    if nid else t
-                )
+                msg_id = _ntfy_msg_id(m.get("id") or "", t)
                 title = m.get("title") or ""
                 text = (f"{title}\n{m.get('message', '')}" if title else m.get("message", "")).strip()
                 inserted = await _insert_msg(
