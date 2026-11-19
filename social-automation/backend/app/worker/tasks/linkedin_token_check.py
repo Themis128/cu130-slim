@@ -26,7 +26,8 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import JSONB, cast, func, select, update
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.security import decrypt_token
 from app.models.social_account import SocialAccount
