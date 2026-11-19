@@ -12,16 +12,35 @@ readable archive until the Telethon user-session archiver landed
 (PR cu130-slim#2385). Alert triage ("check all the telegram
 notifications") is impossible without it.
 
+## Read lanes (three, converging on one table)
+
+`telegram_channel_messages` is fed by three lanes — each covers what the
+others can't:
+
+1. **Bot-authored posts → send-time archive** (`tg_alert.py::_archive`).
+   Telegram never emits `channel_post` updates for a bot's own posts, so
+   every alert send dual-writes into the table (psycopg, best-effort,
+   never fails the alert). Covers ~all #ops/#critical traffic.
+2. **External channel posts → webhook ingest** (`receive_webhook` in
+   `app/api/telegram.py`). `allowed_updates` now includes
+   `channel_post`/`edited_channel_post`; posts by other channel
+   members are archived live.
+3. **Historical backfill → Telethon archiver** (`telegram_archive.py`
+   `sync`/`backfill`). Only lane needing `TG_API_ID`/`TG_API_HASH`.
+
 ## Architecture
 
 - **Reader**: Telethon MTProto user session (needs `TG_API_ID` +
-  `TG_API_HASH` from my.telegram.org → API development tools).
+  `TG_API_HASH` from my.telegram.org → API development tools —
+  `tg_api_setup.py` automates this: send_password → login → /apps,
+  code read off the phone via ADB uiautomator).
 - **Writer path (unchanged)**: `send_telegram_alert(severity, text)` →
   @Cloudless_newbot → severity-routed channels.
 - **Store**: dual-write — local SQLite cursor/cache at
   `~/.local/share/telegram-archive/archive.db` + canonical
   `telegram_channel_messages` table in SocialAuto Postgres
-  (`social-postgres` on 127.0.0.1:5433, alembic `t9g0h1i2j3k4`).
+  (`social-postgres` on 127.0.0.1:5433, db `social_automation`,
+  alembic `t9g0h1i2j3k4`).
 - **Session**: `~/.local/share/telegram-archive/archive.session`
   (SQLiteSession — persists auth keys; chmod 600 dir, never commit).
 - **Runtime**: venv at `~/.local/share/telegram-archive/venv`
