@@ -4009,3 +4009,15 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       rejects the request — do NOT loop-retry; approve on device or
       wait for checkpoint to clear, then `instagram_reauth.py` beat
       finishes the reconnect.
+- [ ] interview-coach SocialAuto proxy go-live (PR #2380, 2026-11-19):
+      after merge, rebuild/restart `social-api` under `.deploy.lock`
+      (`docker compose up -d --force-recreate social-api`) so
+      `/api/v1/interview-coach/*` + `/stt` WS bridge go live; verify
+      `GET /api/v1/interview-coach/status` → `{"configured": true}`.
+      Env `INTERVIEW_COACH_URL`/`INTERVIEW_COACH_KEY` already in `.env`.
+      Standalone worker UI is live at
+      `interview-coach.baltzakis-themis.workers.dev/?key=…` (deployed
+      2026-11-19, commit d1fc6d6) — the `?key=` IS the worker
+      AUTH_SECRET; rotate via `wrangler secret put AUTH_SECRET` if
+      leaked (use `CLOUDFLARE_WORKERS_DEPLOY_TOKEN`, not
+      `CLOUDFLARE_API_TOKEN` — the latter lacks Workers:Edit).

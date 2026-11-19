@@ -22,6 +22,7 @@ from app.api import (
     funnel,
     inbox,
     instagram,
+    interview_coach,
     leads,
     linkedin,
     linkedin_conversions,
@@ -90,6 +91,8 @@ router.include_router(linkedin_conversions.router, tags=["webhooks"])
 router.include_router(linkedin_lead_sync.router, tags=["webhooks"])
 
 router.include_router(instagram.router, prefix="/instagram", tags=["instagram"])
+
+router.include_router(interview_coach.router, prefix="/interview-coach", tags=["interview-coach"])
 
 router.include_router(threads.router, prefix="/threads", tags=["threads"])
 
