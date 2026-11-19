@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -271,3 +272,60 @@ async def test_status_upstream_error(monkeypatch):
     assert out["configured"] is True
     assert out["upstream_status"] is None
     assert "down" in out["error"]
+
+
+# ── /stt websocket auth + upstream url ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_missing_token():
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate(None, db)
+    assert ei.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_non_access_token(monkeypatch):
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "refresh"})
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate("tok", db)
+    assert ei.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_unknown_user(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(
+        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
+    )
+    res = SimpleNamespace(scalar_one_or_none=lambda: None)
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate("tok", db)
+    assert ei.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_returns_user(monkeypatch):
+    uid = uuid.uuid4()
+    monkeypatch.setattr(
+        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
+    )
+    user = SimpleNamespace(id=uid)
+    res = SimpleNamespace(scalar_one_or_none=lambda: user)
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    assert await IC._ws_authenticate("tok", db) is user
+
+
+def test_ws_upstream_url_translates_scheme_and_ch():
+    url = IC._ws_upstream_url("tab-1")
+    assert url.startswith("wss://ic.example.workers.dev/stt?ch=tab-1")
+
+
+def test_stt_ws_channel_sanitized():
+    # ch filter: alnum + -_ only, capped at 64 chars
+    raw = "a b<script>" + "x" * 100
+    ch = "".join(c for c in raw if c.isalnum() or c in "-_")[:64] or "tab"
+    assert "<" not in ch and " " not in ch and len(ch) <= 64

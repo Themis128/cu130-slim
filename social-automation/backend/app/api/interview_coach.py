@@ -16,21 +16,30 @@ Worker endpoints proxied (key passed as ``x-key``, never in the URL):
   GET  /latest        last candidate answer
   GET  /history       last 300 turns
 
-Not proxied: ``/stt`` WebSocket (Durable Object lane — needs a WS proxy,
-deferred) and arbitrary ``/engines/*`` paths (only chat/completions is used).
+Also proxied: ``/stt`` WebSocket (browser passes the SocialAuto JWT as
+``?token=``; the worker key goes upstream as ``x-key``).
+
+Not proxied: arbitrary ``/engines/*`` paths (only chat/completions is used).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+import websockets
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.core.config import get_settings
+from app.core.security import decode_token
+from app.db.session import get_db
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -205,3 +214,95 @@ async def status(_: User = CurrentUser):
 
 
 __all__ = ["router"]
+
+
+
+
+# --- live STT websocket -------------------------------------------------------
+#
+# The worker's /stt lane is a WebSocket into its VoiceAgent Durable Object
+# (Deepgram Flux streaming STT). Browsers can't set headers on WS upgrades,
+# so clients pass the SocialAuto JWT as ?token=; the worker AUTH_SECRET goes
+# upstream as x-key on the server-side connect.
+
+
+async def _ws_authenticate(token: str | None, db: AsyncSession) -> User:
+    payload = decode_token(token) if token else None
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(401, "Invalid token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(401, "Invalid token")
+    try:
+        uid = uuid.UUID(str(user_id))
+    except ValueError:
+        raise HTTPException(401, "Invalid token") from None
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(401, "User not found")
+    return user
+
+
+def _ws_upstream_url(ch: str) -> str:
+    url, _ = _config()
+    ws = url.replace("https://", "wss://").replace("http://", "ws://")
+    return f"{ws}/stt?ch={ch}"
+
+
+async def _pump_stt(client: WebSocket, upstream) -> None:
+    async def c2u() -> None:
+        while True:
+            msg = await client.receive()
+            if msg["type"] == "websocket.disconnect":
+                return
+            data = msg.get("bytes") or msg.get("text")
+            if data is None:
+                continue
+            await upstream.send(data)
+
+    async def u2c() -> None:
+        async for data in upstream:
+            if isinstance(data, bytes):
+                await client.send_bytes(data)
+            else:
+                await client.send_text(data)
+
+    tasks = [asyncio.create_task(c2u()), asyncio.create_task(u2c())]
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for t in pending:
+        t.cancel()
+    for t in done:
+        exc = t.exception()
+        if exc is not None:
+            logger.debug("stt pump ended: %r", exc)
+
+
+@router.websocket("/stt")
+async def stt_ws(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
+    token = websocket.query_params.get("token")
+    ch_raw = websocket.query_params.get("ch") or "tab"
+    ch = "".join(c for c in ch_raw if c.isalnum() or c in "-_")[:64] or "tab"
+    try:
+        await _ws_authenticate(token, db)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+    url, key = _config()
+    if not url or not key:
+        await websocket.close(code=4503)
+        return
+    try:
+        async with websockets.connect(
+            _ws_upstream_url(ch),
+            additional_headers={"x-key": key},
+            max_size=None,
+        ) as upstream:
+            await websocket.accept()
+            await _pump_stt(websocket, upstream)
+    except Exception as exc:  # upstream connect/pump failure
+        logger.warning("interview-coach stt upstream failed: %r", exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass

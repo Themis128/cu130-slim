@@ -16,6 +16,7 @@ dependencies = [
     "passlib[argon2]>=1.7.4",
     "python-multipart>=0.0.12",
     "httpx[socks]>=0.27.0,<1.0.0",
+    "websockets>=13,<18",
     "redis>=7.0.0,<8.0.0",
     "celery>=5.4.0,<6.0.0",
     "deltalake>=0.20",
