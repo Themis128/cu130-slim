@@ -62,7 +62,6 @@ async def _selfcheck_streak(ok: bool) -> int:
         return _SELFCHECK_ALERT_AFTER
 
 
-
 async def _selfcheck_page_fresh() -> bool:
     """True when the P2 page may fire — 30-min cooldown via Redis nx/ex.
 
@@ -76,9 +75,7 @@ async def _selfcheck_page_fresh() -> bool:
 
         r = aioredis.from_url(get_settings().REDIS_URL)
         try:
-            return bool(
-                await r.set(_SELFCHECK_ALERT_KEY, "1", nx=True, ex=_SELFCHECK_ALERT_COOLDOWN_S)
-            )
+            return bool(await r.set(_SELFCHECK_ALERT_KEY, "1", nx=True, ex=_SELFCHECK_ALERT_COOLDOWN_S))
         finally:
             await r.aclose()
     except Exception:  # noqa: BLE001 — cooldown best-effort; never suppress the page

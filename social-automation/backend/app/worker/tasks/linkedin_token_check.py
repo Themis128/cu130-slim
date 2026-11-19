@@ -128,11 +128,7 @@ async def _check() -> dict:
             await db.execute(
                 update(SocialAccount)
                 .where(SocialAccount.id == acct.id)
-                .values(
-                    meta_data=func.coalesce(SocialAccount.meta_data, cast({}, JSONB)).op("||")(
-                        cast(patch, JSONB)
-                    )
-                )
+                .values(meta_data=func.coalesce(SocialAccount.meta_data, cast({}, JSONB)).op("||")(cast(patch, JSONB)))
             )
         await db.commit()
     return stats

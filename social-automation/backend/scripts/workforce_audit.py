@@ -1345,8 +1345,7 @@ def main() -> None:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--governance", action="store_true", help="print the per-worker governance contract")
     ap.add_argument("--slack", action="store_true", help="post the attention list to Slack when non-empty")
-    ap.add_argument("--no-persist", action="store_true",
-                    help="skip writing per-worker verdict rows to audit_logs (read-only diagnostics)")
+    ap.add_argument("--no-persist", action="store_true", help="skip writing per-worker verdict rows to audit_logs (read-only diagnostics)")
     args = ap.parse_args()
     report = asyncio.run(audit(persist=not args.no_persist))
     if args.json:

@@ -387,8 +387,7 @@ async def build_content_weekly() -> FunnelReport:
                 .where(
                     PostAnalyticsSnapshot.captured_at >= start,
                     PostAnalyticsSnapshot.captured_at < end,
-                    (PostAnalyticsSnapshot.post_id.isnot(None))
-                    | (PostAnalyticsSnapshot.platform_post_id.isnot(None)),
+                    (PostAnalyticsSnapshot.post_id.isnot(None)) | (PostAnalyticsSnapshot.platform_post_id.isnot(None)),
                 )
                 .group_by(
                     PostAnalyticsSnapshot.social_account_id,
@@ -547,7 +546,8 @@ async def build_funnel_monthly() -> FunnelReport:
 
         if polar_api.polar_configured():
             orders = await polar_api._request(
-                "GET", "/orders",
+                "GET",
+                "/orders",
                 params={
                     "limit": 100,
                     "created_at__gte": month_start.isoformat(),
