@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 import app.api.interview_coach as IC
 from app.models.user import UserRole
 
+_ORIG_CONFIG = IC._config
 USER = SimpleNamespace(id="u1")
 
 
@@ -555,6 +556,20 @@ async def test_proxy_stream_error_status_returns_json(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_proxy_stream_error_nonjson_body(monkeypatch):
+    class _Resp(_FakeStreamResp):
+        async def aread(self):
+            return b"<html>bad gateway</html>"
+
+    resp = _Resp(status=502)
+    client = _FakeStreamClient(resp=resp)
+    monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
+    out = await IC._proxy_stream("GET", "/latest")
+    assert out.status_code == 502
+    assert b"bad gateway" in out.body
+
+
+@pytest.mark.asyncio
 async def test_proxy_stream_connect_error_502(monkeypatch):
     client = _FakeStreamClient(exc=httpx.ConnectError("down"))
     monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
@@ -585,3 +600,183 @@ async def test_chat_non_stream_uses_buffered_proxy(monkeypatch):
     out = await IC.chat(body, USER)
     assert out is sentinel
     mock_proxy.assert_awaited_once()
+
+
+# ── remaining branch coverage ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_config_reads_settings(monkeypatch):
+    monkeypatch.setattr(
+        IC, "get_settings",
+        lambda: SimpleNamespace(
+            INTERVIEW_COACH_URL="https://ic.example.workers.dev/",
+            INTERVIEW_COACH_KEY="  sekret  ",
+        ),
+    )
+    monkeypatch.setattr(IC, "_config", _ORIG_CONFIG)
+    url, key = IC._config()
+    assert url == "https://ic.example.workers.dev"  # trailing slash stripped
+    assert key == "sekret"                        # whitespace stripped
+
+
+@pytest.mark.asyncio
+async def test_raw_client_503_and_headers(monkeypatch):
+    monkeypatch.setattr(IC, "_config", lambda: ("", ""))
+    with pytest.raises(HTTPException) as ei:
+        IC._raw_client(5.0)
+    assert ei.value.status_code == 503
+
+    monkeypatch.setattr(
+        IC, "_config", lambda: ("https://ic.example", "k")
+    )
+    captured = {}
+
+    class _C:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    monkeypatch.setattr(IC.httpx, "AsyncClient", _C)
+    IC._raw_client(3.0)
+    assert captured["headers"] == {"x-key": "k"}
+    assert captured["timeout"] == 3.0
+
+
+@pytest.mark.asyncio
+async def test_proxy_content_type_header_and_nonjson(monkeypatch):
+    seen = {}
+
+    class _Resp:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+        content = b"not-json"
+        text = "not-json"
+
+        def json(self):
+            raise ValueError("no json")
+
+    class _Ok:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def request(self, method, path, **kw):
+            seen.update(kw)
+            return _Resp()
+
+    monkeypatch.setattr(IC.httpx, "AsyncClient", lambda **kw: _Ok())
+    resp = await IC._proxy(
+        "POST", "/transcribe", content=b"\x00\x01", content_type="application/octet-stream"
+    )
+    assert seen["headers"] == {"Content-Type": "application/octet-stream"}
+    assert seen["content"] == b"\x00\x01"
+    assert b'"raw"' in resp.body  # non-JSON upstream -> raw passthrough payload
+
+
+@pytest.mark.asyncio
+async def test_classify_and_tts_endpoints(monkeypatch):
+    seen = {}
+
+    async def fake_proxy(method, path, **kw):
+        seen.setdefault("calls", []).append((method, path, kw))
+        return IC.Response(content=b"{}", media_type="application/json")
+
+    monkeypatch.setattr(IC, "_proxy", fake_proxy)
+    await IC.classify(IC.ClassifyIn(text="How does dropout work?"), USER)
+    await IC.tts(IC.TtsIn(text="hello"), USER)
+    calls = seen["calls"]
+    assert calls[0][1] == "/classify"
+    assert calls[1][1] == "/tts"
+    assert calls[1][2]["timeout"] == 60.0
+
+
+@pytest.mark.asyncio
+async def test_status_ok_path(monkeypatch):
+    class _Resp:
+        status_code = 200
+
+    class _Ok:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **kw):
+            return _Resp()
+
+    monkeypatch.setattr(IC.httpx, "AsyncClient", lambda **kw: _Ok())
+    out = await IC.status(USER)
+    assert out == {"configured": True, "upstream_status": 200}
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_missing_sub(monkeypatch):
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access"})
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate("tok", db)
+    assert ei.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_ws_authenticate_rejects_bad_uuid(monkeypatch):
+    monkeypatch.setattr(
+        IC, "decode_token", lambda t: {"type": "access", "sub": "not-a-uuid"}
+    )
+    db = SimpleNamespace(execute=AsyncMock())
+    with pytest.raises(HTTPException) as ei:
+        await IC._ws_authenticate("tok", db)
+    assert ei.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_pump_stt_skips_empty_message_and_logs_pump_error():
+    class _UpErr:
+        sent = []
+
+        async def send(self, data):
+            raise RuntimeError("upstream gone")
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(60)
+            raise StopAsyncIteration
+
+    ws = _FakeClientWS(
+        incoming=[
+            {"type": "websocket.receive"},          # no bytes/text -> continue
+            {"type": "websocket.receive", "text": "ping"},
+        ]
+    )
+    await IC._pump_stt(ws, _UpErr())
+    # c2u raised on upstream.send -> pump logged and returned
+    assert ws.sent == []
+
+
+@pytest.mark.asyncio
+async def test_stt_ws_close_error_swallowed(monkeypatch):
+    user, db = _auth_ok(monkeypatch)
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example", "k"))
+
+    class _Boom:
+        async def __aenter__(self):
+            raise OSError("connect refused")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(IC.websockets, "connect", lambda *a, **k: _Boom())
+
+    class _CloseBoom(_FakeClientWS):
+        async def close(self, code=1000):
+            self.closed = code
+            raise RuntimeError("close failed")
+
+    ws = _CloseBoom(query_params={"token": "t"})
+    await IC.stt_ws(ws, db=db)  # close() raising inside the except must not propagate
+    assert ws.closed == 1011
