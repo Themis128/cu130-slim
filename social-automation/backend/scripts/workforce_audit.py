@@ -1080,7 +1080,7 @@ WORKFORCE = [
 ]
 
 
-async def audit() -> dict:
+async def audit(persist: bool = True) -> dict:
     from app.worker.celery_app import celery_app
 
     insp = celery_app.control.inspect(timeout=5)
@@ -1169,7 +1169,8 @@ async def audit() -> dict:
             if entry["status"] == "ok" and not w.scheduled:
                 entry["status"] = "unverified"
             out["workers"].append(entry)
-        await _persist_verdicts(db, out)
+        if persist:
+            await _persist_verdicts(db, out)
         out["autonomy_proposals"] = await _autonomy_proposals(db)
     out["ungoverned"] = [w["name"] for w in out["workers"] if w["status"] == "ungoverned"]
     return out
@@ -1344,8 +1345,10 @@ def main() -> None:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--governance", action="store_true", help="print the per-worker governance contract")
     ap.add_argument("--slack", action="store_true", help="post the attention list to Slack when non-empty")
+    ap.add_argument("--no-persist", action="store_true",
+                    help="skip writing per-worker verdict rows to audit_logs (read-only diagnostics)")
     args = ap.parse_args()
-    report = asyncio.run(audit())
+    report = asyncio.run(audit(persist=not args.no_persist))
     if args.json:
         print(json.dumps(report, indent=2))
     else:

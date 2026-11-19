@@ -102,7 +102,7 @@ ROUTES = [
      "expected daily reports not in tbaltzakis@cloudless.gr mailbox"),
     (r"media-heal|media-integrity|Agent workforce|missing media",
      "agent-workforce + media-qa-jupyter",
-     "docker compose exec -T social-api python scripts/workforce_audit.py --json",
+     "docker compose exec -T social-api python scripts/workforce_audit.py --json --no-persist",
      "escalated workers exhausted retries; media objects may need regen"),
     (r"generate_video_asset|stack-ops:8199|ComfyUI|Wan2",
      "ai-video-ops + social-stack-ops",
