@@ -30,9 +30,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 VENV_PY = Path.home() / ".local/share/telegram-archive/venv/bin/python"
 ARCHIVE = REPO / "scripts/telegram_archive.py"
-# Prefer USB (user directive); fall back to tailnet wireless ADB.
+# Prefer USB-C (user directive). WSL2 cannot see USB devices — route USB
+# serials through the Windows adb.exe (platform-tools on C:); network
+# serials can use either server. TG_ADB_EXE overrides the Windows path.
 USB_SERIAL = os.environ.get("TG_ADB_USB", "")
 DEFAULT_ADB = os.environ.get("TG_ADB_TARGET", "100.84.31.85:5555")
+WIN_ADB_CANDIDATES = [
+    os.environ.get("TG_ADB_EXE", ""),
+    "/mnt/c/Users/tbaltzakis/Android/Sdk/platform-tools/adb.exe",
+    "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
+]
+
+
+def adb_bin():
+    for c in WIN_ADB_CANDIDATES:
+        if c and Path(c).exists():
+            return c
+    return "adb"
 
 
 def sh(args, timeout=15):
@@ -40,11 +54,11 @@ def sh(args, timeout=15):
 
 
 def adb(serial, *args, timeout=15):
-    return sh(["adb", "-s", serial, "shell", *args], timeout=timeout)
+    return sh([adb_bin(), "-s", serial, "shell", *args], timeout=timeout)
 
 
 def _device_serials():
-    out = sh(["adb", "devices"]).stdout
+    out = sh([adb_bin(), "devices"]).stdout
     return [l.split("\t")[0] for l in out.splitlines()[1:]
             if "\tdevice" in l]
 
@@ -56,7 +70,7 @@ def ensure_adb(target):
     if usb:
         return usb
     if target not in serials:
-        sh(["adb", "connect", target], timeout=20)
+        sh([adb_bin(), "connect", target], timeout=20)
         serials = _device_serials()
     live = target if target in serials else (serials[0] if serials else None)
     if not live:
