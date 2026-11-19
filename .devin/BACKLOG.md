@@ -4021,3 +4021,28 @@ All 8 ranked lanes implemented on master pending this PR's merge:
       AUTH_SECRET; rotate via `wrangler secret put AUTH_SECRET` if
       leaked (use `CLOUDFLARE_WORKERS_DEPLOY_TOKEN`, not
       `CLOUDFLARE_API_TOKEN` — the latter lacks Workers:Edit).
+
+## Devin Review email sweep — deferred findings (2026-11-19)
+
+61 bot findings triaged from the past week's notification emails; verified
+fixes shipped in PR #2381. Still open (need design work, not drive-by patches):
+
+- `funnel_reports.py` — monthly economics window should use completed
+  Athens-calendar month (PRs #2351/#2352); weekly scoreboard latest-snapshot
+  per (account, platform, platform_post_id) (#2351); Redis outage discards
+  report retries — needs durable retry record (#2366); funnel watcher
+  single-attempt recovery (#2362).
+- `linkedin_ads_control.py` — worker path should use `task_session()` /
+  caller-passed session; service is shared with `api/linkedin.py` so it
+  needs a session-injection refactor, not a swap (#2349).
+- `slack-mcp-remote.sh` — per-workspace OAuth cache isolation needs
+  verification of mcp-remote's actual cache-key/env support before patching
+  (#2325).
+- `compose-watchdog.sh` — failed dir probes triggering recreates + poisoned
+  WSL mount detection (#2348); partially covered by #2350, re-verify.
+- `linkedin_ads_tool.py` analytics wrong-filter finding (#2352) — recheck
+  against current query builder.
+- ~20 doc-coverage findings ("missing architecture/roadmap/monitoring
+  docs") across token-monitor, funnel-report, recovery-tool, and SMS-lane
+  PRs — batch into the next docs pass; most canonical docs live in
+  `docs/application-architecture.md` + per-skill SKILL.md files.
