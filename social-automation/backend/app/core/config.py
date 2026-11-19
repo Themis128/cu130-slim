@@ -671,6 +671,12 @@ class Settings(BaseSettings):
     CF_EMAIL_ENABLED: bool = False
     MAIL_OUTBOUND_URL: str = ""  # e.g. https://mail-outbound.<acct>.workers.dev/send
     MAIL_OUTBOUND_TOKEN: str = ""  # shared Bearer secret (wrangler secret)
+    # interview-coach CF worker proxy — voice ML-interview coach backend
+    # (STT/TTS/classify/chat-with-CV-RAG/session log). The worker holds its
+    # own D1/Vectorize/Durable-Object state; this is a thin authenticated
+    # proxy so the console can drive it without the worker AUTH_SECRET.
+    INTERVIEW_COACH_URL: str = ""  # e.g. https://interview-coach.<acct>.workers.dev
+    INTERVIEW_COACH_KEY: str = ""  # worker AUTH_SECRET, sent as x-key
     # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
     # Default link is the copy on the public cloudless.gr site: social.cloudless.gr
     # (FRONTEND_URL) sits behind Cloudflare Access, so leads cannot open it there.
