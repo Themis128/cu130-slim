@@ -106,6 +106,8 @@ async def _webhook_selfcheck() -> None:
             )
         return
     try:
+        import redis.asyncio as aioredis
+
         from app.core.config import get_settings
 
         r = aioredis.from_url(get_settings().REDIS_URL)
