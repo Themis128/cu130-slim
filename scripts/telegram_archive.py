@@ -96,6 +96,102 @@ def db() -> sqlite3.Connection:
     return con
 
 
+_PG = {"con": None, "pending": []}
+
+
+def _pg_dsns() -> list[str]:
+    """Candidate DSNs, most-specific first. TG_PG_DSN always wins."""
+    explicit = os.environ.get("TG_PG_DSN")
+    if explicit:
+        return [explicit]
+    out = []
+    for ukey, pkey, dkey, default_db in (
+        ("SOCIAL_POSTGRES_USER", "SOCIAL_POSTGRES_PASSWORD", "SOCIAL_POSTGRES_DB", "social_automation"),
+        # standalone compose app DB is `social` (POSTGRES_DB in .env is the
+        # admin db name, not the app schema db)
+        ("POSTGRES_USER", "POSTGRES_PASSWORD", None, "social"),
+    ):
+        user, pw = _env(ukey), _env(pkey)
+        if user and pw:
+            dbname = _env(dkey) if dkey else default_db
+            out.append(f"postgresql://{user}:{pw}@127.0.0.1:5433/{dbname or default_db}")
+    return out
+
+
+_PG_DDL = """
+CREATE TABLE IF NOT EXISTS telegram_channel_messages(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_id UUID,
+    channel VARCHAR(32) NOT NULL,
+    msg_id BIGINT NOT NULL,
+    date TIMESTAMPTZ NOT NULL,
+    sender VARCHAR(255) NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    media VARCHAR(64) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_tg_msg_channel_msgid UNIQUE (channel, msg_id)
+);
+CREATE INDEX IF NOT EXISTS ix_tg_msg_channel ON telegram_channel_messages(channel);
+CREATE INDEX IF NOT EXISTS ix_tg_msg_date ON telegram_channel_messages(date);
+"""
+
+
+def _pg():
+    """Lazy psycopg3 connection to SocialAuto Postgres (canonical archive).
+
+    Tries each candidate DSN — main stack uses social_user/social_automation,
+    the standalone deploy uses postgres/social; only one set is valid per host.
+    """
+    if _PG["con"] is None:
+        try:
+            import psycopg
+        except ImportError:
+            print("  !! psycopg missing — pip install 'psycopg[binary]'", file=sys.stderr)
+            _PG["con"] = False
+            return None
+        for dsn in _pg_dsns():
+            try:
+                _PG["con"] = psycopg.connect(dsn, autocommit=True)
+                with _PG["con"].cursor() as cur:
+                    cur.execute(_PG_DDL)  # self-heals until alembic lands it
+                return _PG["con"]
+            except Exception:
+                continue
+        print("  !! postgres archive disabled: no DSN connected", file=sys.stderr)
+        _PG["con"] = False
+    return _PG["con"] or None
+
+
+def _pg_flush():
+    """Upsert staged rows into telegram_channel_messages (idempotent)."""
+    if not _PG["pending"]:
+        return
+    con = _pg()
+    if not con:
+        _PG["pending"].clear()
+        return
+    rows = _PG["pending"]
+    _PG["pending"] = []
+    try:
+        with con.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO telegram_channel_messages
+                   (id, channel, msg_id, date, sender, text, media, created_at)
+                   VALUES (gen_random_uuid(), %s,%s,%s,%s,%s,%s, now())
+                   ON CONFLICT (channel, msg_id) DO UPDATE SET
+                     date=EXCLUDED.date, sender=EXCLUDED.sender,
+                     text=EXCLUDED.text, media=EXCLUDED.media""",
+                [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in rows],
+            )
+    except Exception as e:
+        print(f"  !! pg flush failed ({len(rows)} rows): {e}", file=sys.stderr)
+        _PG["pending"] = rows + _PG["pending"]  # retry next flush
+
+
+def _stage(row):
+    _PG["pending"].append(row[:7])
+
+
 def _client():
     from telethon import TelegramClient
     api_id = int(_env("TG_API_ID") or 0)
@@ -187,14 +283,18 @@ async def _sync_range(client, con, name, entity, min_id=0, max_id=None, limit=No
     async for m in client.iter_messages(entity, **kwargs):
         if not m.date:
             continue
-        con.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?)", _msg_row(name, m))
+        row = _msg_row(name, m)
+        con.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?)", row)
+        _stage(row)
         newest = max(newest, m.id)
         n += 1
         if n % 200 == 0:
             con.commit()
+            _pg_flush()
             print(f"  {name}: {n} msgs...")
     con.execute("INSERT OR REPLACE INTO state VALUES(?,?)", (name, newest))
     con.commit()
+    _pg_flush()
     return n, newest
 
 
@@ -237,12 +337,16 @@ async def cmd_backfill(args):
             d = m.date if m.date.tzinfo else m.date.replace(tzinfo=timezone.utc)
             if d < since:
                 break
-            con.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?)", _msg_row(name, m))
+            row = _msg_row(name, m)
+            con.execute("INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?)", row)
+            _stage(row)
             n += 1
             if n % 200 == 0:
                 con.commit()
+                _pg_flush()
                 print(f"  {name}: {n}...")
         con.commit()
+        _pg_flush()
         newest = con.execute("SELECT COALESCE(MAX(msg_id),0) FROM messages WHERE channel=?", (name,)).fetchone()[0]
         con.execute("INSERT OR REPLACE INTO state VALUES(?,?)", (name, newest))
         con.commit()

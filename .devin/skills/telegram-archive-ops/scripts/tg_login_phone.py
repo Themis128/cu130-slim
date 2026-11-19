@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""tg_login_phone.py — one-time Telethon login for telegram_archive.py,
+with the login code read off the phone over wireless ADB (tailnet).
+
+Flow:
+  1. adb connect <tailnet-ip>:5555  (Galaxy S22+, wireless debugging)
+  2. spawn `telegram_archive.py login` — Telegram sends the code to the
+     Telegram app's "Telegram" service chat + a system notification
+  3. poll `adb shell dumpsys notification` for the 5-digit code
+  4. feed it to the login prompt; if 2FA is enabled, TG_2FA_PASSWORD
+     env (or --password) supplies it — never logged
+
+Prereqs: TG_API_ID + TG_API_HASH in env or repo .env (my.telegram.org app),
+phone number via --phone or TG_PHONE, phone on tailnet with wireless ADB.
+
+    tg_login_phone.py --phone +30XXXXXXXXX
+    tg_login_phone.py --phone +30XXXXXXXXX --password-stdin   # read 2FA pw
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import select
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[4]
+VENV_PY = Path.home() / ".local/share/telegram-archive/venv/bin/python"
+ARCHIVE = REPO / "scripts/telegram_archive.py"
+DEFAULT_ADB = os.environ.get("TG_ADB_TARGET", "100.84.31.85:5555")
+
+
+def sh(args, timeout=15):
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+
+
+def adb(target, *args, timeout=15):
+    return sh(["adb", "-s", target, "shell", *args], timeout=timeout)
+
+
+def ensure_adb(target):
+    out = sh(["adb", "devices"]).stdout
+    if target not in out:
+        sh(["adb", "connect", target], timeout=20)
+        out = sh(["adb", "devices"]).stdout
+    if f"{target}\tdevice" not in out:
+        sys.exit(f"adb: {target} not connected — enable wireless debugging on the phone")
+
+
+def fetch_login_code(target, timeout_s=180):
+    """Poll notification dumps for Telegram's 'login code: NNNNN'."""
+    deadline = time.time() + timeout_s
+    seen = set()
+    while time.time() < deadline:
+        out = adb(target, "dumpsys", "notification", "--noredact", timeout=20)
+        text = out.stdout + out.stderr
+        for m in re.finditer(r"(?:login|code||κωδικός)[^\d]{0,40}(\d{5})", text, re.I):
+            code = m.group(1)
+            if code not in seen:
+                seen.add(code)
+                # newest match wins — keep polling briefly for a fresher one
+                time.sleep(2)
+                return code
+        # fallback: bare 5-digit near 'Telegram'
+        for m in re.finditer(r"Telegram[^\n]{0,120}?(\d{5})", text):
+            code = m.group(1)
+            if code not in seen:
+                seen.add(code)
+                return code
+        time.sleep(3)
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--phone", default=os.environ.get("TG_PHONE", ""))
+    ap.add_argument("--adb", default=DEFAULT_ADB)
+    ap.add_argument("--password", default=os.environ.get("TG_2FA_PASSWORD", ""))
+    ap.add_argument("--password-stdin", action="store_true", help="read 2FA password from stdin")
+    ap.add_argument("--timeout", type=int, default=180)
+    args = ap.parse_args()
+    if not args.phone:
+        sys.exit("--phone or TG_PHONE required (E.164, e.g. +30XXXXXXXXX)")
+
+    ensure_adb(args.adb)
+    print(f"[adb] {args.adb} connected")
+
+    py = str(VENV_PY) if VENV_PY.exists() else sys.executable
+    proc = subprocess.Popen(
+        [py, str(ARCHIVE), "login", "--phone", args.phone],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, cwd=str(REPO), bufsize=1,
+    )
+
+    # Stream output until the code prompt appears
+    code_sent = False
+    password = args.password or (sys.stdin.readline().strip() if args.password_stdin else "")
+    buf = ""
+    deadline = time.time() + args.timeout
+    try:
+        fd = proc.stdout.fileno()
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 1.0)
+            if not r:
+                if proc.poll() is not None:
+                    break
+                continue
+            ch = os.read(fd, 4096).decode(errors="replace")
+            if not ch:
+                break
+            buf += ch
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+            if not code_sent and "code from Telegram" in buf:
+                print("\n[phone] waiting for Telegram login code notification…")
+                code = fetch_login_code(args.adb, timeout_s=args.timeout)
+                if not code:
+                    sys.exit("\n[phone] no code seen in notifications — check the phone manually")
+                print(f"[phone] code captured: {code}")
+                proc.stdin.write(code + "\n")
+                proc.stdin.flush()
+                code_sent = True
+                buf = ""
+            if code_sent and "2FA password" in buf:
+                if not password:
+                    sys.exit("\n2FA enabled — rerun with --password or TG_2FA_PASSWORD set")
+                proc.stdin.write(password + "\n")
+                proc.stdin.flush()
+                password = ""  # write once
+                buf = ""
+            if "authorized as" in buf:
+                break
+        proc.wait(timeout=30)
+    except KeyboardInterrupt:
+        proc.kill()
+        raise
+    print(f"\n[done] exit={proc.returncode}")
+    sys.exit(proc.returncode or 0)
+
+
+if __name__ == "__main__":
+    main()
