@@ -457,7 +457,10 @@ async def test_build_content_weekly(monkeypatch):
         [
             # current-week snapshots: account_id, platform, pub_key, post_id,
             # impressions, engagement, reach, engagement_rate, content_text
-            [("sid1", "linkedin", "pub1", "post-aaaa-1111", 100, 20, 80, 4.5, "hello world post"), ("sid2", "x", "pub2", "post-bbbb-2222", 30, 5, 25, 2.0, "low imp")],
+            [
+                ("sid1", "linkedin", "pub1", "post-aaaa-1111", 100, 20, 80, 4.5, "hello world post"),
+                ("sid2", "x", "pub2", "post-bbbb-2222", 30, 5, 25, 2.0, "low imp"),
+            ],
             # previous-week snapshots
             [("sid1", "linkedin", "pub1", "post-aaaa-1111", 200, 30, 150, 3.0, "hello world post")],
             # latest follower snaps: account_id, followers, platform, username
