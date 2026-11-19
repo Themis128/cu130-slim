@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -329,3 +330,136 @@ def test_stt_ws_channel_sanitized():
     raw = "a b<script>" + "x" * 100
     ch = "".join(c for c in raw if c.isalnum() or c in "-_")[:64] or "tab"
     assert "<" not in ch and " " not in ch and len(ch) <= 64
+
+
+# ── /stt websocket pump + endpoint ────────────────────────────────────
+
+
+class _FakeClientWS:
+    def __init__(self, query_params=None, incoming=()):
+        self.query_params = query_params or {}
+        self._incoming = list(incoming)
+        self.sent = []
+        self.closed = None
+        self.accepted = False
+
+    async def accept(self):
+        self.accepted = True
+
+    async def close(self, code=1000):
+        self.closed = code
+
+    async def receive(self):
+        if self._incoming:
+            return self._incoming.pop(0)
+        await asyncio.sleep(0.01)
+        return {"type": "websocket.disconnect"}
+
+    async def send_text(self, data):
+        self.sent.append(("text", data))
+
+    async def send_bytes(self, data):
+        self.sent.append(("bytes", data))
+
+
+class _FakeUpstream:
+    def __init__(self, messages=()):
+        self._messages = list(messages)
+        self.sent = []
+
+    async def send(self, data):
+        self.sent.append(data)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._messages:
+            return self._messages.pop(0)
+        raise StopAsyncIteration
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _ws_db(user=None):
+    res = SimpleNamespace(scalar_one_or_none=lambda: user)
+    return SimpleNamespace(execute=AsyncMock(return_value=res))
+
+
+def _auth_ok(monkeypatch):
+    uid = uuid.uuid4()
+    user = SimpleNamespace(id=uid)
+    monkeypatch.setattr(
+        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
+    )
+    return user, _ws_db(user)
+
+
+@pytest.mark.asyncio
+async def test_stt_ws_rejects_bad_token():
+    ws = _FakeClientWS(query_params={})
+    await IC.stt_ws(ws, db=_ws_db())
+    assert ws.closed == 4401
+    assert not ws.accepted
+
+
+@pytest.mark.asyncio
+async def test_stt_ws_unconfigured_closes_4503(monkeypatch):
+    _, db = _auth_ok(monkeypatch)
+    monkeypatch.setattr(IC, "_config", lambda: ("", ""))
+    ws = _FakeClientWS(query_params={"token": "t"})
+    await IC.stt_ws(ws, db=db)
+    assert ws.closed == 4503
+    assert not ws.accepted
+
+
+@pytest.mark.asyncio
+async def test_stt_ws_upstream_failure_closes_1011(monkeypatch):
+    user, db = _auth_ok(monkeypatch)
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example", "k"))
+
+    class _Boom:
+        async def __aenter__(self):
+            raise OSError("connect refused")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(IC.websockets, "connect", lambda *a, **k: _Boom())
+    ws = _FakeClientWS(query_params={"token": "t", "ch": "tab"})
+    await IC.stt_ws(ws, db=db)
+    assert ws.closed == 1011
+    assert not ws.accepted
+
+
+@pytest.mark.asyncio
+async def test_stt_ws_pumps_text_and_binary(monkeypatch):
+    user, db = _auth_ok(monkeypatch)
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example", "k"))
+    upstream = _FakeUpstream(messages=[b"\x00\x01audio", "transcript"])
+    monkeypatch.setattr(
+        IC.websockets, "connect", lambda *a, **k: upstream
+    )
+    ws = _FakeClientWS(
+        query_params={"token": "t"},
+        incoming=[{"type": "websocket.receive", "bytes": b"mic-frame"}],
+    )
+    await IC.stt_ws(ws, db=db)
+    assert ws.accepted
+    assert b"mic-frame" in upstream.sent
+    kinds = {k for k, _ in ws.sent}
+    assert kinds <= {"text", "bytes"}
+    assert ("bytes", b"\x00\x01audio") in ws.sent
+    assert ("text", "transcript") in ws.sent
+
+
+@pytest.mark.asyncio
+async def test_pump_stt_client_disconnect_cancels_upstream():
+    upstream = _FakeUpstream(messages=[])
+    ws = _FakeClientWS(incoming=[{"type": "websocket.disconnect"}])
+    await IC._pump_stt(ws, upstream)
+    assert ws.sent == []
