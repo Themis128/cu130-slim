@@ -197,6 +197,24 @@ services:
       - messenger-browser-data:/data
     restart: unless-stopped
 
+
+  # Persistent logged-in TikTok browser session — the tiktok_reauth beat and
+  # DIRECT_POST session checks probe :9224. Same pattern as the other
+  # browser sidecars; image is built locally (build ctx ../..//tiktok-browser-sidecar).
+  tiktok-browser-sidecar:
+    image: cu130-slim-tiktok-browser-sidecar:latest
+    pull_policy: never
+    container_name: tiktok-browser-sidecar
+    init: true
+    ports:
+      - "127.0.0.1:9224:9224"
+    environment:
+      - TIKTOK_SIDECAR_PORT=9224
+      - TZ=Europe/Athens
+    volumes:
+      - tiktok-browser-data:/data
+    restart: unless-stopped
+
   # Infrastructure
   social-postgres:
     image: postgres:17-alpine
@@ -316,3 +334,4 @@ volumes:
   linkedin-browser-data:
   facebook-browser-data:
   messenger-browser-data:
+  tiktok-browser-data:

@@ -2508,6 +2508,7 @@ services:
       - /run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
+      - socialauto-standalone
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2375/_ping | grep -q OK"]
       interval: 30s
@@ -2787,6 +2788,9 @@ volumes:
 networks:
   backend:
     name: cu130-backend
+  socialauto-standalone:
+    external: true
+    name: socialauto-standalone_default
   db:
     name: cu130-db
   frontend:
