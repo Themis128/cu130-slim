@@ -7,8 +7,10 @@ each alert-looking post, and feeds ``ops_agent.report_incident`` — the
 severity-routed Telegram escalation).
 
 Cursor per channel lives in Redis (``tg_ingest:cursor`` hash) — restart-safe,
-idempotent, and cheap. ``#critical`` rows ingest as CRITICAL, ``#ops`` as
-OPS; ``#intel``/``#digest`` are informational and skipped by default.
+idempotent, and cheap. Every channel present in the archive table is
+scanned: ``#critical`` rows ingest as CRITICAL, everything else as OPS.
+``#intel``/``#digest`` are informational and skipped by default
+(``TG_INGEST_SKIP`` extends the skip set).
 """
 
 from __future__ import annotations
@@ -34,7 +36,11 @@ _RECOVERED_RE = re.compile(r"(recover|restored|back up|healthy again|resolved|fi
 # First useful token as remediation target: "social-api down" -> social-api
 _TARGET_RE = re.compile(r"\b([a-z][a-z0-9_-]{2,40})\b")
 
+# Every archived channel is scanned; severity is mapped by name with a
+# sane default — informational digest channels are skipped by default
+# (override with TG_INGEST_SKIP="name1,name2").
 _CHANNEL_SEVERITY = {"critical": "critical", "ops": "ops"}
+_SKIP_CHANNELS = {"intel", "digest"}
 _CURSOR_KEY = "tg_ingest:cursor"
 
 
@@ -78,8 +84,25 @@ def telegram_incidents_ingest(self):
         r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         stats: dict[str, Any] = {"scanned": 0, "ingested": 0, "skipped": 0}
         try:
+            import os
+
+            from sqlalchemy import distinct
+
+            skip = set(_SKIP_CHANNELS) | {
+                c.strip()
+                for c in (os.environ.get("TG_INGEST_SKIP") or "").split(",")
+                if c.strip()
+            }
             async with task_session() as db:
-                for channel, severity in _CHANNEL_SEVERITY.items():
+                channels = set(_CHANNEL_SEVERITY) | {
+                    row[0]
+                    for row in (
+                        await db.execute(select(distinct(TelegramChannelMessage.channel)))
+                    ).all()
+                    if row[0]
+                }
+                for channel in sorted(channels - skip):
+                    severity = _CHANNEL_SEVERITY.get(channel, "ops")
                     cursor = int(await r.hget(_CURSOR_KEY, channel) or 0)
                     rows = (
                         await db.execute(

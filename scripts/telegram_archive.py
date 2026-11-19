@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -74,6 +75,32 @@ def channel_map() -> dict[str, str]:
             name, cid = part.split(":", 1)
             chans[name.strip()] = cid.strip()
     return chans
+
+
+async def _discover_channels(client, con) -> dict[str, str]:
+    """Walk all dialogs and register every broadcast channel into the
+    ``channels`` table under a slugged name. Returns ``{name: marked_id}``
+    for channels discovered this way (the TG_CH_* map still wins on
+    conflicts). This is what makes 'all my channels' work without
+    hand-maintaining an env var per channel."""
+    out: dict[str, str] = {}
+    async for d in client.iter_dialogs():
+        ent = d.entity
+        if not getattr(ent, "broadcast", False):
+            continue  # channels only — skip groups/megagroups/users
+        cid = int(str(ent.id))
+        marked = f"-100{cid}" if cid > 0 else str(cid)
+        title = getattr(ent, "title", "") or ""
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or f"ch-{cid}"
+        slug = slug[:40]
+        con.execute(
+            "INSERT OR REPLACE INTO channels(name,channel_id,entity_id,title,username)"
+            " VALUES(?,?,?,?,?)",
+            (slug, marked, cid, title, getattr(ent, "username", "")),
+        )
+        out[slug] = marked
+    con.commit()
+    return out
 
 
 def db() -> sqlite3.Connection:
@@ -305,8 +332,11 @@ async def cmd_sync(args):
     await client.connect()
     if not await client.is_user_authorized():
         sys.exit("not authorized — run `telegram_archive.py login` first")
+    chans = channel_map()
+    chans.update((k, v) for k, v in (await _discover_channels(client, con)).items()
+                 if k not in chans)
     total = 0
-    for name, marked in channel_map().items():
+    for name, marked in chans.items():
         ent = await _resolve(client, con, name, marked)
         if not ent:
             continue
@@ -325,7 +355,10 @@ async def cmd_backfill(args):
     if not await client.is_user_authorized():
         sys.exit("not authorized — run `telegram_archive.py login` first")
     since = datetime.now(timezone.utc) - timedelta(days=args.days)
-    for name, marked in channel_map().items():
+    chans = channel_map()
+    chans.update((k, v) for k, v in (await _discover_channels(client, con)).items()
+                 if k not in chans)
+    for name, marked in chans.items():
         if args.channel and name != args.channel:
             continue
         ent = await _resolve(client, con, name, marked)

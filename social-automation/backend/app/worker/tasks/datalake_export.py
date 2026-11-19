@@ -332,21 +332,13 @@ async def _export_survey_responses(db: AsyncSession) -> list[dict]:
     ]
 
 
-_TELEGRAM_MSG_DAYS = 90
-
-
 async def _export_telegram_messages(db: AsyncSession) -> list[dict]:
-    """Fact table: archived Telegram channel messages — the infra-alert
-    history the incident bridge triages. Snapshot of the last 90 days."""
+    """Fact table: the full archived Telegram channel message history —
+    every alert the incident bridge triages, all channels, no window."""
     from app.models.telegram_message import TelegramChannelMessage
 
-    cutoff = datetime.now(UTC) - timedelta(days=_TELEGRAM_MSG_DAYS)
     rows = (
-        await db.execute(
-            select(TelegramChannelMessage)
-            .where(TelegramChannelMessage.date >= cutoff)
-            .order_by(TelegramChannelMessage.date)
-        )
+        await db.execute(select(TelegramChannelMessage).order_by(TelegramChannelMessage.date))
     ).scalars().all()
     return [
         {

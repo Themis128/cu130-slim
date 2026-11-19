@@ -62,7 +62,10 @@ $PY scripts/telegram_archive.py channels              # resolved entities
 
 Channels resolve from `TG_CH_CRITICAL/OPS/INTEL/DIGEST` in `.env`
 (same IDs as the alert router) + `TG_ARCHIVE_CHANNELS="name:-100id,…"`
-for extras.
+for extras. **All-channels coverage**: `sync`/`backfill` auto-discover
+every broadcast channel in the account's dialogs (title-slugged names,
+registered in the sqlite `channels` table) — the env map only pins the
+canonical names for the four infra channels.
 
 ## One-time login (human gate, phone-assisted)
 
@@ -93,6 +96,20 @@ ORDER BY date DESC;
 
 Or via Metabase / the SocialAuto API once a read endpoint exists.
 Local quick search: `telegram_archive.py search "<term>"`.
+
+## Automated resolution loop
+
+`telegram-incidents-ingest` (5-min Celery beat) scans **every channel**
+in the archive table (skip-set: `intel`, `digest`, extend via
+`TG_INGEST_SKIP`), classifies alert-shaped posts, and feeds
+`ops_incidents` via `report_incident`. `ops-agent-sweep` (5-min) then
+runs LLM RCA grounded in `app/services/ops_runbooks.py` — curated
+runbooks distilled from the repo docs (fsbridge, socket-proxy inodes,
+asyncpg driver, tunnel/530, healthcheck rules, credential lanes, DMR,
+disk/OOM) — applies whitelisted task reruns, verifies, and escalates to
+Telegram. Full message history also lands in the datalake at
+`lake/socialauto-telegram/messages.json` (full-history snapshot, every
+`export-datalake` run).
 
 ## Triage loop (the point of the archive)
 

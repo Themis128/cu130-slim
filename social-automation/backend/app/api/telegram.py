@@ -335,12 +335,18 @@ async def _dm_owner(account: SocialAccount, text: str) -> None:
         logger.warning("Telegram owner DM failed: %s", exc)
 
 
-def _channel_name_for(chat_id: str) -> str:
+def _channel_name_for(chat_id: str, chat_title: str = "") -> str:
     """Map a channel chat_id to its logical name via the TG_CH_* env map
-    (same map the Telethon archiver uses). Falls back to the chat_id."""
+    (same map the Telethon archiver uses). Unmapped channels get a
+    readable slug from the chat title so the archive stays queryable —
+    the raw chat_id is the last-resort fallback."""
     for name in ("critical", "ops", "intel", "digest"):
         if os.environ.get(f"TG_CH_{name.upper()}") == chat_id:
             return name
+    if chat_title:
+        slug = re.sub(r"[^a-z0-9]+", "-", chat_title.lower()).strip("-")
+        if slug:
+            return slug[:40]
     return chat_id
 
 
@@ -1836,7 +1842,7 @@ async def receive_webhook(
     if channel_post:
         try:
             chat_id = str(channel_post["chat_id"])
-            channel = _channel_name_for(chat_id)
+            channel = _channel_name_for(chat_id, channel_post.get("chat_title") or "")
             msg = TelegramChannelMessage(
                 team_id=account.team_id,
                 channel=channel,
