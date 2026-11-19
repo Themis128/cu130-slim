@@ -11,6 +11,7 @@ site's ``materialize-datalake-snapshots`` ETL can build gold sections:
     lake/socialauto-insights/<team>.json
     lake/socialauto-leads/leads.json
     lake/socialauto-telegram/channels.json
+    lake/socialauto-telegram/messages.json
     lake/socialauto-web-events/events.json
     lake/socialauto-ads/snapshots.json
     lake/socialauto-ads/daily.json
@@ -328,6 +329,27 @@ async def _export_survey_responses(db: AsyncSession) -> list[dict]:
             "submitted_at": _iso(resp.submitted_at),
         }
         for resp, email, rstatus in rows
+    ]
+
+
+async def _export_telegram_messages(db: AsyncSession) -> list[dict]:
+    """Fact table: the full archived Telegram channel message history —
+    every alert the incident bridge triages, all channels, no window."""
+    from app.models.telegram_message import TelegramChannelMessage
+
+    rows = (
+        await db.execute(select(TelegramChannelMessage).order_by(TelegramChannelMessage.date))
+    ).scalars().all()
+    return [
+        {
+            "channel": m.channel,
+            "msg_id": m.msg_id,
+            "date": _iso(m.date),
+            "sender": m.sender,
+            "media": m.media,
+            "text": m.text,
+        }
+        for m in rows
     ]
 
 
@@ -984,6 +1006,7 @@ async def _export_async() -> dict:
         await put("lake/socialauto-account-events/events.json", _export_account_events(db))
         await put("lake/socialauto-leads/leads.json", _export_leads(db))
         await put("lake/socialauto-telegram/channels.json", _export_telegram_channels(db))
+        await put("lake/socialauto-telegram/messages.json", _export_telegram_messages(db))
         await put("lake/socialauto-web-events/events.json", _export_web_events(db))
         await put("lake/socialauto-ads/snapshots.json", _export_ad_snapshots(db))
         await put("lake/socialauto-ads/daily.json", _export_ad_daily(db))

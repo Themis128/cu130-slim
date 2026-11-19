@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,8 +29,8 @@ class TelegramChannelMessage(Base):
     team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     # Logical channel name from TG_CH_* mapping: critical/ops/intel/digest.
     channel: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    # Telegram message id within the channel (monotonic per channel).
-    msg_id: Mapped[int] = mapped_column(nullable=False)
+    # Message id within the channel (monotonic; bigint — Slack µs ts, ntfy epoch).
+    msg_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     sender: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")

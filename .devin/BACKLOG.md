@@ -4046,3 +4046,73 @@ fixes shipped in PR #2381. Still open (need design work, not drive-by patches):
   docs") across token-monitor, funnel-report, recovery-tool, and SMS-lane
   PRs — batch into the next docs pass; most canonical docs live in
   `docs/application-architecture.md` + per-skill SKILL.md files.
+
+## 2026-11-19 — Telegram archive → incident resolution loop (Devin)
+
+Landed on `feat/tg-channel-post-ingest` (PR #2389, auto-merge armed):
+
+- Three-lane archive into `telegram_channel_messages`: tg_alert
+  send-time write, `channel_post` webhook ingest (all channels,
+  title-slug naming), Telethon sync/backfill with auto-discovery of
+  every broadcast channel in the account's dialogs.
+- `telegram-incidents-ingest` (5-min beat) scans every archived channel
+  (skips intel/digest, `TG_INGEST_SKIP` extends) → `ops_incidents` →
+  ops-agent-sweep LLM RCA now grounded by `app/services/ops_runbooks.py`
+  (curated runbooks distilled from repo ops docs — **update that file
+  when ops docs gain new failure classes**; first-match ordering matters).
+- Datalake: `lake/socialauto-telegram/messages.json` full-history
+  snapshot on every export-datalake run.
+- New skill `.devin/skills/incident-resolution-ops` (mirrored .cursor).
+- Live-deployed via docker cp until image rebuild — ephemeral.
+
+Open items:
+- `human:` TG_API_ID/TG_API_HASH — tg_api_setup retry cron fires daily
+  13:00 UTC until creds land in .env (my.telegram.org per-phone daily
+  login cap; retries worsen it). Then: backfill --days 30.
+- `watch:` PR #2389 merge → image rebuild → verify baked code matches
+  deployed files (remove docker-cp drift).
+- `decide:` expand ALLOWED_RERUN_TASKS beyond read-only tasks
+  (dmr_health/devapps_sync/analytics_sync)? Requires safety review.
+
+## 2026-11-19 (pm) — Slack + ntfy archive → same incident loop (Devin)
+
+Landed on `feat/tg-channel-post-ingest` (PR #2389, auto-merge armed):
+
+- `notify_archive_ingest` (5-min beat :03): Slack `conversations.history`
+  on the alert channels (paginated backfill — 514 msgs scanned first run,
+  310 inserted / 204 deduped) + ntfy `/<topic>/json` poll. Rows land as
+  `slack:<name>` / `ntfy:<topic>` in `telegram_channel_messages` via
+  ON CONFLICT DO NOTHING — `telegram-incidents-ingest` picks them up
+  unchanged. Verified live: a real `slack:ops-alerts` failure became an
+  `ops_incidents` row.
+- `msg_id` int→bigint migration `u0a1b2c3d4e5` (applied to live DB) —
+  Slack ts-as-µs overflows int4. Slack ids are exact `ts` µs.
+- Cursors (`notify_archive:cursor` Redis hash) advance only after
+  db.commit — crash-safe.
+- ntfy reader-token mint workflow `ntfy-reader-token.yml` in
+  cloudless.gr (PR #2450): omv-runner kubectl → dedicated read-only
+  ntfy account, token stored to Infisical `NTFY_READER_TOKEN` + artifact.
+
+Open items:
+- [x] NTFY_READER_TOKEN minted directly via `ntfy_ops.py` over omv SSH
+  (archive-reader, ro on 3 topics) — `.env` + standalone `.env` updated,
+  workers recreated. First ntfy ingest: 766 rows across 3 topics; E2E
+  probe publish→archive→incident verified. cloudless.gr #2450 keeps the
+  workflow for rotation.
+- [x] Gmail lane (2026-11-19 pm): `_collect_email` archives
+  `email:gmail` via OAuth refresh token (creds already in .env) —
+  1000-row first backfill verified live. `email:` channels classify
+  only for `_EMAIL_ALERT_RE` senders (`TG_INGEST_EMAIL_SENDERS`
+  extends).
+- [x] `tg_ingest:v2` created_at cursor (hash-id surfaces broke
+  msg_id ordering) + cursors now written only after db.commit +
+  `_SKIP_MSG_RE` noise filters + `slack:socialauto(-telegram)`
+  digest-skip.
+- `human:` omv-ha dovecot (tbaltzakis@cloudless.gr) IMAP lane needs
+  MAILBOX_PASSWORD — not stored anywhere, user provides per
+  mail-triage-ops skill.
+- `watch:` PR #2389 checks green → merge → image rebuild → verify
+  notify_archive baked (remove docker-cp drift).
+- `human:` TG_API_ID/HASH still gated on my.telegram.org daily cap —
+  retry cron 13:00 UTC daily.
+- `decide:` expand ops-agent ALLOWED_RERUN_TASKS beyond read-only?

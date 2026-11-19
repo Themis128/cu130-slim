@@ -239,6 +239,9 @@ async def test_keep_warm(monkeypatch):
 
 def test_dmr_task_wrappers(monkeypatch):
     monkeypatch.setattr(DH, "run_async", lambda c: (c.close(), {"ok": 1})[1])
+    # keep_warm takes a real sync-Redis lock first; stub the client to
+    # the fail-open path so the test doesn't depend on ambient Redis state.
+    monkeypatch.setattr(DH, "_keep_warm_lock_client", lambda: None)
     assert DH.check_dmr_health() == {"ok": 1}
     assert DH.keep_warm_dmr_models() == {"ok": 1}
 

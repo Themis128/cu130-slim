@@ -540,11 +540,40 @@ class TelegramAPIClient:
 TELEGRAM_ALLOWED_UPDATES = [
     "message",
     "edited_message",
+    "channel_post",
+    "edited_channel_post",
     "my_chat_member",
     "chat_member",
     "chat_join_request",
     "callback_query",
 ]
+
+
+def extract_channel_post_update(update: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse ``channel_post`` / ``edited_channel_post`` — a post in a channel
+    the bot administers. Returns ``{chat_id, chat_title, message_id, date,
+    sender, text, media}`` or ``None``."""
+    post = update.get("channel_post") or update.get("edited_channel_post")
+    if not isinstance(post, dict):
+        return None
+    chat = post.get("chat") or {}
+    if chat.get("type") != "channel":
+        return None
+    media = ""
+    for key in ("photo", "video", "document", "audio", "voice", "sticker", "animation", "poll"):
+        if post.get(key) is not None:
+            media = key
+            break
+    sender_chat = post.get("sender_chat") or {}
+    return {
+        "chat_id": str(chat.get("id")),
+        "chat_title": chat.get("title") or "",
+        "message_id": post.get("message_id"),
+        "date": post.get("date") or 0,
+        "sender": post.get("author_signature") or sender_chat.get("title") or "",
+        "text": post.get("text") or post.get("caption") or "",
+        "media": media,
+    }
 
 
 def extract_chat_join_request(update: dict[str, Any]) -> dict[str, Any] | None:

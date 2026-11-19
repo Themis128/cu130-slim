@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -21,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -31,6 +33,7 @@ from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent
 from app.models.social_account import SocialAccount
+from app.models.telegram_message import TelegramChannelMessage
 from app.models.user import User
 from app.services.telegram_agent import _agent_cfg, agent_enabled, maybe_welcome_member
 from app.services.telegram_api import (
@@ -38,6 +41,7 @@ from app.services.telegram_api import (
     TelegramAPIClient,
     TelegramAPIError,
     extract_callback_query,
+    extract_channel_post_update,
     extract_chat_join_request,
     extract_chat_member_update,
     extract_inbound_text_update,
@@ -329,6 +333,21 @@ async def _dm_owner(account: SocialAccount, text: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Telegram owner DM failed: %s", exc)
+
+
+def _channel_name_for(chat_id: str, chat_title: str = "") -> str:
+    """Map a channel chat_id to its logical name via the TG_CH_* env map
+    (same map the Telethon archiver uses). Unmapped channels get a
+    readable slug from the chat title so the archive stays queryable —
+    the raw chat_id is the last-resort fallback."""
+    for name in ("critical", "ops", "intel", "digest"):
+        if os.environ.get(f"TG_CH_{name.upper()}") == chat_id:
+            return name
+    if chat_title:
+        slug = re.sub(r"[^a-z0-9]+", "-", chat_title.lower()).strip("-")
+        if slug:
+            return slug[:40]
+    return chat_id
 
 
 def _webhook_base() -> str:
@@ -1813,6 +1832,36 @@ async def receive_webhook(
                 _sanitize(str(exc)),
             )
             response["join_request"] = "error"
+        return response
+
+    # ── channel_post: a post in a channel the bot administers ──
+    # Forward-read lane: archived into telegram_channel_messages (the same
+    # table the Telethon archiver dual-writes), so channel history from now
+    # on is queryable without a user session.
+    channel_post = extract_channel_post_update(update)
+    if channel_post:
+        try:
+            chat_id = str(channel_post["chat_id"])
+            channel = _channel_name_for(chat_id, channel_post.get("chat_title") or "")
+            msg = TelegramChannelMessage(
+                team_id=account.team_id,
+                channel=channel,
+                msg_id=int(channel_post["message_id"]),
+                date=datetime.fromtimestamp(int(channel_post["date"] or 0), UTC),
+                sender=str(channel_post.get("sender") or ""),
+                text=str(channel_post.get("text") or ""),
+                media=str(channel_post.get("media") or ""),
+            )
+            db.add(msg)
+            try:
+                await db.commit()
+                response["channel_post"] = "archived"
+            except IntegrityError:
+                await db.rollback()
+                response["channel_post"] = "duplicate"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("channel_post archive failed account=%s: %s", _sanitize(str(account_id)), _sanitize(str(exc)))
+            response["channel_post"] = "error"
         return response
 
     # ── callback_query: inline-keyboard button press — ack it ──

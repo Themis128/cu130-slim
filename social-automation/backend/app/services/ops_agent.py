@@ -143,6 +143,7 @@ async def _container_states() -> dict[str, dict]:
 
 
 def _build_prompt(inc: OpsIncident, containers: dict[str, dict]) -> str:
+    from app.services.ops_runbooks import runbook_context
     target_state = ""
     if inc.target:
         for name, st in containers.items():
@@ -159,11 +160,14 @@ def _build_prompt(inc: OpsIncident, containers: dict[str, dict]) -> str:
         "recurrence_count": inc.recurrence_count,
         "container_state": target_state or "unknown",
     }
+    detail_text = inc.detail if isinstance(inc.detail, str) else json.dumps(inc.detail or {})
+    runbooks = runbook_context(inc.kind or "", inc.target or "", inc.title or "", detail_text)
     return (
         "You are the ops-agent for a Docker Compose social-automation stack "
         "(social-api, 4 celery workers, n8n, postgres, redis, sidecars). "
         "A detector reported this incident:\n\n"
         f"{json.dumps(evidence, indent=2, default=str)[:4000]}\n\n"
+        f"{runbooks}"
         "Reply with ONLY a JSON object, no prose:\n"
         '{"severity":"info|ops|critical",'
         '"hypothesis":"<one sentence root-cause guess>",'

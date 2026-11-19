@@ -90,6 +90,36 @@ def _api(tok: str, method: str, body: dict) -> dict:
         return {"ok": False, "err": str(e)[:120]}
 
 
+def _archive(sev: str, msg_id: int, text: str) -> None:
+    """Best-effort archive of the sent alert into telegram_channel_messages.
+
+    The Bot API never pushes channel_post updates for the bot's own posts,
+    so the webhook lane can't see bot-authored alerts — this write closes
+    the gap. Never raises: an archive miss must not fail an alert send.
+    """
+    try:
+        import psycopg
+    except ImportError:
+        return
+    try:
+        dsn = (
+            f"host={_env('SOCIAL_PG_HOST') or '127.0.0.1'} "
+            f"port={_env('SOCIAL_PG_PORT') or '5433'} "
+            f"dbname={_env('SOCIAL_POSTGRES_DB') or 'social_automation'} "
+            f"user={_env('SOCIAL_POSTGRES_USER') or 'social_user'} "
+            f"password={_env('SOCIAL_POSTGRES_PASSWORD') or ''}"
+        )
+        with psycopg.connect(dsn, connect_timeout=5) as con:
+            con.execute(
+                """INSERT INTO telegram_channel_messages (id, channel, msg_id, date, sender, text, created_at)
+                   VALUES (gen_random_uuid(), %s, %s, now(), 'Cloudless_newbot', %s, now())
+                   ON CONFLICT (channel, msg_id) DO UPDATE SET text = EXCLUDED.text""",
+                (sev, msg_id, text),
+            )
+    except Exception:
+        pass
+
+
 def send(sev: str, text: str) -> str:
     ntfy_res = _ntfy_publish(sev, text)
     tok = _token()
@@ -98,9 +128,12 @@ def send(sev: str, text: str) -> str:
     chat = CH.get(sev, CH["ops"])
     r = _api(tok, "sendMessage", {"chat_id": chat, "text": text})
     if r.get("ok"):
+        _archive(sev, r["result"]["message_id"], text)
         if sev == "critical":
-            _api(tok, "sendMessage",
-                 {"chat_id": CH["ops"], "text": f"[P1] {text}"})
+            r2 = _api(tok, "sendMessage",
+                      {"chat_id": CH["ops"], "text": f"[P1] {text}"})
+            if r2.get("ok"):
+                _archive("ops", r2["result"]["message_id"], f"[P1] {text}")
         return "sent" + (f" ({ntfy_res})" if ntfy_res else "")
     return r.get("err", "fail") + (f" ({ntfy_res})" if ntfy_res else "")
 
