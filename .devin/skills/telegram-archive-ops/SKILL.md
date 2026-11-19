@@ -52,8 +52,8 @@ for extras.
     --phone +30XXXXXXXXX          # TG_PHONE env also works
 ```
 
-The helper adb-connects to the Galaxy S22+ over the tailnet
-(`100.84.31.85:5555`), starts `login`, waits for Telegram's code
+The helper prefers USB-C ADB (user directive) and falls back to the
+tailnet wireless session (`100.84.31.85:5555`), starts `login`, waits for Telegram's code
 notification via `dumpsys notification`, feeds it back, and handles the
 2FA prompt if `TG_2FA_PASSWORD`/`--password` is set. Manual fallback:
 run `telegram_archive.py login` and type the code yourself.

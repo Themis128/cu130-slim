@@ -30,6 +30,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 VENV_PY = Path.home() / ".local/share/telegram-archive/venv/bin/python"
 ARCHIVE = REPO / "scripts/telegram_archive.py"
+# Prefer USB (user directive); fall back to tailnet wireless ADB.
+USB_SERIAL = os.environ.get("TG_ADB_USB", "")
 DEFAULT_ADB = os.environ.get("TG_ADB_TARGET", "100.84.31.85:5555")
 
 
@@ -37,17 +39,29 @@ def sh(args, timeout=15):
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
 
-def adb(target, *args, timeout=15):
-    return sh(["adb", "-s", target, "shell", *args], timeout=timeout)
+def adb(serial, *args, timeout=15):
+    return sh(["adb", "-s", serial, "shell", *args], timeout=timeout)
+
+
+def _device_serials():
+    out = sh(["adb", "devices"]).stdout
+    return [l.split("\t")[0] for l in out.splitlines()[1:]
+            if "\tdevice" in l]
 
 
 def ensure_adb(target):
-    out = sh(["adb", "devices"]).stdout
-    if target not in out:
+    """USB first (TG_ADB_USB or any usb serial), tailnet ADB as fallback."""
+    serials = _device_serials()
+    usb = USB_SERIAL or next((s for s in serials if ":" not in s), None)
+    if usb:
+        return usb
+    if target not in serials:
         sh(["adb", "connect", target], timeout=20)
-        out = sh(["adb", "devices"]).stdout
-    if f"{target}\tdevice" not in out:
-        sys.exit(f"adb: {target} not connected — enable wireless debugging on the phone")
+        serials = _device_serials()
+    live = target if target in serials else (serials[0] if serials else None)
+    if not live:
+        sys.exit("adb: no device — plug in USB-C or enable wireless debugging")
+    return live
 
 
 def _extract_code(text: str) -> str | None:
@@ -71,13 +85,13 @@ def _extract_code(text: str) -> str | None:
     return None
 
 
-def fetch_login_code(target, timeout_s=180):
+def fetch_login_code(serial, timeout_s=180):
     """Poll `adb shell dumpsys notification --noredact` for the Telegram
     login-code notification (arrives in the shade as 'Login code: NNNNN')."""
     deadline = time.time() + timeout_s
     seen = set()
     while time.time() < deadline:
-        out = adb(target, "dumpsys", "notification", "--noredact", timeout=20)
+        out = adb(serial, "dumpsys", "notification", "--noredact", timeout=20)
         text = out.stdout + out.stderr
         # scope to Telegram's package block when possible
         tg_blocks = re.findall(
@@ -105,8 +119,8 @@ def main():
     if not args.phone:
         sys.exit("--phone or TG_PHONE required (E.164, e.g. +30XXXXXXXXX)")
 
-    ensure_adb(args.adb)
-    print(f"[adb] {args.adb} connected")
+    serial = ensure_adb(args.adb)
+    print(f"[adb] {serial} connected ({'usb' if ':' not in serial else 'network'})")
 
     py = str(VENV_PY) if VENV_PY.exists() else sys.executable
     proc = subprocess.Popen(
@@ -136,7 +150,7 @@ def main():
             sys.stdout.flush()
             if not code_sent and "code from Telegram" in buf:
                 print("\n[phone] waiting for Telegram login code notification…")
-                code = fetch_login_code(args.adb, timeout_s=args.timeout)
+                code = fetch_login_code(serial, timeout_s=args.timeout)
                 if not code:
                     sys.exit("\n[phone] no code seen in notifications — check the phone manually")
                 print(f"[phone] code captured: {code}")
