@@ -1,6 +1,5 @@
-# Standalone SocialAuto stack — deploys the published GHCR images on any
-# Docker host with no source checkout. Copy `.env.example` (repo root) to
-# `.env` next to this file and fill in real secrets before `compose up`.
+# Standalone SocialAuto stack — deploys local images on Docker host.
+# Copy `.env.example` (repo root) to `.env` next to this file and fill in real secrets before `compose up`.
 #
 # The `env_file: .env` entries feed app config; the inline `environment:`
 # keys below pin the internal service URLs so an env file exported for
@@ -9,8 +8,8 @@
 services:
   # Core SocialAuto API Stack
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-api-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
+    pull_policy: never
     container_name: social-api
     ports:
       - "127.0.0.1:8083:8000"
@@ -18,7 +17,7 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
@@ -28,7 +27,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import urllib.request;urllib.request.urlopen('http://localhost:8000/health',timeout=5)"
       interval: 30s
       timeout: 10s
       retries: 3
@@ -36,25 +38,29 @@ services:
 
   social-frontend:
     image: ghcr.io/themis128/cu130-slim:social-frontend-latest
-    pull_policy: always
+    pull_policy: never
     container_name: social-frontend
     ports:
       - "127.0.0.1:8082:8083"
+    environment:
+      - PORT=8083
+      - HOSTNAME=0.0.0.0
+      - TZ=Europe/Athens
     depends_on:
       social-api:
         condition: service_healthy
     restart: unless-stopped
 
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: social-worker-publishing
     command: celery -A app.worker.celery_app worker -Q publishing --loglevel=info --concurrency=3 --max-tasks-per-child=200 --hostname=publishing@%h
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -63,15 +69,15 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim:social-worker-media-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: social-worker-media
     command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=media@%h
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     extra_hosts:
@@ -82,15 +88,15 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: social-worker-default
     command: celery -A app.worker.celery_app worker -Q default,celery --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=default@%h
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -99,15 +105,15 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim:social-worker-messenger-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: social-worker-messenger
     command: celery -A app.worker.celery_app worker -Q messenger --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=messenger@%h
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -118,15 +124,15 @@ services:
   social-worker-meta:
     # Dedicated `meta` queue lane (facebook/instagram/threads publish sweep +
     # Meta-only tasks). Without this service Meta publishes queue forever.
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: social-worker-meta
     command: celery -A app.worker.celery_app worker -Q meta --loglevel=info --concurrency=2 --max-tasks-per-child=200 --hostname=meta@%h
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -135,15 +141,15 @@ services:
     restart: unless-stopped
 
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
-    pull_policy: always
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
     container_name: celery-beat
     command: celery -A app.worker.celery_app beat --loglevel=info --scheduler=celery.beat:PersistentScheduler
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@social-postgres:5432/social
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@social-postgres:5432/social
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
     depends_on:
@@ -153,25 +159,27 @@ services:
 
   # Browser Sidecars (local build images — not published to GHCR)
   linkedin-browser-sidecar:
-    image: cu130-slim-linkedin-browser-sidecar
+    image: cu130-slim-linkedin-browser-sidecar:latest
+    pull_policy: never
     container_name: linkedin-browser-sidecar
+    init: true
     ports:
       - "127.0.0.1:9225:9225"
+    environment:
+      - LINKEDIN_SIDECAR_PORT=9225
+      - TZ=Europe/Athens
+      - LINKEDIN_EMAIL=${LINKEDIN_EMAIL:-}
+      - LINKEDIN_PASSWORD=${LINKEDIN_PASSWORD:-}
+      - LINKEDIN_PROXY=${LINKEDIN_PROXY:-}
+      - LINKEDIN_RATE_LIMIT_COOLDOWN_MS=${LINKEDIN_RATE_LIMIT_COOLDOWN_MS:-21600000}
+      - LINKEDIN_DEBUG_CONSOLE=${LINKEDIN_DEBUG_CONSOLE:-0}
     volumes:
       - linkedin-browser-data:/data
     restart: unless-stopped
 
-  tiktok-browser-sidecar:
-    image: cu130-slim-tiktok-browser-sidecar
-    container_name: tiktok-browser-sidecar
-    ports:
-      - "127.0.0.1:9224:9224"
-    volumes:
-      - tiktok-browser-data:/data
-    restart: unless-stopped
-
   facebook-browser-sidecar:
-    image: cu130-slim-facebook-browser-sidecar
+    image: cu130-slim-facebook-browser-sidecar:latest
+    pull_policy: never
     container_name: facebook-browser-sidecar
     ports:
       - "127.0.0.1:9226:9226"
@@ -180,7 +188,8 @@ services:
     restart: unless-stopped
 
   messenger-sidecar:
-    image: cu130-slim-messenger-sidecar
+    image: cu130-slim-messenger-sidecar:latest
+    pull_policy: never
     container_name: messenger-sidecar
     ports:
       - "127.0.0.1:9230:9230"
@@ -224,7 +233,7 @@ services:
   # AI / GPU Services
   social-media-comfyui-gpu:
     image: ghcr.io/themis128/cu130-slim:comfyui-latest
-    pull_policy: always
+    pull_policy: never
     container_name: social-media-comfyui-gpu
     ports:
       - "127.0.0.1:8000:8000"
@@ -287,11 +296,21 @@ services:
       - ./nginx/metrics.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped
 
+  # Cloudflare Tunnel connector for social.cloudless.gr — without it the
+  # named tunnel has no live edge connections and the hostname 530s.
+  # http2 (TCP) not QUIC: WSL2 NAT drops idle UDP flow state.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: social-cloudflared
+    command: tunnel --no-autoupdate run --protocol http2 --token ${SOCIAL_TUNNEL_TOKEN}
+    depends_on:
+      - social-api
+    restart: unless-stopped
+
 volumes:
   social-postgres-data:
   redis-data:
   n8n-data:
   linkedin-browser-data:
-  tiktok-browser-data:
   facebook-browser-data:
   messenger-browser-data:
