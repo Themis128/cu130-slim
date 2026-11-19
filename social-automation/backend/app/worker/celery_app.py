@@ -127,6 +127,7 @@ celery_app = Celery(
         "app.worker.tasks.newsletter_issues",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.telegram_incidents",
+        "app.worker.tasks.notify_archive",
         "app.worker.tasks.workforce_audit",
         "app.worker.tasks.bluesky_credential",
         "app.worker.tasks.meeting_notes",
@@ -380,6 +381,7 @@ celery_app.conf.update(
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
         "app.worker.tasks.ops_agent.ops_agent_sweep": {"queue": "default"},
+        "app.worker.tasks.notify_archive.notify_archive_ingest": {"queue": "default"},
         "app.worker.tasks.workforce_audit.run_workforce_audit": {"queue": "default"},
         "app.worker.tasks.bluesky_credential.run_bluesky_credential_sweep": {"queue": "default"},
         "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
@@ -714,6 +716,11 @@ celery_app.conf.update(
         "telegram-incidents-ingest": {
             "task": "app.worker.tasks.telegram_incidents.telegram_incidents_ingest",
             "schedule": crontab(minute="*/5"),
+        },
+        # Slack + ntfy -> same archive/incident pipeline (5-min, offset :03).
+        "notify-archive-ingest": {
+            "task": "app.worker.tasks.notify_archive.notify_archive_ingest",
+            "schedule": crontab(minute="3-59/5"),
         },
         # Agent-workforce audit — verifies every registered worker clocked
         # in (presence + evidence freshness + escalations) and pushes the

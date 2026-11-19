@@ -33,6 +33,7 @@ _INCIDENT_RE = re.compile(
     re.IGNORECASE,
 )
 _RECOVERED_RE = re.compile(r"(recover|restored|back up|healthy again|resolved|fixed)", re.IGNORECASE)
+_EMOJI_RE = re.compile(r":[a-z_]+:")  # strip :warning: :x: etc before target grab
 # First useful token as remediation target: "social-api down" -> social-api
 _TARGET_RE = re.compile(r"\b([a-z][a-z0-9_-]{2,40})\b")
 
@@ -50,7 +51,7 @@ def _classify(channel: str, text: str) -> tuple[str, str] | None:
         return None
     if not _INCIDENT_RE.search(text):
         return None
-    m = _TARGET_RE.search(text)
+    m = _TARGET_RE.search(_EMOJI_RE.sub(" ", text))
     target = m.group(1) if m else ""
     kind = "infra_alert"
     t = text.lower()
