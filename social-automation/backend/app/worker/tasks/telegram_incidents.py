@@ -34,8 +34,17 @@ _INCIDENT_RE = re.compile(
 )
 _RECOVERED_RE = re.compile(r"(recover|restored|back up|healthy again|resolved|fixed)", re.IGNORECASE)
 _EMOJI_RE = re.compile(r":[a-z_]+:")  # strip :warning: :x: etc before target grab
-# First useful token as remediation target: "social-api down" -> social-api
+_SEV_PREFIX_RE = re.compile(r"^\s*\[[a-z0-9 /_-]+\]", re.IGNORECASE)
+# Backtick-quoted identifier first (Slack/ntfy "failed `app.worker.x.y`"),
+# else first useful token ("social-api down" -> social-api)
+_BACKTICK_RE = re.compile(r"`([a-zA-Z][a-zA-Z0-9_.-]{2,60})`")
 _TARGET_RE = re.compile(r"\b([a-z][a-z0-9_-]{2,40})\b")
+_GENERIC_TARGETS = {
+    "cloudless", "ops", "alert", "alerts", "task", "worker", "failed",
+    "warning", "error", "canary", "digest", "phone", "ntfy", "slack",
+    "the", "and", "for", "new", "all", "self", "check", "test", "http",
+    "https", "com", "gr", "service", "services", "system", "info",
+}
 
 # Every archived channel is scanned; severity is mapped by name with a
 # sane default — informational digest channels are skipped by default
@@ -51,8 +60,13 @@ def _classify(channel: str, text: str) -> tuple[str, str] | None:
         return None
     if not _INCIDENT_RE.search(text):
         return None
-    m = _TARGET_RE.search(_EMOJI_RE.sub(" ", text))
-    target = m.group(1) if m else ""
+    bt = _BACKTICK_RE.search(text)
+    if bt:
+        name = bt.group(1)
+        target = ".".join(name.split(".")[-2:]) if "." in name else name
+    else:
+        body = _SEV_PREFIX_RE.sub("", _EMOJI_RE.sub(" ", text))
+        target = next((tok for tok in _TARGET_RE.findall(body) if tok not in _GENERIC_TARGETS), "")
     kind = "infra_alert"
     t = text.lower()
     for needle, k in (
