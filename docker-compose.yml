@@ -1853,6 +1853,9 @@ services:
     build:
       context: ./browser-novnc
       dockerfile: Dockerfile
+    ports:
+      - "6080:6080"
+      - "9223:9223"
     container_name: engagement-browser
     init: true
     networks:
@@ -2427,15 +2430,16 @@ services:
       - 127.0.0.1:3000:3000 # metabase
       - 127.0.0.1:5555:5555 # flower
       - 127.0.0.1:5900:5900 # noVNC VNC
-      - 127.0.0.1:6080:6080 # noVNC web
+      # 6080/9223 owned by standalone engagement-browser's wildcard publishes
+      # (0.0.0.0) — conflict on every stack-ops recreate (2026-11-20)
       - 127.0.0.1:6081:6081 # noVNC audio ws
       - 127.0.0.1:8010:8010 # languagetool
       # 8011 freed for socialauto-standalone's instagram-private-api — stack-ops
       # can't reach it anyway (standalone_default network only, 2026-11-19)
-      - 127.0.0.1:8080:8080 # env-manager frontend
+      - 127.0.0.1:18080:8080 # env-manager frontend wake-proxy (host :8080 owned by NVIDIA PAIR router since 2026-11-20)
       - 127.0.0.1:8888:8888 # social-jupyter
       - 127.0.0.1:9000:9000 # portainer
-      - 127.0.0.1:9223:9223 # browser-novnc bridge api
+      # 9223 also owned by engagement-browser (see above)
       - 127.0.0.1:9227:9227 # linkedin-mcp-server
       - 127.0.0.1:9228:9228 # airbyte-mcp-server
       # 9224/9225/9226/9230 owned by socialauto-standalone sidecars' direct
