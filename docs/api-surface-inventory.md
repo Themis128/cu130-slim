@@ -301,6 +301,18 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/instagram/quota` — GET
 - `/api/v1/instagram/stories` — POST
 
+## `interview-coach`
+
+- `/api/v1/interview-coach/chat` — POST
+- `/api/v1/interview-coach/classify` — POST
+- `/api/v1/interview-coach/history` — GET
+- `/api/v1/interview-coach/latest` — GET
+- `/api/v1/interview-coach/log` — POST
+- `/api/v1/interview-coach/seed` — POST
+- `/api/v1/interview-coach/status` — GET
+- `/api/v1/interview-coach/transcribe` — POST
+- `/api/v1/interview-coach/tts` — POST
+
 ## `leads`
 
 - `/api/v1/leads/public/audit` — POST
