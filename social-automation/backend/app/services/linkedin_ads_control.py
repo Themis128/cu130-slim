@@ -48,13 +48,19 @@ async def _api_token(db=None) -> str:
 
     async def _lookup(s):
         return (
-            await s.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.status == "active",
-                ).limit(1)
+            (
+                await s.execute(
+                    select(SocialAccount)
+                    .where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.status == "active",
+                    )
+                    .limit(1)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
 
     if db is not None:
         acc = await _lookup(db)

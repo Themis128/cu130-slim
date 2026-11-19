@@ -21,9 +21,7 @@ USER = SimpleNamespace(id="u1")
 
 @pytest.fixture(autouse=True)
 def _cfg(monkeypatch):
-    monkeypatch.setattr(
-        IC, "_config", lambda: ("https://ic.example.workers.dev", "sekret")
-    )
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example.workers.dev", "sekret"))
 
 
 # ── config gating ─────────────────────────────────────────────────────
@@ -47,9 +45,7 @@ async def test_client_partial_config_also_503(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_client_sets_base_url_and_xkey(monkeypatch):
-    monkeypatch.setattr(
-        IC, "_config", lambda: ("https://ic.example.workers.dev", "sekret")
-    )
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example.workers.dev", "sekret"))
     captured = {}
 
     class _FakeClient:
@@ -189,9 +185,7 @@ async def test_log_forwards_session_who_text(monkeypatch):
         return IC.Response(content=b"{}", media_type="application/json")
 
     monkeypatch.setattr(IC, "_proxy", fake_proxy)
-    await IC.log_turn(
-        IC.LogIn(session="s1", who="candidate", text="answer"), USER
-    )
+    await IC.log_turn(IC.LogIn(session="s1", who="candidate", text="answer"), USER)
     assert seen["path"] == "/log"
     assert seen["kw"]["json_body"]["who"] == "candidate"
 
@@ -301,9 +295,7 @@ async def test_ws_authenticate_rejects_non_access_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_ws_authenticate_rejects_unknown_user(monkeypatch):
     uid = uuid.uuid4()
-    monkeypatch.setattr(
-        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
-    )
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)})
     res = SimpleNamespace(scalar_one_or_none=lambda: None)
     db = SimpleNamespace(execute=AsyncMock(return_value=res))
     with pytest.raises(HTTPException) as ei:
@@ -314,12 +306,8 @@ async def test_ws_authenticate_rejects_unknown_user(monkeypatch):
 @pytest.mark.asyncio
 async def test_ws_authenticate_returns_user(monkeypatch):
     uid = uuid.uuid4()
-    monkeypatch.setattr(
-        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
-    )
-    monkeypatch.setattr(
-        IC, "get_user_role", AsyncMock(return_value=UserRole.ADMIN)
-    )
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)})
+    monkeypatch.setattr(IC, "get_user_role", AsyncMock(return_value=UserRole.ADMIN))
     user = SimpleNamespace(id=uid)
     res = SimpleNamespace(scalar_one_or_none=lambda: user)
     db = SimpleNamespace(execute=AsyncMock(return_value=res))
@@ -329,12 +317,8 @@ async def test_ws_authenticate_returns_user(monkeypatch):
 @pytest.mark.asyncio
 async def test_ws_authenticate_rejects_non_admin(monkeypatch):
     uid = uuid.uuid4()
-    monkeypatch.setattr(
-        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
-    )
-    monkeypatch.setattr(
-        IC, "get_user_role", AsyncMock(return_value=UserRole.VIEWER)
-    )
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)})
+    monkeypatch.setattr(IC, "get_user_role", AsyncMock(return_value=UserRole.VIEWER))
     user = SimpleNamespace(id=uid)
     res = SimpleNamespace(scalar_one_or_none=lambda: user)
     db = SimpleNamespace(execute=AsyncMock(return_value=res))
@@ -416,9 +400,7 @@ def _ws_db(user=None):
 def _auth_ok(monkeypatch, role=UserRole.ADMIN):
     uid = uuid.uuid4()
     user = SimpleNamespace(id=uid)
-    monkeypatch.setattr(
-        IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)}
-    )
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access", "sub": str(uid)})
     monkeypatch.setattr(IC, "get_user_role", AsyncMock(return_value=role))
     return user, _ws_db(user)
 
@@ -465,9 +447,7 @@ async def test_stt_ws_pumps_text_and_binary(monkeypatch):
     user, db = _auth_ok(monkeypatch)
     monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example", "k"))
     upstream = _FakeUpstream(messages=[b"\x00\x01audio", "transcript"])
-    monkeypatch.setattr(
-        IC.websockets, "connect", lambda *a, **k: upstream
-    )
+    monkeypatch.setattr(IC.websockets, "connect", lambda *a, **k: upstream)
     ws = _FakeClientWS(
         query_params={"token": "t"},
         incoming=[{"type": "websocket.receive", "bytes": b"mic-frame"}],
@@ -535,9 +515,7 @@ async def test_proxy_stream_yields_chunks_and_closes(monkeypatch):
     resp = _FakeStreamResp(chunks=[b"data: one\n\n", b"data: two\n\n"])
     client = _FakeStreamClient(resp=resp)
     monkeypatch.setattr(IC, "_raw_client", lambda timeout: client)
-    out = await IC._proxy_stream(
-        "POST", "/engines/chat/completions", json_body={"stream": True}
-    )
+    out = await IC._proxy_stream("POST", "/engines/chat/completions", json_body={"stream": True})
     assert isinstance(out, StreamingResponse)
     assert out.media_type == "text/event-stream"
     chunks = [c async for c in out.body_iterator]
@@ -608,7 +586,8 @@ async def test_chat_non_stream_uses_buffered_proxy(monkeypatch):
 @pytest.mark.asyncio
 async def test_config_reads_settings(monkeypatch):
     monkeypatch.setattr(
-        IC, "get_settings",
+        IC,
+        "get_settings",
         lambda: SimpleNamespace(
             INTERVIEW_COACH_URL="https://ic.example.workers.dev/",
             INTERVIEW_COACH_KEY="  sekret  ",
@@ -617,7 +596,7 @@ async def test_config_reads_settings(monkeypatch):
     monkeypatch.setattr(IC, "_config", _ORIG_CONFIG)
     url, key = IC._config()
     assert url == "https://ic.example.workers.dev"  # trailing slash stripped
-    assert key == "sekret"                        # whitespace stripped
+    assert key == "sekret"  # whitespace stripped
 
 
 @pytest.mark.asyncio
@@ -627,9 +606,7 @@ async def test_raw_client_503_and_headers(monkeypatch):
         IC._raw_client(5.0)
     assert ei.value.status_code == 503
 
-    monkeypatch.setattr(
-        IC, "_config", lambda: ("https://ic.example", "k")
-    )
+    monkeypatch.setattr(IC, "_config", lambda: ("https://ic.example", "k"))
     captured = {}
 
     class _C:
@@ -667,9 +644,7 @@ async def test_proxy_content_type_header_and_nonjson(monkeypatch):
             return _Resp()
 
     monkeypatch.setattr(IC.httpx, "AsyncClient", lambda **kw: _Ok())
-    resp = await IC._proxy(
-        "POST", "/transcribe", content=b"\x00\x01", content_type="application/octet-stream"
-    )
+    resp = await IC._proxy("POST", "/transcribe", content=b"\x00\x01", content_type="application/octet-stream")
     assert seen["headers"] == {"Content-Type": "application/octet-stream"}
     assert seen["content"] == b"\x00\x01"
     assert b'"raw"' in resp.body  # non-JSON upstream -> raw passthrough payload
@@ -723,9 +698,7 @@ async def test_ws_authenticate_rejects_missing_sub(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ws_authenticate_rejects_bad_uuid(monkeypatch):
-    monkeypatch.setattr(
-        IC, "decode_token", lambda t: {"type": "access", "sub": "not-a-uuid"}
-    )
+    monkeypatch.setattr(IC, "decode_token", lambda t: {"type": "access", "sub": "not-a-uuid"})
     db = SimpleNamespace(execute=AsyncMock())
     with pytest.raises(HTTPException) as ei:
         await IC._ws_authenticate("tok", db)
@@ -749,7 +722,7 @@ async def test_pump_stt_skips_empty_message_and_logs_pump_error():
 
     ws = _FakeClientWS(
         incoming=[
-            {"type": "websocket.receive"},          # no bytes/text -> continue
+            {"type": "websocket.receive"},  # no bytes/text -> continue
             {"type": "websocket.receive", "text": "ping"},
         ]
     )

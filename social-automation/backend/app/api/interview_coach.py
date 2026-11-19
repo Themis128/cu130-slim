@@ -62,10 +62,7 @@ def _config() -> tuple[str, str]:
 def _client(timeout: float) -> httpx.AsyncClient:
     url, key = _config()
     if not url or not key:
-        raise HTTPException(
-            503, "interview-coach not configured "
-            "(INTERVIEW_COACH_URL/INTERVIEW_COACH_KEY)"
-        )
+        raise HTTPException(503, "interview-coach not configured (INTERVIEW_COACH_URL/INTERVIEW_COACH_KEY)")
     return httpx.AsyncClient(base_url=url, headers={"x-key": key}, timeout=timeout)
 
 
@@ -83,9 +80,7 @@ async def _proxy(
         headers["Content-Type"] = content_type
     try:
         async with _client(timeout) as client:
-            resp = await client.request(
-                method, path, content=content, json=json_body, headers=headers
-            )
+            resp = await client.request(method, path, content=content, json=json_body, headers=headers)
     except httpx.HTTPError as exc:
         logger.warning("interview-coach %s %s failed: %s", method, path, exc)
         raise HTTPException(502, f"interview-coach upstream error: {exc}") from exc
@@ -128,8 +123,11 @@ async def transcribe(request: Request, _: User = CurrentUser):
     if len(audio) > 25 * 1024 * 1024:  # worker MAX_AUDIO_BYTES guard
         raise HTTPException(413, "audio too large")
     return await _proxy(
-        "POST", "/transcribe", timeout=60.0,
-        content=audio, content_type="application/octet-stream",
+        "POST",
+        "/transcribe",
+        timeout=60.0,
+        content=audio,
+        content_type="application/octet-stream",
     )
 
 
@@ -160,10 +158,7 @@ class ChatIn(BaseModel):
 def _raw_client(timeout: float) -> httpx.AsyncClient:
     url, key = _config()
     if not url or not key:
-        raise HTTPException(
-            503, "interview-coach not configured "
-            "(INTERVIEW_COACH_URL/INTERVIEW_COACH_KEY)"
-        )
+        raise HTTPException(503, "interview-coach not configured (INTERVIEW_COACH_URL/INTERVIEW_COACH_KEY)")
     return httpx.AsyncClient(base_url=url, headers={"x-key": key}, timeout=timeout)
 
 
@@ -183,9 +178,7 @@ async def _proxy_stream(
     """
     client = _raw_client(timeout)
     try:
-        req = client.build_request(
-            method, path, content=content, json=json_body, headers=headers or {}
-        )
+        req = client.build_request(method, path, content=content, json=json_body, headers=headers or {})
         resp = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
         await client.aclose()
@@ -216,20 +209,15 @@ async def _proxy_stream(
             await resp.aclose()
             await client.aclose()
 
-    return StreamingResponse(_body(), status_code=resp.status_code,
-                             media_type=media.split(";")[0])
+    return StreamingResponse(_body(), status_code=resp.status_code, media_type=media.split(";")[0])
 
 
 @router.post("/chat")
 async def chat(body: ChatIn, _: User = CurrentUser):
     payload = {k: v for k, v in body.model_dump().items() if v is not None}
     if body.stream:
-        return await _proxy_stream(
-            "POST", "/engines/chat/completions", timeout=90.0, json_body=payload
-        )
-    return await _proxy(
-        "POST", "/engines/chat/completions", timeout=90.0, json_body=payload
-    )
+        return await _proxy_stream("POST", "/engines/chat/completions", timeout=90.0, json_body=payload)
+    return await _proxy("POST", "/engines/chat/completions", timeout=90.0, json_body=payload)
 
 
 # --- voice out ---------------------------------------------------------------
@@ -286,8 +274,6 @@ async def status(_: User = CurrentUser):
 
 
 __all__ = ["router"]
-
-
 
 
 # --- live STT websocket -------------------------------------------------------
