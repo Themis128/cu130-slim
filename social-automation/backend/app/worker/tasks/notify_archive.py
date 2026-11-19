@@ -109,15 +109,19 @@ async def _slack_channel_name(client: httpx.AsyncClient, channel_id: str, cache:
     return name
 
 
-async def _insert_msg(db, model, team_id, channel: str, msg_id: int,
-                      date: datetime, sender: str, text: str, media: str) -> bool:
+async def _insert_msg(db, model, team_id, channel: str, msg_id: int, date: datetime, sender: str, text: str, media: str) -> bool:
     """Idempotent insert — ON CONFLICT on (channel, msg_id)."""
     stmt = (
         pg_insert(model.__table__)
         .values(
             id=uuid.uuid4(),
-            team_id=team_id, channel=channel[:32], msg_id=msg_id, date=date,
-            sender=(sender or "")[:255], text=text[:8000], media=(media or "")[:64],
+            team_id=team_id,
+            channel=channel[:32],
+            msg_id=msg_id,
+            date=date,
+            sender=(sender or "")[:255],
+            text=text[:8000],
+            media=(media or "")[:64],
             created_at=datetime.now(UTC),
         )
         .on_conflict_do_nothing(constraint="uq_tg_msg_channel_msgid")
@@ -170,11 +174,15 @@ async def _collect_slack(db, r, model, stats: dict[str, Any], team_id) -> None:
                     if not text and not m.get("attachments") and not m.get("blocks"):
                         continue
                     inserted = await _insert_msg(
-                        db, model, team_id, chan,
+                        db,
+                        model,
+                        team_id,
+                        chan,
                         _slack_msg_id(ts),
                         datetime.fromtimestamp(float(ts), UTC),
                         str(m.get("user") or m.get("bot_id") or ""),
-                        text, "attachment" if m.get("attachments") else "",
+                        text,
+                        "attachment" if m.get("attachments") else "",
                     )
                     stats["inserted" if inserted else "dupes"] += 1
                     if ts > oldest:
@@ -191,11 +199,7 @@ async def _collect_ntfy(db, r, model, stats: dict[str, Any], team_id) -> None:
     if not token:
         stats["ntfy"] = "no NTFY_READER_TOKEN"
         return
-    topics = [
-        t.strip()
-        for t in (os.environ.get("NTFY_ARCHIVE_TOPICS") or _DEFAULT_NTFY_TOPICS).split(",")
-        if t.strip()
-    ]
+    topics = [t.strip() for t in (os.environ.get("NTFY_ARCHIVE_TOPICS") or _DEFAULT_NTFY_TOPICS).split(",") if t.strip()]
     base = (os.environ.get("NTFY_READER_BASE") or _NTFY_BASE).rstrip("/")
     import json
 
@@ -238,8 +242,15 @@ async def _collect_ntfy(db, r, model, stats: dict[str, Any], team_id) -> None:
                 title = m.get("title") or ""
                 text = (f"{title}\n{m.get('message', '')}" if title else m.get("message", "")).strip()
                 inserted = await _insert_msg(
-                    db, model, team_id, chan, msg_id, datetime.fromtimestamp(t, UTC),
-                    title or topic, text, "attachment" if m.get("attachment") else "",
+                    db,
+                    model,
+                    team_id,
+                    chan,
+                    msg_id,
+                    datetime.fromtimestamp(t, UTC),
+                    title or topic,
+                    text,
+                    "attachment" if m.get("attachment") else "",
                 )
                 stats["inserted" if inserted else "dupes"] += 1
                 if t > newest:
@@ -293,7 +304,8 @@ async def _collect_email(db, r, model, stats: dict[str, Any], team_id) -> None:
                 lst = (
                     await client.get(
                         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-                        params=params, headers=auth,
+                        params=params,
+                        headers=auth,
                     )
                 ).json()
             except Exception as exc:  # noqa: BLE001
@@ -319,18 +331,20 @@ async def _collect_email(db, r, model, stats: dict[str, Any], team_id) -> None:
                 internal_ms = int(full.get("internalDate") or 0)
                 if internal_ms and internal_ms <= cursor:
                     continue
-                hdrs = {
-                    h.get("name", ""): h.get("value", "")
-                    for h in (full.get("payload") or {}).get("headers", [])
-                }
+                hdrs = {h.get("name", ""): h.get("value", "") for h in (full.get("payload") or {}).get("headers", [])}
                 subject = hdrs.get("Subject", "")
                 snippet = (full.get("snippet") or "").strip()
                 text = f"{subject}\n{snippet}".strip()
                 inserted = await _insert_msg(
-                    db, model, team_id, chan,
+                    db,
+                    model,
+                    team_id,
+                    chan,
                     _gmail_msg_id(mid, internal_ms // 1000),
                     datetime.fromtimestamp(internal_ms / 1000, UTC),
-                    hdrs.get("From", ""), text, "",
+                    hdrs.get("From", ""),
+                    text,
+                    "",
                 )
                 stats["inserted" if inserted else "dupes"] += 1
                 if internal_ms > newest:
@@ -358,11 +372,7 @@ def notify_archive_ingest(self):
             from app.models.social_account import SocialAccount
 
             async with task_session() as db:
-                team_id = (
-                    await db.execute(
-                        select(SocialAccount.team_id).where(SocialAccount.platform == "telegram").limit(1)
-                    )
-                ).scalar()
+                team_id = (await db.execute(select(SocialAccount.team_id).where(SocialAccount.platform == "telegram").limit(1))).scalar()
                 await _collect_slack(db, r, TelegramChannelMessage, stats, team_id)
                 await _collect_ntfy(db, r, TelegramChannelMessage, stats, team_id)
                 await _collect_email(db, r, TelegramChannelMessage, stats, team_id)

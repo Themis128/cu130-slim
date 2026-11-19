@@ -21,9 +21,7 @@ from app.db.base import Base
 
 class TelegramChannelMessage(Base):
     __tablename__ = "telegram_channel_messages"
-    __table_args__ = (
-        UniqueConstraint("channel", "msg_id", name="uq_tg_msg_channel_msgid"),
-    )
+    __table_args__ = (UniqueConstraint("channel", "msg_id", name="uq_tg_msg_channel_msgid"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
@@ -36,6 +34,4 @@ class TelegramChannelMessage(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Media type name when the message carried an attachment (no bytes stored).
     media: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

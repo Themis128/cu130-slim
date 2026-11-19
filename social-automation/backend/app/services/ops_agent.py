@@ -144,6 +144,7 @@ async def _container_states() -> dict[str, dict]:
 
 def _build_prompt(inc: OpsIncident, containers: dict[str, dict]) -> str:
     from app.services.ops_runbooks import runbook_context
+
     target_state = ""
     if inc.target:
         for name, st in containers.items():
