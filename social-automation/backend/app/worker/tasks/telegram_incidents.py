@@ -50,10 +50,36 @@ _SEV_PREFIX_RE = re.compile(r"^\s*\[[a-z0-9 /_-]+\]", re.IGNORECASE)
 _BACKTICK_RE = re.compile(r"`([a-zA-Z][a-zA-Z0-9_.-]{2,60})`")
 _TARGET_RE = re.compile(r"\b([a-z][a-z0-9_-]{2,40})\b")
 _GENERIC_TARGETS = {
-    "cloudless", "ops", "alert", "alerts", "task", "worker", "failed",
-    "warning", "error", "canary", "digest", "phone", "ntfy", "slack",
-    "the", "and", "for", "new", "all", "self", "check", "test", "http",
-    "https", "com", "gr", "service", "services", "system", "info",
+    "cloudless",
+    "ops",
+    "alert",
+    "alerts",
+    "task",
+    "worker",
+    "failed",
+    "warning",
+    "error",
+    "canary",
+    "digest",
+    "phone",
+    "ntfy",
+    "slack",
+    "the",
+    "and",
+    "for",
+    "new",
+    "all",
+    "self",
+    "check",
+    "test",
+    "http",
+    "https",
+    "com",
+    "gr",
+    "service",
+    "services",
+    "system",
+    "info",
 }
 
 # Every archived channel is scanned; severity is mapped by name with a
@@ -129,24 +155,10 @@ def telegram_incidents_ingest(self):
 
             from sqlalchemy import distinct
 
-            skip = set(_SKIP_CHANNELS) | {
-                c.strip()
-                for c in (os.environ.get("TG_INGEST_SKIP") or "").split(",")
-                if c.strip()
-            }
+            skip = set(_SKIP_CHANNELS) | {c.strip() for c in (os.environ.get("TG_INGEST_SKIP") or "").split(",") if c.strip()}
             async with task_session() as db:
-                channels = set(_CHANNEL_SEVERITY) | {
-                    row[0]
-                    for row in (
-                        await db.execute(select(distinct(TelegramChannelMessage.channel)))
-                    ).all()
-                    if row[0]
-                }
-                extra_senders = tuple(
-                    s.strip()
-                    for s in (os.environ.get("TG_INGEST_EMAIL_SENDERS") or "").split(",")
-                    if s.strip()
-                )
+                channels = set(_CHANNEL_SEVERITY) | {row[0] for row in (await db.execute(select(distinct(TelegramChannelMessage.channel)))).all() if row[0]}
+                extra_senders = tuple(s.strip() for s in (os.environ.get("TG_INGEST_EMAIL_SENDERS") or "").split(",") if s.strip())
                 email_alert = _EMAIL_ALERT_RE
                 if extra_senders:
                     email_alert = re.compile(
@@ -159,17 +171,20 @@ def telegram_incidents_ingest(self):
                     cursor_ms = int(await r.hget(_CURSOR_KEY, channel) or 0)
                     is_email = channel.startswith("email:")
                     rows = (
-                        await db.execute(
-                            select(TelegramChannelMessage)
-                            .where(
-                                TelegramChannelMessage.channel == channel,
-                                TelegramChannelMessage.created_at
-                                > datetime.fromtimestamp(cursor_ms / 1000, UTC),
+                        (
+                            await db.execute(
+                                select(TelegramChannelMessage)
+                                .where(
+                                    TelegramChannelMessage.channel == channel,
+                                    TelegramChannelMessage.created_at > datetime.fromtimestamp(cursor_ms / 1000, UTC),
+                                )
+                                .order_by(TelegramChannelMessage.created_at)
+                                .limit(200)
                             )
-                            .order_by(TelegramChannelMessage.created_at)
-                            .limit(200)
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     for msg in rows:
                         stats["scanned"] += 1
                         ms = int(msg.created_at.timestamp() * 1000)

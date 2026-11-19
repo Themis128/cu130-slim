@@ -20,6 +20,7 @@ SIGNED_BIGINT_MAX = 0x7FFFFFFFFFFFFFFF
 
 # ---- id encodings -----------------------------------------------------
 
+
 def test_slack_msg_id_microseconds():
     assert NA._slack_msg_id("1795087811.752809") == 1795087811752809
 
@@ -52,6 +53,7 @@ def test_ntfy_msg_id_falls_back_to_time():
 
 # ---- slack channel discovery ------------------------------------------
 
+
 def test_slack_channel_ids_explicit_override():
     with patch.dict(os.environ, {"SLACK_ARCHIVE_CHANNELS": "C111,C222"}, clear=False):
         assert NA._slack_channel_ids() == ["C111", "C222"]
@@ -76,6 +78,7 @@ def test_slack_channel_ids_ignores_non_ids():
 
 
 # ---- incident classifier ----------------------------------------------
+
 
 def test_classify_container_name_target():
     kind, target = _classify("ops", "social-api unhealthy - restart loop detected")
@@ -124,6 +127,7 @@ def test_classify_kind_mapping():
 
 # ---- gmail id + noise filters -----------------------------------------
 
+
 def test_gmail_msg_id_signed_bigint_and_stable():
     a = NA._gmail_msg_id("19abc123def", 1700000000000)
     assert a == NA._gmail_msg_id("19abc123def", 1700000000000)
@@ -133,6 +137,7 @@ def test_gmail_msg_id_signed_bigint_and_stable():
 
 def test_classify_skips_canary_and_digests():
     from app.worker.tasks.telegram_incidents import _classify as c
+
     assert c("ntfy:cloudless-ops", "canary ok - cloudless-ops\nself-check ok") is None
     assert c("ntfy:cloudless-ops", "[digest] cloudless\n*CRM engagement sweep*") is None
     assert c("ntfy:cloudless-ops", "[intel] trend digest") is None
@@ -140,12 +145,14 @@ def test_classify_skips_canary_and_digests():
 
 def test_classify_skips_reports():
     from app.worker.tasks.telegram_incidents import _classify as c
+
     assert c("email:gmail", "New jobs posted from careers.eurobank.gr") is None
     assert c("email:gmail", "SocialAuto daily report - failed tasks below") is None
 
 
 def test_email_alert_sender_regex():
     from app.worker.tasks.telegram_incidents import _EMAIL_ALERT_RE as R
+
     assert R.search("Vercel <notifications@vercel.com>")
     assert R.search("noreply@github.com")
     assert R.search("alerts@cloudless.gr")
@@ -253,13 +260,12 @@ def _stats():
 @pytest.mark.asyncio
 async def test_insert_msg_dedupe(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage
+
     db = _FakeDB(rowcount=1)
-    ok = await NA._insert_msg(db, TelegramChannelMessage, "t1", "c", 1,
-                              datetime.now(UTC), "s", "x", "")
+    ok = await NA._insert_msg(db, TelegramChannelMessage, "t1", "c", 1, datetime.now(UTC), "s", "x", "")
     assert ok is True
     db2 = _FakeDB(rowcount=0)
-    ok = await NA._insert_msg(db2, TelegramChannelMessage, "t1", "c", 1,
-                              datetime.now(UTC), "s", "x", "")
+    ok = await NA._insert_msg(db2, TelegramChannelMessage, "t1", "c", 1, datetime.now(UTC), "s", "x", "")
     assert ok is False
 
 
@@ -275,8 +281,7 @@ async def test_collect_slack_no_token(monkeypatch):
 async def test_collect_slack_no_channels(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "x")
     monkeypatch.setenv("SLACK_ARCHIVE_CHANNELS", "")
-    for e in ("SLACK_ALERTS_CHANNEL_ID", "SLACK_OPS_CHANNEL",
-              "SLACK_CHANNEL_ID", "SLACK_TELEGRAM_CHANNEL_ID"):
+    for e in ("SLACK_ALERTS_CHANNEL_ID", "SLACK_OPS_CHANNEL", "SLACK_CHANNEL_ID", "SLACK_TELEGRAM_CHANNEL_ID"):
         monkeypatch.delenv(e, raising=False)
     st = _stats()
     await NA._collect_slack(_FakeDB(), _FakeRedis(), None, st, "t1")
@@ -286,15 +291,22 @@ async def test_collect_slack_no_channels(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_slack_happy_path(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("SLACK_BOT_TOKEN", "x")
     monkeypatch.setenv("SLACK_ARCHIVE_CHANNELS", "C1")
     _FakeClient.responses = [
         _Resp({"ok": True, "channel": {"name": "ops-alerts"}}),
-        _Resp({"ok": True, "messages": [
-            {"ts": "1795087811.752809", "text": "alert", "user": "U1"},
-            {"ts": "1795087812.000001", "text": "", "user": "U2"},  # skipped
-            {"ts": "1795087813.5", "text": "m2", "bot_id": "B1"},
-        ], "response_metadata": {"next_cursor": "n1"}}),
+        _Resp(
+            {
+                "ok": True,
+                "messages": [
+                    {"ts": "1795087811.752809", "text": "alert", "user": "U1"},
+                    {"ts": "1795087812.000001", "text": "", "user": "U2"},  # skipped
+                    {"ts": "1795087813.5", "text": "m2", "bot_id": "B1"},
+                ],
+                "response_metadata": {"next_cursor": "n1"},
+            }
+        ),
         _Resp({"ok": True, "messages": []}),  # end page
     ]
     monkeypatch.setattr(NA.httpx, "AsyncClient", _FakeClient)
@@ -307,6 +319,7 @@ async def test_collect_slack_happy_path(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_slack_api_error(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("SLACK_BOT_TOKEN", "x")
     monkeypatch.setenv("SLACK_ARCHIVE_CHANNELS", "C1")
     _FakeClient.responses = [
@@ -322,11 +335,12 @@ async def test_collect_slack_api_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_slack_request_error_and_name_fallback(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("SLACK_BOT_TOKEN", "x")
     monkeypatch.setenv("SLACK_ARCHIVE_CHANNELS", "C1")
     _FakeClient.responses = [
-        RuntimeError("info fail"),          # conversations.info raises
-        ConnectionError("history fail"),    # history raises
+        RuntimeError("info fail"),  # conversations.info raises
+        ConnectionError("history fail"),  # history raises
     ]
     monkeypatch.setattr(NA.httpx, "AsyncClient", _FakeClient)
     st = _stats()
@@ -345,15 +359,18 @@ async def test_collect_ntfy_no_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_ntfy_happy_and_noise_lines(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("NTFY_READER_TOKEN", "tk_x")
     monkeypatch.setenv("NTFY_ARCHIVE_TOPICS", "ops-t")
-    body = "\n".join([
-        '{"event":"message","id":"rlRnVLI9G6hi","time":1700000100,"title":"t","message":"m"}',
-        'not json',
-        '{"event":"keepalive","time":1700000101}',
-        '{"event":"message","id":"XwA53rVRYaZ4","time":1700000102,"message":"m2","attachment":{"url":"u"}}',
-        '',
-    ])
+    body = "\n".join(
+        [
+            '{"event":"message","id":"rlRnVLI9G6hi","time":1700000100,"title":"t","message":"m"}',
+            "not json",
+            '{"event":"keepalive","time":1700000101}',
+            '{"event":"message","id":"XwA53rVRYaZ4","time":1700000102,"message":"m2","attachment":{"url":"u"}}',
+            "",
+        ]
+    )
     _FakeClient.responses = [_Resp(text=body)]
     monkeypatch.setattr(NA.httpx, "AsyncClient", _FakeClient)
     st = _stats()
@@ -365,6 +382,7 @@ async def test_collect_ntfy_happy_and_noise_lines(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_ntfy_http_error(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("NTFY_READER_TOKEN", "tk_x")
     monkeypatch.setenv("NTFY_ARCHIVE_TOPICS", "ops-t")
     _FakeClient.responses = [_Resp(status=403)]
@@ -377,6 +395,7 @@ async def test_collect_ntfy_http_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_ntfy_request_error(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("NTFY_READER_TOKEN", "tk_x")
     monkeypatch.setenv("NTFY_ARCHIVE_TOPICS", "ops-t")
     _FakeClient.responses = [TimeoutError("x")]
@@ -397,6 +416,7 @@ async def test_collect_email_no_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_email_token_fail(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("GMAIL_REFRESH_TOKEN", "r")
     _FakeClient.responses = [RuntimeError("oauth down")]
     monkeypatch.setattr(NA.httpx, "AsyncClient", _FakeClient)
@@ -408,20 +428,22 @@ async def test_collect_email_token_fail(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_email_full_flow(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("GMAIL_REFRESH_TOKEN", "r")
     monkeypatch.setenv("EMAIL_ARCHIVE_MAILBOX", "gmail")
     _FakeClient.responses = [
-        _Resp({"access_token": "AT"}),                              # oauth
-        _Resp({"messages": [{"id": "m1"}, {"id": "m2"}],
-               "nextPageToken": "p2"}),                             # list p1
-        _Resp({"internalDate": "1700000500000",
-               "snippet": "snip",
-               "payload": {"headers": [
-                   {"name": "From", "value": "a@b"},
-                   {"name": "Subject", "value": "subj"}]}}),       # get m1
-        RuntimeError("get fail"),                                   # get m2 fails
-        _Resp({"messages": [{"id": "m3"}]}),                        # list p2
-        _Resp({"internalDate": "1700000400000", "snippet": "s"}),   # get m3
+        _Resp({"access_token": "AT"}),  # oauth
+        _Resp({"messages": [{"id": "m1"}, {"id": "m2"}], "nextPageToken": "p2"}),  # list p1
+        _Resp(
+            {
+                "internalDate": "1700000500000",
+                "snippet": "snip",
+                "payload": {"headers": [{"name": "From", "value": "a@b"}, {"name": "Subject", "value": "subj"}]},
+            }
+        ),  # get m1
+        RuntimeError("get fail"),  # get m2 fails
+        _Resp({"messages": [{"id": "m3"}]}),  # list p2
+        _Resp({"internalDate": "1700000400000", "snippet": "s"}),  # get m3
     ]
     monkeypatch.setattr(NA.httpx, "AsyncClient", _FakeClient)
     st = _stats()
@@ -434,6 +456,7 @@ async def test_collect_email_full_flow(monkeypatch):
 @pytest.mark.asyncio
 async def test_collect_email_list_error(monkeypatch):
     from app.models.telegram_message import TelegramChannelMessage as M
+
     monkeypatch.setenv("GMAIL_REFRESH_TOKEN", "r")
     _FakeClient.responses = [
         _Resp({"access_token": "AT"}),
@@ -447,43 +470,45 @@ async def test_collect_email_list_error(monkeypatch):
 
 # ---- telegram_incidents._run ------------------------------------------
 
+
 def _msg(channel, text, sender="", ms=1700001000000, mid=1):
-    return SimpleNamespace(
-        channel=channel, text=text, sender=sender, msg_id=mid,
-        created_at=datetime.fromtimestamp(ms / 1000, UTC))
+    return SimpleNamespace(channel=channel, text=text, sender=sender, msg_id=mid, created_at=datetime.fromtimestamp(ms / 1000, UTC))
 
 
 def test_incidents_ingest_loop(monkeypatch):
     from app.worker.tasks import telegram_incidents as TI
 
-    db = _FakeDB(results=[
-        _Res(all_=[("critical",), ("slack:ops-alerts",), ("email:gmail",), ("intel",)]),
-        # channels are queried in sorted order: critical, email:gmail,
-        # ops, slack:ops-alerts (intel is in the skip set — never queried)
-        _Res(all_=[_msg("critical", "social-api down")]),                    # critical
-        _Res(all_=[_msg("email:gmail", "deploy failed", sender="Vercel <n@vercel.com>"),
-                   _msg("email:gmail", "x", sender="n@medium.com")]),  # email:gmail
-        _Res(all_=[]),                                                     # ops: no rows
-        _Res(all_=[_msg("slack:ops-alerts", "worker `a.b.task` failed")]),   # slack:ops-alerts
-    ])
+    db = _FakeDB(
+        results=[
+            _Res(all_=[("critical",), ("slack:ops-alerts",), ("email:gmail",), ("intel",)]),
+            # channels are queried in sorted order: critical, email:gmail,
+            # ops, slack:ops-alerts (intel is in the skip set — never queried)
+            _Res(all_=[_msg("critical", "social-api down")]),  # critical
+            _Res(all_=[_msg("email:gmail", "deploy failed", sender="Vercel <n@vercel.com>"), _msg("email:gmail", "x", sender="n@medium.com")]),  # email:gmail
+            _Res(all_=[]),  # ops: no rows
+            _Res(all_=[_msg("slack:ops-alerts", "worker `a.b.task` failed")]),  # slack:ops-alerts
+        ]
+    )
     r = _FakeRedis()
     rep = AsyncMock()
 
     class _Sess:
         async def __aenter__(self):
             return db
+
         async def __aexit__(self, *a):
             return False
 
     monkeypatch.setattr(TI, "task_session", lambda: _Sess())
     monkeypatch.setenv("TG_INGEST_SKIP", "other-skip")
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: r)
     monkeypatch.setattr("app.services.ops_agent.report_incident", rep)
     monkeypatch.setattr(TI, "run_async", asyncio.run)
 
     st = TI.telegram_incidents_ingest.run()
-    assert st["ingested"] == 3            # critical + slack + gmail-alert
+    assert st["ingested"] == 3  # critical + slack + gmail-alert
     assert rep.await_count == 3
     assert db.committed == 1
     # cursor advanced per scanned channel, intel untouched
@@ -495,22 +520,27 @@ def test_incidents_ingest_loop(monkeypatch):
 
 def test_incidents_ingest_email_extra_senders(monkeypatch):
     from app.worker.tasks import telegram_incidents as TI
-    db = _FakeDB(results=[
-        _Res(all_=[("email:gmail",)]),
-        _Res(all_=[_msg("email:gmail", "backup failed", sender="cron@acme-alerts.io")]),
-    ])
+
+    db = _FakeDB(
+        results=[
+            _Res(all_=[("email:gmail",)]),
+            _Res(all_=[_msg("email:gmail", "backup failed", sender="cron@acme-alerts.io")]),
+        ]
+    )
     r = _FakeRedis()
     rep = AsyncMock()
 
     class _Sess:
         async def __aenter__(self):
             return db
+
         async def __aexit__(self, *a):
             return False
 
     monkeypatch.setattr(TI, "task_session", lambda: _Sess())
     monkeypatch.setenv("TG_INGEST_EMAIL_SENDERS", "acme-alerts")
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: r)
     monkeypatch.setattr("app.services.ops_agent.report_incident", rep)
     monkeypatch.setattr(TI, "run_async", asyncio.run)

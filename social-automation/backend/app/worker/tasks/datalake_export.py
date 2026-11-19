@@ -337,9 +337,7 @@ async def _export_telegram_messages(db: AsyncSession) -> list[dict]:
     every alert the incident bridge triages, all channels, no window."""
     from app.models.telegram_message import TelegramChannelMessage
 
-    rows = (
-        await db.execute(select(TelegramChannelMessage).order_by(TelegramChannelMessage.date))
-    ).scalars().all()
+    rows = (await db.execute(select(TelegramChannelMessage).order_by(TelegramChannelMessage.date))).scalars().all()
     return [
         {
             "channel": m.channel,
