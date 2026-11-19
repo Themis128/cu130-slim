@@ -2496,6 +2496,8 @@ services:
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0
     container_name: docker-socket-proxy
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     restart: unless-stopped
     environment:
       - CONTAINERS=1
@@ -2683,6 +2685,8 @@ services:
   compose-healer:
     image: docker:27-cli
     container_name: compose-healer
+    labels:
+      - autoheal=true  # opt-in: stale docker.sock bind mount -> unhealthy -> autoheal restarts
     restart: unless-stopped
     networks: []
     environment:
