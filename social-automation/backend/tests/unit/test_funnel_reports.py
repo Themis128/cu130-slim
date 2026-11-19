@@ -255,11 +255,11 @@ async def test_build_attribution(monkeypatch):
 @pytest.mark.asyncio
 async def test_build_content_weekly(monkeypatch):
     cur_rows = [
-        ("p1", "linkedin", 200, 20, 150, 10.0, "Great post\nline2"),
-        ("p2", "x", 80, 5, 60, 6.25, "meh"),
-        ("p3", "linkedin", 10, 1, 8, 2.0, "tiny"),  # <50 imp → excluded
+        ("sid1", "linkedin", "pub1", "p1", 200, 20, 150, 10.0, "Great post\nline2"),
+        ("sid2", "x", "pub2", "p2", 80, 5, 60, 6.25, "meh"),
+        ("sid1", "linkedin", "pub3", "p3", 10, 1, 8, 2.0, "tiny"),  # <50 imp → excluded
     ]
-    prev_rows = [("p1", "linkedin", 180, 15, 140, 8.3, "Great post")]
+    prev_rows = [("sid1", "linkedin", "pub1", "p1", 180, 15, 140, 8.3, "Great post")]
     snaps = [("sid1", 1200, "linkedin", "cloudless"), ("sid2", 500, "x", "tb")]
     old = [("sid1", 1100), ("sid2", 500)]
     _patch_fr_db(
@@ -794,7 +794,7 @@ async def test_build_lead_pulse_frt_error_and_unanswered(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_build_content_weekly_snap_without_baseline(monkeypatch):
-    cur_rows = [("p9", "linkedin", 100, 9, 80, 9.0, "new post")]
+    cur_rows = [("sid9", "linkedin", "pub9", "p9", 100, 9, 80, 9.0, "new post")]
     snaps = [("sid9", 700, "linkedin", "cloudless")]
     _patch_fr_db(
         monkeypatch,

@@ -44,17 +44,23 @@ async def main():
     out = {}
     async with async_session_maker() as s:
         r = await s.execute(text(
-            "select account_type, access_token_enc from social_accounts "
+            "select account_type, account_id, access_token_enc from social_accounts "
             "where platform='facebook' and status='active' "
             "and account_type in ('user','page')"))
+        fb_rows = [row for row in r if row.access_token_enc]
         toks = {row.account_type: decrypt_token(row.access_token_enc)
-                for row in r if row.access_token_enc}
+                for row in fb_rows}
+        # Page fallback must use THIS Page's token — collapsing all 'page'
+        # rows into one dict entry can pick an unrelated Page's credentials.
+        tok_page = next(
+            (decrypt_token(row.access_token_enc) for row in fb_rows
+             if row.account_type == "page" and str(row.account_id) == PAGE_ID),
+            None)
         r2 = await s.execute(text(
             "select username, status, account_type, account_id "
             "from social_accounts where platform='instagram'"))
         out["ig_rows"] = [dict(x._mapping) for x in r2]
     tok_user = toks.get("user")
-    tok_page = toks.get("page")
     if tok_user:
         # User token: enumerate managed Pages, keep only ours.
         d = get("https://graph.facebook.com/v21.0/me/accounts"

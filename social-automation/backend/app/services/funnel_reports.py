@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 
 from app.core.config import get_settings
 from app.db.session import async_session_maker
@@ -143,9 +143,12 @@ async def _espo_count(
     return counts
 
 
-async def _social_leads_by_source(since: datetime) -> dict[str, int]:
+async def _social_leads_by_source(since: datetime, until: datetime | None = None) -> dict[str, int]:
+    cond = [Lead.created_at >= since]
+    if until is not None:
+        cond.append(Lead.created_at < until)
     async with async_session_maker() as db:
-        rows = (await db.execute(select(Lead.source, func.count()).where(Lead.created_at >= since).group_by(Lead.source))).all()
+        rows = (await db.execute(select(Lead.source, func.count()).where(*cond).group_by(Lead.source))).all()
     out: dict[str, int] = {}
     for r in rows:
         src = r[0]
@@ -364,28 +367,55 @@ async def build_content_weekly() -> FunnelReport:
     report.subject = report.subject.format(d=(now - timedelta(days=7)).date().isoformat())
 
     async with async_session_maker() as db:
-        # latest snapshot per post captured in each window
+        # Latest snapshot per publication — keyed by
+        # (account, platform, platform_post_id|post_id) so account-level
+        # aggregate rows (no post/publication id) can't collide or drop
+        # published targets that only exist platform-side.
+        pub_key = func.coalesce(
+            PostAnalyticsSnapshot.platform_post_id,
+            cast(PostAnalyticsSnapshot.post_id, String),
+        )
+
         def _snap_window(start, end):
             sub = (
                 select(
-                    PostAnalyticsSnapshot.post_id,
+                    PostAnalyticsSnapshot.social_account_id,
+                    PostAnalyticsSnapshot.platform,
+                    pub_key.label("pub"),
                     func.max(PostAnalyticsSnapshot.captured_at).label("mx"),
                 )
-                .where(PostAnalyticsSnapshot.captured_at >= start, PostAnalyticsSnapshot.captured_at < end)
-                .group_by(PostAnalyticsSnapshot.post_id)
+                .where(
+                    PostAnalyticsSnapshot.captured_at >= start,
+                    PostAnalyticsSnapshot.captured_at < end,
+                    (PostAnalyticsSnapshot.post_id.isnot(None))
+                    | (PostAnalyticsSnapshot.platform_post_id.isnot(None)),
+                )
+                .group_by(
+                    PostAnalyticsSnapshot.social_account_id,
+                    PostAnalyticsSnapshot.platform,
+                    pub_key,
+                )
                 .subquery()
             )
             return (
                 select(
-                    PostAnalyticsSnapshot.post_id,
+                    PostAnalyticsSnapshot.social_account_id,
                     PostAnalyticsSnapshot.platform,
+                    pub_key.label("pub"),
+                    PostAnalyticsSnapshot.post_id,
                     PostAnalyticsSnapshot.impressions,
                     PostAnalyticsSnapshot.engagement,
                     PostAnalyticsSnapshot.reach,
                     PostAnalyticsSnapshot.engagement_rate,
                     Post.content_text,
                 )
-                .join(sub, (PostAnalyticsSnapshot.post_id == sub.c.post_id) & (PostAnalyticsSnapshot.captured_at == sub.c.mx))
+                .join(
+                    sub,
+                    (PostAnalyticsSnapshot.social_account_id == sub.c.social_account_id)
+                    & (PostAnalyticsSnapshot.platform == sub.c.platform)
+                    & (pub_key == sub.c.pub)
+                    & (PostAnalyticsSnapshot.captured_at == sub.c.mx),
+                )
                 .outerjoin(Post, Post.id == PostAnalyticsSnapshot.post_id)
             )
 
@@ -393,27 +423,27 @@ async def build_content_weekly() -> FunnelReport:
         prev = (await db.execute(_snap_window(prev_start, wk_start))).all()
 
     def _key(r):
-        return (str(r[0]), r[1])
+        return (str(r[0]), r[1], str(r[2]))
 
     prev_map = {_key(r): r for r in prev}
     rows: list[dict[str, Any]] = []
     plat: dict[str, list[int]] = {}
     for r in cur:
         p = prev_map.get(_key(r))
-        prev_eng = int(p[3]) if p else 0
+        prev_eng = int(p[5]) if p else 0
         totals = plat.setdefault(str(r[1]), [0, 0])
-        totals[0] += int(r[3] or 0)
-        totals[1] += int(r[2] or 0)
+        totals[0] += int(r[5] or 0)
+        totals[1] += int(r[4] or 0)
         rows.append(
             {
-                "post_id": str(r[0])[:8],
+                "post_id": str(r[3] or r[2])[:8],
                 "platform": r[1],
-                "impressions": int(r[2] or 0),
-                "engagement": int(r[3] or 0),
-                "reach": int(r[4] or 0),
-                "er": float(r[5] or 0),
+                "impressions": int(r[4] or 0),
+                "engagement": int(r[5] or 0),
+                "reach": int(r[6] or 0),
+                "er": float(r[7] or 0),
                 "prev_eng": prev_eng,
-                "text": (r[6] or "")[:70].replace("\n", " "),
+                "text": (r[8] or "")[:70].replace("\n", " "),
             }
         )
 
@@ -480,10 +510,16 @@ async def build_content_weekly() -> FunnelReport:
 
 
 async def build_funnel_monthly() -> FunnelReport:
-    now = datetime.now(UTC)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    prev_start = (month_start - timedelta(days=1)).replace(day=1)
-    label = now.strftime("%Y-%m")
+    # Report the COMPLETED month (Athens calendar) — the beat fires on the
+    # 1st, so "this month" would be an empty window.
+    now_local = datetime.now(ATHENS)
+    cur_month_local = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start_local = (cur_month_local - timedelta(days=1)).replace(day=1)
+    prev_start_local = (month_start_local - timedelta(days=1)).replace(day=1)
+    month_start = month_start_local.astimezone(UTC)
+    month_end = cur_month_local.astimezone(UTC)
+    prev_start = prev_start_local.astimezone(UTC)
+    label = month_start_local.strftime("%Y-%m")
     report = FunnelReport(
         key="funnel_monthly",
         title=f"Monthly Funnel Economics — {label}",
@@ -492,16 +528,17 @@ async def build_funnel_monthly() -> FunnelReport:
     )
 
     # EspoCRM pipeline
-    leads_m = await _espo_count("Lead", since=month_start)
+    month_range = [{"type": "lessThan", "attribute": "createdAt", "value": month_end.isoformat()}]
+    leads_m = await _espo_count("Lead", since=month_start, extra_where=month_range)
     leads_prev = await _espo_count("Lead", since=prev_start, extra_where=[{"type": "lessThan", "attribute": "createdAt", "value": month_start.isoformat()}])
     report.line(f"EspoCRM leads ({label})", *_fmt_counts(leads_m), f"— prev month total: {sum(max(v, 0) for v in leads_prev.values())}")
 
-    opps = await _espo_count("Opportunity", since=month_start, group_attr="stage")
+    opps = await _espo_count("Opportunity", since=month_start, group_attr="stage", extra_where=month_range)
     won = sum(v for k, v in opps.items() if "won" in k.lower() and "lost" not in k.lower())
     report.line("Opportunities by stage", *_fmt_counts(opps), f"— Closed Won this month: {won}")
 
     # SocialAuto-side leads
-    sa = await _social_leads_by_source(month_start)
+    sa = await _social_leads_by_source(month_start, until=month_end)
     report.line("SocialAuto leads by channel", *_fmt_counts(sa))
 
     # Polar revenue
@@ -509,7 +546,14 @@ async def build_funnel_monthly() -> FunnelReport:
         from app.services import polar_api
 
         if polar_api.polar_configured():
-            orders = await polar_api._request("GET", "/orders", params={"limit": 100, "created_at__gte": month_start.isoformat()})
+            orders = await polar_api._request(
+                "GET", "/orders",
+                params={
+                    "limit": 100,
+                    "created_at__gte": month_start.isoformat(),
+                    "created_at__lte": month_end.isoformat(),
+                },
+            )
             items = orders.get("items") or orders.get("data") or []
             paid = [o for o in items if isinstance(o, dict) and o.get("status") in (None, "paid")]
             # Polar amounts are in the currency's smallest unit (cents).
@@ -527,7 +571,10 @@ async def build_funnel_monthly() -> FunnelReport:
             await db.execute(
                 select(
                     func.sum(AdDailyMetric.spend_eur), func.sum(AdDailyMetric.clicks), func.sum(AdDailyMetric.impressions), func.sum(AdDailyMetric.leads)
-                ).where(AdDailyMetric.day >= month_start.date())
+                ).where(
+                    AdDailyMetric.day >= month_start_local.date(),
+                    AdDailyMetric.day < cur_month_local.date(),
+                )
             )
         ).one()
     report.line(

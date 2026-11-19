@@ -50,7 +50,12 @@ print(json.dumps({
 PY
 )"
 
+# Per-workspace OAuth cache: mcp-remote keys tokens by server URL only,
+# so both workspaces would share ~/.mcp-auth and clobber each other's
+# tokens. MCP_REMOTE_CONFIG_DIR isolates them (verified against
+# mcp-remote's mcp-auth-config.ts — env override + per-server hash).
 exec env SLACK_MCP_CLIENT_SECRET="$CLIENT_SECRET" \
+  MCP_REMOTE_CONFIG_DIR="$HOME/.mcp-auth/$LABEL" \
   "$NODE" "$PROXY" \
   "https://mcp.slack.com/mcp" \
   "$PORT" --host localhost --callback-path /callback \

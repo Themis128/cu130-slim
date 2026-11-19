@@ -326,6 +326,7 @@ def _patch_selfcheck(monkeypatch, resp=None, exc=None):
         return state["streak"]
 
     monkeypatch.setattr(LB, "_selfcheck_streak", _streak)
+    monkeypatch.setattr(LB, "_selfcheck_page_fresh", AsyncMock(return_value=True))
     import app.services.slack_notifications as SN
 
     alert = AsyncMock()
@@ -351,6 +352,17 @@ async def test_selfcheck_third_failure_alerts_with_detail(monkeypatch):
     sev, msg = alert.await_args.args
     assert sev == "P2"
     assert "3x in a row" in msg and "HTTP 503" in msg
+    assert streaks == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_selfcheck_alert_respects_cooldown(monkeypatch):
+    """A page sent <30min ago suppresses the repeat alert."""
+    alert, streaks = _patch_selfcheck(monkeypatch, resp=_ProbeResp(503, "down"))
+    monkeypatch.setattr(LB, "_selfcheck_page_fresh", AsyncMock(return_value=False))
+    for _ in range(3):
+        await LB._webhook_selfcheck()
+    alert.assert_not_called()
     assert streaks == [1, 2, 3]
 
 

@@ -68,7 +68,7 @@ from app.models.content import MediaAsset, Post, PostStatus  # noqa: E402
 from app.services.media_storage import save_uploaded_media  # noqa: E402
 
 _PENDING_KEYS = ("pending_video_task", "video_render_attempts", "video_render_dispatched_at", "last_render_error")
-_API_BASE = os.environ.get("SOCIAL_API_URL", "http://social-api:8000")
+_API_BASE = os.environ.get("SOCIAL_API_URL", "http://api-gateway:8080")
 
 
 async def _resolve_post(db, prefix: str) -> Post:

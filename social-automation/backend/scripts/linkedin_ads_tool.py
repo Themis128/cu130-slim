@@ -170,6 +170,14 @@ async def cmd_create(args) -> None:
     print("create ->", r.status_code)
     _show(r)
     if r.status_code == 201:
+        cid_raw = r.headers.get("x-restli-id")
+        cid = cid_raw.rsplit(":", 1)[-1] if cid_raw else None
+        if cid:
+            print(f"created campaign id (x-restli-id): {cid_raw} -> {cid}")
+            g = await _req("GET", f"adAccounts/{acct}/adCampaigns/{cid}", token)
+            _show(g)
+        else:
+            print("warning: no x-restli-id header — falling back to account search")
         r2 = await _req(
             "GET",
             f"adAccounts/{acct}/adCampaigns?q=search&search=(status:(values:List(PAUSED,DRAFT)))&count=10",
@@ -196,7 +204,7 @@ async def cmd_analytics(args) -> None:
     path = (
         f"adAnalytics?q=analytics&pivot=CAMPAIGN&timeGranularity=ALL"
         f"&dateRange={urllib.parse.quote(dr, safe='():,')}"
-        f"&campaigns=List({acct})"
+        f"&accounts=List({acct})"
         "&fields=impressions,clicks,costInLocalCurrency"
     )
     r = await _req("GET", path, token)

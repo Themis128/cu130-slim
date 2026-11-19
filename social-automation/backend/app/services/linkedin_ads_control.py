@@ -35,17 +35,32 @@ _REST = "https://api.linkedin.com/rest"
 _LI_VERSION = "202610"
 
 
-async def _api_token() -> str:
+async def _api_token(db=None) -> str:
     """Decrypt the first active LinkedIn account token (member grant —
-    org rows store the same token)."""
+    org rows store the same token). ``db`` lets worker callers pass their
+    own session (async_session_maker pools are unsafe across worker loops).
+    """
     from sqlalchemy import select
 
     from app.core.security import decrypt_token
     from app.db.session import async_session_maker
     from app.models.social_account import SocialAccount
 
-    async with async_session_maker() as db:
-        acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin", SocialAccount.status == "active").limit(1))).scalars().first()
+    async def _lookup(s):
+        return (
+            await s.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "linkedin",
+                    SocialAccount.status == "active",
+                ).limit(1)
+            )
+        ).scalars().first()
+
+    if db is not None:
+        acc = await _lookup(db)
+    else:
+        async with async_session_maker() as s:
+            acc = await _lookup(s)
     if not acc or not acc.access_token_enc:
         raise RuntimeError("no active LinkedIn account token")
     return decrypt_token(bytes(acc.access_token_enc))
@@ -62,14 +77,14 @@ def _api_headers(token: str, method: str | None = None) -> dict[str, str]:
     return h
 
 
-async def _api_set_status(action: str, campaign_id: str, acct_id: str) -> dict[str, Any] | None:
+async def _api_set_status(action: str, campaign_id: str, acct_id: str, db=None) -> dict[str, Any] | None:
     """Marketing API pause/resume. Returns None when the API path can't
     decide (transport/5xx) so the caller can fall back to the sidecar;
     a dict means the API answered definitively (incl. config 403)."""
     want = "PAUSED" if action == "pause" else "ACTIVE"
     url = f"{_REST}/adAccounts/{acct_id}/adCampaigns/{campaign_id}"
     try:
-        token = await _api_token()
+        token = await _api_token(db)
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.get(url, headers=_api_headers(token))
             if r.status_code == 403:
@@ -209,7 +224,7 @@ try {
 """
 
 
-async def set_campaign_status(action: str) -> dict[str, Any]:
+async def set_campaign_status(action: str, db=None) -> dict[str, Any]:
     """Pause or resume the tracked ad set. ``action`` is ``pause``/``resume``.
 
     Returns ``{"ok": bool, "status": str, "detail": str}``.
@@ -224,7 +239,7 @@ async def set_campaign_status(action: str) -> dict[str, Any]:
     want = "paused" if action == "pause" else "active"
 
     # Marketing API first — deterministic, no browser session needed.
-    api_result = await _api_set_status(action, campaign_id, settings.LINKEDIN_AD_ACCOUNT_ID or "512642510")
+    api_result = await _api_set_status(action, campaign_id, settings.LINKEDIN_AD_ACCOUNT_ID or "512642510", db=db)
     if api_result is not None:
         return api_result
 
