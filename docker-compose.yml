@@ -1754,8 +1754,10 @@ services:
     container_name: warp-proxy
     networks:
       - backend
+      - socialauto-standalone
     environment:
       - WARP_SLEEP=2
+      - WARP_ENABLE_NAT=1
       - TZ=Europe/Athens
     device_cgroup_rules:
       - "c 10:200 rwm"
