@@ -68,7 +68,9 @@ EVAL_STATE = r"""
   const url = location.href;
   const loggedIn = !!document.querySelector(
     'img.global-nav__me-photo, button.global-nav__primary-link-me, '
-    + '[data-control-name="nav.settings"], .global-nav__me');
+    + '[data-control-name="nav.settings"], .global-nav__me, '
+    + '[data-control-name*="me"], [aria-label^="View "][aria-label*="profile"], '
+    + 'img[alt*="Photo"], img[alt*="photo"]');
   const authwall = /authwall|login|checkpoint|uas\/login/.test(url);
   const signinBtn = !!([...document.querySelectorAll('a,button')]
     .find(e => /^sign in$|^log in$/i.test((e.innerText||'').trim())));
@@ -96,6 +98,14 @@ EVAL_LOGIN = r"""
     el.dispatchEvent(new Event('change', {bubbles:true}));
   };
   set(u, user); set(p, pass);
+  // Tick "Keep me logged in" — this is what mints the li_rm+bcookie
+  // renewal pair (li_at alone cannot self-renew). 2026-11-20: a manual
+  // login without it left the jar unable to mint fresh li_at.
+  const keep = document.querySelector(
+    '#rememberMeOptIn-checkbox, input[name="rememberMeOptIn"], '
+    + 'input[type="checkbox"][id*="remember"], '
+    + 'input[type="checkbox"][name*="remember"]');
+  if (keep && !keep.checked) keep.click();
   const btn = document.querySelector('button[type="submit"], '
     + '#session_key-login, form button');
   if (btn) btn.click(); else u.form && u.form.submit();
@@ -363,15 +373,23 @@ def cmd_capture(args):
 
     def fn(c):
         st = probe_state(c)
-        if not st.get("loggedIn"):
-            print(f"not logged in ({st.get('url')}) — cannot capture")
-            return {"ok": False, "state": st}
         cookies = c.get_cookies(urls=["https://www.linkedin.com",
                                       "https://linkedin.com"])
         if not cookies:
             cookies = c.get_cookies()
             cookies = [c for c in cookies
                        if "linkedin.com" in (c.get("domain") or "")]
+        # DOM selectors rot as LinkedIn ships UI variants (2026-11-20:
+        # feed loaded with li_at live but global-nav__me* absent).
+        # li_at + an authenticated route is the authoritative signal —
+        # it is what heal itself needs.
+        authed = (st.get("loggedIn") or
+                  (any(c2.get("name") == "li_at" for c2 in cookies)
+                   and not st.get("authwall") and not st.get("captcha")
+                   and "/login" not in (st.get("url") or "")))
+        if not authed:
+            print(f"not logged in ({st.get('url')}) — cannot capture")
+            return {"ok": False, "state": st}
         _save_cookies(cookies)
         names = {c["name"] for c in cookies}
         print(f"captured {len(cookies)} linkedin cookies "
