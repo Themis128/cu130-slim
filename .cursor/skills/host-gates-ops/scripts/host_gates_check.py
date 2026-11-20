@@ -275,6 +275,58 @@ def check_cdp_lane():
                           f"relaunched cdp-launch={rel.strip()[:40]}"}
 
 
+BIND_MOUNT_ROOT = "/mnt/wsl/docker-desktop-bind-mounts"
+
+
+def check_fsbridge():
+    """fsbridge poisoned-mount gate (2026-11-20 incident).
+
+    When the dd-user-distro-proxy fs channel flaps, NEW bind mounts sourced
+    from \\\\wsl.localhost\\<distro> materialize inside docker-desktop as
+    empty hashed dirs — every container start then dies with
+    'not a directory: mount a directory onto a file' (Exit 127 waves that
+    took down stack-ops + all watchdogs + comfyui). Empty hashed dirs alone
+    are NOT proof (genuinely-empty host dirs hash the same) — the reliable
+    signal is containers stuck in Created/Exited(127)/Restarting while
+    hashed entries are unreadable. Report-only: the durable heal is the
+    wsl-idle-shutdown lane (full `wsl --shutdown` at idle) or manual.
+    """
+    import glob
+    total = empty = 0
+    for distro_dir in glob.glob(os.path.join(BIND_MOUNT_ROOT, "*")):
+        if not os.path.isdir(distro_dir):
+            continue
+        for h in os.listdir(distro_dir):
+            d = os.path.join(distro_dir, h)
+            total += 1
+            try:
+                if os.path.isdir(d) and not os.listdir(d):
+                    empty += 1
+            except OSError:
+                empty += 1
+    # Container-side casualty count — the part that actually hurts.
+    ps = sh("docker ps -a --format '{{.Names}}|{{.Status}}'", timeout=25)
+    stuck = 0
+    for line in (ps or "").splitlines():
+        if "|" not in line:
+            continue
+        status = line.split("|", 1)[1]
+        if ("Exited (127)" in status or status.startswith("Created")
+                or "Restarting" in status):
+            stuck += 1
+    poisoned = stuck > 0 and empty > 0
+    return {
+        "ok": not poisoned,
+        "hashed_empty": f"{empty}/{total}",
+        "stuck_containers": stuck,
+        "detail": (f"POISONED: {stuck} container(s) stuck on dead mounts "
+                   f"({empty}/{total} hashed dirs empty) — heal = wsl "
+                   f"--shutdown via idle lane or manual"
+                   if poisoned else
+                   f"{empty}/{total} hashed dirs empty, 0 stuck containers"),
+    }
+
+
 def tg(text):
     try:
         subprocess.run(["python3", TG_ALERT, "ops", text], timeout=30)
@@ -291,6 +343,7 @@ def main():
         "docker_desktop_proc": check_docker_desktop_proc(),
         "dmr_tunnel": check_dmr_tunnel(),
         "cdp_lane": check_cdp_lane(),
+        "fsbridge": check_fsbridge(),
     }
     # IDE-authority loop is undetectable — always surface as a note.
     degraded = [k for k, v in checks.items() if v.get("ok") is False]
