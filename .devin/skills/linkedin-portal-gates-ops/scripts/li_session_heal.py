@@ -24,17 +24,20 @@ Cookie jar lives OUTSIDE the repo (~/.local/state) — session material is
 never committed. li_at/JSESSIONID are the critical pair; the full set is
 stored so a heal restores the exact session, not a partial one.
 
-Self-renewal: the old li_rm (.www.linkedin.com) + bcookie
-(.linkedin.com) pair no longer exists — LinkedIn stopped minting li_rm
-on web logins (verified 2026-11-20 on both the welcome-back and bare
-login forms). The durable state now is bcookie (long-lived, jar) +
-the remembered account (localStorage in the profile) which together
-allow a PASSWORD-ONLY re-login (no captcha on a trusted profile) that
-mints a fresh ~365d li_at. The keep-signed-in checkbox is what stores
-that remembered account — EVAL_LOGIN ticks it every credential login.
-_heal_with_cookies still polls for a minted li_at after injecting the
-jar; when cookies are rejected, _credential_login handles both the
-bare email+password form and the password-only welcome-back variant.
+Self-renewal (verified mechanic, linkedin-jobs-scraper auth research,
+still current per LinkedIn's cookie table Aug-2026): a matched li_rm
+(.www.linkedin.com) + bcookie (.linkedin.com) pair mints a FRESH li_at
+when an authenticated route (/feed/) loads — no password, no
+checkpoint. li_rm is minted ONLY by a bare-form login with the
+"Keep me signed in" checkbox ticked — the welcome-back password-only
+variant mints li_at but NOT li_rm (verified 2026-11-20 live), and the
+bare form can be captcha-gated on untrusted profiles. If the jar lacks
+li_rm, one manual bare-form login with keep-me ticked on the
+debug-profile chrome restores the renewal pair; until then the
+password-only re-login path in _credential_login is the fallback.
+--capture stores the whole jar; _heal_with_cookies detects the pair
+and polls for the minted li_at, then re-captures so rotated cookies
+stay fresh.
 """
 import argparse
 import json
@@ -113,13 +116,11 @@ EVAL_LOGIN = r"""
   };
   if (u) set(u, user);
   set(p, pass);
-  // Tick "Keep me signed in" — mints the durable remembered-account
-  // state (bcookie + localStorage) that enables password-only re-login
-  // and a fresh ~365d li_at. 2026-11-20: LinkedIn no longer mints the
-  // li_rm cookie on web login; the renewal pair is now
-  // remembered-account (localStorage) + bcookie, re-logged with just
-  // the password. A manual login without the tick leaves the account
-  // unremembered and blocks this path.
+  // Tick "Keep me signed in" — on the BARE form this mints the
+  // li_rm+bcookie renewal pair (self-renewing li_at on /feed/ loads);
+  // on the welcome-back form it mints li_at only but still enables the
+  // password-only re-login path. Either way the tick is required for
+  // durability — a login without it leaves no renewal surface.
   const keep = document.querySelector(
     '#rememberMeOptIn-checkbox, input[name="rememberMeOptIn"], '
     + 'input[type="checkbox"][id*="remember"], '
@@ -450,13 +451,11 @@ def _heal_with_cookies(base):
         if "_error" in r:
             return {"ok": False, "reason": f"setCookies:{r['_error']}"}
         c.cmd("Page.enable")
-        # When the jar holds a still-valid session the reload rotates
-        # li_at — poll for the mint (Set-Cookie lands after navigation
-        # returns), then re-capture whatever the browser now holds so
-        # rotated cookies stay fresh in the jar. has_pair refers to the
-        # legacy li_rm+bcookie renewal pair LinkedIn no longer mints —
-        # it stays false on current sessions; the budget is kept for
-        # forward compatibility if a renewal cookie ever returns.
+        # li_rm+bcookie mint a fresh li_at when /feed/ loads — poll the
+        # cookie jar for the mint (Set-Cookie lands after navigation
+        # returns, ~10s budget per the reference implementation), then
+        # re-capture whatever the browser now holds so rotated
+        # li_rm/bcookie/li_at stay fresh in the jar.
         names = {x.get("name") for x in cookies}
         has_pair = {"li_rm", "bcookie"} <= names
         old_li_at = next((x.get("value") for x in cookies
