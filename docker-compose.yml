@@ -1403,10 +1403,12 @@ services:
       - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on: *worker-depends
     <<: *public-dns
-    # conc=2: media tasks are CPU/RAM-heavy (Pillow, AI calls).  max-tasks-per-
+    # conc=1: GPU-bound tasks serialize on gpu:media_lock anyway (Wan2.2
+    # renders take 14-34min > the 600s acquire timeout) — a second worker
+    # only guarantees lock-timeout failures.  max-tasks-per-
     # child=50: recycle processes more often to release fragmented Pillow/AI
     # memory on this 8GB-RAM host.
-    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=media@%h
+    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=1 --max-tasks-per-child=50 --hostname=media@%h
     healthcheck:
       test:
         [
