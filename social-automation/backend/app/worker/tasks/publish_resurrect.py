@@ -33,9 +33,9 @@ from app.worker._async import run_async, task_session
 
 logger = logging.getLogger(__name__)
 
-_TARGET_MIN_AGE = timedelta(hours=20)   # cadence between re-arms
+_TARGET_MIN_AGE = timedelta(hours=20)  # cadence between re-arms
 _TARGET_MAX_AGE = timedelta(days=7)
-_MAX_QUEUE_ROWS = 4                     # lifetime publish attempts per (post, account)
+_MAX_QUEUE_ROWS = 4  # lifetime publish attempts per (post, account)
 _POST_MAX_AGE = timedelta(days=5)
 _MAX_RESURRECTIONS = 2
 
@@ -43,19 +43,40 @@ _MAX_RESURRECTIONS = 2
 # out-of-band (console re-auth, sidecar restart, token refresh). Everything
 # else TERMINAL stays dead.
 _AUTH_MARKERS = (
-    "401", "403", "unauthorized", "forbidden",
-    "session has been invalidated", "error validating access token",
-    "invalid_grant", "invalid_token", "invalid refresh token",
-    "token has been revoked", "expiredtoken", "login failed",
-    "authenticationrequired", "authentication required",
-    "credential", "reauth",
+    "401",
+    "403",
+    "unauthorized",
+    "forbidden",
+    "session has been invalidated",
+    "error validating access token",
+    "invalid_grant",
+    "invalid_token",
+    "invalid refresh token",
+    "token has been revoked",
+    "expiredtoken",
+    "login failed",
+    "authenticationrequired",
+    "authentication required",
+    "credential",
+    "reauth",
 )
 
 _CONTENT_TERMINAL_MARKERS = (
-    "duplicate", "identical content", "prompt leak", "quality gate",
-    "seo score", "mangled", "empty content", "semantic", "preflight",
-    "only photo or video", "invalid media", "unsupported media",
-    "does not accept", "url_ownership", "domain not verified",
+    "duplicate",
+    "identical content",
+    "prompt leak",
+    "quality gate",
+    "seo score",
+    "mangled",
+    "empty content",
+    "semantic",
+    "preflight",
+    "only photo or video",
+    "invalid media",
+    "unsupported media",
+    "does not accept",
+    "url_ownership",
+    "domain not verified",
 )
 
 
