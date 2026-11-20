@@ -35,7 +35,11 @@ STATE = os.path.join(STATE_DIR, "state.json")
 LOG = os.path.expanduser("~/logs/host-gates-check.log")
 TG_ALERT = ("/home/tbaltzakis/cu130-slim/.devin/skills/"
             "telegram-alert-ops/scripts/tg_alert.py")
-RAM_WARN_MB = 6144          # ~5GB free was the observed flap threshold
+HOST_WARN_GB = 2.0   # host free < ~1.2-1.8GB is the observed flap/eviction zone
+WSL_WARN_GB = 1.5    # guest-distress floor; steady-state avail is ~4GB under
+                     # the 9GB cap + ~5GB working set, so the old 6GB guest
+                     # threshold could never clear — the flap predictor it was
+                     # meant to express is HOST free, measured above instead.
 DEDUP_SECS = 12 * 3600
 
 
@@ -129,8 +133,8 @@ def check_ram():
         except Exception:
             pass
     wsl_gb = round(mb / 1024, 1) if mb >= 0 else None
-    degraded = ((mb >= 0 and mb < RAM_WARN_MB) or
-                (host_gb is not None and host_gb < 1.0))
+    degraded = ((wsl_gb is not None and wsl_gb < WSL_WARN_GB) or
+                (host_gb is not None and host_gb < HOST_WARN_GB))
     return {
         "ok": not degraded,
         "wsl_memavail_gb": wsl_gb,
