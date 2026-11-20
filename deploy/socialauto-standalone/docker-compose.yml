@@ -78,7 +78,7 @@ services:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: never
     container_name: social-worker-media
-    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=media@%h
+    command: celery -A app.worker.celery_app worker -Q media --loglevel=info --concurrency=1 --max-tasks-per-child=50 --hostname=media@%h
     env_file:
       - path: .env
         required: false
