@@ -121,6 +121,7 @@ celery_app = Celery(
         "app.worker.tasks.funnel_audit",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
+        "app.worker.tasks.publish_resurrect",
         "app.worker.tasks.media_heal",
         "app.worker.tasks.media_integrity",
         "app.worker.tasks.newsletter_subs",
@@ -440,6 +441,7 @@ celery_app.conf.update(
         "app.worker.tasks.newsletter_issues.dispatch_newsletter_issues": {"queue": "publishing"},
         "app.worker.tasks.newsletter_issues.verify_newsletter_issues": {"queue": "publishing"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
+        "app.worker.tasks.publish_resurrect.run_publish_resurrect_sweep": {"queue": "publishing"},
         "app.worker.tasks.media_heal.run_media_heal_sweep": {"queue": "publishing"},
         "app.worker.tasks.media_integrity.run_media_integrity_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
@@ -594,6 +596,14 @@ celery_app.conf.update(
         "publish-retry-sweep": {
             "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
             "schedule": crontab(minute="*/15"),
+        },
+        # Resurrection sweep (every 30min) — re-arms infra-class failures that
+        # aged out of publish_retry's 72h/TERMINAL skips: auth-broken targets
+        # (credential may have been repaired since) and video posts whose
+        # render budget expired during a ComfyUI/stack outage.
+        "publish-resurrect-sweep": {
+            "task": "app.worker.tasks.publish_resurrect.run_publish_resurrect_sweep",
+            "schedule": crontab(minute="7,37"),
         },
         # Media-heal sweep (every 6h) — posts whose targets skipped/failed on
         # media grounds get a fresh branded slide built from their own copy,

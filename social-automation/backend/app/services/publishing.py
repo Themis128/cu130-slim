@@ -3118,6 +3118,12 @@ async def _publish_instagram_story(
     )
 
 
+# Per-path budget inside the Instagram publish ladder — the queue worker
+# wraps the whole ladder in one ~120s item deadline, so each path gets a
+# bounded slice and a hung path falls through instead of starving the rest.
+_IG_PATH_TIMEOUT_S = 45.0
+
+
 async def _publish_instagram(
     access_token: str,
     text: str,
@@ -3183,19 +3189,48 @@ async def _publish_instagram(
     except Exception:
         pass  # best-effort guard — the paths below surface their own errors
 
+    # Per-path budget: the queue worker wraps the whole ladder in one
+    # ~120s deadline, so a single hung path (e.g. instagrapi retrying
+    # against a dead SOCKS proxy) must not starve the remaining paths.
+    # On timeout we re-check the feed — a timed-out path may have
+    # published despite the lost response.
+    async def _bounded_path(coro, name: str) -> PublishResult:
+        try:
+            return await asyncio.wait_for(coro, timeout=_IG_PATH_TIMEOUT_S)
+        except TimeoutError:
+            logger.warning(
+                "Instagram %s path exceeded %.0fs — verifying feed before next path",
+                name,
+                _IG_PATH_TIMEOUT_S,
+            )
+            try:
+                live = await _instagram_find_live(check_client, text)
+            except Exception:
+                live = None
+            if live:
+                return PublishResult(
+                    success=True,
+                    platform_post_id=str(live.get("id") or ""),
+                    platform_url=live.get("permalink"),
+                )
+            return PublishResult(success=False, error=f"{name} timed out after {_IG_PATH_TIMEOUT_S:.0f}s")
+
     # 1. Business Login Graph API (graph.instagram.com) — highest priority
     # when the account was connected via Instagram Business Login (instagram2).
     # This path uses the Instagram user token directly against graph.instagram.com
     # and does NOT require a Facebook Page to be linked.
     if meta.get("login_type") == "business_login":
-        graph_result = await _publish_instagram_via_graph(
-            access_token,
-            text,
-            account,
-            post,
-            media_paths,
-            storage_paths,
-            db,
+        graph_result = await _bounded_path(
+            _publish_instagram_via_graph(
+                access_token,
+                text,
+                account,
+                post,
+                media_paths,
+                storage_paths,
+                db,
+            ),
+            "graph_business",
         )
         if graph_result.success:
             return _with_publish_path(graph_result, "graph_business")
@@ -3208,7 +3243,7 @@ async def _publish_instagram(
 
     # 2. instagrapi (direct Python) — primary fallback when credentials are set
     if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
-        ig_result = await _publish_instagram_via_instagrapi(text, post, media_paths)
+        ig_result = await _bounded_path(_publish_instagram_via_instagrapi(text, post, media_paths), "instagrapi")
         if ig_result.success:
             return _with_publish_path(ig_result, "instagrapi")
         logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
@@ -3220,25 +3255,28 @@ async def _publish_instagram(
 
     # 3. Web API (rupload_igphoto)
     if has_web_session:
-        web_result = await _publish_instagram_via_web(account, text, post, media_paths)
+        web_result = await _bounded_path(_publish_instagram_via_web(account, text, post, media_paths), "web_rupload")
         if web_result.success:
             return _with_publish_path(web_result, "web_rupload")
 
     # 4. Sidecar (aiograpi-rest)
     if has_sidecar_session:
-        result = await _publish_instagram_via_sidecar(account, text, post, media_paths)
+        result = await _bounded_path(_publish_instagram_via_sidecar(account, text, post, media_paths), "sidecar")
         if result.success:
             return _with_publish_path(result, "sidecar")
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
             graph_token = await _resolve_ig_user_token(access_token, account, db)
-            graph_result = await _publish_instagram_via_graph(
-                graph_token,
-                text,
-                account,
-                post,
-                media_paths,
-                storage_paths,
-                db,
+            graph_result = await _bounded_path(
+                _publish_instagram_via_graph(
+                    graph_token,
+                    text,
+                    account,
+                    post,
+                    media_paths,
+                    storage_paths,
+                    db,
+                ),
+                "graph_fb",
             )
             if graph_result.success or graph_result.ambiguous:
                 return _with_publish_path(graph_result, "graph_fb")
@@ -3247,7 +3285,26 @@ async def _publish_instagram(
             return result
         graph_token = await _resolve_ig_user_token(access_token, account, db)
         return _with_publish_path(
-            await _publish_instagram_via_graph(
+            await _bounded_path(
+                _publish_instagram_via_graph(
+                    graph_token,
+                    text,
+                    account,
+                    post,
+                    media_paths,
+                    storage_paths,
+                    db,
+                ),
+                "graph_fb",
+            ),
+            "graph_fb",
+        )
+
+    # 5. Facebook Login Graph API (last resort)
+    graph_token = await _resolve_ig_user_token(access_token, account, db)
+    return _with_publish_path(
+        await _bounded_path(
+            _publish_instagram_via_graph(
                 graph_token,
                 text,
                 account,
@@ -3257,19 +3314,6 @@ async def _publish_instagram(
                 db,
             ),
             "graph_fb",
-        )
-
-    # 5. Facebook Login Graph API (last resort)
-    graph_token = await _resolve_ig_user_token(access_token, account, db)
-    return _with_publish_path(
-        await _publish_instagram_via_graph(
-            graph_token,
-            text,
-            account,
-            post,
-            media_paths,
-            storage_paths,
-            db,
         ),
         "graph_fb",
     )
