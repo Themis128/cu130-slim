@@ -21,6 +21,13 @@ gone.
 
 ## Open — engineering
 
+- [ ] **platform_focus is a placebo action** (2026-11-20 crosscheck):
+  `_exec_platform_focus` returns `{"weight": "boost"}` but nothing consumes
+  it — no scheduler weight mechanism exists. The events are kept as
+  training data (outcome → training design), so the action stays, but it
+  needs either a real consumer (scheduler posting-order weight) or removal.
+  Event volume was fixed at the source by restricting the insights sweep
+  to active teams (#2417) — was ~510 events/day across 255 tenants.
 - [ ] **LinkedIn :9229 lane → patchright migration** (2026-11-21 incident):
   flagged-credential class proven — once `li_at`+`bcookie` are flagged
   server-side, every authed request is refused on ANY browser/profile while
