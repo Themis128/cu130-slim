@@ -6,8 +6,13 @@ status changes and auto re-logs-in when the session expires. Alerts via Telegram
 
 ## How it works
 
-- Chrome debug instance: `chrome-debug-profile` on CDP `:9229` (lane per
-  global rules — `:9222` belongs to the user's normal Chrome).
+- Chrome instance: **dedicated offscreen lane** — `idika-watch\chrome-profile`
+  on CDP `:9228`, launched with `--window-position=-32000,-32000` so portal
+  pages never appear on the user's desktop (2026-11-20: user asked for
+  Telegram-only notifications, not the page). Config keys `cdp_port`,
+  `profile`, `chrome_args` in `portal.json` select the lane; engine.py
+  defaults still target the shared `:9229` `chrome-debug-profile` for
+  other portals. `:9229` remains the LinkedIn/manual-debug lane.
 - `watch.py` (one-shot, run hourly by schtasks `IdikaWatch`): reloads
   `https://www.idika.gr/epidomapaidiou/2026/LandingPage`, extracts the
   "Aitiseis" table via `Runtime.evaluate`, diffs against `state.json`.
@@ -28,8 +33,9 @@ status changes and auto re-logs-in when the session expires. Alerts via Telegram
 `%APPDATA%/devin/secrets/taxisnet.json`:
 `{"username": "<AFM>", "password": "<taxisnet pw>", "amka": "<AMKA>"}`
 
-If GSIS demands SMS/2FA or a captcha, auto-login fails → one Telegram
-"please log in manually" alert (throttled via `login_alert` flag).
+If GSIS demands SMS/2FA or a captcha, auto-login fails → `engine.surface_window()`
+moves the offscreen window on-screen via `Browser.setWindowBounds`, then one
+Telegram "please log in manually" alert (throttled via `login_alert` flag).
 
 ## Files
 
@@ -48,7 +54,7 @@ If GSIS demands SMS/2FA or a captcha, auto-login fails → one Telegram
 - `IdikaWatch` — hourly, `watch.py` (diff + auto re-login on expiry)
 - `IdikaKeepalive` — every 20 min, `ping.py` (reloads LandingPage so
   ASP.NET/GSIS server-side sessions don't idle out; all auth cookies are
-  browser-session cookies, so **never close the debug Chrome window** —
+  browser-session cookies, so **never close the watch Chrome** —
   closing it kills every session and forces full re-auth next run)
 - `IdikaMorningRelogin` — daily 09:00, `relogin.py` (proactive session
   check/repair at a sane hour so a 2FA/captcha challenge surfaces while
@@ -56,14 +62,14 @@ If GSIS demands SMS/2FA or a captcha, auto-login fails → one Telegram
 
 ## Chrome autostart topology
 
-At-logon scheduled tasks are denied on this box, but the user's Startup
-folder already has `cdp-launch.bat` (headless chrome `:9330` on the same
-`chrome-debug-profile` + `cdp_relay.py` exposing `0.0.0.0:9229`) and
-`start-chrome-debug.bat` (headed, `:9222`). Either way CDP ends up on
-`:9229`. Caveat: if the headless+relay variant wins the profile lock at
-logon there is no visible window for a manual 2FA fallback — close it
-and `ensure_browser()` (called by both `watch.py` and `ping.py`) relaunches
-a headed instance on `:9229`.
+The watch lane is self-contained: `engine.ensure_browser()` launches
+`chrome.exe --remote-debugging-port=9228 --user-data-dir=C:\Users\tbaltzakis\idika-watch\chrome-profile
+--window-position=-32000,-32000` whenever `:9228` is down — no Startup-folder
+or scheduled-task dependency, and it never touches the `:9229`
+`chrome-debug-profile` instance used by the LinkedIn/manual-debug lanes.
+If the offscreen window ever needs to be visible for manual login,
+`engine.surface_window()` (called automatically on auto-login failure)
+restores it on-screen via CDP `Browser.setWindowBounds`.
 
 ## Avoiding manual re-login
 
@@ -72,15 +78,15 @@ inherent 2FA on this client (`LK4B7J43558`); the OTP variant is a separate
 grant IDIKA doesn't use. Residual risks and mitigations:
 
 - Browser closed → all cookies are session-scoped → full re-auth. Keep
-  the `chrome-debug-profile` Chrome running; `watch.py` auto-launches it.
+  the `idika-watch\chrome-profile` Chrome running; `watch.py` auto-launches it.
 - Server-side idle timeout → mitigated by `IdikaKeepalive` (20 min).
 - GSIS risk-based challenge on the password form → cannot be automated;
-  surfaces via Telegram, user logs in once in the debug window, GSIS
+  surfaces via Telegram + auto-surfaced window, user logs in once, GSIS
   remembers the device/profile afterwards.
-- Saving TAXISnet creds in the debug profile's Chrome password manager
+- Saving TAXISnet creds in the watch profile's Chrome password manager
   makes even the manual fallback one click.
-- Debug Chrome must be running; `watch.py` auto-launches it on
-  `chrome-debug-profile` if the `:9229` endpoint is down.
+- Watch Chrome must be running; `watch.py` auto-launches it on
+  `idika-watch\chrome-profile` if the `:9228` endpoint is down.
 - CDP websocket needs `suppress_origin=True` (Chrome rejects WS with an
   Origin header unless `--remote-allow-origins` is set).
 - `Page.reload` + wait for `Page.loadEventFired` before evaluating —

@@ -16,6 +16,7 @@ CDP = "http://localhost:9229"
 KEYS = "C:/Users/tbaltzakis/AppData/Roaming/devin/secrets"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 PROFILE = r"C:\Users\tbaltzakis\chrome-debug-profile"
+CHROME_ARGS = []
 DEFAULT_CHAT = "7017840434"
 
 # ---------- CDP plumbing ----------
@@ -54,11 +55,12 @@ def _browser_healthy():
 
 
 def _kill_debug_chrome():
-    """Kill every chrome.exe carrying --user-data-dir=chrome-debug-profile.
-    The profile is single-instance, so this only ever hits the debug lane."""
+    """Kill every chrome.exe carrying the configured --user-data-dir.
+    The profile is single-instance, so this only ever hits this lane."""
     import subprocess
+    prof = PROFILE.replace("/", "\\").rstrip("\\")
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-          "Where-Object { $_.CommandLine -like '*chrome-debug-profile*' } | "
+          f"Where-Object {{ $_.CommandLine -like '*{prof}*' }} | "
           "ForEach-Object { Stop-Process -Id $_.ProcessId -Force "
           "-ErrorAction SilentlyContinue }")
     subprocess.run(["powershell", "-NoProfile", "-Command", ps],
@@ -68,7 +70,7 @@ def _kill_debug_chrome():
     # locked profile -> 'cannot read and write to data directory' dialog.
     import subprocess as _sp
     probe = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-             "Where-Object { $_.CommandLine -like '*chrome-debug-profile*' } | "
+             f"Where-Object {{ $_.CommandLine -like '*{prof}*' }} | "
              "Measure-Object | Select-Object -ExpandProperty Count")
     for _ in range(40):
         r = _sp.run(["powershell", "-NoProfile", "-Command", probe],
@@ -84,9 +86,10 @@ def ensure_browser():
         return
     _kill_debug_chrome()
     import subprocess
-    subprocess.Popen([CHROME, "--remote-debugging-port=9229",
+    port = CDP.rsplit(":", 1)[-1].split("/")[0]
+    subprocess.Popen([CHROME, f"--remote-debugging-port={port}",
                       f"--user-data-dir={PROFILE}", "--no-first-run",
-                      "--no-default-browser-check", "about:blank"],
+                      "--no-default-browser-check", "about:blank"] + CHROME_ARGS,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(40):
         time.sleep(1)
@@ -165,6 +168,51 @@ def _close_target(tid):
     """Kill a zombie/crashed tab target so the next find_tab opens fresh."""
     try:
         urllib.request.urlopen(CDP + "/json/close/" + tid, timeout=5).read()
+    except Exception:
+        pass
+
+
+def surface_window(host=None):
+    """Bring this lane's browser window on-screen (manual-login fallback).
+    Uses browser-level CDP: Browser.getWindowForTarget + setWindowBounds.
+    No-op when the lane has no visible window or CDP is unreachable."""
+    try:
+        import websocket
+        ver = json.loads(urllib.request.urlopen(CDP + "/json/version", timeout=5).read())
+        bws = ver.get("webSocketDebuggerUrl")
+        if not bws:
+            return
+        tid = None
+        for t in _targets():
+            if t.get("type") == "page" and (not host or host in t.get("url", "")):
+                tid = t.get("id")
+                break
+        if not tid:
+            return
+        ws = websocket.create_connection(bws, timeout=10, suppress_origin=True)
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Browser.getWindowForTarget",
+                                "params": {"targetId": tid}}))
+            wid = None
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                m = json.loads(ws.recv())
+                if m.get("id") == 1:
+                    wid = (m.get("result") or {}).get("windowId")
+                    break
+            if wid is None:
+                return
+            ws.send(json.dumps({"id": 2, "method": "Browser.setWindowBounds",
+                                "params": {"windowId": wid, "bounds": {
+                                    "windowState": "normal",
+                                    "left": 80, "top": 80, "width": 1100, "height": 800}}}))
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                m = json.loads(ws.recv())
+                if m.get("id") == 2:
+                    break
+        finally:
+            ws.close()
     except Exception:
         pass
 
@@ -288,6 +336,15 @@ def load_config(path):
     if "creds" in cfg and not os.path.isabs(cfg["creds"]):
         cfg["creds"] = os.path.join(base, cfg["creds"])
     cfg.setdefault("chat_id", DEFAULT_CHAT)
+    # Per-portal browser lane: a portal may run on its own Chrome instance
+    # (own CDP port + profile + launch args) so its pages never appear on
+    # the user's desktop. Defaults preserve the shared :9229 debug lane.
+    global CDP, PROFILE, CHROME_ARGS
+    if cfg.get("cdp_port"):
+        CDP = f"http://localhost:{int(cfg['cdp_port'])}"
+    if cfg.get("profile"):
+        PROFILE = cfg["profile"]
+    CHROME_ARGS = list(cfg.get("chrome_args") or [])
     return cfg
 
 
@@ -365,7 +422,8 @@ def run_check(cfg):
                 return
         st = _load_state(cfg)
         if not st.get("login_alert"):
-            tg(f"{cfg['name']}: session expired and auto re-login FAILED — please log in manually in the debug Chrome window.", cfg["chat_id"])
+            surface_window(host)
+            tg(f"{cfg['name']}: session expired and auto re-login FAILED — the watch browser window was brought on-screen; please log in manually.", cfg["chat_id"])
             st["login_alert"] = True
             _save_state(cfg, st)
         return
@@ -433,7 +491,8 @@ def run_relogin(cfg):
     if ok:
         tg(f"{cfg['name']}: morning session check OK — sessions refreshed.", cfg["chat_id"])
     else:
-        tg(f"{cfg['name']}: morning re-login FAILED.", cfg["chat_id"])
+        surface_window(host)
+        tg(f"{cfg['name']}: morning re-login FAILED — the watch browser window was brought on-screen; please log in manually.", cfg["chat_id"])
     print("relogin:", "ok" if ok else "FAILED")
 
 
