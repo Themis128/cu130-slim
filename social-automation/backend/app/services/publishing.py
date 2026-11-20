@@ -3140,12 +3140,14 @@ async def _publish_instagram(
            account was connected via Instagram Business Login (instagram2).
            Uses the Instagram user token directly; no Facebook Page linkage
            required. This is the official, most reliable path.
-        2. **instagrapi** — direct Python private mobile API. Requires
+        2. **Web API** (rupload_igphoto) — uses browser sessionid cookie
+           directly against www.instagram.com. Requires private_api_session_id,
+           private_api_csrf_token, private_api_ds_user_id in meta_data. Runs
+           before instagrapi so a live web session is not starved by slow
+           password-login proxy retries.
+        3. **instagrapi** — direct Python private mobile API. Requires
            INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD in env. Works for any
            account type without Meta App Review.
-        3. **Web API** (rupload_igphoto) — uses browser sessionid cookie
-           directly against www.instagram.com. Requires private_api_session_id,
-           private_api_csrf_token, private_api_ds_user_id in meta_data.
         4. **Sidecar** (aiograpi-rest private mobile API) — fallback for
            video uploads or when the above paths are unavailable.
         5. **Facebook Login Graph API** (graph.facebook.com) — last resort
@@ -3241,23 +3243,26 @@ async def _publish_instagram(
             return _with_publish_path(graph_result, "graph_business")
         logger.warning("Business Login Graph API failed: %s — trying fallback paths", graph_result.error)
 
-    # 2. instagrapi (direct Python) — primary fallback when credentials are set
-    if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
-        ig_result = await _bounded_path(_publish_instagram_via_instagrapi(text, post, media_paths), "instagrapi")
-        if ig_result.success:
-            return _with_publish_path(ig_result, "instagrapi")
-        logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
-
     _decrypted_session = decrypt_field(meta.get("private_api_session_id"))
     has_web_session = bool(_decrypted_session and meta.get("private_api_csrf_token") and meta.get("private_api_ds_user_id"))
     has_sidecar_session = bool(_decrypted_session)
     web_result: PublishResult | None = None
 
-    # 3. Web API (rupload_igphoto)
+    # 2. Web API (rupload_igphoto) — browser sessionid cookie path. Runs
+    # before instagrapi: a live web session publishes in seconds, while the
+    # instagrapi password login can burn the whole per-path budget on proxy
+    # retries and starve the remaining paths inside the queue item deadline.
     if has_web_session:
         web_result = await _bounded_path(_publish_instagram_via_web(account, text, post, media_paths), "web_rupload")
         if web_result.success:
             return _with_publish_path(web_result, "web_rupload")
+
+    # 3. instagrapi (direct Python) — fallback when credentials are set
+    if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
+        ig_result = await _bounded_path(_publish_instagram_via_instagrapi(text, post, media_paths), "instagrapi")
+        if ig_result.success:
+            return _with_publish_path(ig_result, "instagrapi")
+        logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
 
     # 4. Sidecar (aiograpi-rest)
     if has_sidecar_session:
