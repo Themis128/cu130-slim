@@ -837,6 +837,8 @@ async def _process_publish_queue_async(
                         target.platform_post_id = pub.platform_post_id
                         target.platform_url = pub.platform_url
                         target.published_at = datetime.now(UTC)
+                        target.error_class = None
+                        target.error_message = None
                     if getattr(pub, "platform_meta", None):
                         ps = dict(post.platform_specific or {})
                         for key, value in (pub.platform_meta or {}).items():
@@ -1338,6 +1340,7 @@ async def _reconcile_instagram_publish_async(post_id: str, social_account_id: st
         target.platform_post_id = str(live.get("id") or "")
         target.platform_url = live.get("permalink")
         target.published_at = datetime.now(UTC)
+        target.error_class = None
         target.error_message = None
         # A queue row left in terminal FAILED would keep the post flagged —
         # the publish actually landed, so close it out too.

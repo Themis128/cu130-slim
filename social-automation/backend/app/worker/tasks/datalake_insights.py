@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from celery import shared_task
 from sqlalchemy import select
+from sqlalchemy import text as sqltext
 
 from app.models.user import Team
 from app.worker._async import run_async, task_session
@@ -22,7 +23,26 @@ def datalake_insights_sweep() -> dict:
 
     async def _run() -> dict:
         async with task_session() as db:
-            teams = (await db.execute(select(Team.id))).scalars().all()
+            # Only teams with real surface area — E2E/test tenants (the
+            # majority of rows) have no posts/accounts/leads and produce
+            # identical phantom signals off the global funnel query, which
+            # then fan out into per-team datalake_actions event spam.
+            teams = (
+                (
+                    await db.execute(
+                        select(Team.id).where(
+                            sqltext(
+                                "EXISTS (SELECT 1 FROM posts WHERE posts.team_id = teams.id)"
+                                " OR EXISTS (SELECT 1 FROM social_accounts WHERE social_accounts.team_id = teams.id)"
+                                " OR EXISTS (SELECT 1 FROM survey_responses WHERE survey_responses.team_id = teams.id)"
+                                " OR EXISTS (SELECT 1 FROM leads WHERE leads.team_id = teams.id)"
+                            )
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             out = []
             # E2E/test teams massively outnumber real ones and render
             # identical all-zero signal lines — dedupe so the alert channel
