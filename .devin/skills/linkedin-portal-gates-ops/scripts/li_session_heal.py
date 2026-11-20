@@ -24,12 +24,20 @@ Cookie jar lives OUTSIDE the repo (~/.local/state) — session material is
 never committed. li_at/JSESSIONID are the critical pair; the full set is
 stored so a heal restores the exact session, not a partial one.
 
-Self-renewal (verified mechanic, linkedin-jobs-scraper auth research):
-a matched li_rm (.www.linkedin.com) + bcookie (.linkedin.com) pair mints
-a FRESH li_at when an authenticated route (/feed/) loads — no password,
-no checkpoint. --capture stores the whole jar so the pair is always
-kept; _heal_with_cookies detects the pair and polls the jar for the
-minted li_at, then re-captures so rotated cookies stay fresh.
+Self-renewal (verified mechanic, linkedin-jobs-scraper auth research,
+still current per LinkedIn's cookie table Aug-2026): a matched li_rm
+(.www.linkedin.com) + bcookie (.linkedin.com) pair mints a FRESH li_at
+when an authenticated route (/feed/) loads — no password, no
+checkpoint. li_rm is minted ONLY by a bare-form login with the
+"Keep me signed in" checkbox ticked — the welcome-back password-only
+variant mints li_at but NOT li_rm (verified 2026-11-20 live), and the
+bare form can be captcha-gated on untrusted profiles. If the jar lacks
+li_rm, one manual bare-form login with keep-me ticked on the
+debug-profile chrome restores the renewal pair; until then the
+password-only re-login path in _credential_login is the fallback.
+--capture stores the whole jar; _heal_with_cookies detects the pair
+and polls for the minted li_at, then re-captures so rotated cookies
+stay fresh.
 """
 import argparse
 import json
@@ -87,9 +95,18 @@ EVAL_STATE = r"""
 EVAL_LOGIN = r"""
 (async () => {
   const user = %s, pass = %s;
-  const u = document.querySelector('#username, input[name="session_key"]');
-  const p = document.querySelector('#password, input[name="session_password"]');
-  if (!u || !p) return JSON.stringify({ok:false, reason:'no-form', url:location.href});
+  // 2026-11 login forms (both variants verified live):
+  //  a) bare form   — input[type=email] + input[type=password] +
+  //     checkbox aria-label "Keep me signed in" + "Sign in" button.
+  //     Legacy ids/names (#username/session_key) gone.
+  //  b) welcome-back — remembered account, ONLY a visible password
+  //     field; submit with the same "Sign in" button (no email fill).
+  const vis = e => e && e.offsetParent;
+  const u = [...document.querySelectorAll('input[type=email],'
+    + ' #username, input[name="session_key"]')].find(vis);
+  const p = [...document.querySelectorAll('input[type=password],'
+    + ' input[name="session_password"]')].find(vis);
+  if (!p) return JSON.stringify({ok:false, reason:'no-form', url:location.href});
   const set = (el, v) => {
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype, 'value').set;
@@ -97,19 +114,26 @@ EVAL_LOGIN = r"""
     el.dispatchEvent(new Event('input', {bubbles:true}));
     el.dispatchEvent(new Event('change', {bubbles:true}));
   };
-  set(u, user); set(p, pass);
-  // Tick "Keep me logged in" — this is what mints the li_rm+bcookie
-  // renewal pair (li_at alone cannot self-renew). 2026-11-20: a manual
-  // login without it left the jar unable to mint fresh li_at.
+  if (u) set(u, user);
+  set(p, pass);
+  // Tick "Keep me signed in" — on the BARE form this mints the
+  // li_rm+bcookie renewal pair (self-renewing li_at on /feed/ loads);
+  // on the welcome-back form it mints li_at only but still enables the
+  // password-only re-login path. Either way the tick is required for
+  // durability — a login without it leaves no renewal surface.
   const keep = document.querySelector(
     '#rememberMeOptIn-checkbox, input[name="rememberMeOptIn"], '
     + 'input[type="checkbox"][id*="remember"], '
-    + 'input[type="checkbox"][name*="remember"]');
+    + 'input[type="checkbox"][name*="remember"], '
+    + 'input[type="checkbox"][aria-label*="signed in" i]');
   if (keep && !keep.checked) keep.click();
-  const btn = document.querySelector('button[type="submit"], '
-    + '#session_key-login, form button');
-  if (btn) btn.click(); else u.form && u.form.submit();
-  return JSON.stringify({ok:true});
+  const btn = [...document.querySelectorAll('button')].find(
+      e => vis(e) && e.innerText &&
+           /^sign in$|^log in$|^σύνδεση$/i.test(e.innerText.trim()))
+    || document.querySelector('button[type="submit"], '
+                              + '#session_key-login, form button');
+  if (btn) btn.click(); else p.form && p.form.submit();
+  return JSON.stringify({ok:true, welcomeBack: !u});
 })()
 """
 
