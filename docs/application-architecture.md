@@ -1035,7 +1035,7 @@ and env (the `x-worker-env` compose anchor):
 | Worker | Queue | Purpose |
 |---|---|---|
 | `social-worker-publishing` | `publishing` | `process_publish_queue`, `process_publishing`, `check_scheduled`, `publish_retry` |
-| `social-worker-media` | `media` | render/media generation tasks |
+| `social-worker-media` | `media` | render/media generation tasks — `--concurrency=1` by design: GPU work serializes on Redis `gpu:media_lock` (Wan2.2 renders 14–34 min > 600s acquire timeout), so extra slots only produced lock-timeout failures |
 | `social-worker-default` | `default` | general beat + ad-hoc tasks |
 | `social-worker-messenger` | `messenger` | DM/inbox polling and replies |
 | `social-worker-meta` | `meta` | Meta-platform blast-radius isolation (`process_meta_publish_queue`, `reconcile_instagram_publish`, `check_facebook_tokens`) |
