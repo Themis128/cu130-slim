@@ -89,7 +89,7 @@ def test_render_slack_full():
 async def test_build_and_apply_signals():
     from datetime import datetime
 
-    responses = [{"q": "a"}]
+    responses = [({"q": "a"}, "t@e.st")]
     leads = [{"source": "site", "interest": "audit", "company_size": "1-10"}]
     funnel = [{"platform": "linkedin", "views": 10, "clicks": 3, "leads": 2}]
     ad = [{"campaign_name": "c1", "spend_eur": 100.0, "leads": 2, "impressions": 1000}]

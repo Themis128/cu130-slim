@@ -36,7 +36,7 @@ from app.models.analytics import (
     FollowerSnapshot,
     PostAnalyticsSnapshot,
 )
-from app.models.email_campaign import SurveyResponse
+from app.models.email_campaign import EmailRecipient, SurveyResponse
 from app.models.linkedin_ads import AdDailyMetric
 from app.services.monetization import PLATFORM_PROGRAMS
 
@@ -92,7 +92,7 @@ def compute_survey_signals(responses: list[dict]) -> dict[str, Any]:
     for r in responses:
         answers = r.get("answers") or {}
         email = (r.get("email") or "").lower()
-        if str(answers.get("audit_interest", "")).strip().lower() == "yes":
+        if str(answers.get("audit_interest", "")).strip().lower() == "yes" and email:
             audit_yes.append(email)
         for qid, val in answers.items():
             sval = str(val)
@@ -422,8 +422,15 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     """Pull every funnel source the lake exports and merge the signals."""
     since = datetime.now(UTC) - timedelta(days=30)
     responses = (
-        (await db.execute(select(SurveyResponse.answers).where(SurveyResponse.team_id == team_id).order_by(desc(SurveyResponse.submitted_at)).limit(200)))
-        .scalars()
+        (
+            await db.execute(
+                select(SurveyResponse.answers, EmailRecipient.email)
+                .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
+                .where(SurveyResponse.team_id == team_id)
+                .order_by(desc(SurveyResponse.submitted_at))
+                .limit(200)
+            )
+        )
         .all()
     )
     leads = (
@@ -534,7 +541,7 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
         .mappings()
         .all()
     )
-    signals = compute_survey_signals([{"answers": a} for a in responses])
+    signals = compute_survey_signals([{"answers": a, "email": e} for a, e in responses])
     signals.update(compute_lead_signals([dict(r) for r in leads]))
     signals.update(compute_funnel_signals([dict(r) for r in funnel_rows]))
     signals.update(compute_engagement_signals([dict(r) for r in post_metrics]))
