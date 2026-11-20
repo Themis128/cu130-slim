@@ -234,7 +234,7 @@ async def test_run_dispatches_actions(monkeypatch):
                         "team_id": str(team),
                         "actions": [
                             {"type": "content_topic", "topic": "AI", "reason": "trend"},
-                            {"type": "audit_escalation"},
+                            {"type": "audit_escalation", "emails": ["b@x.io", "a@x.io"]},
                             {"type": "platform_focus", "platform": "x"},
                             {"type": "unknown"},
                         ],
@@ -259,7 +259,7 @@ async def test_run_dispatches_actions(monkeypatch):
     assert out["results"][3] == {"type": "unknown", "team": str(team), "skipped": "no executor"}
     assert topic.await_args.args[1] == team
     events = [c.args[0] for c in db.add.call_args_list]
-    assert [e.meta_data["key"] for e in events] == ["AI", "audit_escalation", "x", "unknown"]
+    assert [e.meta_data["key"] for e in events] == ["AI", "a@x.io,b@x.io", "x", "unknown"]
     assert events[0].meta_data["reason"] == "trend"
     assert all(e.team_id == team for e in events)
     db.commit.assert_awaited_once()
