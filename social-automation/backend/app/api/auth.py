@@ -1465,10 +1465,11 @@ async def oauth_callback(
             # instagram_business_account field should now return the IG account.
             if is_ig_onboarding:
                 # Query pages for the linked Instagram business account
+                _ig_fields = "id,ig_id,username,profile_picture_url,name"
                 ig_resp = await http.get(
                     facebook_graph_url("me/accounts"),
                     params={
-                        "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
+                        "fields": ("id,name,access_token," f"instagram_business_account{{{_ig_fields}}}," f"connected_instagram_account{{{_ig_fields}}}"),
                         "access_token": long_lived_token,
                     },
                 )
@@ -1476,11 +1477,26 @@ async def oauth_callback(
                 ig_account = None
                 page_token = None
 
+                # Preference order: instagram_business_account (API-usable
+                # link) → connected_instagram_account (the Page↔IG settings
+                # link — the only populated field when the business link was
+                # never completed) → page_backed_instagram_accounts (any IG
+                # the user authorized for the Page, can be a DIFFERENT
+                # account — last resort only, verified 2026-11-21: it
+                # resolved a non-brand IG while connected_instagram_account
+                # held @cloudless.gr).
                 for page in ig_data.get("data", []):
                     if page.get("instagram_business_account"):
                         ig_account = page["instagram_business_account"]
                         page_token = page.get("access_token")
                         break
+
+                if not ig_account:
+                    for page in ig_data.get("data", []):
+                        if page.get("connected_instagram_account"):
+                            ig_account = page["connected_instagram_account"]
+                            page_token = page.get("access_token")
+                            break
 
                 # Fallback: check page_backed_instagram_accounts
                 if not ig_account:

@@ -159,6 +159,27 @@ async def test_ig_onboarding_skips_page_backed_entry_without_id(monkeypatch):
 
 
 @pytest.mark.usefixtures("_silence_connect_email")
+async def test_ig_onboarding_prefers_connected_instagram_account(monkeypatch):
+    """Live 2026-11-21 regression: page had no instagram_business_account,
+    connected_instagram_account=@cloudless.gr, but page_backed returned a
+    DIFFERENT IG id — the old order stored the wrong account."""
+    _fb_http(
+        monkeypatch,
+        **{
+            f"{_FB}/me/accounts": _FakeResp(
+                200, {"data": [{"id": "pg1", "access_token": "pt1", "connected_instagram_account": {"id": "ig-real", "username": "cloudless.gr"}}]}
+            ),
+            f"{_FB}/pg1/page_backed_instagram_accounts": _FakeResp(200, {"data": [{"id": "ig-other"}]}),
+        },
+    )
+    db = FakeDB(users=[_user()])
+    state = sign_oauth_state({"t": str(uuid.uuid4()), "p": "instagram-onboarding"})
+    await auth.oauth_callback("facebook", state=state, db=db, code="c")
+    acct = next(a for a in db.added if isinstance(a, SocialAccount))
+    assert acct.account_id == "ig-real" and acct.username == "cloudless.gr"
+
+
+@pytest.mark.usefixtures("_silence_connect_email")
 async def test_whatsapp_no_business_has_a_waba(monkeypatch):
     http = _fb_http(
         monkeypatch,
