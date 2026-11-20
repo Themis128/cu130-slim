@@ -124,7 +124,9 @@ async def _exec_content_topic(db, team_id, action) -> dict:
 
 async def _exec_audit_escalation(db, team_id, action) -> dict:
     """audit_escalation → Telegram booking ping with the emails."""
-    emails = action.get("emails") or []
+    emails = [e for e in (action.get("emails") or []) if e]
+    if not emails:
+        return {"skipped": "no contactable emails"}
     key = ",".join(sorted(emails))[:200]
     if await _already_executed(db, team_id, "audit_escalation", key):
         return {"skipped": "already pinged <24h"}
@@ -194,6 +196,9 @@ async def _run() -> dict:
                     if action.get("type") == "devapp_health":
                         # match the dedup key _exec_devapp_health checks against
                         key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
+                    elif action.get("type") == "audit_escalation":
+                        # match the dedup key _exec_audit_escalation checks against
+                        key = ",".join(sorted(e for e in (action.get("emails") or []) if e))[:200]
                     if not fn:
                         # unknown type (e.g. lead_source, ad_efficiency) — record
                         # the skip so dropped actions stay auditable in the lake
