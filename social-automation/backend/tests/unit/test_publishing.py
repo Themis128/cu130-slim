@@ -2270,6 +2270,26 @@ async def test_ig_dispatch_web_runs_before_instagrapi(ig_account_no_session, ig_
 
 
 @pytest.mark.asyncio
+async def test_ig_dispatch_instagrapi_failure_falls_through(ig_account_no_session, ig_post, monkeypatch):
+    """instagrapi failure must log and fall through to the sidecar/graph paths."""
+    ig_account_no_session.meta_data = {"private_api_session_id": "enc-sid"}
+    monkeypatch.setattr(pub, "InstagramAPIClient", _raise_client)
+    monkeypatch.setattr(pub._settings, "INSTAGRAM_USERNAME", "u")
+    monkeypatch.setattr(pub._settings, "INSTAGRAM_PASSWORD", "p")
+    monkeypatch.setattr(pub, "decrypt_field", lambda v: "sid" if v else None)
+    monkeypatch.setattr(pub, "_resolve_ig_user_token", AsyncMock(return_value="tok"))
+    insta = AsyncMock(return_value=pub.PublishResult(success=False, error="2fa required"))
+    sidecar = AsyncMock(return_value=pub.PublishResult(success=False, error="api down"))
+    graph = AsyncMock(return_value=pub.PublishResult(success=False, error="graph down"))
+    monkeypatch.setattr(pub, "_publish_instagram_via_instagrapi", insta)
+    monkeypatch.setattr(pub, "_publish_instagram_via_sidecar", sidecar)
+    monkeypatch.setattr(pub, "_publish_instagram_via_graph", graph)
+    r = await pub._publish_instagram("tok", "cap", ig_account_no_session, ig_post, ["/x.jpg"], [], None)
+    assert insta.await_count == 1 and sidecar.await_count == 1
+    assert not r.success
+
+
+@pytest.mark.asyncio
 async def test_ig_dispatch_sidecar_fail_returns_sidecar_result(ig_account_no_session, ig_post, monkeypatch):
     ig_account_no_session.meta_data = {"private_api_session_id": "enc-sid"}
     monkeypatch.setattr(pub, "InstagramAPIClient", _raise_client)
