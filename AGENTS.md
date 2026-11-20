@@ -690,15 +690,15 @@ Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app
 | Queue | Worker container | Concurrency | Max tasks/child | Tasks |
 |-------|-----------------|-------------|-----------------|-------|
 | `publishing` | `social-worker-publishing` | 3 | 200 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
-| `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
+| `media` | `social-worker-media` | 1 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
 | `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, `run_notebook_report` (papermill executes `/notebooks/reports/*.ipynb` — worker mounts `./notebooks`, needs papermill/ipykernel/pandas/matplotlib from `social-worker-latest`), `export_datalake`, `linkedin_ads_*`, unrouted tasks |
 | `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
 | `meta` | `social-worker-meta` | 2 | 200 | `process_meta_publish_queue`, `reconcile_instagram_publish`, `check_facebook_tokens` (Meta-platform blast-radius isolation) |
 
 - `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
-- Total: 11 concurrent prefork processes across 5 containers (was 4 in a single container before).
+- Total: 10 concurrent prefork processes across 5 containers (was 4 in a single container before).
 - Publishing gets 3 slots (I/O-bound, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
-- Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this memory-constrained Docker Desktop allocation (~16 GiB visible to WSL/Docker; Windows host is ~32 GiB).
+- Media gets 1 slot: GPU-bound tasks serialize on Redis `gpu:media_lock` anyway (Wan2.2 renders run 14–34 min vs the 600s acquire timeout), so a second process only produced lock-timeout failures. `max-tasks-per-child=50` still recycles Pillow/AI memory frequently on this memory-constrained Docker Desktop allocation (~16 GiB visible to WSL/Docker; Windows host is ~32 GiB).
 - Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
 - Messenger gets 2 slots with `max-tasks-per-child=50` — AI inference (CF Workers AI + DMR Qwen3 8B fallback) + ChromaDB RAG + intent detection + brand voice injection is RAM-heavy, so processes recycle often. One slot for the 120s poller, one for ad-hoc bot tasks (brand indexing, thread pause/resume).
 - `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acked after completion — a worker crash triggers redelivery instead of silent loss.
