@@ -422,14 +422,17 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     """Pull every funnel source the lake exports and merge the signals."""
     since = datetime.now(UTC) - timedelta(days=30)
     responses = (
-        await db.execute(
-            select(SurveyResponse.answers, EmailRecipient.email)
-            .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
-            .where(SurveyResponse.team_id == team_id)
-            .order_by(desc(SurveyResponse.submitted_at))
-            .limit(200)
+        (
+            await db.execute(
+                select(SurveyResponse.answers, EmailRecipient.email)
+                .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
+                .where(SurveyResponse.team_id == team_id)
+                .order_by(desc(SurveyResponse.submitted_at))
+                .limit(200)
+            )
         )
-    ).all()
+        .all()
+    )
     leads = (
         (
             await db.execute(
