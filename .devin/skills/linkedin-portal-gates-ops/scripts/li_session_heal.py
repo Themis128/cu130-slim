@@ -607,6 +607,27 @@ def cmd_heal(args):
                      "http_error_streak": 0})
         return 0
     print(f"cookie heal failed: {res.get('reason') or (res.get('state') or {}).get('url', '?')}")
+    # 2026-11-21: cap credential logins. Every fresh login on this
+    # automation-visible profile is a flagging event; churning the 30-min
+    # cron through repeated logins deepens the server-side session flag
+    # instead of healing it (observed: login page renders anonymously but
+    # any authed request is refused once the cred set is flagged).
+    prev = _state()
+    today = time.strftime("%Y-%m-%d")
+    count = int(prev.get("cred_login_count", 0)) \
+        if prev.get("cred_login_day") == today else 0
+    if count >= 3:
+        print("credential login skipped: daily cap (3) — human login needed")
+        _save_state({**prev, "last_result": "human-needed:credential-daily-cap"})
+        if prev.get("last_alert_reason") != "credential-daily-cap":
+            _alert("LinkedIn :9229 session flagged — credential logins capped "
+                   "for today (3). One manual login on the debug browser "
+                   "restores it.")
+            _save_state({**_state(), "last_alert_reason": "credential-daily-cap",
+                         "last_alert_ts": time.time()})
+        return 3
+    _save_state({**prev, "cred_login_day": today,
+                 "cred_login_count": count + 1})
     res2 = _credential_login(base)
     if res2.get("ok"):
         print(f"credential login succeeded ({res2.get('captured', 0)} cookies stored)")
