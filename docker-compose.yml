@@ -1994,6 +1994,10 @@ services:
       - TZ=Europe/Athens
       - TOOL_TIMEOUT=300
       - BROWSER_IDLE_TIMEOUT=0
+      # internal-only: no published port, reachable on the backend network
+      # (and a 127.0.0.1:9227 socat forward) — same exposure as before the
+      # upstream image added the 0.0.0.0 auth gate.
+      - LINKEDIN_MCP_ALLOW_UNAUTHENTICATED_HTTP=true
       - LINKEDIN_COOKIE=${LINKEDIN_COOKIE:-}
     volumes:
       - linkedin_mcp_data:/home/pwuser/.linkedin-mcp
