@@ -128,7 +128,13 @@ def main() -> None:
     ap.add_argument("--team-id", default=None, help="target team UUID (default: first team)")
     ap.add_argument("--file", default=str(SEED_FILE))
     args = ap.parse_args()
-    asyncio.run(seed(args.team_id, Path(args.file)))
+    seed_path = Path(args.file)
+    # Baked-image deploys (stack-rescue, no deploy/ bind mount) ship without
+    # the seeds dir — seeded rows persist in the DB, so skip instead of crash.
+    if not seed_path.exists():
+        print(f"seed file absent ({seed_path}) — skipping (existing rows persist)")
+        return
+    asyncio.run(seed(args.team_id, seed_path))
 
 
 if __name__ == "__main__":
