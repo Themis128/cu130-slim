@@ -26,6 +26,9 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
     healthcheck:
       test:
         - CMD-SHELL
@@ -67,6 +70,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   social-worker-media:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
@@ -86,6 +92,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   social-worker-default:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
@@ -103,6 +112,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   social-worker-messenger:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
@@ -120,6 +132,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   social-worker-meta:
     # Dedicated `meta` queue lane (facebook/instagram/threads publish sweep +
@@ -139,6 +154,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
@@ -156,6 +174,9 @@ services:
       - social-postgres
       - redis
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   # Browser Sidecars (local build images — not published to GHCR)
   linkedin-browser-sidecar:
@@ -229,7 +250,7 @@ services:
       - "127.0.0.1:5433:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -285,6 +306,9 @@ services:
     depends_on:
       - social-postgres
     restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
 
   instagram-private-api:
     # Built locally: upstream :latest ships aiograpi 1.0.9 whose password
@@ -330,6 +354,10 @@ services:
     depends_on:
       - social-api
     restart: unless-stopped
+
+networks:
+  cu130-backend:
+    external: true
 
 volumes:
   social-postgres-data:
