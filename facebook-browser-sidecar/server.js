@@ -770,6 +770,7 @@ async function handleLogin(req, res) {
       if (
         currentUrl.includes("checkpoint") ||
         currentUrl.includes("two_factor") ||
+        currentUrl.includes("two_step_verification") ||
         (await isLoggedIn())
       ) {
         break;
@@ -779,7 +780,8 @@ async function handleLogin(req, res) {
     // Check for 2FA / checkpoint
     if (
       currentUrl.includes("checkpoint") ||
-      currentUrl.includes("two_factor")
+      currentUrl.includes("two_factor") ||
+      currentUrl.includes("two_step_verification")
     ) {
       if (verification_code) {
         const codeInput = page
