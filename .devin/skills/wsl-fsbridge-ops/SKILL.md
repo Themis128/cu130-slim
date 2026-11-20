@@ -73,7 +73,7 @@ volumes, and TG-alerts #ops. Log: `~/logs/fsbridge-reconcile.log`.
 
 ## What heals it
 
-Only a **full `wsl --shutdown`** — resets the whole hvs/vsock plane; on
+A **full `wsl --shutdown`** — resets the whole hvs/vsock plane; on
 Ubuntu boot DD re-pushes the proxy, which re-declares every hashed mount,
 and restart policies bring containers up with working mounts (verified:
 promtail + cloudflared recovered on proxy respawn at 23:54 after the
@@ -82,6 +82,9 @@ proxy came back during a channel window).
 On this host the heal is already scheduled:
 - closing Devin → `vhdx-compact-on-devin-exit` fires within ~5 min (full WSL stop)
 - `Nightly-Vhdx-Compact` 05:00 daily
+
+Manual alternative: **hashed-mount rebind** heals individual dead
+mounts without a shutdown — see section below (verified 2026-11-20).
 
 The Windows watchdog `DevOptimizer-WSL-Repair` (every 30 min) now:
 - logs `[fsbridge] DISTRO PROXY DEAD` + empty-mount count instead of a
@@ -123,6 +126,42 @@ independently of the vsock exec channel — use it to:
 Renames over 9p work (`Rename-Item`); POSIX symlinks CANNOT be created over
 9p (LX_SYMLINK reparse is WSL-internal; `New-Item -ItemType SymbolicLink`
 rejects POSIX targets, `mklink` can't store them) — wait for an exec window.
+
+## Manual hashed-mount rebind (heals WITHOUT wsl --shutdown)
+
+Verified 2026-11-20: the dead hashed mount points are STALE `/dev/sdd`
+(the Ubuntu VHDX) mounts inside the docker-desktop VM — the disk itself
+still mounts clean. You can rebind every dead source by hand:
+
+1. `wsl.exe -d docker-desktop -u root -e sh` — exec into the VM (the
+   `wsl: Failed to translate \\wsl.localhost\Ubuntu-24.04\...` warning
+   is cosmetic; the distro shell itself works).
+2. `mkdir -p /tmp/ubnt && mount /dev/sdd /tmp/ubnt` — a FRESH mount of the
+   Ubuntu disk with real content.
+3. For each dead hashed dir under
+   `/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04/<sha256(src)>`:
+   - DIR source: `umount -l <hash>; mount --bind /tmp/ubnt<src> <hash>`
+   - FILE source: `umount -l <hash>; rm -rf <hash>; touch <hash>;`
+     `mount --bind /tmp/ubnt<src> <hash>`
+   - `/run/docker.sock` source: same as file, but bind
+     `/run/guest-services/docker.container-proxy.sock` (the real
+     container-facing engine socket in the VM).
+   - `/mnt/c/...` sources: bind from `/mnt/host/c/...` (the C:\ 9p mount
+     is unaffected by the Ubuntu bridge poison).
+4. `docker start` the previously-Exited(127) containers — mounts now
+   resolve to populated content.
+
+Hash = `sha256(source-path)` — enumerate with
+`docker inspect <c> --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}'`.
+
+Caveats:
+- Repairs are per-source (one hash serves every container mounting it).
+- A container whose .Source is itself a hashed dir (double-hash) needs
+  its outer hash rebound too.
+- `docker compose up -d` recreate is still preferable when it works —
+  redeclare beats rebind. Rebind is for when mounts can't be recreated.
+- Survives until the next engine/VHDX event; the nightly `wsl --shutdown`
+  still resets everything to the canonical path.
 
 ## Related
 
