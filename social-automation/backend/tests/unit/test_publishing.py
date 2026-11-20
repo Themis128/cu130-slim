@@ -2249,6 +2249,27 @@ async def test_ig_dispatch_web_success(ig_account_no_session, ig_post, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_ig_dispatch_web_runs_before_instagrapi(ig_account_no_session, ig_post, monkeypatch):
+    """A live web session must publish before the slow instagrapi login path."""
+    ig_account_no_session.meta_data = {
+        "private_api_session_id": "enc-sid",
+        "private_api_csrf_token": "c",
+        "private_api_ds_user_id": "d",
+    }
+    monkeypatch.setattr(pub, "InstagramAPIClient", _raise_client)
+    monkeypatch.setattr(pub._settings, "INSTAGRAM_USERNAME", "u")
+    monkeypatch.setattr(pub._settings, "INSTAGRAM_PASSWORD", "p")
+    monkeypatch.setattr(pub, "decrypt_field", lambda v: "sid" if v else None)
+    web = AsyncMock(return_value=pub.PublishResult(success=True, platform_post_id="w1"))
+    insta = AsyncMock(return_value=pub.PublishResult(success=True, platform_post_id="i1"))
+    monkeypatch.setattr(pub, "_publish_instagram_via_web", web)
+    monkeypatch.setattr(pub, "_publish_instagram_via_instagrapi", insta)
+    r = await pub._publish_instagram("tok", "cap", ig_account_no_session, ig_post, ["/x.jpg"], [], None)
+    assert r.platform_post_id == "w1"
+    assert web.await_count == 1 and insta.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_ig_dispatch_sidecar_fail_returns_sidecar_result(ig_account_no_session, ig_post, monkeypatch):
     ig_account_no_session.meta_data = {"private_api_session_id": "enc-sid"}
     monkeypatch.setattr(pub, "InstagramAPIClient", _raise_client)

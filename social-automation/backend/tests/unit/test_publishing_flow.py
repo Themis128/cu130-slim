@@ -586,23 +586,23 @@ async def test_ig_business_login_ambiguous_short_circuits(monkeypatch, tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_ig_chain_instagrapi_then_web(monkeypatch, tmp_path):
+async def test_ig_chain_web_then_instagrapi(monkeypatch, tmp_path):
     img = tmp_path / "p.png"
 
     img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
     monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
     monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
     monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="u", INSTAGRAM_PASSWORD="p"))
-    insta = AsyncMock(return_value=_r(False, "2fa required"))
-    web = AsyncMock(return_value=_r(True, pid="w1"))
+    insta = AsyncMock(return_value=_r(True, pid="i1"))
+    web = AsyncMock(return_value=_r(False, "rupload rejected"))
     monkeypatch.setattr(P, "_publish_instagram_via_instagrapi", insta)
     monkeypatch.setattr(P, "_publish_instagram_via_web", web)
     monkeypatch.setattr(P, "decrypt_field", lambda v: v)
     acc = _ig_account(private_api_session_id="s", private_api_csrf_token="c", private_api_ds_user_id="d")
     r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
-    assert r.success and r.platform_post_id == "w1"
-    insta.assert_awaited_once()
+    assert r.success and r.platform_post_id == "i1"
     web.assert_awaited_once()
+    insta.assert_awaited_once()
 
 
 @pytest.mark.asyncio
