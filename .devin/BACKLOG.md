@@ -4178,3 +4178,44 @@ Open items:
   tradeoff is the owner's call.
 - `watch:` if thrash worsens before the upgrade, next lever is
   per-container `mem_limit` on the fat social-worker/media services.
+
+## 2026-11-21 — Meta password change: full-session invalidation recovery
+
+Password rotation invalidated EVERY Meta token server-side (Graph 190/460
+"session invalidated because the user changed their password"). Recovery
+sequence that worked, in order:
+
+1. `facebook-browser-sidecar` (:9226) credential login → 2SV → user
+   approves via "Notification on another device" → `logged_in: true`.
+   Sidecar `/login` bug fixed: it only matched `checkpoint|two_factor`
+   URLs, not `two_step_verification` — PR #2421.
+2. `run_instagram_reauth` Celery task — unattended OAuth fast path,
+   minted fresh 60d token in ~40s.
+3. FB OAuth consent URL (`fb_reauth.py --url`) driven through the
+   sidecar `/debug/navigate` + `/debug/click` — callback landed,
+   both facebook rows `active`.
+4. `account_truth.py` per-platform probes verified live (not just DB).
+
+Findings worth keeping:
+
+- `watch:` `instagram_reauth` fast path wrote the fresh token to row
+  `9eded1e5` (account_id `17841463022505300`) — a DIFFERENT IG on the
+  same login that the app cannot publish to (Graph #10). The real brand
+  account is `17841436821573754` (@cloudless.gr, media edge verified).
+  Fixed manually: token copied to the brand row, wrong-account row
+  retired (`meta_data.retired_at`). Root fix candidate: the OAuth
+  callback / row-matching should prefer the page-backed
+  `instagram_business_account` ID over whatever row it upserts.
+- `watch:` `heal_sessions` task was orphaned mid-run when
+  `social-worker-default` was container-replaced (~22:17Z) — Celery
+  result stuck `STARTED`, Redis lock self-expired (ex=1500). Next beat
+  recovered cleanly, but a worker restart during a heal run silently
+  drops the whole sweep.
+- `human:` `threads/t_baltzakis` still `revoked` — `threads_reauth`
+  needs a logged-in threads.net session on the browser-novnc bridge;
+  bridge sessions are broadly logged out (x/linkedin/tiktok LOGIN_WALL
+  too, unrelated to Meta). Hourly `heal_sessions` IG-SSO bootstrap is
+  the automated retry; if the bridge IG session is also dead it needs
+  one manual login via noVNC (`localhost:6080`).
+- Legacy IG row `28747382798219804` ("legacy ig_id") is dead on Graph —
+  stays `revoked`; publish targeting already skips non-active rows.
