@@ -144,10 +144,10 @@ def test_sweep_revives_auth_failed_target(monkeypatch):
     tgt = _target(pid, account_id=acct)
     db = _DB(
         [
-            _Result([tgt]),          # failed targets
-            _Result([], scalar=0),   # active queue rows
-            _Result([], scalar=1),   # lifetime queue rows (<4)
-            _Result([]),             # failed posts (none)
+            _Result([tgt]),  # failed targets
+            _Result([], scalar=0),  # active queue rows
+            _Result([], scalar=1),  # lifetime queue rows (<4)
+            _Result([]),  # failed posts (none)
         ],
         posts={pid: post},
     )
@@ -221,7 +221,7 @@ def test_sweep_skips_target_with_active_queue_row(monkeypatch):
     db = _DB(
         [
             _Result([tgt]),
-            _Result([], scalar=1),   # active pending/processing row exists
+            _Result([], scalar=1),  # active pending/processing row exists
             _Result([]),
         ],
         posts={pid: post},
@@ -299,7 +299,7 @@ def test_sweep_revives_failed_video_post(monkeypatch):
     post = _post(pid=pid, meta={"instruction": "a sunrise timelapse over Athens"})
     db = _DB(
         [
-            _Result([]),   # failed targets
+            _Result([]),  # failed targets
             _Result([post]),  # failed posts
         ]
     )
