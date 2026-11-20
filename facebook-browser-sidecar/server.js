@@ -493,6 +493,8 @@ async function handleProfilePicker() {
       await continueBtn.click();
       await settle(10000);
       console.log("Clicked Continue as button");
+      // Persist updated session cookies after picker dismissal
+      await saveSession();
       return true;
     }
 
@@ -524,6 +526,8 @@ async function handleProfilePicker() {
           await submitBtn.click();
           await settle(10000);
           console.log("Selected profile from picker");
+          // Persist updated session cookies after picker dismissal
+          await saveSession();
           return true;
         }
       }
