@@ -4116,3 +4116,46 @@ Open items:
 - `human:` TG_API_ID/HASH still gated on my.telegram.org daily cap —
   retry cron 13:00 UTC daily.
 - `decide:` expand ops-agent ALLOWED_RERUN_TASKS beyond read-only?
+
+## 2026-11-20 — Host RAM: structural thrash on 32GB (Legion 5 Pro 82RF)
+
+Root cause mapped end-to-end today: `vmmemWSL` ~8.6GB (Ubuntu 9GB cap +
+35 containers) + DMR models (0.25–4.8GB each, reloaded on demand by real
+pipeline traffic) + Devin/browsers/system on a 32GB host → the
+load→crunch→evict loop. Watched it live: host free dove to **91MB**
+under a `qwen3-vl` media-QA load; the DMR RAM guard evicted all models
+and recovered to ~3GB in ~5s (works as designed, thrash repeats each
+media run; vision QA falls back to CF `moondream` so function is safe,
+latency is not).
+
+Done today:
+- `host_gates_check.py` ram gate recalibrated to the real flap
+  predictor — host free <2.0GB or guest avail <1.5GB (was guest
+  avail <6GB, impossible-by-math under the 9GB cap → permanent warn).
+  PR #2412.
+- fsbridge warn cleared live without `wsl --shutdown`: orphan hashed
+  mounts `umount`+`rmdir` (documented in wsl-fsbridge-ops SKILL.md),
+  dead `/uploads` mount healed via `force-recreate`. PR #2412.
+- Pagefile verified adequate (system-managed 32GB, peak 4.7GB used).
+- LinkedIn session: `li_rm` confirmed unmintable on any current
+  web-login variant (3 live attempts); durable path = remembered
+  account + `bcookie` → password-only re-login → fresh ~365d `li_at`.
+  PRs #2408/#2409/#2410 merged; jar fresh +364d.
+- `audit_escalation` Telegram pings fixed (blank emails via missing
+  recipient join + dedup key mismatch) — hot-patched into workers;
+  PR #2411 pending merge.
+
+Open items:
+- `human:` **RAM upgrade — the real fix.** Legion 5 Pro 16IAH7H (82RF),
+  2×16GB DDR5-4800 SO-DIMM, both slots occupied. Officially caps 32GB
+  but 17% of field reports run **64GB (2×32GB)** — board takes it.
+  Buy dual-rank 2Rx8, non-XMP (Legion ignores XMP), e.g. Crucial
+  CT2K32G48C40S5 (~€130). Install: F2 BIOS → power → disable battery,
+  10 screws. After upgrade: raise `.wslconfig` `memory` 9→13-14GB +
+  `wsl --shutdown`; the entire thrash class ends.
+- `decide:` model diet interim — point `DMR_MODEL=ai/qwen3:8b-q4_K_M`
+  (4.5GB) consumers at pinned `qwen3-4b-instruct` (2.3GB)? Halves the
+  load footprint at some content-quality cost. Not applied — quality
+  tradeoff is the owner's call.
+- `watch:` if thrash worsens before the upgrade, next lever is
+  per-container `mem_limit` on the fat social-worker/media services.
