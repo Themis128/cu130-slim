@@ -21,6 +21,18 @@ gone.
 
 ## Open — engineering
 
+- [ ] **LinkedIn :9229 lane → patchright migration** (2026-11-21 incident):
+  flagged-credential class proven — once `li_at`+`bcookie` are flagged
+  server-side, every authed request is refused on ANY browser/profile while
+  anonymous navs still render; only a fresh login mints a clean pair. The
+  vanilla headless debug chrome gets flagged far faster than the patchright
+  sidecars (which survived the same window untouched). Options: route
+  portal-gates/healer traffic through the existing `linkedin-browser-sidecar`
+  (:9225), or launch the debug lane via patchright instead of
+  `--headless=new` vanilla chrome. Mitigations already landed:
+  `li_session_heal.py` caps credential logins at 3/day (#2415), and
+  `.devin/rules/linkedin-session-discipline.md` codifies the no-login-churn
+  rule + flagged-credentials signature.
 - [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
   live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
   <Q_DL>` with a fresh app-bound Q_DL link from the products page
