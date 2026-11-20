@@ -24,20 +24,22 @@ Cookie jar lives OUTSIDE the repo (~/.local/state) — session material is
 never committed. li_at/JSESSIONID are the critical pair; the full set is
 stored so a heal restores the exact session, not a partial one.
 
-Self-renewal (verified mechanic, linkedin-jobs-scraper auth research,
-still current per LinkedIn's cookie table Aug-2026): a matched li_rm
-(.www.linkedin.com) + bcookie (.linkedin.com) pair mints a FRESH li_at
-when an authenticated route (/feed/) loads — no password, no
-checkpoint. li_rm is minted ONLY by a bare-form login with the
-"Keep me signed in" checkbox ticked — the welcome-back password-only
-variant mints li_at but NOT li_rm (verified 2026-11-20 live), and the
-bare form can be captcha-gated on untrusted profiles. If the jar lacks
-li_rm, one manual bare-form login with keep-me ticked on the
-debug-profile chrome restores the renewal pair; until then the
-password-only re-login path in _credential_login is the fallback.
---capture stores the whole jar; _heal_with_cookies detects the pair
-and polls for the minted li_at, then re-captures so rotated cookies
-stay fresh.
+Self-renewal: LinkedIn's cookie table still lists li_rm
+(.www.linkedin.com) and older scraper research documents the
+li_rm+bcookie pair minting a fresh li_at on /feed/ loads — but as of
+2026-11-20 no current web login flow mints it (verified live across
+THREE attempts: welcome-back password-only, bare-form keep-me on an
+untrusted profile, and bare-form keep-me in an incognito context on
+the TRUSTED debug profile — all minted li_at+bcookie, none minted
+li_rm). The working durable path is therefore: remembered account
+(localStorage) + long-lived bcookie -> PASSWORD-ONLY re-login ->
+fresh ~365d li_at, no captcha on a trusted profile. EVAL_LOGIN ticks
+keep-me every credential login so the remembered-account state is
+always (re)stored. has_pair stays as forward-compat in case li_rm
+ever returns. --capture stores the whole jar; _heal_with_cookies
+injects it and polls for a rotated li_at before falling back to
+_credential_login, which drives both the bare email+password form
+and the password-only welcome-back variant.
 """
 import argparse
 import json
@@ -116,11 +118,11 @@ EVAL_LOGIN = r"""
   };
   if (u) set(u, user);
   set(p, pass);
-  // Tick "Keep me signed in" — on the BARE form this mints the
-  // li_rm+bcookie renewal pair (self-renewing li_at on /feed/ loads);
-  // on the welcome-back form it mints li_at only but still enables the
-  // password-only re-login path. Either way the tick is required for
-  // durability — a login without it leaves no renewal surface.
+  // Tick "Keep me signed in" — stores the remembered account
+  // (localStorage) + long-lived bcookie that enable password-only
+  // re-login and a fresh ~365d li_at. (li_rm itself is no longer
+  // minted on any tested login variant — verified 2026-11-20 —
+  // but the tick is still what makes the session durable.)
   const keep = document.querySelector(
     '#rememberMeOptIn-checkbox, input[name="rememberMeOptIn"], '
     + 'input[type="checkbox"][id*="remember"], '
