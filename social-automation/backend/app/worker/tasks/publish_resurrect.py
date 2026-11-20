@@ -21,7 +21,6 @@ copy, missing media) are NEVER resurrected — deterministic, needs a human.
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
