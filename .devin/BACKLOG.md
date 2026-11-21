@@ -4404,3 +4404,49 @@ Status corrections made: `9355ed63` (fb user) + `d2215106` (ig fb-graph)
 - **Session hygiene**: instagram.com sessions live ~15 min under API
   probing; every web_rupload transplant attempt revokes the browser
   session. Never run both lanes against the same session.
+
+## 2026-11-21 — WhatsApp-dependent issues parked pending Meta support ticket
+
+User directive: all WhatsApp-side issues go to backlog until Meta answers
+the support ticket. Ticket filed via Business Support Home → Meta AI
+business assistant (business 1558125105019725, chat thread "New chat",
+2026-11-21 ~23:xx Athens): report covers IG asset 17841436821573754
+returning `#10 Requires instagram_content_publish` on every /media POST
+despite a valid token holding the scope — filed after the account lock +
+password change. Watch business-support-home "Your support cases" + the
+assistant chat for the reply.
+
+- [ ] watch: **Meta support reply on IG #10 publish block** — assistant
+  chat filed; when Meta answers, re-run `account_truth.py --platform
+  instagram` and requeue `post_targets` 4e4a063c (gta6 reel, media
+  intact) — attempts already bounded at 3, needs queue reset to re-fire.
+- [ ] human: **IG session recovery via profile picker → WhatsApp 2FA**
+  (+30 697 777 7838) — parked per directive. Picker click works
+  (verified: reaches `accounts/login/two_step_verification`,
+  "Check your WhatsApp messages"). Code never observed arriving via ADB
+  notification dump. When Meta answers / user supplies a code: complete
+  2FA in facebook-browser-sidecar, tick "Trust this device", then harvest
+  fresh sessionid/csrf into `meta_data.private_api_*` (stored session is
+  dead — i.instagram.com `status:fail` verified 2026-11-21).
+- [ ] watch: **WhatsApp Business Cloud API sends suppressed** — the Meta
+  account lock suppresses Meta-surface sends incl. WABA verification
+  SMS (skill corollary). Re-test `send-template` + inbound webhook only
+  after the lock clears.
+- [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
+  in Meta Business then POST /{phone}/register (carried over — still
+  valid, now also blocked on the ticket outcome).
+- [ ] watch: WA template approvals (PENDING batch: cloudless_followup +
+  cloudless_alert en/el), inbound test on +30 697 777 7838, and
+  system-user token mint — all resume after Meta unlock.
+- [ ] watch: **Graph token on IG row unparsable** — `access_token_enc`
+  on the active cloudless.gr row returns 190 "Cannot parse access
+  token" on Graph /me while `account_truth` reports live=active.
+  Publish path still #10. After Meta answers: re-mint via
+  `instagram_reauth.py` (FB-login lane) or restore Page↔IG link, then
+  re-store token.
+- [ ] human: **Page↔IG business link** — FB admin surfaces (professional
+  dashboard, page settings) reject one-tap/headless sessions; needs an
+  interactive login → Professional dashboard → Linked accounts →
+  Instagram. Until then `graph_fb` stays dead (token 190 from the
+  password change + missing `instagram_content_publish`). IG publishing
+  currently carried by the browser-CDP lane (PR #2452, merged).
