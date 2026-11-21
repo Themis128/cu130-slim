@@ -261,6 +261,12 @@ class Settings(BaseSettings):
     INSTAGRAM_USERNAME: str = ""
     INSTAGRAM_PASSWORD: str = ""
 
+    # Browser-CDP publish lane: run rupload/configure as fetch() inside the
+    # authenticated instagram.com tab on the debug Chrome (keeps the browser
+    # session intact — worker-side sessionid transplants get revoked by
+    # Instagram within minutes). Empty disables the lane.
+    INSTAGRAM_BROWSER_CDP_URL: str = "http://192.168.96.1:9229"
+
     # Residential/mobile proxy for Instagram private API — datacenter IPs
     # get challenge_required from Instagram's anti-abuse system.
     # Format: http://user:pass@host:port  or  socks5://user:pass@host:port
