@@ -265,7 +265,7 @@ class Settings(BaseSettings):
     # authenticated instagram.com tab on the debug Chrome (keeps the browser
     # session intact — worker-side sessionid transplants get revoked by
     # Instagram within minutes). Empty disables the lane.
-    INSTAGRAM_BROWSER_CDP_URL: str = "http://192.168.96.1:9229"
+    INSTAGRAM_BROWSER_CDP_URL: str = ""
 
     # Residential/mobile proxy for Instagram private API — datacenter IPs
     # get challenge_required from Instagram's anti-abuse system.

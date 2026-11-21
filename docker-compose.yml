@@ -234,6 +234,8 @@ x-worker-env: &worker-env
   - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME:-}
   - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD:-}
   - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://stack-ops:1080}
+  # Browser-CDP IG publish lane — in-page rupload/configure on debug Chrome :9229
+  - INSTAGRAM_BROWSER_CDP_URL=${INSTAGRAM_BROWSER_CDP_URL:-http://192.168.96.1:9229}
 
 # Shared volumes for all worker containers.
 x-worker-volumes: &worker-volumes

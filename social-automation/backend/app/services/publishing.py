@@ -2820,7 +2820,7 @@ async def _publish_instagram_via_browser(
     with an instagram.com tab logged into the target account
     (``private_api_ds_user_id`` in meta must match the page cookie).
     """
-    cdp_url = (_settings.INSTAGRAM_BROWSER_CDP_URL or "").strip()
+    cdp_url = (getattr(_settings, "INSTAGRAM_BROWSER_CDP_URL", "") or "").strip()
     if not cdp_url:
         return PublishResult(success=False, error="INSTAGRAM_BROWSER_CDP_URL not configured.")
 
@@ -2854,7 +2854,11 @@ async def _publish_instagram_via_browser(
         return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
 
     page = next(
-        (t for t in targets if t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")),
+        (
+            t
+            for t in targets
+            if isinstance(t, dict) and t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")
+        ),
         None,
     )
     if not page:
@@ -3120,7 +3124,11 @@ async def _publish_instagram_reel_via_browser(
         return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
 
     page = next(
-        (t for t in targets if t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")),
+        (
+            t
+            for t in targets
+            if isinstance(t, dict) and t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")
+        ),
         None,
     )
     if not page:
@@ -3824,7 +3832,7 @@ async def _publish_instagram(
     # httpx: transplants get the session revoked within minutes, the page
     # context does not (2026-11-21 incident). Fails fast when the browser
     # session is dead, then the chain falls through to web_rupload.
-    if (_settings.INSTAGRAM_BROWSER_CDP_URL or "").strip():
+    if (getattr(_settings, "INSTAGRAM_BROWSER_CDP_URL", "") or "").strip():
         # Reels need upload + server transcode + configure retries — give the
         # browser lane a wider budget than the 45s image-path default.
         _has_video = any(fp.lower().endswith((".mp4", ".mov", ".webm", ".avi")) for fp in media_paths)
