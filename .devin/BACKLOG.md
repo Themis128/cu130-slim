@@ -4450,3 +4450,23 @@ assistant chat for the reply.
   Instagram. Until then `graph_fb` stays dead (token 190 from the
   password change + missing `instagram_content_publish`). IG publishing
   currently carried by the browser-CDP lane (PR #2452, merged).
+- [ ] **Battle-test findings (2026-11-22):**
+  - [x] flag-clobber fixed: raced in-page fetch overwrote `__igpub` after
+    terminal `r2:200:{media}` → worker misread success as failure → retry
+    with live media already landed. Latched per post id (PR #2457).
+  - [ ] **phantom post on profile** — media `4035592390844457004` /
+    permalink https://www.instagram.com/p/DgBTeXijaAs/ is LIVE but the
+    post_target is `skipped` (semantic QA rejected mismatched media on
+    the retry). Decide: delete the live post or keep; DB↔live drift
+    needs a reconcile lane for "landed but DB says skipped/failed".
+  - [ ] **instagrapi private API broken** — login rejected: "your version
+    of Instagram is out of date". App-version bump needed in the
+    instagrapi client config; until then the private-API fallback is dead.
+  - [ ] **IG web sessions die in ~5min** under publish churn (rupload +
+    instagrapi password attempts in the same window revoke it). TOTP
+    re-login works but sessions shouldn't burn this fast — suspect the
+    parallel instagrapi login attempts during the fallback chain.
+  - [ ] **env-var delivery gap** — `INSTAGRAM_BROWSER_CDP_URL` lives in
+    compose env but rescue-model containers (no compose recreate) never
+    see it; patched config.py default in-container instead. If stack
+    returns to compose-managed containers, verify the env var applies.
