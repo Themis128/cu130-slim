@@ -4444,12 +4444,17 @@ assistant chat for the reply.
   Publish path still #10. After Meta answers: re-mint via
   `instagram_reauth.py` (FB-login lane) or restore Page↔IG link, then
   re-store token.
-- [ ] human: **Page↔IG business link** — FB admin surfaces (professional
-  dashboard, page settings) reject one-tap/headless sessions; needs an
-  interactive login → Professional dashboard → Linked accounts →
-  Instagram. Until then `graph_fb` stays dead (token 190 from the
-  password change + missing `instagram_content_publish`). IG publishing
-  currently carried by the browser-CDP lane (PR #2452, merged).
+- [~] human→resolved-for-publishing: **Page↔IG business link** — resolved
+  for publishing via **Instagram Business Login** (instagram2 OAuth,
+  2026-11-22): `graph.instagram.com` lane needs no Page link — account
+  `38ddbd44` active, token expires 2027-01-20, `me` → cloudless.gr
+  BUSINESS. Failed reel target published through it → live
+  https://www.instagram.com/p/DgBaCPZilma/. The Page↔IG link itself is
+  still a Meta backend gap (`connected_instagram_account` set,
+  `instagram_business_account` null, Business portfolio shows zero IG
+  accounts) — only matters now for Messenger/insights surfaces, not
+  publishing. `graph_fb` path remains dead for IG; leave as documented
+  human gate for non-publish surfaces.
 - [ ] **Battle-test findings (2026-11-22):**
   - [x] flag-clobber fixed: raced in-page fetch overwrote `__igpub` after
     terminal `r2:200:{media}` → worker misread success as failure → retry
@@ -4470,3 +4475,56 @@ assistant chat for the reply.
     compose env but rescue-model containers (no compose recreate) never
     see it; patched config.py default in-container instead. If stack
     returns to compose-managed containers, verify the env var applies.
+
+## 2026-11-22 — IG publish #10 root cause + IG-native lane state
+- BF post 4f822b64: FB/LinkedIn/Threads published; IG failed x3 with Graph #10.
+- PROVEN root cause: Page 116436681562585 lost `instagram_business_account`
+  (connected_instagram_account still present). Token scopes all granted;
+  OAuth reauth does NOT restore it. Meta forum thread 3087865364750080 shows
+  this is a known unresolved Graph-level bug pattern.
+- ig_onboarding_drive.py (wizard lane) loops on IG 2FA — business_extension
+  handoff never completes. Do not hammer (burns TOTP challenges).
+- DURABLE FIX = instagram2/business_login lane (graph.instagram.com,
+  instagram_business_* scopes) — immune to Page-link bug. Code fully exists
+  (auth.py instagram2_authorize/callback, publishing.py login_type branch).
+- STATE: INSTAGRAM2_* was only in repo-root .env; copied 3 lines into
+  deploy/socialauto-standalone/.env BUT social-api recreate FAILED on
+  fsbridge (distro-services sock missing) — container still runs WITHOUT
+  INSTAGRAM2 env. instagram2_authorize returns 400 until recreate succeeds
+  (needs wsl-fsbridge heal / wsl --shutdown, or compose up after heal).
+- Manual lane proven viable: INSTAGRAM2_CLIENT_ID=1462851805249610 (IG App
+  ID, NOT Meta app id — see docs/meta-services-status.md). Auth URL minted
+  to /tmp/ig2_auth_url.txt. :9229 Chrome has NO IG session (oauth/authorize
+  shows "Page isn't available" = logged out). Next: IG login on :9229 with
+  INSTAGRAM_USERNAME/PASSWORD (.env) + 2FA (SMS lane works via ADB, or
+  TOTP), complete consent, capture ?code= from redirect, exchange manually
+  (POST api.instagram.com/oauth/access_token → ig_exchange_token long
+  token), upsert expired business_login row 28747382798219804
+  (encrypt via app.core.security inside social-api), probe
+  graph.instagram.com/{ig-user}/media, requeue post_target.
+- Old business_login row: username cloudless.gr, account_id
+  28747382798219804, status=expired — this is the IG user id for the
+  business_login lane (differs from fb_onboarding 17841436821573754).
+
+## 2026-11-22 RESOLVED — IG publish via business_login lane
+- BF post 4f822b64 INSTAGRAM PUBLISHED: https://www.instagram.com/p/DgBaCPZilma/
+  All 4 lanes live (LinkedIn, FB reel, Threads, IG).
+- HOW: transplanted sessionid+ds_user_id from meta_data.private_api_session_*
+  (decrypt_field inside social-api) into :9229 Chrome via CDP Network.setCookie
+  → instagram.com/oauth/authorize (INSTAGRAM2_CLIENT_ID=1462851805249610)
+  rendered consent → callback 200 → business_login row 38ddbd44-8811-4d0b-
+  be62-a23fd2f50490 flipped expired→active with fresh 60d token.
+- VERIFIED: graph.instagram.com/v21.0/{28747382798219804}/media container OK.
+- Repointed publish_queue+post_targets IG row d2215106→38ddbd44; worker
+  published on next beat.
+- TODO: TWO active instagram rows now exist for @cloudless.gr —
+  fb_onboarding d2215106 (publish BROKEN #10, reads OK) and business_login
+  38ddbd44 (publish WORKS). Account-selection may double-target or keep
+  hitting #10 on the fb_onboarding row. Decide canonical: likely demote
+  fb_onboarding row for publish selection or add login_type preference in
+  target/account pickers. Also INSTAGRAM2_* still missing from running
+  social-api env (recreate blocked by fsbridge) — callback worked anyway
+  this time?? VERIFY: settings may load .env differently; confirm
+  INSTAGRAM2_CLIENT_SECRET actually reachable in-container before relying
+  on future instagram2 re-auths.
+- Orphan media container 18112822550227386 (probe) — expires unpublished.
