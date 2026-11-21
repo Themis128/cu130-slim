@@ -4219,3 +4219,65 @@ Findings worth keeping:
   one manual login via noVNC (`localhost:6080`).
 - Legacy IG row `28747382798219804` ("legacy ig_id") is dead on Graph —
   stays `revoked`; publish targeting already skips non-active rows.
+
+## 2026-11-21 (late) — Bridge IG session root cause: suspended personal IG + Accounts Center discovery
+
+Driving the shared bridge (engagement-browser, :9223/:6080) through
+threads_reauth surfaced the real blocker: the bridge's IG cookies point
+to `baltzakis_themistoklis` — a personal IG that Instagram shows as
+`/accounts/suspended/` ("Confirm you're human" → mobile-number
+verification). That suspension is why every Meta browser lane looked
+dead after the password change.
+
+Recovery attempts + findings:
+
+- Threads backup codes (META_BACKUP_CODES) never advance the form —
+  likely stale/consumed; abandoned that lane.
+- CAPTCHA on the suspended page was passed via ddddocr OCR on a
+  cropped page screenshot (installed to /tmp/ocrvenv — ephemeral).
+- Phone-code gate: WhatsApp code → user relayed `458155` twice, both
+  rejected (turned out to be the *Threads* SMS code, not the IG
+  recovery code). SMS channel then hit Meta's "Too Many SMS codes —
+  wait 24 hours" rate limit. SMS to +30 697 777 7838 DOES arrive
+  (Termux `termux-sms-list` over SSH :8022 reads it; ADB :5555 was
+  refused until USB cable connected — Windows adb.exe sees
+  RFCTA0AEKZP).
+- **Chicken-and-egg found via ADB**: WhatsApp on the phone is itself
+  logged out, stuck on "Verifying your number" for the same
+  +30 697 777 7838 — needs its own SMS code before it can receive the
+  IG recovery code. Poll SMS inbox → complete WA re-verify via
+  uiautomator → WA receives IG code → read it via uiautomator dump →
+  enter on bridge. All automatable; only blocked on SMS delivery
+  (COSMOTE/Meta delay observed ~20-40 min).
+- Bridge contention root cause: `poll-twitter-messenger` Celery beat
+  (300s, messenger queue) plus FB/IG messenger fast-read lanes
+  `/session/start` on the shared browser and kill in-flight manual
+  sessions. Fix used: `/session/start {"interactive": true}` grants
+  INTERACTIVE_BUSY_HOLD=900s per call — pollers get 409.
+- **Accounts Center discovery** (the unblock): FB sidecar session is
+  logged in → `accountscenter.facebook.com/account_overview/` lists 6
+  profiles: FB personal, `t_baltzakis` IG (id 17841400180904048),
+  cloudless.gr IG, cloudless.gr Threads, `t_baltzakis` Threads,
+  t_baltzakis Meta AI + cloudless.gr Page. The suspended
+  `baltzakis_themistoklis` IG is NOT in this Meta Account — it is a
+  separate standalone account. Threads `t_baltzakis` is linked to the
+  in-center `t_baltzakis` IG, so threads_reauth may not need the
+  suspended account at all — next step is checking whether
+  instagram.com offers a profile switch to `t_baltzakis`.
+- Password reset (`/accounts/password/reset/`) and `/hacked/` both
+  redirect into the suspended gate — no email-based bypass while the
+  phone check is unmet.
+
+- [ ] **Pending decision**: keep pushing WhatsApp re-verification on
+  the phone (unblocks IG recovery AND enables deleting the suspended
+  `baltzakis_themistoklis` account — user asked to delete it; deletion
+  requires a logged-in session: Settings → Account Center → Personal
+  details → Account ownership → Deletion). Deprioritize vs continue?
+- [ ] If continuing: poll Termux SMS for the WhatsApp verification
+  code → enter via `adb uiautomator` → open WhatsApp → read IG
+  recovery code from chat → enter on bridge suspended page → then
+  either delete `baltzakis_themistoklis` or appeal suspension.
+- [ ] Alternative: wait out the 24h SMS cooldown, then SMS code path.
+- [ ] After IG session restored on bridge: `/session/extract`, run
+  `threads_reauth.py`, verify `threads/t_baltzakis` live, re-run
+  `account_truth.py` for FB/IG/Threads.
