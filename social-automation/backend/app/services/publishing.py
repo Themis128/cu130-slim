@@ -2967,7 +2967,9 @@ async def _publish_instagram_via_browser(
             last = await _cdp_eval(ws_url, "window.__igpub") or "pending"
         except Exception:
             continue
-        if last.startswith("r2:") or last.startswith("EXC") or last == "missing-cookies":
+        # Upload-stage rejects (r1*/missing-cookies/EXC) can never produce a
+        # post — break fast instead of burning the poll budget to ambiguous.
+        if last.startswith(("r1", "r2:", "EXC")) or last == "missing-cookies":
             break
 
     if not last.startswith("r2:200:"):
@@ -3289,7 +3291,9 @@ async def _publish_instagram_reel_via_browser(
             last = await _cdp_eval(ws_url, "window.__igpub") or "pending"
         except Exception:
             continue
-        if last.startswith(("r2:", "EXC", "finish-fail:")) or last == "missing-cookies":
+        # Upload-stage rejects (vinit/vup/thb/finish-fail) can never produce
+        # a post — break fast; only post-configure states stay ambiguous.
+        if last.startswith(("r2:", "EXC", "finish-fail:", "vinit:", "vup:", "thb:")) or last == "missing-cookies":
             break
 
     if last.startswith("r2:"):
