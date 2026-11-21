@@ -104,11 +104,25 @@ _EMAIL_ALERT_RE = re.compile(
 # Content/digest channels stay archived but never classify — their
 # posts are reports, not alerts.
 _SKIP_CHANNELS = {"intel", "digest", "slack:socialauto", "slack:socialauto-telegram"}
+# The ops-agent's own alert posts re-ingested here create a NEW incident row
+# per alert (fresh fingerprint) — the self-feeding loop behind the duplicate
+# "auto-resolved" chains seen 2026-11-21. Their incidents already exist; skip.
+_AGENT_ALERT_RE = re.compile(r"^\s*\[ops-agent/", re.MULTILINE)
+# GitHub notification relays carry PR comments and coverage reports that are
+# not incidents; only actions-failure markers classify from that surface.
+_GH_RELAY_RE = re.compile(r"^\s*\[[^\]\s]+/[^\]\s]+\]", re.MULTILINE)
+_GH_FAILURE_RE = re.compile(
+    r"run failed|workflow run|checks? failed|build failed|ci fail", re.IGNORECASE
+)
 
 
 def _classify(channel: str, text: str) -> tuple[str, str] | None:
     """Return (kind, target) for alert-shaped posts, else None."""
     if not text or _RECOVERED_RE.search(text) or _SKIP_MSG_RE.search(text):
+        return None
+    if _AGENT_ALERT_RE.search(text):
+        return None
+    if _GH_RELAY_RE.search(text) and not _GH_FAILURE_RE.search(text):
         return None
     if not _INCIDENT_RE.search(text):
         return None
@@ -198,13 +212,17 @@ def telegram_incidents_ingest(self):
                             stats["skipped"] += 1
                             continue
                         kind, target = cls
+                        # A GitHub relay that survives the failure-marker gate
+                        # is a scheduled-workflow failure: ops-grade, never the
+                        # channel's #critical bump.
+                        msg_severity = "ops" if _GH_RELAY_RE.search(msg.text or "") else severity
                         await report_incident(
                             db,
                             source="telegram-channel",
                             kind=kind,
                             title=(msg.text or "")[:160],
                             target=target,
-                            severity=severity,
+                            severity=msg_severity,
                             detail={"channel": channel, "msg_id": msg.msg_id},
                         )
                         stats["ingested"] += 1
