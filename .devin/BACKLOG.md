@@ -4376,14 +4376,21 @@ Status corrections made: `9355ed63` (fb user) + `d2215106` (ig fb-graph)
   proven — 3 real posts shipped. Ahead of `web_rupload` in the chain;
   `ambiguous_on_timeout=True` so a timed-out in-page publish never falls
   through to the session-killing transplant lane. All on PR #2452.
-- **Reel lane unresolved**: `rupload_igvideo` + thumbnail upload return
-  ok, but `media/configure_to_clips/` on www.instagram.com returns 200 +
-  empty body on every attempt (3 clean runs). `media/upload_finish/` is
-  mobile-API-only (404 on web) — removed. A 200 without media id/code is
-  now `ambiguous`, never `published`. Remaining: capture a real web reel
-  publish (har flow from a manual upload in the debug browser) to find
-  the missing params — likely `clips_*` fields or a different configure
-  endpoint family.
+- **Reel lane — upload shape fixed from verified capture** (needs live
+  retest after Meta unlock): the empty-200 on `configure_to_clips` was the
+  upload never registering, not the comet form. The verified web-composer
+  capture (proyecto26/instagram-ai-plugin, 2026-11-12) shows
+  `media/upload_finish/` is a **mobile-API** stage — the web composer
+  posts `rupload_igvideo` + cover `rupload_igphoto` both to
+  **i.instagram.com** under one `fb_uploader_<upload_id>` entity with
+  `withCredentials` (cover `media_type:2`, same entity), minimal
+  web-shaped `X-Instagram-Rupload-Params` (`client-passthrough:1`,
+  `is_clips_video:1`, `is_unified_video:0`, `for_album:false`,
+  `video_transform:null`), then the comet `configure_to_clips` on www.
+  Old code used www rupload under a mobile `<uuid>-0-…` name, a
+  `media_type:'1'` photo cover under a different entity, and mobile-only
+  params — rewritten to the capture shape; a 200 without media id/code
+  stays `ambiguous`, never `published`.
 - **Post 4e4a063c (gta6 reel)**: failed bounded at attempts=3; no live
   reel (Graph /media verified). False-positive `published` state was
   reverted.

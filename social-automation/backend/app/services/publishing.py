@@ -3177,11 +3177,17 @@ async def _publish_instagram_reel_via_browser(
 ) -> PublishResult:
     """Publish a single-video reel via in-page fetch on the debug Chrome.
 
-    Mirrors the live instagram.com reel flow captured from the mobile/web
-    clients: ``rupload_igvideo`` → thumbnail ``rupload_igphoto`` →
-    ``media/upload_finish`` → ``media/configure_to_clips`` (with transcode
-    retries).  Running inside the page keeps the browser session intact —
-    worker-side cookie transplants get revoked within minutes.
+    Mirrors the verified instagram.com web-composer reel flow (captured
+    2026-11-12 in proyecto26/instagram-ai-plugin): ``rupload_igvideo`` →
+    cover ``rupload_igphoto`` — both POSTs to ``i.instagram.com`` with
+    ``withCredentials`` under the same ``fb_uploader_<upload_id>`` entity —
+    then ``media/configure_to_clips`` comet-async on ``www`` (with
+    transcode-202 retries).  The earlier mobile-shaped flow (www rupload
+    under a composed ``<uuid>-0-…`` name, ``media_type:'1'`` cover,
+    ``upload_finish``) never registered the upload server-side —
+    configure answered 200 + empty body on every run.  Running inside the
+    page keeps the browser session intact — worker-side cookie transplants
+    get revoked within minutes.
     """
     probe = await _ig_probe_video(video_path)
     if not probe:
@@ -3260,33 +3266,21 @@ async def _publish_instagram_reel_via_browser(
  if(!csrf||!uid){{window.__igpub='missing-cookies';return;}}
  const upload_id=String(Date.now());
  const dur={duration!r};const durMs={duration_ms};const W={width};const H={height};
- const dev=JSON.stringify({{manufacturer:'Instagram',model:'Instagram',android_version:33,android_release:'13.0'}});
- const device_id='android-'+Math.random().toString(16).slice(2,18);
- const uuid=(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):'').padEnd(32,'0').slice(0,32);
- const name=uuid+'-0-'+bytes.length+'-'+upload_id+'-'+upload_id;
- const params={{provenance_metadata:JSON.stringify({{origin:['EXTERNAL']}}),
-  upload_media_height:String(H),share_type:'reels',debug_segment_id:'0',
-  extract_cover_frame:'1',upload_engine_config_enum:'0',xsharing_user_ids:'[]',
-  upload_media_width:String(W),stella_data:'{{}}',is_clips_video:'1',
-  is_optimistic_upload:'true',upload_media_duration_ms:String(durMs),
-  content_tags:'use_default_cover',upload_id:upload_id,
-  retry_context:'{{"num_reupload":0,"num_step_manual_retry":0,"num_step_auto_retry":0}}',
-  session_id:upload_id,media_type:'2'}};
+ const name='fb_uploader_'+upload_id;
+ const vparams={{'client-passthrough':'1',is_clips_video:'1',is_sidecar:'0',
+  is_unified_video:'0',media_type:2,for_album:false,video_format:'',
+  upload_id:upload_id,upload_media_duration_ms:durMs,
+  upload_media_height:H,upload_media_width:W,video_transform:null,
+  extract_cover_frame:'1'}};
  const VH={{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,
-  'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(params),
-  'X_FB_VIDEO_WATERFALL_ID':upload_id+'_0_0','X-Entity-Type':'video/mp4',
-  'Offset':'0','X-Entity-Name':name,'X-Entity-Length':String(bytes.length),
-  'Content-Type':'application/octet-stream'}};
- const ri=await fetch('https://www.instagram.com/rupload_igvideo/'+name,{{method:'GET',headers:VH}});
- if(ri.status!==200){{window.__igpub='vinit:'+ri.status+':'+(await ri.text()).slice(0,200);return;}}
- const ru=await fetch('https://www.instagram.com/rupload_igvideo/'+name,{{method:'POST',headers:{{...VH,'Content-Length':String(bytes.length)}},body:bytes}});
+  'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(vparams),
+  'X-Entity-Type':'video/mp4','Offset':'0','X-Entity-Name':name,
+  'X-Entity-Length':String(bytes.length),'Content-Type':'video/mp4'}};
+ const ru=await fetch('https://i.instagram.com/rupload_igvideo/'+name,{{method:'POST',credentials:'include',headers:VH,body:bytes}});
  const tut=await ru.text();
  if(ru.status!==200){{window.__igpub='vup:'+ru.status+':'+tut.slice(0,200);return;}}
- const tname=upload_id+'_0_'+Math.floor(1000000000+Math.random()*8999999999);
- const tparams={{retry_context:'{{"num_step_auto_retry":0,"num_reupload":0,"num_step_manual_retry":0}}',
-  media_type:'1',xsharing_user_ids:'[]',upload_id:upload_id,
-  image_compression:JSON.stringify({{lib_name:'moz',lib_version:'3.1.m',quality:'80'}})}};
- const rt=await fetch('https://www.instagram.com/rupload_igphoto/'+tname,{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(tparams),'X_FB_PHOTO_WATERFALL_ID':crypto.randomUUID(),'X-Entity-Type':'image/jpeg','Offset':'0','X-Entity-Name':tname,'X-Entity-Length':String(thb.length),'Content-Type':'application/octet-stream'}},body:thb}});
+ const tparams={{media_type:2,upload_id:upload_id,upload_media_height:H,upload_media_width:W}};
+ const rt=await fetch('https://i.instagram.com/rupload_igphoto/'+name,{{method:'POST',credentials:'include',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(tparams),'X-Entity-Type':'image/jpeg','Offset':'0','X-Entity-Name':name,'X-Entity-Length':String(thb.length),'Content-Type':'image/jpeg'}},body:thb}});
  const ttxt=await rt.text();
  if(rt.status!==200){{window.__igpub='thb:'+rt.status+':'+ttxt.slice(0,200);return;}}
  window.__igpub='uploaded';
