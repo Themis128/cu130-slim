@@ -29,6 +29,7 @@ from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
 from app.models.newsletter_issue import NewsletterIssue, NewsletterIssueStatus
 from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsIncident
 from app.models.queue import PublishQueue
+from app.models.site_traffic import SiteTrafficDaily  # noqa: F401
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
 from app.models.telegram_message import TelegramChannelMessage

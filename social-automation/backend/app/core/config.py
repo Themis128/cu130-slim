@@ -425,6 +425,17 @@ class Settings(BaseSettings):
     # the OTLP ingest :4318 is a different listener).
     TEMPO_API_URL: str = "http://192.168.1.200:3200"
 
+    # Swetrix CE (self-hosted cookieless analytics at analytics.cloudless.gr).
+    # SWETRIX_PROJECTS is a JSON map of owned domain -> Swetrix project id,
+    # e.g. {"cloudless.gr":"9MqhwIADeZo6","social.cloudless.gr":"jncLHvg1XBKD"}.
+    # SWETRIX_API_KEY is an analytics:read-scoped key (x-api-key header).
+    SWETRIX_API_URL: str = "https://analytics.cloudless.gr"
+    SWETRIX_API_KEY: str = ""
+    SWETRIX_PROJECTS: str = ""
+    SWETRIX_TEAM_ID: str = "10024d25-2ea4-40ea-86c6-ba89f515a2eb"
+    SWETRIX_TIMEZONE: str = "Europe/Athens"
+    SWETRIX_LOOKBACK_DAYS: int = 90
+
     # Webhook fired after every successful publish. Payload is a JSON object:
     # {event, post_id, platform, account_id, platform_url, published_at,
     #  workflow_run_id, workflow_id}
