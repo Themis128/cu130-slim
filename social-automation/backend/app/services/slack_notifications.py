@@ -436,6 +436,29 @@ TG_CHANNELS = {
 _NTFY_PRIO = {"critical": "5", "ops": "4", "intel": "3", "digest": "2"}
 
 
+def _ntfy_priority_for(severity: str, text: str) -> str:
+    """Priority by recurrence, not just severity (2026-11-21 tuning).
+
+    The alert text embeds ``recur=N``; a first-seen incident (recur=0 or
+    absent) is most often transient, so it soft-beeps at 3. Persistent
+    incidents escalate: recur>=1 -> 4, recur>=8 -> 5. This restores the
+    intent of the 6h dedup, which the changing recur counter in the text
+    was silently defeating.
+    """
+    import re
+
+    base = _NTFY_PRIO.get(severity, "3")
+    if severity not in ("critical", "ops"):
+        return base
+    m = re.search(r"\brecur=(\d+)", text)
+    recur = int(m.group(1)) if m else 0
+    if recur == 0:
+        return "3"
+    if recur >= 8:
+        return "5"
+    return "4"
+
+
 async def _post_ntfy_alert(severity: str, text: str) -> None:
     settings = get_settings()
     base = (getattr(settings, "NTFY_ALERT_BASE_URL", "") or "").rstrip("/")
@@ -451,7 +474,7 @@ async def _post_ntfy_alert(severity: str, text: str) -> None:
                 headers={
                     "Authorization": f"Bearer {tok}",
                     "Title": f"[{severity}] cloudless",
-                    "Priority": _NTFY_PRIO.get(severity, "3"),
+                    "Priority": _ntfy_priority_for(severity, text),
                     "Tags": severity,
                     # Cloudflare 403s bare python UAs — send a browser UA.
                     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ntfy-alert/1.0",
