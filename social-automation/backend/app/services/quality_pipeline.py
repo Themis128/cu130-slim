@@ -130,6 +130,7 @@ async def apply_quality_pipeline(
                 team_id=team_id,
                 force_fix=True,
                 allow_fallback=True,
+                platform=platform,
             )
             if fixed_caption and fixed_caption.strip():
                 result.content = fixed_caption
@@ -223,6 +224,7 @@ Return JSON with: content (string), hashtags (array of strings without #)"""
                     team_id=team_id,
                     schema=schema,
                     model_override=effective_model,
+                    platform=platform,
                 )
 
                 new_content = improved.get("content", "").strip()

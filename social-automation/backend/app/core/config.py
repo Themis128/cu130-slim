@@ -123,6 +123,12 @@ class Settings(BaseSettings):
     PUBLISH_MIN_SEO_SCORE: int = 80
     # Improvement rounds the gate may run before accepting/rejecting.
     PUBLISH_QUALITY_MAX_ITERATIONS: int = 2
+    # Wall-clock budget for one pre-publish quality-gate pass (spellcheck +
+    # NLP fix + SEO improve loop). On timeout the queue item defers
+    # PUBLISH_GATE_RETRY_DELAY_S seconds instead of dying locked. Raise this
+    # when DMR is cold/contended; the gate itself is unchanged.
+    PUBLISH_GATE_TIMEOUT_S: float = 300.0
+    PUBLISH_GATE_RETRY_DELAY_S: int = 900
 
     # Publish media-semantics gate — before dispatch, each image asset is
     # captioned by the DMR vision model and judged against the post copy;

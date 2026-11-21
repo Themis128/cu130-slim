@@ -393,3 +393,26 @@ async def test_cloudflare_provider_model_defaults(monkeypatch):
     await pe.rewrite_plain_english("x", provider_name="cloudflare", force=True)
     await pe.fix_carousel_copy(slides=[{"title": "x"}], caption="", provider_name="cloudflare", force=True)
     await pe.run_nlp_check_and_fix(slides=[{"title": "x"}], caption="", provider_name="cloudflare", force_fix=True)
+
+
+@pytest.mark.asyncio
+async def test_platform_forwarded_to_inference(monkeypatch):
+    """Platform must reach call_inference so DMR routes short-form copy to
+    the fast mid model instead of always taking the 8B schema path."""
+    import app.services.inference as inference
+    import app.services.duplicate_detector as dd
+
+    mock = AsyncMock(return_value={"text": "Clean rewrite."})
+    monkeypatch.setattr(inference, "call_inference", mock)
+    monkeypatch.setattr(dd, "resolve_carousel_duplicates", lambda s, c: (s, c, type("R", (), {"to_dict": lambda x: {}, "hits": [], "actions": []})()))
+    monkeypatch.setattr(dd, "detect_carousel_duplicates", lambda s, c: type("R", (), {"hits": []})())
+
+    await pe.rewrite_plain_english("we leverage synergy", force=True, platform="instagram")
+    assert mock.call_args.kwargs.get("platform") == "instagram"
+
+    mock.reset_mock()
+    await pe.run_nlp_check_and_fix(
+        slides=[], caption="we leverage synergy", force_fix=True, platform="tiktok"
+    )
+    for call in mock.call_args_list:
+        assert call.kwargs.get("platform") == "tiktok"

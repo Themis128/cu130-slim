@@ -59,8 +59,8 @@ _STALE_LOCK_MINUTES = 25
 # until the soft limit killed it, orphaning the row at PROCESSING. On
 # timeout the item defers (PENDING, scheduled forward) so it retries when
 # the dependency recovers instead of burning attempts or dying locked.
-_GATE_TIMEOUT_S = 300.0
-_GATE_RETRY_DELAY_S = 900
+_GATE_TIMEOUT_S = float(get_settings().PUBLISH_GATE_TIMEOUT_S)
+_GATE_RETRY_DELAY_S = int(get_settings().PUBLISH_GATE_RETRY_DELAY_S)
 
 # Meta-family platforms handled by the dedicated `meta` queue lane
 # (process_meta_publish_queue on social-worker-meta). Mirrors
