@@ -13,6 +13,8 @@ services:
     container_name: social-api
     ports:
       - "127.0.0.1:8083:8000"
+    volumes:
+      - ../../notebooks:/notebooks
     env_file:
       - path: .env
         required: false
@@ -116,6 +118,8 @@ services:
       - CELERY_BROKER_URL=redis://redis/0
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    volumes:
+      - ../../notebooks:/notebooks
     depends_on:
       - social-postgres
       - redis
