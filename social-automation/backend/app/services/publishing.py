@@ -1108,12 +1108,11 @@ async def _resolve_media_storage_paths(post: Post, db: AsyncSession) -> list[str
     return [a.storage_path for a in assets_sorted if a.storage_path]
 
 
-async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
-    """Resolve the file path for the post's music asset, if any."""
-    if not post.music_asset_id:
-        return None
-    result = await db.execute(select(MediaAsset).where(MediaAsset.id == post.music_asset_id))
-    asset = result.scalar_one_or_none()
+_VIDEO_EXTS = (".mp4", ".mov", ".webm", ".mkv", ".avi")
+
+
+async def _asset_file_path(asset: MediaAsset) -> str | None:
+    """Resolve a media asset to a local file path, fetching from R2/MinIO when needed."""
     if not asset or not asset.storage_path:
         return None
     upload_dir = os.environ.get("UPLOAD_DIR", "/app/uploads")
@@ -1122,7 +1121,6 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
         path = os.path.join(upload_dir, path)
     if os.path.exists(path):
         return path
-    # File not on local disk — fetch from R2 or MinIO to a temp file.
     backend = (asset.storage_backend or "").lower()
     data: bytes | None = None
     try:
@@ -1135,7 +1133,7 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
 
             data = await minio_storage.get_object(asset.storage_path)
     except Exception as exc:
-        logger.warning(f"[publishing] Failed to fetch music {asset.storage_path} from {backend}: {exc}")
+        logger.warning(f"[publishing] Failed to fetch {asset.storage_path} from {backend}: {exc}")
     if data:
         import tempfile
 
@@ -1145,6 +1143,51 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
         tmp.close()
         return tmp.name
     return None
+
+
+async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
+    """Deterministic library-bed pick for single-video posts with no explicit
+    ``music_asset_id`` — the same post always resolves to the same track across
+    every platform target (hash of post id), and non-video posts get nothing."""
+    media_ids = getattr(post, "media_ids", None) or []
+    if len(media_ids) != 1:
+        return None
+    result = await db.execute(select(MediaAsset).where(MediaAsset.id == media_ids[0]))
+    media = result.scalar_one_or_none()
+    if not media:
+        return None
+    name = (media.filename or media.storage_path or "").lower()
+    if not name.endswith(_VIDEO_EXTS):
+        return None
+    beds = (
+        (await db.execute(select(MediaAsset).where(MediaAsset.mime_type.like("audio/%"))))
+        .scalars()
+        .all()
+    )
+    beds = [b for b in beds if b.storage_path]
+    post_id = getattr(post, "id", None)
+    if not beds or post_id is None:
+        return None
+    import hashlib
+
+    idx = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16) % len(beds)
+    return beds[idx]
+
+
+async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
+    """Resolve the file path for the post's music asset, if any.
+
+    Explicit ``post.music_asset_id`` wins; otherwise single-video posts
+    auto-resolve a deterministic bed from the audio library so every
+    video post carries music on platforms that support it.
+    """
+    asset: MediaAsset | None = None
+    if post.music_asset_id:
+        result = await db.execute(select(MediaAsset).where(MediaAsset.id == post.music_asset_id))
+        asset = result.scalar_one_or_none()
+    else:
+        asset = await _auto_music_asset(post, db)
+    return await _asset_file_path(asset)
 
 
 async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
@@ -1167,6 +1210,8 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
         "-y",
         "-i",
         video_path,
+        "-stream_loop",
+        "-1",
         "-i",
         audio_path,
         "-c:v",
