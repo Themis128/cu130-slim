@@ -2773,6 +2773,20 @@ async def _publish_instagram_via_web(
         )
 
 
+def _is_instagram_page_target(target: Any) -> bool:
+    """True for an instagram.com page target that is not the login wall."""
+    if not isinstance(target, dict) or target.get("type") != "page":
+        return False
+    try:
+        parsed = urllib.parse.urlparse(target.get("url") or "")
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    if host != "instagram.com" and not host.endswith(".instagram.com"):
+        return False
+    return "accounts/login" not in (parsed.path or "")
+
+
 async def _cdp_eval(ws_url: str, expression: str, *, await_promise: bool = False, timeout: float = 15.0) -> Any:
     """Run ``Runtime.evaluate`` on a CDP page target — reconnect-per-call.
 
@@ -2857,7 +2871,7 @@ async def _publish_instagram_via_browser(
         (
             t
             for t in targets
-            if isinstance(t, dict) and t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")
+            if _is_instagram_page_target(t)
         ),
         None,
     )
@@ -3202,7 +3216,7 @@ async def _publish_instagram_reel_via_browser(
         (
             t
             for t in targets
-            if isinstance(t, dict) and t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")
+            if _is_instagram_page_target(t)
         ),
         None,
     )
