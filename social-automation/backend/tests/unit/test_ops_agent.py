@@ -277,7 +277,7 @@ async def test_sweep_triages_open_incident(monkeypatch):
     assert inc.status == IncidentStatus.TRIAGED
     assert inc.rca == "watch"
     assert alerted == ["ops"]
-    assert db.commits == 1
+    assert db.commits == 2  # auto-resolve commit + per-incident commit (lock hygiene)
 
 
 @pytest.mark.asyncio
