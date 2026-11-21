@@ -3078,6 +3078,49 @@ async def _ig_video_thumbnail_b64(video_path: str, duration: float) -> str | Non
             pass
 
 
+# configure_to_clips via the "comet async" form — ported from the verified-
+# live web-composer capture (proyecto26/instagram-ai-plugin, 2026-11-13).
+# A plain form POST now gets HTTP 200 + empty body; the real client sends
+# signed_body + page-context params and reads a `for (;;);{...}` envelope
+# where payload.statusCode 202 means "still processing — retry same request".
+# Runs inside the page's async IIFE; sees csrf/uid/upload_id from scope.
+_REEL_COMET_JS = r"""
+ const __html=document.documentElement.innerHTML;
+ function __rd(n){const marker='["'+n+'",[],';let from=0;for(;;){const at=__html.indexOf(marker,from);if(at<0)return null;const start=at+marker.length;from=start;if(__html[start]!=='{')continue;let depth=0,inStr=false;const limit=Math.min(__html.length,start+200000);for(let i=start;i<limit;i++){const ch=__html[i];if(inStr){if(ch==='\\')i++;else if(ch==='"')inStr=false;}else if(ch==='"')inStr=true;else if(ch==='{')depth++;else if(ch==='}'&&--depth===0){try{const v=JSON.parse(__html.slice(start,i+1));return v&&typeof v==='object'&&!Array.isArray(v)?v:null;}catch(e){break;}}}}return null;}
+ const __dtsg=__rd('DTSGInitialData'),__lsd=__rd('LSD'),__spr=__rd('SprinkleConfig'),__usr=__rd('CurrentUserInitialData'),__site=__rd('SiteData'),__push=__rd('InstagramWebPushInfo');
+ if(!__dtsg||!__dtsg.token||!__lsd||!__lsd.token||!__spr||!__usr||!__site||!__push){window.__igpub='no-context';return;}
+ const __ctx={fbDtsg:String(__dtsg.token),lsdT:String(__lsd.token),sp:String(__spr.param_name||'jazoest'),spv:Number(__spr.version||2),sprand:__spr.should_randomize===true,user:String(__usr.USER_ID==null?'0':__usr.USER_ID),hs:String(__site.haste_session||''),rev:String(__site.client_revision||''),hsi:String(__site.hsi||''),ce:(typeof __site.comet_env==='number')?__site.comet_env:null,wb:__site.wbloks_env===true,spin:__site.spin?{r:String(__site.__spin_r||''),b:String(__site.__spin_b||''),t:String(__site.__spin_t||'')}:null,rh:String(__push.rollout_hash||'')};
+ const __ntok=(tok)=>{let s=0;for(let i=0;i<tok.length;i++)s+=tok.charCodeAt(i);return __ctx.sprand?String(s):String(__ctx.spv)+s;};
+ const __sess=[0,1,2].map(()=>Math.floor(Math.random()*36**6).toString(36).padStart(6,'0')).join(':');
+ window.__igreq=(window.__igreq||Math.floor(Math.random()*1000));
+ const __fields={source_type:'library',disable_comments:'0',like_and_view_counts_disabled:'0',igtv_share_preview_to_feed:'1',is_unified_video:'1',video_subtitles_enabled:'0',is_meta_only_post:'0',media_share_flow:'creation_flow',share_to_threads:'false',caption:__CAPTION__,upload_id:upload_id,clips_share_preview_to_feed:'1',archive_only:'false',disable_oa_reuse:'false'};
+ const __cparams=()=>{window.__igreq+=1;const p={__d:'www',__user:__ctx.user,__a:'1',__req:window.__igreq.toString(36),__hs:__ctx.hs,__rev:__ctx.rev,__s:__sess,__hsi:__ctx.hsi};if(!__ctx.wb&&__ctx.ce)p.__comet_req=String(__ctx.ce);p.fb_dtsg=__ctx.fbDtsg;p[__ctx.sp]=__ntok(__ctx.fbDtsg||__ctx.lsdT);p.lsd=__ctx.lsdT;if(__ctx.spin){p.__spin_r=__ctx.spin.r;p.__spin_b=__ctx.spin.b;p.__spin_t=__ctx.spin.t;}return p;};
+ const __chead={'X-FB-LSD':__ctx.lsdT,'X-IG-D':'www','X-Instagram-AJAX':__ctx.rh,'X-Web-Session-ID':__sess,'x-csrftoken':csrf,'X-IG-App-ID':'936619743392459','Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'};
+ const __t0=Date.now();const __back=[3000,6000,12000,24000,30000,30000,30000,30000];
+ for(let att=0;att<__back.length&&Date.now()-__t0<140000;att++){
+  const __form=new URLSearchParams();
+  for(const k in __fields)__form.set(k,__fields[k]);
+  __form.set('signed_body','SIGNATURE.'+JSON.stringify(__fields));
+  const __cp=__cparams();for(const k in __cp)__form.set(k,__cp[k]);
+  const r2=await fetch('https://www.instagram.com/api/v1/media/configure_to_clips/?video=1',{method:'POST',headers:__chead,body:__form.toString()});
+  const t2=await r2.text();const tt=t2.trim();
+  if(!tt){window.__igpub='r2:'+r2.status+':EMPTY';return;}
+  let env=null;try{env=JSON.parse(tt.replace(/^for ?\(;;\);/,''));}catch(e){window.__igpub='r2:'+r2.status+':BADJSON:'+tt.slice(0,300);return;}
+  if(env&&env.error){window.__igpub='r2:'+r2.status+':ENVERR:'+String(env.error).slice(0,150);return;}
+  const pl=(env&&env.payload)||{};
+  if(pl.statusCode===202){await new Promise(r=>setTimeout(r,__back[att]));continue;}
+  let md=pl.media;
+  if(!md&&Array.isArray(pl.medias)){const e2=pl.medias.find(x=>x&&x.media_dict);md=e2&&e2.media_dict;}
+  md=md||{};
+  const mid=(md.id!=null?String(md.id):(pl.pk!=null?String(pl.pk):(pl.id!=null?String(pl.id):(md.pk!=null?String(md.pk):''))));
+  if(!mid){window.__igpub='r2:'+r2.status+':NOEVIDENCE:'+tt.slice(0,400);return;}
+  const code=md.code||'';
+  window.__igpub='r2:'+r2.status+':'+JSON.stringify({media:{id:mid,code:code||undefined}});return;
+ }
+ window.__igpub='r2:timeout:transcode pending';
+"""
+
+
 async def _publish_instagram_reel_via_browser(
     account: SocialAccount,
     text: str,
@@ -3201,50 +3244,14 @@ async def _publish_instagram_reel_via_browser(
  const ttxt=await rt.text();
  if(rt.status!==200){{window.__igpub='thb:'+rt.status+':'+ttxt.slice(0,200);return;}}
  window.__igpub='uploaded';
- const ff=new URLSearchParams();
- ff.set('_csrftoken',csrf);ff.set('_uid',uid);ff.set('_uuid',device_id);ff.set('device_id',device_id);
- ff.set('timezone_offset','0');ff.set('source_type','4');ff.set('device',dev);ff.set('upload_id',upload_id);
- ff.set('length',String(dur));ff.set('clips',JSON.stringify([{{length:dur,source_type:'4'}}]));
- ff.set('poster_frame_index','0');ff.set('audio_muted','false');
- // upload_finish is a mobile-API (i.instagram.com) endpoint — 404 on www.
- // The web reel flow goes straight to configure_to_clips and relies on the
- // transcode-retry loop below.
- window.__igpub='uploaded';
- const segs={{num_segments:1,clips_segments:[{{index:0,face_effect_id:null,
-  speed:100,source_type:4,duration_ms:durMs,audio_type:'original',
-  from_draft:0,camera_position:-1,media_folder:null,media_type:'video',
-  original_media_type:2,original_segment_hash:null,is_remix:false,
-  has_reusable_template_asset:false}}]}};
- for(let att=0;att<6;att++){{
-   const form=new URLSearchParams();
-   form.set('_csrftoken',csrf);form.set('_uid',uid);form.set('_uuid',device_id);form.set('device_id',device_id);
-   form.set('filter_type','0');form.set('timezone_offset','0');form.set('location','');
-   form.set('source_type','4');form.set('caption',{json.dumps(caption)});
-   form.set('usertags',JSON.stringify({{in:[]}}));form.set('clips_share_preview_to_feed','1');
-   form.set('upload_id',upload_id);form.set('device',dev);form.set('length',String(dur));
-   form.set('clips_segments_metadata',JSON.stringify(segs));
-   form.set('clips_audio_metadata',JSON.stringify({{original:{{volume_level:1.0}}}}));
-   form.set('additional_audio_info',JSON.stringify({{has_voiceover_attribution:0}}));
-   form.set('edits',JSON.stringify({{filter_type:0,filter_strength:1.0}}));
-   form.set('capture_type','clips_v2');form.set('clips_creation_entry_point','clips');form.set('camera_entry_point','71');
-   form.set('audience','default');form.set('include_e2ee_mentioned_user_list','1');form.set('hide_from_profile_grid','false');
-   form.set('original_width',String(W));form.set('original_height',String(H));
-   form.set('extra',JSON.stringify({{source_width:W,source_height:H}}));
-   form.set('audio_muted','false');form.set('poster_frame_index','70');
-   const r2=await fetch('https://www.instagram.com/api/v1/media/configure_to_clips/?video=1',{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'}},body:form.toString()}});
-   const t2=await r2.text();
-   if(t2.includes('Transcode not finished')){{await new Promise(r=>setTimeout(r,4000));continue;}}
-   window.__igpub='r2:'+r2.status+':'+t2.slice(0,600);return;
- }}
- window.__igpub='r2:timeout:transcode pending';
-}}catch(e){{window.__igpub='EXC '+e}}}})();'kicked'"""
+""" + _REEL_COMET_JS.replace("__CAPTION__", json.dumps(caption)) + """}catch(e){window.__igpub='EXC '+e}})();'kicked'"""
 
     try:
         await _cdp_eval(ws_url, kick_js)
     except Exception as exc:
         return PublishResult(success=False, error=f"Failed to start browser reel publish: {exc}")
 
-    deadline = time.monotonic() + 170
+    deadline = time.monotonic() + 210
     last = "pending"
     while time.monotonic() < deadline:
         await asyncio.sleep(4)
@@ -3839,7 +3846,7 @@ async def _publish_instagram(
         browser_result = await _bounded_path(
             _publish_instagram_via_browser(account, text, post, media_paths),
             "browser_cdp",
-            timeout=200.0 if _has_video else None,
+            timeout=260.0 if _has_video else None,
             # A timed-out in-page publish may still land AND falling through
             # to web_rupload would transplant the sessionid — revoking the
             # browser session this lane needs on the next attempt.
