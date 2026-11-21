@@ -3120,8 +3120,9 @@ async def _publish_instagram_via_browser(
     caption = text[:2200]
     is_carousel = len(imgs_js) > 1
 
+    ig_pub_id = json.dumps(str(getattr(post, "id", None) or id(post)))
     try:
-        await _cdp_eval(ws_url, "window.__igimgs=null;window.__igpub=null;'reset'")
+        await _cdp_eval(ws_url, f"window.__igimgs=null;window.__igid={ig_pub_id};window.__igpub=null;'reset'")
         await _cdp_eval(ws_url, f"window.__igimgs={json.dumps(imgs_js)};'imgs-set'")
     except Exception as exc:
         return PublishResult(success=False, error=f"Failed to inject media into page: {exc}")
@@ -3151,7 +3152,8 @@ async def _publish_instagram_via_browser(
   const r2=await fetch('https://www.instagram.com/api/v1/media/configure/',{method:'POST',headers:{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/create/details/','Origin':'https://www.instagram.com'},body:form.toString()});
 """
 
-    kick_js = f"""window.__igpub='pending';(async()=>{{try{{
+    kick_js = f"""{_IG_PUB_LATCH_JS}
+window.__igpub='pending';(async()=>{{if(window.__igterm&&window.__igtermid===window.__igid)return;try{{
  const imgs=window.__igimgs;
  const csrf=(document.cookie.match(/csrftoken=([^;]+)/)||[])[1];
  const uid=(document.cookie.match(/ds_user_id=([^;]+)/)||[])[1];
@@ -3303,6 +3305,18 @@ async def _ig_video_thumbnail_b64(video_path: str, duration: float) -> str | Non
         except OSError:
             pass
 
+
+# Sticky-flag latch for the browser publish lanes: once window.__igpub reaches
+# a terminal success value (r2:<status>:{media…}) it is latched per post id —
+# later writes from a raced async (e.g. 'EXC TypeError: Failed to fetch' after
+# a mid-publish navigation) cannot clobber it, and a retried kick for the SAME
+# post sees the latched success instead of re-uploading a duplicate.
+_IG_PUB_LATCH_JS = r"""if(!window.__igpropset){window.__igpropset=1;
+Object.defineProperty(window,'__igpub',{configurable:true,
+get:function(){return window.__igv},
+set:function(v){if(window.__igterm&&window.__igtermid===window.__igid)return;
+window.__igv=v;if(/^r2:\d+:\s*\{/.test(String(v))){window.__igterm=v;window.__igtermid=window.__igid}}});}
+"""
 
 # configure_to_clips via the "comet async" form — ported from the verified-
 # live web-composer capture (proyecto26/instagram-ai-plugin, 2026-11-13).
@@ -3458,15 +3472,17 @@ async def _publish_instagram_reel_via_browser(
     # Inject video bytes as base64 chunks + the thumbnail, then kick the flow.
     chunk_size = 4_000_000
     chunks = [video_b64[i : i + chunk_size] for i in range(0, len(video_b64), chunk_size)]
+    ig_pub_id = json.dumps(str(getattr(post, "id", None) or id(post)))
     try:
-        await _cdp_eval(ws_url, "window.__igchunks=[];window.__igthb=null;window.__igpub=null;'reset'")
+        await _cdp_eval(ws_url, f"window.__igchunks=[];window.__igthb=null;window.__igid={ig_pub_id};window.__igpub=null;'reset'")
         for chunk in chunks:
             await _cdp_eval(ws_url, f"window.__igchunks.push({json.dumps(chunk)});'c'")
         await _cdp_eval(ws_url, f"window.__igthb={json.dumps(thumb_b64)};'thb-set'")
     except Exception as exc:
         return PublishResult(success=False, error=f"Failed to inject reel media into page: {exc}")
 
-    kick_js = f"""window.__igpub='pending';(async()=>{{try{{
+    kick_js = f"""{_IG_PUB_LATCH_JS}
+window.__igpub='pending';(async()=>{{if(window.__igterm&&window.__igtermid===window.__igid)return;try{{
  const b64=window.__igchunks.join('');window.__igchunks=null;
  const bin=atob(b64);const bytes=new Uint8Array(bin.length);
  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
