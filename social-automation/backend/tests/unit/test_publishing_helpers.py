@@ -327,6 +327,48 @@ async def test_resolve_music_path(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auto_music_asset_picks_bed_for_video():
+    video = SimpleNamespace(id=uuid.uuid4(), filename="clip.mp4", storage_path="v.mp4")
+    beds = [
+        SimpleNamespace(id=uuid.uuid4(), filename=f"bed-{i}.mp3", storage_path=f"b{i}.mp3", mime_type="audio/mpeg")
+        for i in range(4)
+    ]
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[video.id], music_asset_id=None)
+    # _auto_music_asset: media lookup, then beds query — same queue per call
+    db = _DB(results=[video, beds])
+    a1 = await P._auto_music_asset(post, db)
+    db2 = _DB(results=[video, beds])
+    a2 = await P._auto_music_asset(post, db2)
+    assert a1 in beds and a2 in beds and a1.id == a2.id  # deterministic per post
+
+
+@pytest.mark.asyncio
+async def test_auto_music_asset_skips_non_video_and_multi():
+    img = SimpleNamespace(id=uuid.uuid4(), filename="pic.jpg", storage_path="p.jpg")
+    post_img = SimpleNamespace(id=uuid.uuid4(), media_ids=[img.id], music_asset_id=None)
+    assert await P._auto_music_asset(post_img, _DB(results=[img])) is None
+
+    post_multi = SimpleNamespace(id=uuid.uuid4(), media_ids=[uuid.uuid4(), uuid.uuid4()], music_asset_id=None)
+    assert await P._auto_music_asset(post_multi, _DB()) is None
+
+    post_none = SimpleNamespace(id=uuid.uuid4(), media_ids=[], music_asset_id=None)
+    assert await P._auto_music_asset(post_none, _DB()) is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_music_path_auto_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    video = SimpleNamespace(id=uuid.uuid4(), filename="clip.mp4", storage_path="v.mp4")
+    bed = SimpleNamespace(id=uuid.uuid4(), filename="bed-1.mp3", storage_path="bed-1.mp3",
+                          storage_backend="local", mime_type="audio/mpeg")
+    (tmp_path / "bed-1.mp3").write_bytes(b"mp3")
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[video.id], music_asset_id=None)
+    # media lookup, beds list, then explicit-asset skipped → _asset_file_path uses local file
+    out = await P._resolve_music_path(post, _DB(results=[video, [bed]]))
+    assert out and out.endswith("bed-1.mp3")
+
+
+@pytest.mark.asyncio
 async def test_mix_audio_no_ffmpeg(monkeypatch):
     import shutil
 
