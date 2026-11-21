@@ -89,6 +89,7 @@ celery_app = Celery(
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
         "app.worker.tasks.devapps_sync",
+        "app.worker.tasks.swetrix_sync",
         "app.worker.tasks.devapp_channel_actions",
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_invite_outreach",
@@ -650,6 +651,13 @@ celery_app.conf.update(
         "devapps-sync": {
             "task": "app.worker.tasks.devapps_sync.sync_devapps",
             "schedule": crontab(minute=5, hour="*/6"),  # every 6h at :05
+        },
+        # Swetrix CE site-traffic ingest — cookieless top-of-funnel truth for
+        # owned domains, 2min before the datalake export so the rollup lands
+        # in lake/site-traffic/ on the same pass.
+        "swetrix-sync": {
+            "task": "app.worker.tasks.swetrix_sync.sync_swetrix",
+            "schedule": crontab(minute=8, hour="*/6"),  # every 6h at :08
         },
         # Report → publish hop: latest devapp snapshots → channel actions →
         # schedule_report_actions per team (copy → quality → media →

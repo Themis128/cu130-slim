@@ -823,6 +823,7 @@ Beat Schedule:
 │ sync-analytics           │ analytics.sync_all_analytics   │ 1800s    │
 │ process-recurring-posts  │ recurring.process_recurring    │ 300s     │
 │ export-datalake          │ datalake_export.export_datalake │ 6h :10   │
+│ swetrix-sync            │ swetrix_sync.sync_swetrix    │ 6h :08   │
 │ daily-strategy-report    │ notebook_reports.               │ daily    │
 │                          │  run_notebook_report            │ 10:30    │
 │                          │  (papermill → email; falls back │ EEST     │
@@ -1108,6 +1109,18 @@ on a different span than `url.full`, hence structural `&&` spanset
 queries) to `lake/socialauto-edge-metrics/daily.json` — this is what
 surfaced the broken Nextcloud SFTP external-storage mount (9% 5xx on
 `cloud.cloudless.gr`).
+
+**Site traffic (Swetrix CE → datalake):** self-hosted Swetrix CE at
+`analytics.cloudless.gr` is the cookieless top-of-funnel truth for owned
+web properties — its tracker sees every visitor, unlike the
+consent-gated `web_analytics_events` webhook. `swetrix-sync` (6h :08)
+pulls daily timeseries (visitors/pageviews/bounce/session-duration) plus
+a 7d breakdown snapshot (top pages/countries/referrers/utm_sources) per
+`SWETRIX_PROJECTS` domain→pid mapping into `site_traffic_daily`, and
+`export-datalake` carries it to `lake/socialauto-site-traffic/daily.json`
+(mirrored to Nextcloud). Auth is an `analytics:read`-scoped Swetrix API
+key (`SWETRIX_API_KEY`, `x-api-key` header). Per-project failures degrade
+to error entries — one dead project never aborts the sweep.
 
 **Prometheus metrics plane (kube-prom on omv k3s, `monitoring` ns):**
 `social-api` serves `/metrics` (`app/services/metrics.py`) — HTTP counters/

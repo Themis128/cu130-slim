@@ -47,6 +47,7 @@ from app.models.linkedin_ads import (
     AdDailyMetric,
     AdDemographicSegment,
 )
+from app.models.site_traffic import SiteTrafficDaily
 from app.models.social_account import SocialAccount
 from app.models.user import Team
 from app.models.web_analytics import WebAnalyticsEvent
@@ -63,7 +64,7 @@ settings = get_settings()
 _WEB_EVENTS_DAYS = 90
 
 # Datalake keys mirrored to Nextcloud — summary artifacts only.
-_NC_MIRROR_RE = re.compile(r"^lake/(socialauto-(funnel|ops|reports|monetization|insights|devapps|channel-actions)/|cloudflare-usage/)")
+_NC_MIRROR_RE = re.compile(r"^lake/(socialauto-(funnel|ops|reports|monetization|insights|devapps|channel-actions|site-traffic)/|cloudflare-usage/)")
 
 
 _worker_db = task_session
@@ -420,6 +421,37 @@ async def _export_web_events(db: AsyncSession) -> list[dict]:
             }
         )
     return out
+
+
+async def _export_site_traffic(db: AsyncSession) -> list[dict]:
+    """Swetrix CE daily traffic rollup — cookieless top-of-funnel truth."""
+    since = datetime.now(UTC) - timedelta(days=120)
+    rows = (
+        (
+            await db.execute(
+                select(SiteTrafficDaily)
+                .where(SiteTrafficDaily.date >= since.date())
+                .order_by(SiteTrafficDaily.domain, SiteTrafficDaily.date)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "team_id": str(r.team_id),
+            "domain": r.domain,
+            "swetrix_pid": r.swetrix_pid,
+            "date": r.date.isoformat(),
+            "visitors": r.visitors,
+            "pageviews": r.pageviews,
+            "bounce_rate": r.bounce_rate,
+            "session_duration_sec": r.session_duration_sec,
+            "meta": r.meta or {},
+            "synced_at": _iso(r.synced_at),
+        }
+        for r in rows
+    ]
 
 
 async def _export_funnel(db: AsyncSession) -> dict:
@@ -1006,6 +1038,7 @@ async def _export_async() -> dict:
         await put("lake/socialauto-telegram/channels.json", _export_telegram_channels(db))
         await put("lake/socialauto-telegram/messages.json", _export_telegram_messages(db))
         await put("lake/socialauto-web-events/events.json", _export_web_events(db))
+        await put("lake/socialauto-site-traffic/daily.json", _export_site_traffic(db))
         await put("lake/socialauto-ads/snapshots.json", _export_ad_snapshots(db))
         await put("lake/socialauto-ads/daily.json", _export_ad_daily(db))
         await put("lake/socialauto-ads/demographics.json", _export_ad_demographics(db))

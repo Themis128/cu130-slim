@@ -503,6 +503,7 @@ def test_export_async_full_run(monkeypatch):
         "_export_telegram_channels",
         "_export_telegram_messages",
         "_export_web_events",
+        "_export_site_traffic",
         "_export_ad_snapshots",
         "_export_ad_daily",
         "_export_ad_demographics",
@@ -523,8 +524,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 24  # 19 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 240
+    assert out["files"] == 25  # 20 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 250
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -547,6 +548,7 @@ def test_export_async_insights_and_put_failures(monkeypatch):
         "_export_telegram_channels",
         "_export_telegram_messages",
         "_export_web_events",
+        "_export_site_traffic",
         "_export_ad_snapshots",
         "_export_ad_daily",
         "_export_ad_demographics",
@@ -797,6 +799,7 @@ def test_export_async_cf_usage_failure_isolated(monkeypatch):
         "_export_telegram_channels",
         "_export_telegram_messages",
         "_export_web_events",
+        "_export_site_traffic",
         "_export_ad_snapshots",
         "_export_ad_daily",
         "_export_ad_demographics",
@@ -847,6 +850,7 @@ def test_export_async_nextcloud_mirror(monkeypatch):
         "_export_telegram_channels",
         "_export_telegram_messages",
         "_export_web_events",
+        "_export_site_traffic",
         "_export_ad_snapshots",
         "_export_ad_daily",
         "_export_ad_demographics",
@@ -906,6 +910,7 @@ def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
         "_export_telegram_channels",
         "_export_telegram_messages",
         "_export_web_events",
+        "_export_site_traffic",
         "_export_ad_snapshots",
         "_export_ad_daily",
         "_export_ad_demographics",
