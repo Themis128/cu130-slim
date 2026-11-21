@@ -43,6 +43,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -780,6 +781,20 @@ def _invoke_callback(callback_url: str) -> bool:
     try:
         _get(f"{API}/api/v1/auth/oauth/instagram/callback?{q}", timeout=60)
         return True
+    except urllib.error.HTTPError as e:
+        # The callback can connect the account and still answer 400 (observed
+        # 2026-11-21: body said "instagram account connected successfully" with
+        # HTTP 400 on a re-connect). The response body is authoritative — the
+        # post-verify token check gates the final result either way.
+        try:
+            body = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            body = ""
+        if "connected successfully" in body.lower():
+            print(f"callback returned {e.code} but body confirms connect")
+            return True
+        print(f"callback invoke failed: {e}")
+        return False
     except Exception as e:
         print(f"callback invoke failed: {e}")
         return False
