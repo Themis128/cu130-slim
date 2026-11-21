@@ -1469,7 +1469,7 @@ async def oauth_callback(
                 ig_resp = await http.get(
                     facebook_graph_url("me/accounts"),
                     params={
-                        "fields": ("id,name,access_token," f"instagram_business_account{{{_ig_fields}}}," f"connected_instagram_account{{{_ig_fields}}}"),
+                        "fields": (f"id,name,access_token,instagram_business_account{{{_ig_fields}}},connected_instagram_account{{{_ig_fields}}}"),
                         "access_token": long_lived_token,
                     },
                 )
