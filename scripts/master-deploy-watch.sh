@@ -164,6 +164,17 @@ case "$changed" in
   *docker-compose*.y*ml|*compose*.y*ml|*.env*|Dockerfile*) compose_change=1 ;;
 esac
 
+publish_busy() {
+  # Recreating a publishing worker mid-publish kills the post (2026-11-21:
+  # a LinkedIn publish died 3s after a force-recreate). Defer recreations
+  # while a publishing task is active; deploy-watch retries next cycle
+  # (max 10 min delay). Celery inspect failure counts as NOT busy so a
+  # dead worker can never block deploys.
+  local act
+  act=$(COMPOSE exec -T social-worker-publishing celery -A app.worker.celery_app inspect active --timeout=8 2>/dev/null || true)
+  printf '%s' "$act" | grep -q "app.worker.tasks.publishing"
+}
+
 if [ "$compose_change" = 1 ]; then
   log "compose/env files changed — compose up -d"
   COMPOSE up -d >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
@@ -209,6 +220,12 @@ while IFS= read -r f; do
   done
 done <<< "$changed"
 rebuild_svcs="${rebuild_svcs# }"
+if { [ "$compose_change" = 1 ] || [ "$app_code" = 1 ] || [ -n "$rebuild_svcs" ]; } && publish_busy; then
+  # Exit BEFORE the deployed-sha state write below - a deferred cycle must
+  # leave last_sha untouched so the next run retries the deploy.
+  log "publish in flight — deferring deploy one cycle (sha stays pending)"
+  exit 0
+fi
 if [ -n "$rebuild_svcs" ]; then
   log "build-context changed — rebuilding:$rebuild_svcs"
   # shellcheck disable=SC2086
