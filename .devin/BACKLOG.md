@@ -4281,3 +4281,31 @@ Recovery attempts + findings:
 - [ ] After IG session restored on bridge: `/session/extract`, run
   `threads_reauth.py`, verify `threads/t_baltzakis` live, re-run
   `account_truth.py` for FB/IG/Threads.
+
+## 2026-11-21 leftovers (proactive dry-run session)
+
+- [ ] **Video renders in-flight** — posts `d34c2e1a`, `123a1a31`, `4af2c78a`
+  have `meta_data.pending_video_task` set; `materialize_report_videos`
+  attaches media → schedules → publishes automatically. Verify they land
+  (renders ~40min each, GPU-serialized via media_gpu_lock).
+- [ ] **2 posts 'publishing'** — `5cbe381c` (LinkedIn personal,
+  attempts=2) and `09cb41ae`; queue owns retries.
+- [ ] **Dual compose project name conflict** — `deploy/socialauto-standalone/
+  docker-compose.yml` AND root `docker-compose.yml` both define
+  `social-media-comfyui-gpu`, `browser-novnc`, `facebook-browser-sidecar`,
+  `instagram-private-api`, `messenger-sidecar`, `warp-proxy` with the same
+  `container_name`. A full `docker compose up -d` in EITHER dir recreates/
+  conflicts with the other's containers (hit today: hash-prefixed
+  `Created` containers + unmet healthcheck deps). Rule for now: only
+  `up -d <service subset>` per project; decide canonical owner of the
+  shared services and remove dupes from the other file.
+- [ ] **C: drive** — 61GB free after 12GB comfyui image pull; nightly
+  `Nightly-Vhdx-Compact` reclaims overnight. If renders finish before
+  tonight, optionally trigger compact in idle window (needs Docker stop).
+- [ ] **PR #2433** — rebuilt ops-agent sweep PR, CI running, auto-merge armed.
+- [ ] **PR #2434** — reconcile web-session exemption, CI running.
+- [ ] **Otter.ai popup** — user hasn't chosen: keep+sign in / uninstall /
+  offscreen lane. Desktop app + DevOptimizer launchers still installed.
+- [ ] **IG account rows** — `38ddbd44` (cloudless.gr, web_rupload lane)
+  is canonical; `d2215106` duplicate also flipped active — candidate for
+  retire once publishes confirm which row actually ships.
