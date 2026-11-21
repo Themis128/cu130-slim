@@ -4,11 +4,7 @@ from app.worker.tasks.telegram_incidents import _classify
 
 
 def test_agent_alert_post_is_skipped():
-    text = (
-        "[ops-agent/critical] [ops] cloudless\n"
-        ":warning: Worker task failed `app.worker.tasks.x.y`\n"
-        "```the database system is starting up```"
-    )
+    text = "[ops-agent/critical] [ops] cloudless\n:warning: Worker task failed `app.worker.tasks.x.y`\n```the database system is starting up```"
     assert _classify("critical", text) is None
 
 
@@ -28,11 +24,7 @@ def test_gh_relay_run_failure_classifies():
 
 
 def test_worker_failure_still_classifies():
-    text = (
-        "[ops] cloudless\n"
-        ":warning: Worker task failed `app.worker.tasks.publish_retry.run_publish_retry_sweep`\n"
-        "```the database system is starting up```"
-    )
+    text = "[ops] cloudless\n:warning: Worker task failed `app.worker.tasks.publish_retry.run_publish_retry_sweep`\n```the database system is starting up```"
     out = _classify("critical", text)
     assert out is not None
     assert out[0] == "infra_alert"

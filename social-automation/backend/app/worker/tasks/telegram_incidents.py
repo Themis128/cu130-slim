@@ -111,9 +111,7 @@ _AGENT_ALERT_RE = re.compile(r"^\s*\[ops-agent/", re.MULTILINE)
 # GitHub notification relays carry PR comments and coverage reports that are
 # not incidents; only actions-failure markers classify from that surface.
 _GH_RELAY_RE = re.compile(r"^\s*\[[^\]\s]+/[^\]\s]+\]", re.MULTILINE)
-_GH_FAILURE_RE = re.compile(
-    r"run failed|workflow run|checks? failed|build failed|ci fail", re.IGNORECASE
-)
+_GH_FAILURE_RE = re.compile(r"run failed|workflow run|checks? failed|build failed|ci fail", re.IGNORECASE)
 
 
 def _classify(channel: str, text: str) -> tuple[str, str] | None:

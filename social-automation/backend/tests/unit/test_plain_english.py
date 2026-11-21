@@ -411,8 +411,6 @@ async def test_platform_forwarded_to_inference(monkeypatch):
     assert mock.call_args.kwargs.get("platform") == "instagram"
 
     mock.reset_mock()
-    await pe.run_nlp_check_and_fix(
-        slides=[], caption="we leverage synergy", force_fix=True, platform="tiktok"
-    )
+    await pe.run_nlp_check_and_fix(slides=[], caption="we leverage synergy", force_fix=True, platform="tiktok")
     for call in mock.call_args_list:
         assert call.kwargs.get("platform") == "tiktok"

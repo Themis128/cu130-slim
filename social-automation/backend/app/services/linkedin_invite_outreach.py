@@ -37,10 +37,7 @@ SEARCH_KEYWORDS = [
     "ecommerce social media",
 ]
 
-_INVITE_NOTE = (
-    "Hi — I run SocialAuto and write practical platform guides for "
-    "SMB social media. Would love to connect and share what works."
-)
+_INVITE_NOTE = "Hi — I run SocialAuto and write practical platform guides for SMB social media. Would love to connect and share what works."
 
 _SENT_KEY = "li_outreach:sent"
 _CURSOR_KEY = "li_outreach:kw_cursor"
@@ -91,10 +88,7 @@ async def _session_ok() -> bool:
 
 async def _scrape_slugs(keyword: str, limit: int = 25) -> list[str]:
     """People-search scrape: navigate + extract /in/<slug>/ profile links."""
-    url = (
-        "https://www.linkedin.com/search/results/people/"
-        f"?keywords={quote_plus(keyword)}&origin=SWITCH_SEARCH_VERTICAL"
-    )
+    url = f"https://www.linkedin.com/search/results/people/?keywords={quote_plus(keyword)}&origin=SWITCH_SEARCH_VERTICAL"
     await _post("/debug/navigate", {"url": url}, timeout=75.0)
     await asyncio.sleep(random.uniform(2.0, 4.0))
     # /debug/eval wraps expr as `(async () => { <expr> })()` — it must be a
@@ -145,9 +139,7 @@ async def send_profile_invites(count: int = 5) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("invite scrape failed for %r: %s", keyword, exc)
             continue
-        candidates = [
-            s for s in slugs if s not in sent_set and s not in sent and s not in tried
-        ]
+        candidates = [s for s in slugs if s not in sent_set and s not in sent and s not in tried]
         if not candidates:
             continue
         slug = candidates[0]

@@ -188,9 +188,7 @@ def test_web_lane_helper_matrix():
     assert R._has_web_publish_lane("instagram", {}) is False
     assert R._has_web_publish_lane("instagram", None) is False
     assert R._has_web_publish_lane("facebook", full) is False
-    assert R._has_web_publish_lane(
-        "instagram", {k: v for k, v in full.items() if k != "private_api_ds_user_id"}
-    ) is False
+    assert R._has_web_publish_lane("instagram", {k: v for k, v in full.items() if k != "private_api_ds_user_id"}) is False
 
 
 @pytest.mark.asyncio

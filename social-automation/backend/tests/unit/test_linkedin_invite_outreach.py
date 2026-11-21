@@ -96,6 +96,7 @@ async def test_sends_invites_and_records_sent(monkeypatch):
         scrape=None,
         connect={"invited": True},
     )
+
     # override scrape to rotate slug lists
     async def _scrape2(keyword, limit=25):
         calls["scrape"].append(keyword)
@@ -303,9 +304,7 @@ def test_worker_task_delegates(monkeypatch):
         captured["count"] = count
         return {"status": "sent", "sent": ["x"]}
 
-    monkeypatch.setattr(
-        "app.services.linkedin_invite_outreach.send_profile_invites", _fake_send
-    )
+    monkeypatch.setattr("app.services.linkedin_invite_outreach.send_profile_invites", _fake_send)
     # run_async executes the coroutine — call the underlying service path
     res = W.send_profile_invites(count=3)
     assert res == {"status": "sent", "sent": ["x"]}
