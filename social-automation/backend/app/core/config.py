@@ -129,6 +129,12 @@ class Settings(BaseSettings):
     # when DMR is cold/contended; the gate itself is unchanged.
     PUBLISH_GATE_TIMEOUT_S: float = 300.0
     PUBLISH_GATE_RETRY_DELAY_S: int = 900
+    # Fresh-rewrite retry: when the gate's own improve loop still misses the
+    # bar, generate ONE brand-new version of the copy, defer the target
+    # PUBLISH_GATE_REWRITE_DELAY_S seconds, and let the next sweep re-gate
+    # the new content hash. Exhausted budget falls back to skip + alert.
+    PUBLISH_GATE_REWRITE_MAX: int = 1
+    PUBLISH_GATE_REWRITE_DELAY_S: int = 300
 
     # Publish media-semantics gate — before dispatch, each image asset is
     # captioned by the DMR vision model and judged against the post copy;

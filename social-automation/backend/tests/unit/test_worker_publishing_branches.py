@@ -84,6 +84,7 @@ async def test_quality_gate_block_without_target(monkeypatch):
     _patch_db(monkeypatch, db)
     gate = W.PublishGateResult(passed=False, content="x", overall=40, min_score=80, reason="low")
     monkeypatch.setattr(W, "_enforce_publish_quality", AsyncMock(return_value=gate))
+    monkeypatch.setattr(W, "_quality_gate_rewrite", AsyncMock(return_value=False))
     slack = AsyncMock()
     monkeypatch.setattr(W, "post_alert_to_slack", slack)
     pub = AsyncMock()

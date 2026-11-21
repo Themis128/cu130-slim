@@ -1403,6 +1403,8 @@ async def test_pq_quality_gate_blocks_low_score(monkeypatch):
     monkeypatch.setattr(W, "publish_to_platform", pub)
     alert = AsyncMock()
     monkeypatch.setattr(W, "post_alert_to_slack", alert)
+    rewrite = AsyncMock(return_value=False)
+    monkeypatch.setattr(W, "_quality_gate_rewrite", rewrite)
 
     await W._process_publish_queue_async()
 
@@ -1411,6 +1413,111 @@ async def test_pq_quality_gate_blocks_low_score(monkeypatch):
     assert "Quality gate" in (target.error_message or "")
     pub.assert_not_awaited()
     alert.assert_awaited_once()
+    rewrite.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pq_quality_gate_rewrite_defers_for_regate(monkeypatch):
+    """A failed gate with rewrite budget left gets ONE fresh-copy attempt:
+    the item defers (PENDING + scheduled forward) so the next sweep re-gates
+    the new content hash instead of skipping outright."""
+    item = _qitem()
+    post = _post(id=item.post_id, content_text="thin copy")
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(
+        W,
+        "apply_publish_gate",
+        AsyncMock(
+            return_value=W.PublishGateResult(
+                passed=False,
+                content="thin copy",
+                overall=62,
+                min_score=80,
+                reason="seo_score 62/100 below minimum 80",
+            )
+        ),
+    )
+
+    async def _rewrite(p, a, d):
+        p.content_text = "fresh rewritten copy that is much longer and stronger"
+        ps = dict(p.platform_specific or {})
+        ps["quality_gate_rewrites"] = int(ps.get("quality_gate_rewrites") or 0) + 1
+        p.platform_specific = ps
+        return True
+
+    monkeypatch.setattr(W, "_quality_gate_rewrite", _rewrite)
+    pub = AsyncMock()
+    monkeypatch.setattr(W, "publish_to_platform", pub)
+    alert = AsyncMock()
+    monkeypatch.setattr(W, "post_alert_to_slack", alert)
+
+    await W._process_publish_queue_async()
+
+    assert item.status == QueueStatus.PENDING
+    assert item.locked_at is None and item.locked_by is None
+    assert item.scheduled_at > datetime.now(UTC)
+    assert post.content_text.startswith("fresh rewritten")
+    assert post.platform_specific["quality_gate_rewrites"] == 1
+    pub.assert_not_awaited()
+    alert.assert_awaited_once()
+    assert "auto-rewrite" in alert.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_pq_quality_gate_rewrite_budget_exhausted_skips(monkeypatch):
+    """Once quality_gate_rewrites reaches PUBLISH_GATE_REWRITE_MAX the gate
+    fail goes straight to skip + alert — no second rewrite, no deferral."""
+    item = _qitem()
+    post = _post(
+        id=item.post_id,
+        platform_specific={"quality_gate_rewrites": 1},
+    )
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(
+        W,
+        "apply_publish_gate",
+        AsyncMock(
+            return_value=W.PublishGateResult(
+                passed=False,
+                content="thin",
+                overall=55,
+                min_score=80,
+                reason="seo_score 55/100 below minimum 80",
+            )
+        ),
+    )
+    rewrite = AsyncMock(return_value=True)
+    monkeypatch.setattr(W, "_quality_gate_rewrite", rewrite)
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock())
+    monkeypatch.setattr(W, "post_alert_to_slack", AsyncMock())
+
+    await W._process_publish_queue_async()
+
+    assert item.status == QueueStatus.COMPLETED
+    assert target.status == "skipped"
+    rewrite.assert_not_awaited()
 
 
 @pytest.mark.asyncio
