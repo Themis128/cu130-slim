@@ -2985,6 +2985,14 @@ async def _publish_instagram_via_browser(
         media = {}
     media_id = str(media.get("id") or "")
     code = media.get("code") or ""
+    if not media_id and not code:
+        # 200 without a media id/code is not proof of publication — treat it
+        # as ambiguous so the feed reconcile decides, never as published.
+        return PublishResult(
+            success=False,
+            ambiguous=True,
+            error="Instagram browser configure returned 200 but no media id/code — post may have landed.",
+        )
     platform_url = f"https://www.instagram.com/p/{code}/" if code else None
     return PublishResult(success=True, platform_post_id=media_id, platform_url=platform_url)
 
@@ -3190,8 +3198,10 @@ async def _publish_instagram_reel_via_browser(
  ff.set('timezone_offset','0');ff.set('source_type','4');ff.set('device',dev);ff.set('upload_id',upload_id);
  ff.set('length',String(dur));ff.set('clips',JSON.stringify([{{length:dur,source_type:'4'}}]));
  ff.set('poster_frame_index','0');ff.set('audio_muted','false');
- const rfin=await fetch('https://www.instagram.com/api/v1/media/upload_finish/?video=1',{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'}},body:ff.toString()}});
- window.__igpub='finish:'+rfin.status+':'+(await rfin.text()).slice(0,200);
+ // upload_finish is a mobile-API (i.instagram.com) endpoint — 404 on www.
+ // The web reel flow goes straight to configure_to_clips and relies on the
+ // transcode-retry loop below.
+ window.__igpub='uploaded';
  const segs={{num_segments:1,clips_segments:[{{index:0,face_effect_id:null,
   speed:100,source_type:4,duration_ms:durMs,audio_type:'original',
   from_draft:0,camera_position:-1,media_folder:null,media_type:'video',
@@ -3226,7 +3236,7 @@ async def _publish_instagram_reel_via_browser(
     except Exception as exc:
         return PublishResult(success=False, error=f"Failed to start browser reel publish: {exc}")
 
-    deadline = time.monotonic() + 110
+    deadline = time.monotonic() + 170
     last = "pending"
     while time.monotonic() < deadline:
         await asyncio.sleep(4)
@@ -3234,9 +3244,11 @@ async def _publish_instagram_reel_via_browser(
             last = await _cdp_eval(ws_url, "window.__igpub") or "pending"
         except Exception:
             continue
-        if last.startswith("r2:") or last.startswith("EXC") or last == "missing-cookies":
+        if last.startswith(("r2:", "EXC", "finish-fail:")) or last == "missing-cookies":
             break
 
+    if last.startswith("r2:"):
+        logger.info("[publishing] IG reel configure raw result: %s", last[:500])
     if last.startswith("r2:200:"):
         try:
             media = json.loads(last.split(":", 2)[2]).get("media", {})
@@ -3819,7 +3831,7 @@ async def _publish_instagram(
         browser_result = await _bounded_path(
             _publish_instagram_via_browser(account, text, post, media_paths),
             "browser_cdp",
-            timeout=110.0 if _has_video else None,
+            timeout=200.0 if _has_video else None,
             # A timed-out in-page publish may still land AND falling through
             # to web_rupload would transplant the sessionid — revoking the
             # browser session this lane needs on the next attempt.

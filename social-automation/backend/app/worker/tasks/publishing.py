@@ -781,7 +781,14 @@ async def _process_publish_queue_async(
                 # 50-item batch against the 900s soft limit.
                 # Per-platform deadline — TikTok status-polls up to ~10min,
                 # so a blanket 120s would cancel mid-publish and re-upload.
-                _item_deadline = 660.0 if account.platform == "tiktok" else 120.0
+                # Instagram reels need ~4min: base64 injection + rupload +
+                # configure_to_clips transcode-retry loop inside the page.
+                if account.platform == "tiktok":
+                    _item_deadline = 660.0
+                elif account.platform == "instagram":
+                    _item_deadline = 300.0
+                else:
+                    _item_deadline = 120.0
                 pub = await asyncio.wait_for(publish_to_platform(account, post, db), timeout=_item_deadline)
 
                 deferred = False
