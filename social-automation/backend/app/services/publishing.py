@@ -3086,15 +3086,45 @@ async def _ig_video_thumbnail_b64(video_path: str, duration: float) -> str | Non
 # Runs inside the page's async IIFE; sees csrf/uid/upload_id from scope.
 _REEL_COMET_JS = r"""
  const __html=document.documentElement.innerHTML;
- function __rd(n){const marker='["'+n+'",[],';let from=0;for(;;){const at=__html.indexOf(marker,from);if(at<0)return null;const start=at+marker.length;from=start;if(__html[start]!=='{')continue;let depth=0,inStr=false;const limit=Math.min(__html.length,start+200000);for(let i=start;i<limit;i++){const ch=__html[i];if(inStr){if(ch==='\\')i++;else if(ch==='"')inStr=false;}else if(ch==='"')inStr=true;else if(ch==='{')depth++;else if(ch==='}'&&--depth===0){try{const v=JSON.parse(__html.slice(start,i+1));return v&&typeof v==='object'&&!Array.isArray(v)?v:null;}catch(e){break;}}}}return null;}
- const __dtsg=__rd('DTSGInitialData'),__lsd=__rd('LSD'),__spr=__rd('SprinkleConfig'),__usr=__rd('CurrentUserInitialData'),__site=__rd('SiteData'),__push=__rd('InstagramWebPushInfo');
+ function __rd(n){
+  const marker='["'+n+'",[],';let from=0;
+  for(;;){
+   const at=__html.indexOf(marker,from);if(at<0)return null;
+   const start=at+marker.length;from=start;if(__html[start]!=='{')continue;
+   let depth=0,inStr=false;const limit=Math.min(__html.length,start+200000);
+   for(let i=start;i<limit;i++){const ch=__html[i];
+    if(inStr){if(ch==='\\')i++;else if(ch==='"')inStr=false;}
+    else if(ch==='"')inStr=true;else if(ch==='{')depth++;
+    else if(ch==='}'&&--depth===0){
+     try{const v=JSON.parse(__html.slice(start,i+1));
+      return v&&typeof v==='object'&&!Array.isArray(v)?v:null;
+     }catch(e){break;}}}}
+  return null;}
+ const __dtsg=__rd('DTSGInitialData'),__lsd=__rd('LSD'),__spr=__rd('SprinkleConfig'),
+       __usr=__rd('CurrentUserInitialData'),__site=__rd('SiteData'),__push=__rd('InstagramWebPushInfo');
  if(!__dtsg||!__dtsg.token||!__lsd||!__lsd.token||!__spr||!__usr||!__site||!__push){window.__igpub='no-context';return;}
- const __ctx={fbDtsg:String(__dtsg.token),lsdT:String(__lsd.token),sp:String(__spr.param_name||'jazoest'),spv:Number(__spr.version||2),sprand:__spr.should_randomize===true,user:String(__usr.USER_ID==null?'0':__usr.USER_ID),hs:String(__site.haste_session||''),rev:String(__site.client_revision||''),hsi:String(__site.hsi||''),ce:(typeof __site.comet_env==='number')?__site.comet_env:null,wb:__site.wbloks_env===true,spin:__site.spin?{r:String(__site.__spin_r||''),b:String(__site.__spin_b||''),t:String(__site.__spin_t||'')}:null,rh:String(__push.rollout_hash||'')};
+ const __ctx={fbDtsg:String(__dtsg.token),lsdT:String(__lsd.token),sp:String(__spr.param_name||'jazoest'),
+  spv:Number(__spr.version||2),sprand:__spr.should_randomize===true,
+  user:String(__usr.USER_ID==null?'0':__usr.USER_ID),hs:String(__site.haste_session||''),
+  rev:String(__site.client_revision||''),hsi:String(__site.hsi||''),
+  ce:(typeof __site.comet_env==='number')?__site.comet_env:null,wb:__site.wbloks_env===true,
+  spin:__site.spin?{r:String(__site.__spin_r||''),b:String(__site.__spin_b||''),
+   t:String(__site.__spin_t||'')}:null,rh:String(__push.rollout_hash||'')};
  const __ntok=(tok)=>{let s=0;for(let i=0;i<tok.length;i++)s+=tok.charCodeAt(i);return __ctx.sprand?String(s):String(__ctx.spv)+s;};
  const __sess=[0,1,2].map(()=>Math.floor(Math.random()*36**6).toString(36).padStart(6,'0')).join(':');
  window.__igreq=(window.__igreq||Math.floor(Math.random()*1000));
- const __fields={source_type:'library',disable_comments:'0',like_and_view_counts_disabled:'0',igtv_share_preview_to_feed:'1',is_unified_video:'1',video_subtitles_enabled:'0',is_meta_only_post:'0',media_share_flow:'creation_flow',share_to_threads:'false',caption:__CAPTION__,upload_id:upload_id,clips_share_preview_to_feed:'1',archive_only:'false',disable_oa_reuse:'false'};
- const __cparams=()=>{window.__igreq+=1;const p={__d:'www',__user:__ctx.user,__a:'1',__req:window.__igreq.toString(36),__hs:__ctx.hs,__rev:__ctx.rev,__s:__sess,__hsi:__ctx.hsi};if(!__ctx.wb&&__ctx.ce)p.__comet_req=String(__ctx.ce);p.fb_dtsg=__ctx.fbDtsg;p[__ctx.sp]=__ntok(__ctx.fbDtsg||__ctx.lsdT);p.lsd=__ctx.lsdT;if(__ctx.spin){p.__spin_r=__ctx.spin.r;p.__spin_b=__ctx.spin.b;p.__spin_t=__ctx.spin.t;}return p;};
+ const __fields={source_type:'library',disable_comments:'0',like_and_view_counts_disabled:'0',
+  igtv_share_preview_to_feed:'1',is_unified_video:'1',video_subtitles_enabled:'0',
+  is_meta_only_post:'0',media_share_flow:'creation_flow',share_to_threads:'false',
+  caption:__CAPTION__,upload_id:upload_id,clips_share_preview_to_feed:'1',
+  archive_only:'false',disable_oa_reuse:'false'};
+ const __cparams=()=>{window.__igreq+=1;
+  const p={__d:'www',__user:__ctx.user,__a:'1',__req:window.__igreq.toString(36),
+   __hs:__ctx.hs,__rev:__ctx.rev,__s:__sess,__hsi:__ctx.hsi};
+  if(!__ctx.wb&&__ctx.ce)p.__comet_req=String(__ctx.ce);
+  p.fb_dtsg=__ctx.fbDtsg;p[__ctx.sp]=__ntok(__ctx.fbDtsg||__ctx.lsdT);p.lsd=__ctx.lsdT;
+  if(__ctx.spin){p.__spin_r=__ctx.spin.r;p.__spin_b=__ctx.spin.b;p.__spin_t=__ctx.spin.t;}
+  return p;};
  const __chead={'X-FB-LSD':__ctx.lsdT,'X-IG-D':'www','X-Instagram-AJAX':__ctx.rh,'X-Web-Session-ID':__sess,'x-csrftoken':csrf,'X-IG-App-ID':'936619743392459','Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'};
  const __t0=Date.now();const __back=[3000,6000,12000,24000,30000,30000,30000,30000];
  for(let att=0;att<__back.length&&Date.now()-__t0<140000;att++){
