@@ -4437,3 +4437,9 @@ assistant chat for the reply.
   Publish path still #10. After Meta answers: re-mint via
   `instagram_reauth.py` (FB-login lane) or restore Page↔IG link, then
   re-store token.
+- [ ] human: **Page↔IG business link** — FB admin surfaces (professional
+  dashboard, page settings) reject one-tap/headless sessions; needs an
+  interactive login → Professional dashboard → Linked accounts →
+  Instagram. Until then `graph_fb` stays dead (token 190 from the
+  password change + missing `instagram_content_publish`). IG publishing
+  currently carried by the browser-CDP lane (PR #2452, merged).
