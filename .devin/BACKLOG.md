@@ -4363,3 +4363,37 @@ Status corrections made: `9355ed63` (fb user) + `d2215106` (ig fb-graph)
 → `active` (debug_token verified valid — statuses were false-negative);
 `38ddbd44`/`9eded1e5` stay `expired`, `threads cloudless.gr` stays
 `revoked`. workforce_audit crash was already fixed by PR #2445.
+
+## 2026-11-21 IG reel incident — final resolution
+
+- **TOTP enrolled** on @cloudless.gr; automated login works (login form →
+  "Try another way" → "Authentication app" → TOTP). Secret in `.env` as
+  `META_TOTP_SECRET_IG` — never commit.
+- **Browser-CDP publish lane** (`_publish_instagram_via_browser` in
+  services/publishing.py): runs rupload + configure as fetch() inside the
+  authenticated instagram.com tab via CDP at `INSTAGRAM_BROWSER_CDP_URL`
+  (default http://192.168.96.1:9229; empty disables). Images + carousels
+  proven — 3 real posts shipped. Ahead of `web_rupload` in the chain;
+  `ambiguous_on_timeout=True` so a timed-out in-page publish never falls
+  through to the session-killing transplant lane. All on PR #2452.
+- **Reel lane unresolved**: `rupload_igvideo` + thumbnail upload return
+  ok, but `media/configure_to_clips/` on www.instagram.com returns 200 +
+  empty body on every attempt (3 clean runs). `media/upload_finish/` is
+  mobile-API-only (404 on web) — removed. A 200 without media id/code is
+  now `ambiguous`, never `published`. Remaining: capture a real web reel
+  publish (har flow from a manual upload in the debug browser) to find
+  the missing params — likely `clips_*` fields or a different configure
+  endpoint family.
+- **Post 4e4a063c (gta6 reel)**: failed bounded at attempts=3; no live
+  reel (Graph /media verified). False-positive `published` state was
+  reverted.
+- **Page↔IG business link still open**: FB admin surfaces (professional
+  dashboard, page settings) reject one-tap/headless sessions — needs an
+  interactive login at https://www.facebook.com/professional_dashboard
+  → Linked accounts → Instagram. Until then `graph_fb` stays dead
+  (token 190 from password change; `instagram_content_publish` missing).
+- **Worker deadlines** (tasks/publishing.py): IG items get 300s item
+  deadline; browser lane gives reels 200s, reel poll loop 170s.
+- **Session hygiene**: instagram.com sessions live ~15 min under API
+  probing; every web_rupload transplant attempt revokes the browser
+  session. Never run both lanes against the same session.
