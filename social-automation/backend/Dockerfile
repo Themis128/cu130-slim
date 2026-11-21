@@ -28,11 +28,15 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[worker]" && \
     pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
-# instagrapi is installed --no-deps: every release >=2.6.9 (the
-# GHSA-ggxf-37hm-9wqf fix) hard-pins Pillow<13, conflicting with the
-# Pillow>=13.0.0 security floor. Its remaining runtime deps (requests,
-# pydantic, PySocks, pycryptodomex) are resolved explicitly here.
-RUN pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
+# instagrapi is installed --no-deps to keep its dependency surface under our
+# control (its runtime deps — requests, pydantic, PySocks, pycryptodomex,
+# curl_cffi — are resolved explicitly here / by the worker extra).
+# Pin is >=3.2.3: 2.x is unfixable after Instagram removed the
+# ig-set-password-encryption-* headers from qe/sync (upstream #2920); the
+# login encryption key now comes from launcher/sync. The historical
+# Pillow<13 pin that forced --no-deps no longer exists (3.x wants
+# Pillow>=13), but --no-deps is retained to avoid dep churn.
+RUN pip install --no-cache-dir "instagrapi==3.2.19" --no-deps && \
     pip install --no-cache-dir "PySocks>=1.7.1" "pycryptodomex>=3.23.0"
 
 # ── Runtime layers shared by the api and every worker — everything except
@@ -79,7 +83,7 @@ FROM builder AS builder-api
 # The venv must live at its final path — console scripts hardcode the shebang.
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir -e . && \
-    /opt/venv/bin/pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
+    /opt/venv/bin/pip install --no-cache-dir "instagrapi==3.2.19" --no-deps && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
     find /opt/venv/lib/python*/site-packages \
     -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
