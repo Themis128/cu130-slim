@@ -265,7 +265,7 @@ fix_eacces() {
 # Services beyond CORE that must stay up — same stuck/exited/dead checks.
 # comfyui-gpu and other sleepable/on-demand containers are deliberately
 # absent; stack-ops has its own port-binding probe below.
-EXTRA="n8n n8n-task-runner infisical social-api-gateway social-frontend env-manager-backend env-manager-frontend mautic nextcloud-mcp-server facebook-browser-sidecar tiktok-browser-sidecar messenger-sidecar linkedin-browser-sidecar browser-novnc instagram-private-api flower"
+EXTRA="n8n n8n-task-runner infisical social-api-gateway social-frontend env-manager-backend env-manager-frontend mautic nextcloud-mcp-server facebook-browser-sidecar tiktok-browser-sidecar messenger-sidecar linkedin-browser-sidecar browser-novnc instagram-private-api warp-proxy flower"
 # stack-ops idle-sleep state — a managed container reporting "stopped" is
 # ASLEEP ON PURPOSE: never restart it, and never port-probe a managed
 # service (a probe counts as a wake). Proxy unreachable => empty sets =>
