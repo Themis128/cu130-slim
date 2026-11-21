@@ -211,14 +211,13 @@ def test_room_url():
 
 
 def _opp(**over):
-    # Future-relative default: a hardcoded closeDate rots the day the
-    # calendar passes it (2026-11-21: the 11-20 default flipped every
-    # default-opp test from "future" to "past" overnight).
     base = {
         "id": "opp-1",
         "name": "Consultation – Acme",
         "stage": "appointmentscheduled",
-        "closeDate": (date.today() + timedelta(days=3)).isoformat(),
+        # Dynamic future date — a hardcoded date becomes "past" over time
+        # and silently breaks every test relying on upcoming-meeting semantics.
+        "closeDate": (date.today() + timedelta(days=7)).isoformat(),
         "accountId": None,
         "accountName": None,
     }
