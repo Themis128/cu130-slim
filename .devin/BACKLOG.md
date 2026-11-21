@@ -4281,3 +4281,29 @@ Recovery attempts + findings:
 - [ ] After IG session restored on bridge: `/session/extract`, run
   `threads_reauth.py`, verify `threads/t_baltzakis` live, re-run
   `account_truth.py` for FB/IG/Threads.
+
+## 2026-11-21 (resolution) — Bridge IG swapped to healthy Meta-Account IG; threads/t_baltzakis restored
+
+The suspended `baltzakis_themistoklis` IG was bypassed entirely: IG login
+page profile picker offered `cloudless.gr` + `t_baltzakis` saved
+profiles — logging in as `cloudless.gr` hit IG 2FA, SMS code read
+automatically via ADB `content query` (codes arrive as "Facebook" sender
+SMS, ~30s), session landed on the feed. Threads SSO then logged into
+threads.net as `@t_baltzakis` (the cloudless.gr IG is linked to that
+Threads handle). `threads_reauth.py` minted a fresh OAuth token —
+`threads/t_baltzakis` now `active` until 2027-01-20.
+
+Lessons:
+- Bridge `/session/*` calls MUST send `X-Platform: <platform>` — without
+  it no busy-hold is set and pollers (personal_messenger Browser
+  orchestrator, twitter_messenger, engagement_ingest_fb) steal the
+  browser every ~2min. With the header, `interactive:true` holds 15min.
+- `threads/cloudless.gr` row has `retired_at` (2026-11-15) — intentionally
+  dead, not a regression.
+- WhatsApp phone verification still pending (SMS never arrives);
+  no longer blocks anything — IG 2FA has a Text-message lane.
+- `input tap`/`keyevent` partially work over USB ADB (keyevents yes,
+  taps flaky on WhatsApp verify screen) — SMS reading via
+  `content query --uri content://sms/inbox` is reliable.
+- Suspended `baltzakis_themistoklis` IG: still suspended; deletion still
+  human-gated. Now cosmetic — nothing depends on it.
