@@ -22,6 +22,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -70,6 +71,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -92,6 +94,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     extra_hosts:
@@ -116,6 +119,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     volumes:
@@ -140,6 +144,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -164,6 +169,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -186,6 +192,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
+      - PYTHONPATH=/app
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
