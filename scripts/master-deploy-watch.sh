@@ -15,6 +15,13 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO_DIR="$(pwd)"
+# Pin every compose call to the LIVE project (deploy/socialauto-standalone).
+# The repo root has its own docker-compose.yml defining the same service
+# names under a different project - unpinned calls from the root conflict
+# with the running containers (redis name-in-use on force-recreate).
+COMPOSE_FILE="$REPO_DIR/deploy/socialauto-standalone/docker-compose.yml"
+COMPOSE_CTX="$REPO_DIR/deploy/socialauto-standalone"
+COMPOSE() { docker compose -f "$COMPOSE_FILE" --project-directory "$COMPOSE_CTX" "$@"; }
 
 DW_STATE_DIR="${DW_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/master-deploy-watch}"
 DW_LOG="${DW_LOG:-$REPO_DIR/logs/deploy-watch.log}"
@@ -36,7 +43,7 @@ ALERT() {  # throttled to once/30min per key
   local f="$DW_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
   log "ALERT[$key] $msg"
   [ -f "$f" ] && [ $(( $(now) - $(mtime "$f") )) -lt 1800 ] && return
-  docker compose exec -T social-api python -c "
+  COMPOSE exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
 asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
@@ -158,8 +165,8 @@ case "$changed" in
 esac
 
 if [ "$compose_change" = 1 ]; then
-  log "compose/env files changed — docker compose up -d"
-  docker compose up -d >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
+  log "compose/env files changed — compose up -d"
+  COMPOSE up -d >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
 fi
 if [ "$app_code" = 1 ]; then
   # The backend runs GHCR images (social-backend-api-latest /
@@ -167,8 +174,8 @@ if [ "$app_code" = 1 ]; then
   # and never deploys merged code - deployed code changes land via registry
   # pulls, not restarts. Pull the fresh tags and force-recreate.
   log "backend code changed — pull + force-recreate $CORE_RESTART"
-  docker compose pull $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "pull" ":rotating_light: master-deploy-watch: compose pull failed after $new"
-  docker compose up -d --force-recreate $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
+  COMPOSE pull $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "pull" ":rotating_light: master-deploy-watch: compose pull failed after $new"
+  COMPOSE up -d --force-recreate $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
 fi
 
 # ── local-image services: rebuild when files under their build context
@@ -205,9 +212,14 @@ rebuild_svcs="${rebuild_svcs# }"
 if [ -n "$rebuild_svcs" ]; then
   log "build-context changed — rebuilding:$rebuild_svcs"
   # shellcheck disable=SC2086
-  if docker compose build $rebuild_svcs >>"$DW_LOG" 2>&1 && \
-     docker compose up -d $rebuild_svcs >>"$DW_LOG" 2>&1; then
+  if COMPOSE build $rebuild_svcs >>"$DW_LOG" 2>&1 && \
+     COMPOSE up -d $rebuild_svcs >>"$DW_LOG" 2>&1; then
     log "rebuilt+recreated:$rebuild_svcs"
+    # Each compose build orphans the previous image; merge storms pile up
+    # ~50GB of dead layers per day inside docker_data.vhdx. Cap it: prune
+    # dangling images after every rebuild cycle (dangling only - tagged
+    # and in-use images are untouched).
+    docker image prune -f >>"$DW_LOG" 2>&1 || true
   else
     ALERT "image-rebuild" ":rotating_light: master-deploy-watch: docker compose build/up failed for:$rebuild_svcs — check $DW_LOG"
   fi
@@ -219,7 +231,7 @@ fails_file="$DW_STATE_DIR/fails-$new"
 fails=0; [ -f "$fails_file" ] && fails=$(cat "$fails_file")
 healthy=1
 curl -sf --max-time 10 "$HEALTH_URL" >/dev/null || healthy=0
-nodes=$(docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping 2>/dev/null | grep -c "pong" || true)
+nodes=$(COMPOSE exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping 2>/dev/null | grep -c "pong" || true)
 [ "${nodes:-0}" -lt 4 ] && healthy=0
 
 if [ "$healthy" = 1 ]; then
