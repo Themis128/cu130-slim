@@ -1,5 +1,9 @@
 # ΣτΠ case 408302 — RESOLVED (final letter 19/11/2026)
 
+Case identifiers: Αρ. Πρωτ. αναφοράς **408302/81750/2026**, ΚΠΑ
+**202610260029**, υποβληθείσα ηλεκτρονικά 26/10/2026 κατά της
+ΔΥΠΑ – ΚΠΑ2 Μαρκοπούλου.
+
 The Ombudsman's final letter (Αρ. Πρωτ. **408302/89118/2026**, «ΜΠΑΛΤΖΑΚΗΣ
 ΤΕΛΙΚΗ») arrived via the DMS mail on 19/11/2026 and **closed the
 mediation**: the 200-days-in-2-years rule applies only to first-time
