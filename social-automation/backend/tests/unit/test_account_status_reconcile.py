@@ -108,6 +108,92 @@ async def test_reconcile_marks_expired_without_probe():
 
 
 @pytest.mark.asyncio
+async def test_web_lane_instagram_is_unprobed():
+    """IG rows with a live web_rupload session must not be Graph-probed —
+    the token is revoked by design and the sweep would flip-flop status."""
+    acc = MagicMock()
+    acc.token_expires_at = None
+    acc.access_token_enc = b"x"
+    acc.status = "active"
+    acc.meta_data = {
+        "private_api_session_id": "enc-session",
+        "private_api_csrf_token": "enc-csrf",
+        "private_api_ds_user_id": "12345",
+    }
+    acc.platform = "instagram"
+    acc.username = "cloudless.gr"
+    acc.account_id = "17841436821573754"
+
+    fake_db = MagicMock()
+    fake_db.execute = AsyncMock(return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [acc])))
+    fake_db.commit = AsyncMock()
+
+    class _Sess:
+        async def __aenter__(self):
+            return fake_db
+
+        async def __aexit__(self, *a):
+            return False
+
+    with (
+        patch.object(R, "task_session", lambda: _Sess()),
+        patch.object(R, "decrypt_token", return_value="tok"),
+        patch.object(R, "_probe", new=AsyncMock(return_value="revoked")) as probe,
+    ):
+        counts = await R._reconcile()
+    probe.assert_not_awaited()
+    assert acc.status == "active"
+    assert counts["revoked"] == 0 and counts["drifted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_instagram_without_web_lane_still_probes():
+    acc = MagicMock()
+    acc.token_expires_at = None
+    acc.access_token_enc = b"x"
+    acc.status = "active"
+    acc.meta_data = {"private_api_session_id": "enc-session"}  # incomplete set
+    acc.platform = "instagram"
+    acc.username = "ig-no-lane"
+    acc.account_id = "1"
+
+    fake_db = MagicMock()
+    fake_db.execute = AsyncMock(return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [acc])))
+    fake_db.commit = AsyncMock()
+
+    class _Sess:
+        async def __aenter__(self):
+            return fake_db
+
+        async def __aexit__(self, *a):
+            return False
+
+    probe = AsyncMock(return_value="active")
+    with (
+        patch.object(R, "task_session", lambda: _Sess()),
+        patch.object(R, "decrypt_token", return_value="tok"),
+        patch.object(R, "_probe", new=probe),
+    ):
+        await R._reconcile()
+    probe.assert_awaited_once()
+
+
+def test_web_lane_helper_matrix():
+    full = {
+        "private_api_session_id": "s",
+        "private_api_csrf_token": "c",
+        "private_api_ds_user_id": "u",
+    }
+    assert R._has_web_publish_lane("instagram", full) is True
+    assert R._has_web_publish_lane("instagram", {}) is False
+    assert R._has_web_publish_lane("instagram", None) is False
+    assert R._has_web_publish_lane("facebook", full) is False
+    assert R._has_web_publish_lane(
+        "instagram", {k: v for k, v in full.items() if k != "private_api_ds_user_id"}
+    ) is False
+
+
+@pytest.mark.asyncio
 async def test_reconcile_stamps_last_verified_at():
     acc = MagicMock()
     acc.token_expires_at = None

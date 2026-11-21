@@ -110,6 +110,22 @@ async def _probe(platform: str, account_id: str, token: str, meta: dict | None) 
         return "inconclusive"
 
 
+def _has_web_publish_lane(platform: str, meta: dict | None) -> bool:
+    """Instagram rows publishing via the browser ``web_rupload`` lane carry a
+    sessionid cookie set, not a Graph token — the Graph probe reports
+    ``revoked`` forever and flip-flops ``status`` while publishes keep
+    working. Session freshness for this lane is owned by the session
+    healers, so the sweep leaves the row alone (``unprobed``)."""
+    if platform != "instagram":
+        return False
+    meta = meta or {}
+    return bool(
+        meta.get("private_api_session_id")
+        and meta.get("private_api_csrf_token")
+        and meta.get("private_api_ds_user_id")
+    )
+
+
 async def _reconcile() -> dict[str, int]:
     counts = {"checked": 0, "drifted": 0, "active": 0, "expired": 0, "revoked": 0, "error": 0}
     now = datetime.now(UTC)
@@ -121,11 +137,14 @@ async def _reconcile() -> dict[str, int]:
             if acc.token_expires_at and acc.token_expires_at.replace(tzinfo=UTC) < now:
                 new_status = "expired"
             elif acc.access_token_enc:
-                try:
-                    token = decrypt_token(acc.access_token_enc)
-                except Exception:
-                    token = ""
-                new_status = await _probe(acc.platform, acc.account_id, token, acc.meta_data) if token else "inconclusive"
+                if _has_web_publish_lane(acc.platform, acc.meta_data):
+                    new_status = "unprobed"
+                else:
+                    try:
+                        token = decrypt_token(acc.access_token_enc)
+                    except Exception:
+                        token = ""
+                    new_status = await _probe(acc.platform, acc.account_id, token, acc.meta_data) if token else "inconclusive"
             if new_status in ("inconclusive", "error"):
                 acc.meta_data = {**(acc.meta_data or {}), "last_verify_attempt_at": now.isoformat()}
                 counts["error"] += 1
