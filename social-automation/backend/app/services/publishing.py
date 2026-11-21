@@ -2773,6 +2773,503 @@ async def _publish_instagram_via_web(
         )
 
 
+async def _cdp_eval(ws_url: str, expression: str, *, await_promise: bool = False, timeout: float = 15.0) -> Any:
+    """Run ``Runtime.evaluate`` on a CDP page target — reconnect-per-call.
+
+    The debug-Chrome page websocket is dropped on every navigation and
+    intermittently during uploads, so each call opens a fresh connection.
+    """
+    import websockets
+
+    async with websockets.connect(ws_url, open_timeout=8, close_timeout=3, max_size=64 * 1024 * 1024) as ws:
+        await ws.send(
+            json.dumps(
+                {
+                    "id": 1,
+                    "method": "Runtime.evaluate",
+                    "params": {
+                        "expression": expression,
+                        "returnByValue": True,
+                        "awaitPromise": await_promise,
+                    },
+                }
+            )
+        )
+        while True:
+            msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
+            if msg.get("id") == 1:
+                return ((msg.get("result") or {}).get("result") or {}).get("value")
+
+
+async def _publish_instagram_via_browser(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish via the live Instagram page on the debug Chrome (CDP lane).
+
+    Runs ``rupload_igphoto`` + ``media/configure`` as ``fetch()`` inside the
+    authenticated instagram.com tab — the same endpoints as
+    :func:`_publish_instagram_via_web` but executed with the browser's own
+    cookies.  Transplanting ``sessionid`` into worker-side httpx gets the
+    session revoked by Instagram within minutes (2026-11-21 incident); the
+    in-page calls keep the session intact.
+
+    Requires ``INSTAGRAM_BROWSER_CDP_URL`` pointing at a Chrome instance
+    with an instagram.com tab logged into the target account
+    (``private_api_ds_user_id`` in meta must match the page cookie).
+    """
+    cdp_url = (_settings.INSTAGRAM_BROWSER_CDP_URL or "").strip()
+    if not cdp_url:
+        return PublishResult(success=False, error="INSTAGRAM_BROWSER_CDP_URL not configured.")
+
+    if not media_paths:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram requires at least one image or video. Set media on the post.",
+        )
+
+    meta = account.meta_data or {}
+    ds_user_id = meta.get("private_api_ds_user_id")
+
+    # Videos: single-file reels only (no carousels/mixed sets via this lane)
+    video_paths = [fp for fp in media_paths[:10] if fp.lower().endswith((".mp4", ".mov", ".webm", ".avi"))]
+    if video_paths:
+        if len(media_paths) > 1:
+            return PublishResult(
+                success=False,
+                error="Instagram browser lane supports a single video per post. Use sidecar or Graph API for mixed media.",
+            )
+        return await _publish_instagram_reel_via_browser(account, text, post, video_paths[0], cdp_url, ds_user_id)
+
+    image_paths = list(media_paths[:10])
+
+    # Resolve the instagram.com page target
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            targets = (await http.get(f"{cdp_url}/json")).json()
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
+
+    page = next(
+        (t for t in targets if t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")),
+        None,
+    )
+    if not page:
+        return PublishResult(success=False, error="No live instagram.com tab on debug Chrome.")
+
+    ws_url = page.get("webSocketDebuggerUrl") or ""
+
+    # Verify the tab holds the *brand* session, not another account
+    try:
+        cookie_uid = await _cdp_eval(
+            ws_url,
+            "(document.cookie.match(/ds_user_id=([^;]+)/)||[])[1]||null",
+        )
+    except Exception as exc:
+        return PublishResult(success=False, error=f"CDP session probe failed: {exc}")
+    if ds_user_id and cookie_uid != str(ds_user_id):
+        return PublishResult(
+            success=False,
+            error=f"Browser session is ds_user_id={cookie_uid}, expected {ds_user_id} (@{account.username}).",
+        )
+
+    # Build the in-page payload: images as base64 + caption
+    imgs_js = []
+    for fp in image_paths:
+        try:
+            from PIL import Image
+
+            img = Image.open(fp)
+            width, height = img.size
+        except Exception as exc:
+            return PublishResult(success=False, error=f"Failed to read image for browser upload: {exc}")
+        with open(fp, "rb") as f:
+            imgs_js.append({"b64": base64.b64encode(f.read()).decode(), "w": width, "h": height})
+
+    caption = text[:2200]
+    is_carousel = len(imgs_js) > 1
+
+    try:
+        await _cdp_eval(ws_url, "window.__igimgs=null;window.__igpub=null;'reset'")
+        await _cdp_eval(ws_url, f"window.__igimgs={json.dumps(imgs_js)};'imgs-set'")
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Failed to inject media into page: {exc}")
+
+    if is_carousel:
+        configure_js = """
+  const children=[];
+  const dev=JSON.stringify({manufacturer:'Xiaomi',model:'MI 5',android_version:24,android_release:'7.0'});
+  for(let i=0;i<upload_ids.length;i++){
+    const [w,h]=dims[i];
+    children.push({upload_id:upload_ids[i],width:w,height:h,timezone_offset:'0',caption:null,source_type:'4',
+      extra:JSON.stringify({source_width:w,source_height:h}),
+      edits:JSON.stringify({crop_original_size:[w,h],crop_center:[0.0,-0.0],crop_zoom:1.0}),device:dev});
+  }
+  const form=new URLSearchParams();
+  form.set('_csrftoken',csrf);form.set('_uid',uid);form.set('_uuid','android-e021b636049dc0e9');
+  form.set('caption',CAP);form.set('children_metadata',JSON.stringify(children));
+  form.set('client_sidecar_id',String(Date.now()));form.set('timezone_offset','0');
+  form.set('source_type','4');form.set('device_id','android-e021b636049dc0e9');form.set('device',dev);
+  const r2=await fetch('https://www.instagram.com/api/v1/media/configure_sidecar/',{method:'POST',headers:{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/create/details/','Origin':'https://www.instagram.com'},body:form.toString()});
+"""
+    else:
+        configure_js = """
+  const form=new URLSearchParams();
+  form.set('caption',CAP);form.set('upload_id',upload_ids[0]);form.set('use_custom_tags','1');
+  form.set('manual_timestamp','0');form.set('source_type','1');form.set('device_id','android-e021b636049dc0e9');
+  const r2=await fetch('https://www.instagram.com/api/v1/media/configure/',{method:'POST',headers:{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/create/details/','Origin':'https://www.instagram.com'},body:form.toString()});
+"""
+
+    kick_js = f"""window.__igpub='pending';(async()=>{{try{{
+ const imgs=window.__igimgs;
+ const csrf=(document.cookie.match(/csrftoken=([^;]+)/)||[])[1];
+ const uid=(document.cookie.match(/ds_user_id=([^;]+)/)||[])[1];
+ if(!csrf||!uid){{window.__igpub='missing-cookies';return;}}
+ const upload_ids=[];const dims=[];
+ for(let i=0;i<imgs.length;i++){{
+  const bytes=Uint8Array.from(atob(imgs[i].b64),c=>c.charCodeAt(0));
+  const upload_id=String(Date.now())+String(i);
+  const entity='fb_uploader_'+upload_id;
+  const params={{media_type:1,upload_id:upload_id,upload_media_height:imgs[i].h,upload_media_width:imgs[i].w}};
+  {'params.is_sidecar="1";' if is_carousel else ''}
+  const r1=await fetch('https://www.instagram.com/rupload_igphoto/'+entity,{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'X-Entity-Name':entity,'X-Entity-Length':String(bytes.length),'X-Entity-Type':'image/jpeg','Offset':'0','X-Instagram-Rupload-Params':JSON.stringify(params),'Content-Type':'application/octet-stream'}},body:bytes}});
+  const t1=await r1.text();
+  if(r1.status!==200){{window.__igpub='r1:'+i+':'+r1.status+':'+t1.slice(0,200);return;}}
+  try{{const j1=JSON.parse(t1);if(j1.status!=='ok'){{window.__igpub='r1status:'+t1.slice(0,200);return;}}}}
+  catch(e){{window.__igpub='r1nonjson:'+t1.slice(0,100);return;}}
+  upload_ids.push(upload_id);dims.push([imgs[i].w,imgs[i].h]);
+ }}
+ window.__igpub='uploads-ok';
+{configure_js}
+ const t2=await r2.text();
+ window.__igpub='r2:'+r2.status+':'+t2.slice(0,600);
+}}catch(e){{window.__igpub='EXC '+e}}}})();'kicked'""".replace("CAP", json.dumps(caption))
+
+    try:
+        await _cdp_eval(ws_url, kick_js)
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Failed to start browser publish: {exc}")
+
+    # Poll the page-side result flag — fresh connection per poll since the
+    # page ws drops intermittently mid-upload.
+    deadline = time.monotonic() + 90
+    last = "pending"
+    while time.monotonic() < deadline:
+        await asyncio.sleep(4)
+        try:
+            last = await _cdp_eval(ws_url, "window.__igpub") or "pending"
+        except Exception:
+            continue
+        if last.startswith("r2:") or last.startswith("EXC") or last == "missing-cookies":
+            break
+
+    if not last.startswith("r2:200:"):
+        if last == "missing-cookies":
+            return PublishResult(success=False, error="Browser Instagram session expired (no cookies).")
+        if last in ("pending", "uploads-ok"):
+            # Socket dropped mid-flight — configure may still have landed.
+            # The queue worker reconciles the feed for ambiguous results.
+            return PublishResult(
+                success=False,
+                ambiguous=True,
+                error=f"Browser publish result lost (last state: {last}) — post may have landed.",
+            )
+        return PublishResult(success=False, error=f"Instagram browser publish failed: {last[:300]}")
+
+    try:
+        media = json.loads(last.split(":", 2)[2]).get("media", {})
+    except Exception:
+        media = {}
+    media_id = str(media.get("id") or "")
+    code = media.get("code") or ""
+    platform_url = f"https://www.instagram.com/p/{code}/" if code else None
+    return PublishResult(success=True, platform_post_id=media_id, platform_url=platform_url)
+
+
+async def _ig_probe_video(path: str) -> tuple[float, int, int] | None:
+    """Return ``(duration_seconds, width, height)`` for a video via ffprobe."""
+    import shutil
+
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_type,width,height",
+            "-of",
+            "json",
+            path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await proc.communicate()
+        info = json.loads(out.decode("utf-8", errors="replace") or "{}")
+        duration = float((info.get("format") or {}).get("duration") or 0)
+        width = height = 0
+        for stream in info.get("streams") or []:
+            if stream.get("codec_type") == "video":
+                width = int(stream.get("width") or 0)
+                height = int(stream.get("height") or 0)
+                break
+        if duration <= 0 or not width or not height:
+            return None
+        return duration, width, height
+    except Exception as exc:
+        logger.warning("[publishing] ffprobe failed for %s: %s", path, exc)
+        return None
+
+
+async def _ig_video_thumbnail_b64(video_path: str, duration: float) -> str | None:
+    """Extract a JPEG frame (~10% in, capped at 1s) as base64 for the reel cover."""
+    import shutil
+    import tempfile
+
+    if not shutil.which("ffmpeg"):
+        return None
+    fd, thumb_path = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    seek = min(1.0, max(0.0, duration * 0.1))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{seek:.2f}",
+            "-i",
+            video_path,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            thumb_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await proc.communicate()
+        if proc.returncode != 0 or not os.path.exists(thumb_path) or os.path.getsize(thumb_path) == 0:
+            return None
+        with open(thumb_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception as exc:
+        logger.warning("[publishing] ffmpeg thumbnail failed for %s: %s", video_path, exc)
+        return None
+    finally:
+        try:
+            os.unlink(thumb_path)
+        except OSError:
+            pass
+
+
+async def _publish_instagram_reel_via_browser(
+    account: SocialAccount,
+    text: str,
+    post: Post,
+    video_path: str,
+    cdp_url: str,
+    ds_user_id: str | None,
+) -> PublishResult:
+    """Publish a single-video reel via in-page fetch on the debug Chrome.
+
+    Mirrors the live instagram.com reel flow captured from the mobile/web
+    clients: ``rupload_igvideo`` → thumbnail ``rupload_igphoto`` →
+    ``media/upload_finish`` → ``media/configure_to_clips`` (with transcode
+    retries).  Running inside the page keeps the browser session intact —
+    worker-side cookie transplants get revoked within minutes.
+    """
+    probe = await _ig_probe_video(video_path)
+    if not probe:
+        return PublishResult(
+            success=False,
+            error="Could not probe video metadata (ffprobe) for Instagram reel upload.",
+        )
+    duration, width, height = probe
+    duration_ms = int(duration * 1000)
+
+    thumb_b64 = await _ig_video_thumbnail_b64(video_path, duration)
+    if not thumb_b64:
+        return PublishResult(
+            success=False,
+            error="Could not extract a thumbnail frame for the Instagram reel.",
+        )
+
+    try:
+        with open(video_path, "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode()
+    except OSError as exc:
+        return PublishResult(success=False, error=f"Failed to read video file: {exc}")
+
+    # Resolve the instagram.com page target (same rules as the image lane)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            targets = (await http.get(f"{cdp_url}/json")).json()
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
+
+    page = next(
+        (t for t in targets if t.get("type") == "page" and "instagram.com/" in (t.get("url") or "") and "accounts/login" not in t.get("url", "")),
+        None,
+    )
+    if not page:
+        return PublishResult(success=False, error="No live instagram.com tab on debug Chrome.")
+    ws_url = page.get("webSocketDebuggerUrl") or ""
+
+    try:
+        cookie_uid = await _cdp_eval(
+            ws_url,
+            "(document.cookie.match(/ds_user_id=([^;]+)/)||[])[1]||null",
+        )
+    except Exception as exc:
+        return PublishResult(success=False, error=f"CDP session probe failed: {exc}")
+    if ds_user_id and cookie_uid != str(ds_user_id):
+        return PublishResult(
+            success=False,
+            error=f"Browser session is ds_user_id={cookie_uid}, expected {ds_user_id} (@{account.username}).",
+        )
+
+    caption = text[:2200]
+
+    # Inject video bytes as base64 chunks + the thumbnail, then kick the flow.
+    chunk_size = 4_000_000
+    chunks = [video_b64[i : i + chunk_size] for i in range(0, len(video_b64), chunk_size)]
+    try:
+        await _cdp_eval(ws_url, "window.__igchunks=[];window.__igthb=null;window.__igpub=null;'reset'")
+        for chunk in chunks:
+            await _cdp_eval(ws_url, f"window.__igchunks.push({json.dumps(chunk)});'c'")
+        await _cdp_eval(ws_url, f"window.__igthb={json.dumps(thumb_b64)};'thb-set'")
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Failed to inject reel media into page: {exc}")
+
+    kick_js = f"""window.__igpub='pending';(async()=>{{try{{
+ const b64=window.__igchunks.join('');window.__igchunks=null;
+ const bin=atob(b64);const bytes=new Uint8Array(bin.length);
+ for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+ const thb=Uint8Array.from(atob(window.__igthb),c=>c.charCodeAt(0));window.__igthb=null;
+ const csrf=(document.cookie.match(/csrftoken=([^;]+)/)||[])[1];
+ const uid=(document.cookie.match(/ds_user_id=([^;]+)/)||[])[1];
+ if(!csrf||!uid){{window.__igpub='missing-cookies';return;}}
+ const upload_id=String(Date.now());
+ const dur={duration!r};const durMs={duration_ms};const W={width};const H={height};
+ const dev=JSON.stringify({{manufacturer:'Instagram',model:'Instagram',android_version:33,android_release:'13.0'}});
+ const device_id='android-'+Math.random().toString(16).slice(2,18);
+ const uuid=(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):'').padEnd(32,'0').slice(0,32);
+ const name=uuid+'-0-'+bytes.length+'-'+upload_id+'-'+upload_id;
+ const params={{provenance_metadata:JSON.stringify({{origin:['EXTERNAL']}}),
+  upload_media_height:String(H),share_type:'reels',debug_segment_id:'0',
+  extract_cover_frame:'1',upload_engine_config_enum:'0',xsharing_user_ids:'[]',
+  upload_media_width:String(W),stella_data:'{{}}',is_clips_video:'1',
+  is_optimistic_upload:'true',upload_media_duration_ms:String(durMs),
+  content_tags:'use_default_cover',upload_id:upload_id,
+  retry_context:'{{"num_reupload":0,"num_step_manual_retry":0,"num_step_auto_retry":0}}',
+  session_id:upload_id,media_type:'2'}};
+ const VH={{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,
+  'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(params),
+  'X_FB_VIDEO_WATERFALL_ID':upload_id+'_0_0','X-Entity-Type':'video/mp4',
+  'Offset':'0','X-Entity-Name':name,'X-Entity-Length':String(bytes.length),
+  'Content-Type':'application/octet-stream'}};
+ const ri=await fetch('https://www.instagram.com/rupload_igvideo/'+name,{{method:'GET',headers:VH}});
+ if(ri.status!==200){{window.__igpub='vinit:'+ri.status+':'+(await ri.text()).slice(0,200);return;}}
+ const ru=await fetch('https://www.instagram.com/rupload_igvideo/'+name,{{method:'POST',headers:{{...VH,'Content-Length':String(bytes.length)}},body:bytes}});
+ const tut=await ru.text();
+ if(ru.status!==200){{window.__igpub='vup:'+ru.status+':'+tut.slice(0,200);return;}}
+ const tname=upload_id+'_0_'+Math.floor(1000000000+Math.random()*8999999999);
+ const tparams={{retry_context:'{{"num_step_auto_retry":0,"num_reupload":0,"num_step_manual_retry":0}}',
+  media_type:'1',xsharing_user_ids:'[]',upload_id:upload_id,
+  image_compression:JSON.stringify({{lib_name:'moz',lib_version:'3.1.m',quality:'80'}})}};
+ const rt=await fetch('https://www.instagram.com/rupload_igphoto/'+tname,{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Accept-Encoding':'gzip','X-Instagram-Rupload-Params':JSON.stringify(tparams),'X_FB_PHOTO_WATERFALL_ID':crypto.randomUUID(),'X-Entity-Type':'image/jpeg','Offset':'0','X-Entity-Name':tname,'X-Entity-Length':String(thb.length),'Content-Type':'application/octet-stream'}},body:thb}});
+ const ttxt=await rt.text();
+ if(rt.status!==200){{window.__igpub='thb:'+rt.status+':'+ttxt.slice(0,200);return;}}
+ window.__igpub='uploaded';
+ const ff=new URLSearchParams();
+ ff.set('_csrftoken',csrf);ff.set('_uid',uid);ff.set('_uuid',device_id);ff.set('device_id',device_id);
+ ff.set('timezone_offset','0');ff.set('source_type','4');ff.set('device',dev);ff.set('upload_id',upload_id);
+ ff.set('length',String(dur));ff.set('clips',JSON.stringify([{{length:dur,source_type:'4'}}]));
+ ff.set('poster_frame_index','0');ff.set('audio_muted','false');
+ const rfin=await fetch('https://www.instagram.com/api/v1/media/upload_finish/?video=1',{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'}},body:ff.toString()}});
+ window.__igpub='finish:'+rfin.status+':'+(await rfin.text()).slice(0,200);
+ const segs={{num_segments:1,clips_segments:[{{index:0,face_effect_id:null,
+  speed:100,source_type:4,duration_ms:durMs,audio_type:'original',
+  from_draft:0,camera_position:-1,media_folder:null,media_type:'video',
+  original_media_type:2,original_segment_hash:null,is_remix:false,
+  has_reusable_template_asset:false}}]}};
+ for(let att=0;att<6;att++){{
+   const form=new URLSearchParams();
+   form.set('_csrftoken',csrf);form.set('_uid',uid);form.set('_uuid',device_id);form.set('device_id',device_id);
+   form.set('filter_type','0');form.set('timezone_offset','0');form.set('location','');
+   form.set('source_type','4');form.set('caption',{json.dumps(caption)});
+   form.set('usertags',JSON.stringify({{in:[]}}));form.set('clips_share_preview_to_feed','1');
+   form.set('upload_id',upload_id);form.set('device',dev);form.set('length',String(dur));
+   form.set('clips_segments_metadata',JSON.stringify(segs));
+   form.set('clips_audio_metadata',JSON.stringify({{original:{{volume_level:1.0}}}}));
+   form.set('additional_audio_info',JSON.stringify({{has_voiceover_attribution:0}}));
+   form.set('edits',JSON.stringify({{filter_type:0,filter_strength:1.0}}));
+   form.set('capture_type','clips_v2');form.set('clips_creation_entry_point','clips');form.set('camera_entry_point','71');
+   form.set('audience','default');form.set('include_e2ee_mentioned_user_list','1');form.set('hide_from_profile_grid','false');
+   form.set('original_width',String(W));form.set('original_height',String(H));
+   form.set('extra',JSON.stringify({{source_width:W,source_height:H}}));
+   form.set('audio_muted','false');form.set('poster_frame_index','70');
+   const r2=await fetch('https://www.instagram.com/api/v1/media/configure_to_clips/?video=1',{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'Content-Type':'application/x-www-form-urlencoded','Referer':'https://www.instagram.com/','Origin':'https://www.instagram.com'}},body:form.toString()}});
+   const t2=await r2.text();
+   if(t2.includes('Transcode not finished')){{await new Promise(r=>setTimeout(r,4000));continue;}}
+   window.__igpub='r2:'+r2.status+':'+t2.slice(0,600);return;
+ }}
+ window.__igpub='r2:timeout:transcode pending';
+}}catch(e){{window.__igpub='EXC '+e}}}})();'kicked'"""
+
+    try:
+        await _cdp_eval(ws_url, kick_js)
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Failed to start browser reel publish: {exc}")
+
+    deadline = time.monotonic() + 110
+    last = "pending"
+    while time.monotonic() < deadline:
+        await asyncio.sleep(4)
+        try:
+            last = await _cdp_eval(ws_url, "window.__igpub") or "pending"
+        except Exception:
+            continue
+        if last.startswith("r2:") or last.startswith("EXC") or last == "missing-cookies":
+            break
+
+    if last.startswith("r2:200:"):
+        try:
+            media = json.loads(last.split(":", 2)[2]).get("media", {})
+        except Exception:
+            media = {}
+        media_id = str(media.get("id") or "")
+        code = media.get("code") or ""
+        if not media_id and not code:
+            # 200 without a media id/code is not proof of publication — the
+            # reel may still be processing or the configure was a soft-accept.
+            return PublishResult(
+                success=False,
+                ambiguous=True,
+                error="Instagram reel configure returned 200 but no media id/code — post may have landed.",
+            )
+        platform_url = f"https://www.instagram.com/p/{code}/" if code else None
+        return PublishResult(success=True, platform_post_id=media_id, platform_url=platform_url)
+    if last == "missing-cookies":
+        return PublishResult(success=False, error="Browser Instagram session expired (no cookies).")
+    # States past configure_to_clips (or a lost socket mid-flight) may have
+    # landed a post — mark ambiguous so the queue reconciles the feed.
+    if last in ("pending", "uploaded") or last.startswith("r2:timeout"):
+        return PublishResult(
+            success=False,
+            ambiguous=True,
+            error=f"Browser reel publish result lost (last state: {last[:200]}) — post may have landed.",
+        )
+    if last.startswith("r2:"):
+        return PublishResult(success=False, error=f"Instagram reel configure failed: {last[:300]}")
+    # Pre-configure states (vinit/vup/thb/finish) never create a post.
+    return PublishResult(success=False, error=f"Instagram reel browser publish failed: {last[:300]}")
+
+
 async def _publish_instagram_via_sidecar(
     account: SocialAccount,
     text: str,
@@ -3248,14 +3745,20 @@ async def _publish_instagram(
     # against a dead SOCKS proxy) must not starve the remaining paths.
     # On timeout we re-check the feed — a timed-out path may have
     # published despite the lost response.
-    async def _bounded_path(coro, name: str) -> PublishResult:
+    async def _bounded_path(
+        coro,
+        name: str,
+        timeout: float | None = None,
+        ambiguous_on_timeout: bool = False,
+    ) -> PublishResult:
+        budget = timeout if timeout is not None else _IG_PATH_TIMEOUT_S
         try:
-            return await asyncio.wait_for(coro, timeout=_IG_PATH_TIMEOUT_S)
+            return await asyncio.wait_for(coro, timeout=budget)
         except TimeoutError:
             logger.warning(
                 "Instagram %s path exceeded %.0fs — verifying feed before next path",
                 name,
-                _IG_PATH_TIMEOUT_S,
+                budget,
             )
             try:
                 live = await _instagram_find_live(check_client, text)
@@ -3267,7 +3770,11 @@ async def _publish_instagram(
                     platform_post_id=str(live.get("id") or ""),
                     platform_url=live.get("permalink"),
                 )
-            return PublishResult(success=False, error=f"{name} timed out after {_IG_PATH_TIMEOUT_S:.0f}s")
+            return PublishResult(
+                success=False,
+                ambiguous=ambiguous_on_timeout,
+                error=f"{name} timed out after {budget:.0f}s",
+            )
 
     # 1. Business Login Graph API (graph.instagram.com) — highest priority
     # when the account was connected via Instagram Business Login (instagram2).
@@ -3300,7 +3807,29 @@ async def _publish_instagram(
     has_sidecar_session = bool(_decrypted_session)
     web_result: PublishResult | None = None
 
-    # 2. Web API (rupload_igphoto) — browser sessionid cookie path. Runs
+    # 2. Browser lane — rupload/configure executed inside the live debug-
+    # Chrome Instagram page over CDP. Preferred over transplanted-cookie
+    # httpx: transplants get the session revoked within minutes, the page
+    # context does not (2026-11-21 incident). Fails fast when the browser
+    # session is dead, then the chain falls through to web_rupload.
+    if (_settings.INSTAGRAM_BROWSER_CDP_URL or "").strip():
+        # Reels need upload + server transcode + configure retries — give the
+        # browser lane a wider budget than the 45s image-path default.
+        _has_video = any(fp.lower().endswith((".mp4", ".mov", ".webm", ".avi")) for fp in media_paths)
+        browser_result = await _bounded_path(
+            _publish_instagram_via_browser(account, text, post, media_paths),
+            "browser_cdp",
+            timeout=110.0 if _has_video else None,
+            # A timed-out in-page publish may still land AND falling through
+            # to web_rupload would transplant the sessionid — revoking the
+            # browser session this lane needs on the next attempt.
+            ambiguous_on_timeout=True,
+        )
+        if browser_result.success or browser_result.ambiguous:
+            return _with_publish_path(browser_result, "browser_cdp")
+        logger.warning("Instagram browser CDP lane failed: %s — trying fallback paths", browser_result.error)
+
+    # 3. Web API (rupload_igphoto) — browser sessionid cookie path. Runs
     # before instagrapi: a live web session publishes in seconds, while the
     # instagrapi password login can burn the whole per-path budget on proxy
     # retries and starve the remaining paths inside the queue item deadline.
