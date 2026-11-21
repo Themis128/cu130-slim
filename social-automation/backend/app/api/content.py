@@ -596,6 +596,19 @@ async def cross_post_to_platform(
                 (a for a in candidates if a.account_type == "page" or a.is_business),
                 target_account,
             )
+        elif request.target_platform == "instagram":
+            # Prefer the Instagram Business Login lane (graph.instagram.com)
+            # over fb_onboarding rows — those publish via a Page-linked token
+            # that requires Page Publishing Authorization and fails with
+            # Graph error (#10) until it is completed.
+            target_account = next(
+                (
+                    a
+                    for a in candidates
+                    if (a.meta_data or {}).get("login_type") == "business_login"
+                ),
+                target_account,
+            )
 
     if not target_account:
         raise HTTPException(
