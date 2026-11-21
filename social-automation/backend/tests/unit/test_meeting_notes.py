@@ -7,6 +7,7 @@ the espocrm_client module seam.
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -214,7 +215,9 @@ def _opp(**over):
         "id": "opp-1",
         "name": "Consultation – Acme",
         "stage": "appointmentscheduled",
-        "closeDate": "2026-11-20",
+        # Dynamic future date — a hardcoded date becomes "past" over time
+        # and silently breaks every test relying on upcoming-meeting semantics.
+        "closeDate": (date.today() + timedelta(days=7)).isoformat(),
         "accountId": None,
         "accountName": None,
     }
