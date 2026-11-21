@@ -5,7 +5,8 @@
 # when the social-api container is down — exactly the outages that matter
 # most. Writes straight into ops_incidents via social-postgres psql with the
 # same upsert semantics as app/services/ops_agent.py::report_incident
-# (fingerprint dedup, reopen-on-recurrence, recurrence>=2 -> critical).
+# (fingerprint dedup, reopen-on-recurrence, recurrence>=2 -> critical,
+#  24h-decay reset: reports against stale-resolved rows start fresh).
 # Keep the ON CONFLICT clause in sync with that function.
 #
 # Usage: ops_incident_host.sh <source> <kind> <severity> <title> [target] [detail-json]
@@ -39,17 +40,32 @@ ON CONFLICT (fingerprint) DO UPDATE SET
   updated_at = now(),
   title = EXCLUDED.title,
   detail = ops_incidents.detail || EXCLUDED.detail,
-  recurrence_count = CASE WHEN ops_incidents.status = 'resolved'
-                          THEN ops_incidents.recurrence_count + 1
-                          ELSE ops_incidents.recurrence_count END,
+  recurrence_count = CASE
+    WHEN ops_incidents.status = 'resolved'
+         AND ops_incidents.resolved_at < now() - interval '24 hours' THEN 0
+    WHEN ops_incidents.status = 'resolved' THEN ops_incidents.recurrence_count + 1
+    ELSE ops_incidents.recurrence_count END,
+  agent_attempts = CASE
+    WHEN ops_incidents.status = 'resolved'
+         AND ops_incidents.resolved_at < now() - interval '24 hours' THEN 0
+    ELSE ops_incidents.agent_attempts END,
+  first_seen = CASE
+    WHEN ops_incidents.status = 'resolved'
+         AND ops_incidents.resolved_at < now() - interval '24 hours' THEN now()
+    ELSE ops_incidents.first_seen END,
   status = CASE WHEN ops_incidents.status = 'resolved' THEN 'open'
                 ELSE ops_incidents.status END,
   resolved_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
                      ELSE ops_incidents.resolved_at END,
   severity = CASE
-    WHEN EXCLUDED.severity = 'critical' OR ops_incidents.severity = 'critical' THEN 'critical'
-    WHEN (CASE WHEN ops_incidents.status = 'resolved'
-               THEN ops_incidents.recurrence_count + 1
-               ELSE ops_incidents.recurrence_count END) >= 2 THEN 'critical'
+    WHEN ops_incidents.status = 'resolved'
+         AND ops_incidents.resolved_at < now() - interval '24 hours' THEN EXCLUDED.severity
+    WHEN EXCLUDED.severity = 'critical' OR ops_incidents.severity = 'critical' THEN 'critical' 
+    WHEN (CASE
+            WHEN ops_incidents.status = 'resolved'
+                 AND ops_incidents.resolved_at < now() - interval '24 hours' THEN 0
+            WHEN ops_incidents.status = 'resolved'
+                 THEN ops_incidents.recurrence_count + 1
+            ELSE ops_incidents.recurrence_count END) >= 2 THEN 'critical'
     ELSE ops_incidents.severity END;
 SQL

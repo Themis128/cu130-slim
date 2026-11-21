@@ -25,7 +25,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import case, select
+from sqlalchemy import and_, case, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,7 @@ SOCKET_PROXY = os.environ.get("DOCKER_SOCKET_PROXY_URL", "http://docker-socket-p
 MAX_AGENT_ATTEMPTS = 3
 RESOLVE_AFTER = timedelta(hours=2)  # no new reports for this long → auto-resolve
 MAX_OPEN_PER_SWEEP = 10
+DECAY_AFTER = timedelta(hours=24)  # resolved this long ago → next report starts a fresh incident
 
 # Whitelisted task-level actions the agent may dispatch itself.
 # name → celery task path. Read-only/sync tasks only — never publishing.
@@ -65,16 +66,27 @@ async def report_incident(
 
     A report against a resolved incident reopens it and bumps
     ``recurrence_count`` (>=2 forces critical); a report against a live
-    incident refreshes ``last_seen``/``detail``. The ON CONFLICT clause
-    mirrors scripts/ops_incident_host.sh — keep them in sync.
+    incident refreshes ``last_seen``/``detail``. A report against a resolved
+    incident older than DECAY_AFTER starts a fresh incident instead —
+    recurrence_count/agent_attempts reset to 0 and first_seen becomes now,
+    so periodic infra bounces never re-post stale seen=/recur= history.
+    The ON CONFLICT clause mirrors scripts/ops_incident_host.sh — keep them in sync.
     """
     fp = fingerprint(source, kind, target)
     now = datetime.now(UTC)
     sev = IncidentSeverity(severity) if severity in IncidentSeverity._value2member_map_ else IncidentSeverity.OPS
+    decay_cutoff = now - DECAY_AFTER
+    stale_resolved = and_(
+        OpsIncident.status == IncidentStatus.RESOLVED,
+        OpsIncident.resolved_at < decay_cutoff,  # only RESOLVED rows have resolved_at
+    )
     new_recur = case(
+        (stale_resolved, 0),
         (OpsIncident.status == IncidentStatus.RESOLVED, OpsIncident.recurrence_count + 1),
         else_=OpsIncident.recurrence_count,
     )
+    reset_attempts = case((stale_resolved, 0), else_=OpsIncident.agent_attempts)
+    fresh_first_seen = case((stale_resolved, now), else_=OpsIncident.first_seen)
     stmt = pg_insert(OpsIncident).values(
         id=uuid.uuid4(),
         fingerprint=fp,
@@ -100,6 +112,8 @@ async def report_incident(
             "title": stmt.excluded.title,
             "detail": OpsIncident.detail.op("||")(stmt.excluded.detail),
             "recurrence_count": new_recur,
+            "agent_attempts": reset_attempts,
+            "first_seen": fresh_first_seen,
             "status": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
                 else_=OpsIncident.status,
@@ -109,6 +123,7 @@ async def report_incident(
                 else_=OpsIncident.resolved_at,
             ),
             "severity": case(
+                (stale_resolved, stmt.excluded.severity),
                 (stmt.excluded.severity == "critical", IncidentSeverity.CRITICAL),
                 (OpsIncident.severity == IncidentSeverity.CRITICAL, IncidentSeverity.CRITICAL),
                 (new_recur >= 2, IncidentSeverity.CRITICAL),
