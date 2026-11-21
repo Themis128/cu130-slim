@@ -170,9 +170,15 @@ publish_busy() {
   # while a publishing task is active; deploy-watch retries next cycle
   # (max 10 min delay). Celery inspect failure counts as NOT busy so a
   # dead worker can never block deploys.
-  local act
-  act=$(COMPOSE exec -T social-worker-publishing celery -A app.worker.celery_app inspect active --timeout=8 2>/dev/null || true)
-  printf '%s' "$act" | grep -q "app.worker.tasks.publishing"
+  # Meta-lane publishes (facebook/instagram/threads) run on
+  # social-worker-meta, not social-worker-publishing — check both or a
+  # Meta publish dies exactly like the LinkedIn one did.
+  local w act
+  for w in social-worker-publishing social-worker-meta; do
+    act=$(COMPOSE exec -T "$w" celery -A app.worker.celery_app inspect active --timeout=8 2>/dev/null || true)
+    printf '%s' "$act" | grep -q "app.worker.tasks.publishing" && return 0
+  done
+  return 1
 }
 
 if [ "$compose_change" = 1 ]; then
