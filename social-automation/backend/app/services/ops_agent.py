@@ -88,7 +88,10 @@ async def report_incident(
         else_=OpsIncident.recurrence_count,
     )
     reset_attempts = case((stale_resolved, 0), else_=OpsIncident.agent_attempts)
-    fresh_first_seen = case((stale_resolved, now), else_=OpsIncident.first_seen)
+    # ANY reopen (not just decayed ones) starts a new episode: first_seen=now
+    # keeps alert text truthful — a within-window reopen of a week-old row
+    # must not re-post with the original stale date.
+    fresh_first_seen = case((OpsIncident.status == IncidentStatus.RESOLVED, now), else_=OpsIncident.first_seen)
     stmt = pg_insert(OpsIncident).values(
         id=uuid.uuid4(),
         fingerprint=fp,
