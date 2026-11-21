@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import { PublicNav } from '@/components/marketing/PublicNav'
 import { PublicFooter } from '@/components/marketing/PublicFooter'
+import { SwetrixAnalytics } from '@/components/SwetrixAnalytics'
 
 export const metadata = {
   title: 'SocialAuto - AI Social Media Automation',
@@ -14,6 +15,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       <PublicNav />
       <main className="flex-1">{children}</main>
       <PublicFooter />
+      <SwetrixAnalytics />
     </div>
   )
 }
