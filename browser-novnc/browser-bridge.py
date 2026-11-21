@@ -182,6 +182,19 @@ _state: dict[str, Any] = {
     "interactive": False,
 }
 
+
+def _release_hold() -> None:
+    """Clear the cross-platform busy-hold.
+
+    Called whenever the session leaves an active state (stop, error) so a
+    failed session never keeps foreign platforms out. A hold that outlives
+    its session starves healer/poller probes for the full hold window and
+    turns one dead login into platform-wide contention (CLO-18).
+    """
+    _state["busy_until"] = 0.0
+    _state["busy_owner"] = None
+
+
 # Seconds a platform keeps exclusive use of the browser after its last
 # interaction. Long enough to cover a multi-step compose (navigate, type,
 # attach, post) including slow media uploads; short enough that a crashed
@@ -254,7 +267,11 @@ async def _ensure_live_page():
     # this stops pollers steering the page mid-login/mid-compose.
     req_plat = _req_platform.get()
     busy_owner = _state.get("busy_owner")
-    if time.time() < _state.get("busy_until", 0.0) and req_plat != busy_owner:
+    if (
+        time.time() < _state.get("busy_until", 0.0)
+        and req_plat != busy_owner
+        and _state.get("status") != "error"
+    ):
         raise HTTPException(
             409, f"Browser busy with {busy_owner or 'another'} session — try again shortly"
         )
@@ -422,6 +439,7 @@ async def start_session(req: StartRequest):
         busy = (
             (_state["browser"] is not None or _state["context"] is not None)
             and time.time() < _state.get("busy_until", 0.0)
+            and _state["status"] != "error"
         )
         busy_owner = _state.get("busy_owner")
         if busy and not req.force:
@@ -541,7 +559,11 @@ async def stop_session():
     """
     req_plat = _req_platform.get()
     busy_owner = _state.get("busy_owner")
-    if time.time() < _state.get("busy_until", 0.0) and req_plat != busy_owner:
+    if (
+        time.time() < _state.get("busy_until", 0.0)
+        and req_plat != busy_owner
+        and _state.get("status") != "error"
+    ):
         raise HTTPException(
             409, f"Browser busy with {busy_owner or 'another'} session — try again shortly"
         )
@@ -556,8 +578,7 @@ async def stop_session():
             _state["page"] = None
         _state["status"] = "idle"
         _state["platform"] = None
-        _state["busy_until"] = 0.0
-        _state["busy_owner"] = None
+        _release_hold()
         _state["message"] = "Session stopped"
         return {"status": "stopped"}
 
@@ -695,6 +716,7 @@ async def extract_cookies_now():
     except Exception as e:
         _state["status"] = "error"
         _state["message"] = f"Extraction error: {e}"
+        _release_hold()
         # If the context died mid-extraction (TargetClosedError — tab or
         # browser crash), drop the dead refs so the next /session/start
         # launches cleanly instead of reusing a corpse.
@@ -702,8 +724,7 @@ async def extract_cookies_now():
             _state["context"] = None
             _state["browser"] = None
             _state["page"] = None
-            _state["busy_until"] = 0.0
-            _state["busy_owner"] = None
+            _release_hold()
         raise HTTPException(500, str(e))
 
 
@@ -1587,6 +1608,7 @@ async def _run_browser(platform: str):
                 await context.close()
                 _state["browser"] = None
                 _state["context"] = None
+                _release_hold()
 
     except Exception as e:
         _state["status"] = "error"
@@ -1598,6 +1620,7 @@ async def _run_browser(platform: str):
                 pass
         _state["browser"] = None
         _state["context"] = None
+        _release_hold()
 
 
 if __name__ == "__main__":
