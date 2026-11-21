@@ -148,3 +148,28 @@ class TestSyncAll:
                 out = await swetrix_sync.sync_all_swetrix(_FakeDB())
         assert out["ok"] is False
         assert out["projects"][0]["error"] == "boom"
+
+
+class TestCeleryTask:
+    def test_sync_swetrix_task_runs_service(self, monkeypatch):
+        """The beat task must open a session and call sync_all_swetrix."""
+        import asyncio
+        from contextlib import asynccontextmanager
+
+        from app.worker.tasks import swetrix_sync as task_mod
+
+        db = object()
+
+        @asynccontextmanager
+        async def _cm():
+            yield db
+
+        sentinel = {"ok": True, "projects": [{"domain": "cloudless.gr"}]}
+        mock_sync = AsyncMock(return_value=sentinel)
+        monkeypatch.setattr(task_mod, "task_session", lambda: _cm())
+        monkeypatch.setattr(task_mod.swetrix_sync, "sync_all_swetrix", mock_sync)
+        monkeypatch.setattr(task_mod, "run_async", lambda coro: asyncio.run(coro))
+
+        out = task_mod.sync_swetrix()
+        assert out == sentinel
+        mock_sync.assert_awaited_once_with(db)
