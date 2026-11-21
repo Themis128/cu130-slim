@@ -80,45 +80,55 @@ def _blob_client(session_id: str, proxy: str | None, blob_path: str | None = Non
     return cl
 
 
-def cmd_capture(args) -> int:
+async def _capture_async(args) -> int:
     from app.core.security import decrypt_field, encrypt_field
 
-    conn = asyncio.run(_connect())
-    meta = asyncio.run(_get_meta(conn, args.account))
-    sid_enc = meta.get("private_api_session_id")
-    session_id = args.sessionid or (decrypt_field(sid_enc) if sid_enc else None)
-    if not session_id:
-        raise SystemExit("no sessionid: pass --sessionid or set private_api_session_id")
-
-    import tempfile
-
-    cl = _blob_client(session_id, args.proxy)
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        path = fh.name
+    conn = await _connect()
     try:
-        cl.dump_settings(path)
-        blob = open(path).read()
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        meta = await _get_meta(conn, args.account)
+        sid_enc = meta.get("private_api_session_id")
+        session_id = args.sessionid or (decrypt_field(sid_enc) if sid_enc else None)
+        if not session_id:
+            raise SystemExit("no sessionid: pass --sessionid or set private_api_session_id")
 
-    meta["private_api_session_settings"] = encrypt_field(blob)
-    # keep the plain sessionid fresh too — the blob augments, not replaces
-    if not sid_enc:
-        meta["private_api_session_id"] = encrypt_field(session_id)
-    asyncio.run(_save_meta(conn, args.account, meta))
+        import tempfile
+
+        cl = _blob_client(session_id, args.proxy)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            path = fh.name
+        try:
+            cl.dump_settings(path)
+            blob = open(path).read()
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+        meta["private_api_session_settings"] = encrypt_field(blob)
+        # keep the plain sessionid fresh too — the blob augments, not replaces
+        if not sid_enc:
+            meta["private_api_session_id"] = encrypt_field(session_id)
+        await _save_meta(conn, args.account, meta)
+    finally:
+        await conn.close()
     print(f"OK: stored settings blob ({len(blob)} bytes) for account {args.account}")
     print(f"    device={cl.device_settings.get('device_name', '?')} user_id={cl.user_id}")
     return 0
 
 
-def cmd_verify(args) -> int:
+def cmd_capture(args) -> int:
+    return asyncio.run(_capture_async(args))
+
+
+async def _verify_async(args) -> int:
     from app.core.security import decrypt_field
 
-    conn = asyncio.run(_connect())
-    meta = asyncio.run(_get_meta(conn, args.account))
+    conn = await _connect()
+    try:
+        meta = await _get_meta(conn, args.account)
+    finally:
+        await conn.close()
     sid = decrypt_field(meta.get("private_api_session_id"))
     blob_enc = meta.get("private_api_session_settings")
     if not sid or not blob_enc:
@@ -141,15 +151,26 @@ def cmd_verify(args) -> int:
     return 0
 
 
-def cmd_clear(args) -> int:
-    conn = asyncio.run(_connect())
-    meta = asyncio.run(_get_meta(conn, args.account))
-    if meta.pop("private_api_session_settings", None) is None:
-        print("no blob stored — nothing to clear")
-        return 0
-    asyncio.run(_save_meta(conn, args.account, meta))
+def cmd_verify(args) -> int:
+    return asyncio.run(_verify_async(args))
+
+
+async def _clear_async(args) -> int:
+    conn = await _connect()
+    try:
+        meta = await _get_meta(conn, args.account)
+        if meta.pop("private_api_session_settings", None) is None:
+            print("no blob stored — nothing to clear")
+            return 0
+        await _save_meta(conn, args.account, meta)
+    finally:
+        await conn.close()
     print(f"OK: cleared private_api_session_settings for {args.account}")
     return 0
+
+
+def cmd_clear(args) -> int:
+    return asyncio.run(_clear_async(args))
 
 
 def main() -> int:
