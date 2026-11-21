@@ -67,7 +67,7 @@ async def upload_all() -> None:
                 files={"file": (clip.name, data, "audio/mpeg")},
                 data={
                     "alt_text": f"License-free music bed {n} (SoundHelix, CC0)",
-                    "tags": f"music,soundhelix,bed-{n}",
+                    "tags": f"music,music-bed,soundhelix,bed-{n}",
                 },
                 headers=headers,
             )
