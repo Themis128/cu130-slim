@@ -7,6 +7,7 @@ the espocrm_client module seam.
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -210,11 +211,14 @@ def test_room_url():
 
 
 def _opp(**over):
+    # Future-relative default: a hardcoded closeDate rots the day the
+    # calendar passes it (2026-11-21: the 11-20 default flipped every
+    # default-opp test from "future" to "past" overnight).
     base = {
         "id": "opp-1",
         "name": "Consultation – Acme",
         "stage": "appointmentscheduled",
-        "closeDate": "2026-11-20",
+        "closeDate": (date.today() + timedelta(days=3)).isoformat(),
         "accountId": None,
         "accountName": None,
     }
