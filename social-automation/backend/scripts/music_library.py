@@ -8,6 +8,7 @@ Runs INSIDE the social-api container (has app deps, ffmpeg, DB env).
     docker exec social-api python /tmp/music_library.py --upload-only
     docker exec social-api python /tmp/music_library.py --assign <post_id> [<post_id>...]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,11 +41,22 @@ async def _team_user(db) -> tuple[uuid.UUID, uuid.UUID]:
 def _trim(src: Path, dst: Path) -> None:
     subprocess.run(
         [
-            "ffmpeg", "-y", "-i", str(src), "-t", str(BED_SECONDS),
-            "-af", "afade=t=in:d=1.5,afade=t=out:st=57:d=3,volume=0.9",
-            "-codec:a", "libmp3lame", "-q:a", "4", str(dst),
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(src),
+            "-t",
+            str(BED_SECONDS),
+            "-af",
+            "afade=t=in:d=1.5,afade=t=out:st=57:d=3,volume=0.9",
+            "-codec:a",
+            "libmp3lame",
+            "-q:a",
+            "4",
+            str(dst),
         ],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
 
@@ -94,10 +106,7 @@ async def assign(post_ids: list[str], asset_id: str) -> None:
 
 async def list_music() -> None:
     async with async_session_maker() as db:
-        rows = (await db.execute(
-            select(MediaAsset.id, MediaAsset.filename, MediaAsset.tags)
-            .where(MediaAsset.mime_type.like("audio/%"))
-        )).all()
+        rows = (await db.execute(select(MediaAsset.id, MediaAsset.filename, MediaAsset.tags).where(MediaAsset.mime_type.like("audio/%")))).all()
         for r in rows:
             print(r.id, r.filename, r.tags)
 

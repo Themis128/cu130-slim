@@ -119,11 +119,7 @@ def _has_web_publish_lane(platform: str, meta: dict | None) -> bool:
     if platform != "instagram":
         return False
     meta = meta or {}
-    return bool(
-        meta.get("private_api_session_id")
-        and meta.get("private_api_csrf_token")
-        and meta.get("private_api_ds_user_id")
-    )
+    return bool(meta.get("private_api_session_id") and meta.get("private_api_csrf_token") and meta.get("private_api_ds_user_id"))
 
 
 async def _reconcile() -> dict[str, int]:
