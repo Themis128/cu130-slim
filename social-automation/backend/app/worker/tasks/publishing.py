@@ -405,6 +405,76 @@ async def _enforce_publish_quality(post: Post, account: SocialAccount, db: Async
     return gate
 
 
+async def _quality_gate_rewrite(post: Post, account: SocialAccount, db: AsyncSession) -> bool:
+    """One bounded fresh-rewrite attempt after the gate's improve loop fails.
+
+    ``apply_publish_gate`` already ran spellcheck → NLP fix → SEO
+    auto-improve; a residual miss means the copy itself is weak, so this
+    generates a brand-new version of the same post (not another improve
+    pass). On success ``post.content_text``/``hashtags`` are replaced and
+    the ``quality_gate_rewrites`` counter bumps — the caller defers the
+    target so the next sweep re-gates the new content hash. Returns False
+    on empty/degenerate output so the caller falls back to skip + alert.
+    """
+    text = (getattr(post, "content_text", None) or "").strip()
+    if not text:
+        return False
+    from app.services.inference import call_inference
+
+    platform = account.platform
+    link_rule = (
+        "Include one relevant link."
+        if platform in ("linkedin", "facebook")
+        else "Do not include any links."
+    )
+    prompt = f"""Rewrite this {platform} post completely — new wording, same topic and intent.
+
+Current post (it failed the publishing quality gate):
+"{text[:4000]}"
+
+Current hashtags: {list(getattr(post, "hashtags", None) or [])}
+
+Requirements:
+- At least 600 characters of natural, engaging content.
+- Plain everyday English, no jargon.
+- Strong hook in the first line; clear call to action at the end.
+- {link_rule}
+- Return JSON with: content (string), hashtags (array of strings without #)."""
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "content": {"type": "string"},
+            "hashtags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["content", "hashtags"],
+    }
+
+    rewritten = await asyncio.wait_for(
+        call_inference(
+            prompt,
+            provider_name="dmr",
+            db=db,
+            team_id=getattr(post, "team_id", None),
+            schema=schema,
+            platform=platform,
+        ),
+        timeout=120.0,
+    )
+    new_content = (rewritten.get("content") or "").strip()
+    if len(new_content) < 200 or new_content == text:
+        return False
+    post.content_text = new_content
+    new_tags = [h.lstrip("#").strip() for h in (rewritten.get("hashtags") or []) if h.strip()]
+    if new_tags:
+        post.hashtags = new_tags
+    ps = dict(post.platform_specific or {})
+    ps["quality_gate_rewrites"] = int(ps.get("quality_gate_rewrites") or 0) + 1
+    ps.pop("quality_gate", None)
+    _set_platform_specific(post, ps)
+    return True
+
+
 async def _post_publish_summary_to_slack(post: Post, results: list[tuple[str, str | None]]) -> None:
     """One aggregated Slack message per post — platforms + links on one line
     each — instead of a fan-out of one message per platform target."""
@@ -762,6 +832,41 @@ async def _process_publish_queue_async(
                     )
                     continue
                 if gate is not None and not gate.passed:
+                    # One bounded fresh-rewrite retry: the gate's own
+                    # improve loop already ran, so a residual miss gets a
+                    # single new-copy attempt. Deferred so the next sweep
+                    # re-gates the new content hash; exhausted budget or a
+                    # failed rewrite falls through to skip + alert.
+                    cfg = get_settings()
+                    rewrites = int(
+                        (post.platform_specific or {}).get("quality_gate_rewrites") or 0
+                    )
+                    if rewrites < int(getattr(cfg, "PUBLISH_GATE_REWRITE_MAX", 1)):
+                        try:
+                            rewritten = await _quality_gate_rewrite(post, account, db)
+                        except Exception as exc:
+                            logger.warning(
+                                "[publishing] gate rewrite failed for post %s: %s",
+                                post.id,
+                                exc,
+                            )
+                            rewritten = False
+                        if rewritten:
+                            delay = int(
+                                getattr(cfg, "PUBLISH_GATE_REWRITE_DELAY_S", 300)
+                            )
+                            item.status = QueueStatus.PENDING
+                            item.locked_at = None
+                            item.locked_by = None
+                            item.scheduled_at = datetime.now(UTC) + timedelta(seconds=delay)
+                            await db.commit()
+                            await post_alert_to_slack(
+                                ":arrows_counterclockwise: *Quality gate auto-rewrite* — "
+                                f"{account.platform} target of post `{post.id}` scored "
+                                f"{gate.overall}/100 (min {gate.min_score}); fresh copy "
+                                f"queued for re-gate in {delay}s."
+                            )
+                            continue
                     item.status = QueueStatus.COMPLETED
                     if target:
                         target.status = "skipped"
