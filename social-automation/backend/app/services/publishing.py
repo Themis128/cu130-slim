@@ -1160,7 +1160,14 @@ async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
     if not name.endswith(_VIDEO_EXTS):
         return None
     beds = (
-        (await db.execute(select(MediaAsset).where(MediaAsset.mime_type.like("audio/%"))))
+        (
+            await db.execute(
+                select(MediaAsset).where(
+                    MediaAsset.mime_type.like("audio/%"),
+                    MediaAsset.tags.contains(["music-bed"]),
+                )
+            )
+        )
         .scalars()
         .all()
     )
