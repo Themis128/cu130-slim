@@ -91,6 +91,7 @@ celery_app = Celery(
         "app.worker.tasks.devapps_sync",
         "app.worker.tasks.devapp_channel_actions",
         "app.worker.tasks.linkedin_invites",
+        "app.worker.tasks.linkedin_invite_outreach",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
         "app.worker.tasks.linkedin_intel",
@@ -1242,6 +1243,14 @@ celery_app.conf.update(
             "task": "app.worker.tasks.linkedin_invites.send_linkedin_invites",
             "schedule": crontab(hour=10, minute=30),
             "kwargs": {"batch_size": 40},
+        },
+        # Daily personal-profile invite outreach (11:15 Europe/Athens) —
+        # 5/day cap, sidecar people-search scrape + voyager /connect,
+        # Redis-deduped. Staggered after the Page-invite batch.
+        "send-linkedin-profile-invites": {
+            "task": "app.worker.tasks.linkedin_invite_outreach.send_profile_invites",
+            "schedule": crontab(hour=11, minute=15),
+            "kwargs": {"count": 5},
         },
         # Daily LinkedIn Ads report → Slack ads channel + email (10:00
         # Europe/Athens). Scrapes Campaign Manager via the LinkedIn sidecar,
