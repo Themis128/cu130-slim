@@ -307,6 +307,7 @@ async def rewrite_plain_english(
     context: str = "social media post",
     force: bool = False,
     allow_fallback: bool = True,
+    platform: str | None = None,
 ) -> str:
     """Rewrite text into plain English using the configured LLM."""
     if not text or (not force and not needs_plain_english_rewrite(text)):
@@ -343,6 +344,7 @@ Text to rewrite:
             schema=schema,
             model_override=model,
             allow_fallback=allow_fallback,
+            platform=platform,
         )
         rewritten = extract_rewritten_only((result.get("text") or "").strip())
         if _looks_like_scaffolding(rewritten):
@@ -365,6 +367,7 @@ async def fix_carousel_copy(
     team_id=None,
     force: bool = False,
     allow_fallback: bool = True,
+    platform: str | None = None,
 ) -> tuple[list[dict], str, list[str]]:
     """Rewrite flagged (or all, if force) carousel fields into plain English."""
     from app.services.cf_models import CF_TEXT_FREE
@@ -394,6 +397,7 @@ async def fix_carousel_copy(
                     context=context,
                     force=True,
                     allow_fallback=allow_fallback,
+                    platform=platform,
                 )
                 if fixed != original:
                     rewritten_fields.append(f"slide[{i}].{key}")
@@ -411,6 +415,7 @@ async def fix_carousel_copy(
             context="social media caption",
             force=True,
             allow_fallback=allow_fallback,
+            platform=platform,
         )
         if cleaned_caption != caption:
             rewritten_fields.append("caption")
@@ -429,6 +434,7 @@ async def run_nlp_check_and_fix(
     team_id=None,
     force_fix: bool = True,
     allow_fallback: bool = True,
+    platform: str | None = None,
 ) -> tuple[list[dict], str, NlpCheckReport]:
     """Pipeline stage: check vocabulary/clarity, then fix into plain English.
 
@@ -452,6 +458,7 @@ async def run_nlp_check_and_fix(
         team_id=team_id,
         force=force_fix or report.needs_fix,
         allow_fallback=allow_fallback,
+        platform=platform,
     )
     # Keep NLP text only — drop original leftovers and redundant duplicates.
     from app.services.duplicate_detector import detect_carousel_duplicates
@@ -502,6 +509,7 @@ async def ensure_plain_english_carousel(
     db=None,
     team_id=None,
     allow_fallback: bool = True,
+    platform: str | None = None,
 ) -> tuple[list[dict], str]:
     """Backward-compatible helper used by generate-carousel / generate-content."""
     cleaned_slides, cleaned_caption, _report = await run_nlp_check_and_fix(
@@ -512,6 +520,7 @@ async def ensure_plain_english_carousel(
         db=db,
         team_id=team_id,
         force_fix=False,
+        platform=platform,
         allow_fallback=allow_fallback,
     )
     return cleaned_slides, cleaned_caption
