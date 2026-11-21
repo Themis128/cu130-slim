@@ -17,6 +17,7 @@ Safety contract (mirrors the deploy-lock / healer ownership rules):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -38,6 +39,7 @@ MAX_AGENT_ATTEMPTS = 3
 RESOLVE_AFTER = timedelta(hours=2)  # no new reports for this long → auto-resolve
 MAX_OPEN_PER_SWEEP = 10
 DECAY_AFTER = timedelta(hours=24)  # resolved this long ago → next report starts a fresh incident
+LLM_TIMEOUT_S = 30  # cap the sweep's LLM verdict call; DMR being down must not pin ops_incidents locks
 
 # Whitelisted task-level actions the agent may dispatch itself.
 # name → celery task path. Read-only/sync tasks only — never publishing.
@@ -262,6 +264,8 @@ async def sweep(db: AsyncSession) -> dict:
         inc.action_result = (inc.action_result + " | " if inc.action_result else "") + "auto-resolved: no recurrence"
         stats["resolved_stale"] += 1
 
+    await db.commit()  # release auto-resolve locks before the LLM triage loop
+
     # 2) triage open incidents, oldest first, capped per sweep
     open_incs = (
         (
@@ -276,14 +280,14 @@ async def sweep(db: AsyncSession) -> dict:
         .all()
     )
     if not open_incs:
-        await db.commit()
-        return stats
+        return stats  # auto-resolves already committed above
 
     containers = await _container_states()
 
     for inc in open_incs:
         try:
-            verdict = await _llm_verdict(inc, containers, db)
+            async with asyncio.timeout(LLM_TIMEOUT_S):
+                verdict = await _llm_verdict(inc, containers, db)
         except Exception as exc:
             logger.warning("ops-agent LLM verdict failed for %s: %s", inc.fingerprint, exc)
             verdict = {}
@@ -300,6 +304,7 @@ async def sweep(db: AsyncSession) -> dict:
             inc.status = IncidentStatus.ESCALATED
             await _alert(inc, "critical" if inc.recurrence_count >= 2 else "ops")
             stats["escalated"] += 1
+            await db.commit()  # per-incident: release row locks before the next LLM call
             continue
 
         taken, result_text = "none", ""
@@ -313,11 +318,13 @@ async def sweep(db: AsyncSession) -> dict:
             inc.resolved_at = now
             inc.action_result = "agent marked resolved per verdict"
             stats["resolved_stale"] += 1
+            await db.commit()  # per-incident: release row locks before the next LLM call
             continue
         elif action == "escalate":
             inc.status = IncidentStatus.ESCALATED
             await _alert(inc, "ops")
             stats["escalated"] += 1
+            await db.commit()  # per-incident: release row locks before the next LLM call
             continue
         else:
             inc.status = IncidentStatus.TRIAGED
@@ -327,8 +334,8 @@ async def sweep(db: AsyncSession) -> dict:
         # alert on first triage or whenever the verdict escalates severity
         await _alert(inc, "critical" if inc.severity == IncidentSeverity.CRITICAL else "ops")
         stats["triaged"] += 1
+        await db.commit()  # per-incident: release row locks before the next LLM call
 
-    await db.commit()
     return stats
 
 
