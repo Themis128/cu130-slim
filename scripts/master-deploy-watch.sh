@@ -162,8 +162,13 @@ if [ "$compose_change" = 1 ]; then
   docker compose up -d >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
 fi
 if [ "$app_code" = 1 ]; then
-  log "backend code changed — restarting $CORE_RESTART"
-  docker compose restart $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "restart" ":rotating_light: master-deploy-watch: compose restart failed after $new"
+  # The backend runs GHCR images (social-backend-api-latest /
+  # social-backend-latest): `compose restart` bounces the STALE baked image
+  # and never deploys merged code - deployed code changes land via registry
+  # pulls, not restarts. Pull the fresh tags and force-recreate.
+  log "backend code changed — pull + force-recreate $CORE_RESTART"
+  docker compose pull $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "pull" ":rotating_light: master-deploy-watch: compose pull failed after $new"
+  docker compose up -d --force-recreate $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
 fi
 
 # ── local-image services: rebuild when files under their build context
