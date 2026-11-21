@@ -1237,6 +1237,8 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
     """
     asset: MediaAsset | None = None
     music_asset_id = getattr(post, "music_asset_id", None)
+    if not music_asset_id and not getattr(post, "media_ids", None):
+        return None
     if music_asset_id:
         result = await db.execute(select(MediaAsset).where(MediaAsset.id == music_asset_id))
         asset = result.scalar_one_or_none()

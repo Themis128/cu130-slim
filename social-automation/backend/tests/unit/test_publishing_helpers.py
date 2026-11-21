@@ -354,7 +354,7 @@ async def test_resolve_music_path_auto_fallback(tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     bed = SimpleNamespace(id=uuid.uuid4(), filename="bed-1.mp3", storage_path="bed-1.mp3", storage_backend="local", mime_type="audio/mpeg")
     (tmp_path / "bed-1.mp3").write_bytes(b"mp3")
-    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[], music_asset_id=None, content_text="")
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[uuid.uuid4()], music_asset_id=None, content_text="")
     out = await P._resolve_music_path(post, _DB(results=[[bed]]))
     assert out and out.endswith("bed-1.mp3")
 
