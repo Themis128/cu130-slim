@@ -399,8 +399,8 @@ async def test_cloudflare_provider_model_defaults(monkeypatch):
 async def test_platform_forwarded_to_inference(monkeypatch):
     """Platform must reach call_inference so DMR routes short-form copy to
     the fast mid model instead of always taking the 8B schema path."""
-    import app.services.inference as inference
     import app.services.duplicate_detector as dd
+    import app.services.inference as inference
 
     mock = AsyncMock(return_value={"text": "Clean rewrite."})
     monkeypatch.setattr(inference, "call_inference", mock)
