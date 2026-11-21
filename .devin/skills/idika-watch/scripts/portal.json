@@ -10,7 +10,7 @@
   "creds": "C:/Users/tbaltzakis/AppData/Roaming/devin/secrets/taxisnet.json",
   "state_file": "C:/Users/tbaltzakis/idika-watch/state.json",
   "extract_js": "(() => {\n  const rows=[];\n  document.querySelectorAll('table tr').forEach(tr=>{\n    const cells=[...tr.querySelectorAll('th,td')].map(c=>c.innerText.trim().replace(/\\s+/g,' '));\n    if(cells.length) rows.push(cells.join(' | '));\n  });\n  return JSON.stringify({url:location.href, title:document.title, rows:rows});\n})()",
-  "cdp_port": 9228,
+  "cdp_port": 9333,
   "profile": "C:\\Users\\tbaltzakis\\idika-watch\\chrome-profile",
   "chrome_args": [
     "--window-position=-32000,-32000",
