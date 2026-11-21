@@ -56,11 +56,89 @@ async def test_music_not_mixed_into_image_post(monkeypatch):
 async def test_failed_mix_keeps_original_video(monkeypatch):
     monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/v.mp4"]))
     monkeypatch.setattr(P, "_resolve_music_path", AsyncMock(return_value="/a.mp3"))
-    monkeypatch.setattr(P, "_mix_audio_into_video", AsyncMock(side_effect=lambda v, m: v))
+    monkeypatch.setattr(P, "_mix_audio_into_video", AsyncMock(side_effect=lambda v, m, **kw: v))
     fn = AsyncMock(return_value=P.PublishResult(success=True))
     monkeypatch.setattr(P, "_publish_twitter", fn)
     await P.publish_to_platform(_account("twitter"), _post(media_ids=[uuid.uuid4()]), None)
     assert fn.await_args.args[4] == ["/v.mp4"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_base_patches")
+async def test_silent_video_gets_auto_bed(monkeypatch):
+    """Silent video + no explicit asset → auto-bed muxed in."""
+    monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/v.mp4"]))
+    monkeypatch.setattr(P, "_resolve_music_path", AsyncMock(return_value="/a.mp3"))
+    monkeypatch.setattr(P, "_probe_video_audio", AsyncMock(return_value=(False, 5.0)))
+    mix = AsyncMock(side_effect=lambda v, m, **kw: v + ".mx.mp4")
+    monkeypatch.setattr(P, "_mix_audio_into_video", mix)
+    fn = AsyncMock(return_value=P.PublishResult(success=True))
+    monkeypatch.setattr(P, "_publish_twitter", fn)
+    await P.publish_to_platform(_account("twitter"), _post(media_ids=[uuid.uuid4()]), None)
+    assert fn.await_args.args[4] == ["/v.mp4.mx.mp4"]
+    mix.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_base_patches")
+async def test_voiced_video_skips_auto_bed(monkeypatch):
+    """Video with real audio + no explicit asset → auto-bed must NOT fight it."""
+    monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/v.mp4"]))
+    monkeypatch.setattr(P, "_resolve_music_path", AsyncMock(return_value="/a.mp3"))
+    monkeypatch.setattr(P, "_probe_video_audio", AsyncMock(return_value=(True, 5.0)))
+    mix = AsyncMock()
+    monkeypatch.setattr(P, "_mix_audio_into_video", mix)
+    fn = AsyncMock(return_value=P.PublishResult(success=True))
+    monkeypatch.setattr(P, "_publish_twitter", fn)
+    await P.publish_to_platform(_account("twitter"), _post(media_ids=[uuid.uuid4()]), None)
+    assert fn.await_args.args[4] == ["/v.mp4"]
+    mix.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_base_patches")
+async def test_voiced_video_explicit_bed_ducks(monkeypatch):
+    """Explicit music_asset_id still applies to voiced videos — as a duck."""
+    monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/v.mp4"]))
+    monkeypatch.setattr(P, "_resolve_music_path", AsyncMock(return_value="/a.mp3"))
+    probe = AsyncMock(return_value=(True, 5.0))
+    monkeypatch.setattr(P, "_probe_video_audio", probe)
+    mix = AsyncMock(side_effect=lambda v, m, **kw: v + ".mx.mp4")
+    monkeypatch.setattr(P, "_mix_audio_into_video", mix)
+    fn = AsyncMock(return_value=P.PublishResult(success=True))
+    monkeypatch.setattr(P, "_publish_twitter", fn)
+    post = _post(media_ids=[uuid.uuid4()], music_asset_id=uuid.uuid4())
+    await P.publish_to_platform(_account("twitter"), post, None)
+    assert fn.await_args.args[4] == ["/v.mp4.mx.mp4"]
+    mix.assert_awaited_once()
+    assert mix.await_args.kwargs.get("has_audio") is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_base_patches")
+async def test_multi_video_post_beds_each(monkeypatch):
+    """Every muxable video on the post gets the bed; non-video untouched."""
+    monkeypatch.setattr(
+        P,
+        "_resolve_media_paths",
+        AsyncMock(return_value=["/a.mp4", "/b.mp4", "/c.jpg"]),
+    )
+    monkeypatch.setattr(P, "_resolve_music_path", AsyncMock(return_value="/a.mp3"))
+    monkeypatch.setattr(P, "_probe_video_audio", AsyncMock(return_value=(False, 5.0)))
+    mix = AsyncMock(side_effect=lambda v, m, **kw: v + ".mx.mp4")
+    monkeypatch.setattr(P, "_mix_audio_into_video", mix)
+    fn = AsyncMock(return_value=P.PublishResult(success=True))
+    monkeypatch.setattr(P, "_publish_twitter", fn)
+    await P.publish_to_platform(_account("twitter"), _post(media_ids=[uuid.uuid4()]), None)
+    assert fn.await_args.args[4] == ["/a.mp4.mx.mp4", "/b.mp4.mx.mp4", "/c.jpg"]
+    assert mix.await_count == 2
+
+
+def test_post_mood_bucketing():
+    assert P._post_mood("We just LAUNCHED it — growth is fast") == "energetic"
+    assert P._post_mood("A calm walkthrough guide and checklist") == "calm"
+    assert P._post_mood("hello world") is None
+    assert P._post_mood("") is None
 
 
 @pytest.mark.asyncio

@@ -950,14 +950,13 @@ async def publish_to_platform(
     if media_semantics is not None:
         return media_semantics
 
-    # If the post has a music asset and a single video, mix the audio in
-    music_path = await _resolve_music_path(post, db)
-    if music_path and media_paths and len(media_paths) == 1:
-        vpath = media_paths[0]
-        if vpath.lower().endswith((".mp4", ".mov", ".webm")):
-            mixed = await _mix_audio_into_video(vpath, music_path)
-            if mixed != vpath:
-                media_paths[0] = mixed
+    # Music beds: mux one into every muxable video on the post (explicit
+    # music_asset_id wins; otherwise silent videos get a deterministic
+    # mood-matched bed). Videos that already carry audio are left alone
+    # unless an explicit bed was assigned — an auto-bed would fight a
+    # voiceover or a pre-mixed track (e.g. burned-in ad music).
+    if account.platform in _MUSIC_PLATFORMS:
+        media_paths = await _apply_music_bed(post, db, media_paths)
 
     dispatch: dict[str, Any] = {
         "twitter": _publish_twitter,
@@ -1145,20 +1144,62 @@ async def _asset_file_path(asset: MediaAsset) -> str | None:
     return None
 
 
+# Feed platforms whose video surfaces carry sound. whatsapp/viber are
+# excluded upstream (messaging channels, not feeds); every feed target in
+# this set accepts audio-bearing video, so the gate is future-proofing for
+# doc-only or audio-stripping platforms added later.
+_MUSIC_PLATFORMS = {
+    "linkedin",
+    "facebook",
+    "instagram",
+    "threads",
+    "twitter",
+    "tiktok",
+    "telegram",
+    "bluesky",
+}
+
+# Containers whose video codec can be stream-copied into an mp4 output —
+# anything else gets skipped rather than re-encoded or broken.
+_MUXABLE_VIDEO_EXTS = (".mp4", ".mov", ".webm")
+
+# Per-post mixed-file cache so a post with N platform targets muxes each
+# video once, not once per target. Bounded — workers are long-lived.
+_MUSIC_MIX_CACHE: dict[tuple[str, str, str], str] = {}
+_MUSIC_MIX_CACHE_MAX = 64
+
+# Mood buckets for library beds (tagged in media_assets.meta_data.music_mood
+# by scripts/tag_music_moods.py). Untagged beds always stay in the pool.
+_MOOD_KEYWORDS = {
+    "energetic": (
+        "launch", "launched", "breaking", "win", "won", "growth", "fast",
+        "deal", "black friday", "offer", "vs", "versus", "battle", "dropped",
+        "new release", "speed", "record",
+    ),
+    "calm": (
+        "guide", "checklist", "walkthrough", "explained", "tutorial",
+        "deep dive", "audit", "analysis", "story", "lessons", "retrospective",
+        "how we", "why we",
+    ),
+}
+
+
+def _post_mood(text: str) -> str | None:
+    """Keyword mood of the post copy — 'energetic' or 'calm', or None when
+    neither bucket matches (neutral copy takes the full bed pool)."""
+    low = (text or "").lower()
+    for mood, words in _MOOD_KEYWORDS.items():
+        if any(w in low for w in words):
+            return mood
+    return None
+
+
 async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
-    """Deterministic library-bed pick for single-video posts with no explicit
-    ``music_asset_id`` — the same post always resolves to the same track across
-    every platform target (hash of post id), and non-video posts get nothing."""
-    media_ids = getattr(post, "media_ids", None) or []
-    if len(media_ids) != 1:
-        return None
-    result = await db.execute(select(MediaAsset).where(MediaAsset.id == media_ids[0]))
-    media = result.scalar_one_or_none()
-    if not media:
-        return None
-    name = (media.filename or media.storage_path or "").lower()
-    if not name.endswith(_VIDEO_EXTS):
-        return None
+    """Deterministic library-bed pick for posts with no explicit
+    ``music_asset_id`` — the same post always resolves to the same track
+    across every platform target (hash of post id). Mood-tagged beds are
+    preferred when the post copy scores into a mood bucket; untagged beds
+    and neutral copy fall back to the full pool."""
     beds = (
         (
             await db.execute(
@@ -1175,8 +1216,15 @@ async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
     post_id = getattr(post, "id", None)
     if not beds or post_id is None:
         return None
-    import hashlib
-
+    mood = _post_mood(getattr(post, "content_text", "") or "")
+    if mood:
+        mood_beds = [
+            b
+            for b in beds
+            if ((getattr(b, "meta_data", None) or {}).get("music_mood") == mood)
+        ]
+        if mood_beds:
+            beds = mood_beds
     idx = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16) % len(beds)
     return beds[idx]
 
@@ -1184,24 +1232,103 @@ async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
 async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
     """Resolve the file path for the post's music asset, if any.
 
-    Explicit ``post.music_asset_id`` wins; otherwise single-video posts
-    auto-resolve a deterministic bed from the audio library so every
-    video post carries music on platforms that support it.
+    Explicit ``post.music_asset_id`` wins; otherwise video posts
+    auto-resolve a deterministic, mood-matched bed from the audio library.
     """
     asset: MediaAsset | None = None
-    if post.music_asset_id:
-        result = await db.execute(select(MediaAsset).where(MediaAsset.id == post.music_asset_id))
+    music_asset_id = getattr(post, "music_asset_id", None)
+    if music_asset_id:
+        result = await db.execute(select(MediaAsset).where(MediaAsset.id == music_asset_id))
         asset = result.scalar_one_or_none()
     else:
         asset = await _auto_music_asset(post, db)
     return await _asset_file_path(asset)
 
 
-async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
-    """Mix an audio track into a video file using ffmpeg.
+async def _probe_video_audio(video_path: str) -> tuple[bool, float]:
+    """Return (has_meaningful_audio, duration_seconds) via ffprobe/ffmpeg.
 
-    Returns the path to the new video file with the mixed audio.
-    The original video audio is replaced (not merged) with the music track.
+    Stream presence alone is not enough — branded videos ship a silent AAC
+    bed track, which would otherwise look "voiced" and never get a bed.
+    When a stream exists we measure the first 30s with volumedetect; only
+    signal above ~-60 dB counts as real audio.
+
+    On probe failure we assume no audio — the mixer then takes the
+    silent-video path (bed becomes the only track) rather than guessing."""
+    import asyncio as _asyncio
+    import json as _json
+    import shutil
+
+    if not shutil.which("ffprobe"):
+        return False, 0.0
+    proc = await _asyncio.create_subprocess_exec(
+        "ffprobe",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_entries",
+        "stream=codec_type:format=duration",
+        video_path,
+        stdout=_asyncio.subprocess.PIPE,
+        stderr=_asyncio.subprocess.PIPE,
+    )
+    out, _ = await proc.communicate()
+    try:
+        info = _json.loads(out or b"{}")
+        stream_present = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
+        duration = float(info.get("format", {}).get("duration") or 0.0)
+    except Exception:
+        return False, 0.0
+    if not stream_present:
+        return False, duration
+    if not shutil.which("ffmpeg"):
+        return True, duration
+    vol = await _asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-t",
+        "30",
+        "-i",
+        video_path,
+        "-map",
+        "0:a:0",
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+        stdout=_asyncio.subprocess.PIPE,
+        stderr=_asyncio.subprocess.PIPE,
+    )
+    _, verr = await vol.communicate()
+    mean_db = -91.0
+    for line in verr.decode("utf-8", errors="replace").splitlines():
+        if "mean_volume:" in line:
+            try:
+                mean_db = float(line.split("mean_volume:")[1].strip().rstrip(" dB"))
+            except ValueError:
+                pass
+    return mean_db > -60.0, duration
+
+
+async def _mix_audio_into_video(
+    video_path: str,
+    audio_path: str,
+    *,
+    has_audio: bool = False,
+    duration: float = 0.0,
+) -> str:
+    """Mix a music bed into a video file using ffmpeg.
+
+    Silent video → the looped bed becomes the audio track, faded in/out.
+    Voiced video → the bed is sidechain-ducked under the existing audio
+    (sidechaincompress keyed on the video's own track — the standard
+    ffmpeg ducking graph) so voiceovers survive and the bed sits ~6 LU
+    under speech, swelling back in the gaps. Both paths master to the
+    social delivery target (-14 LUFS, -1 dBTP ceiling via loudnorm).
+
+    Returns the path to the new video file; on any failure returns the
+    original path unchanged.
     """
     import asyncio as _asyncio
     import shutil
@@ -1212,26 +1339,69 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
         return video_path
 
     out_path = tempfile.NamedTemporaryFile(suffix="_mixed.mp4", delete=False).name
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        video_path,
-        "-stream_loop",
-        "-1",
-        "-i",
-        audio_path,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-shortest",
-        out_path,
-    ]
+    if has_audio:
+        # Voice copy drives the compressor key; music (looped) is ducked;
+        # both remixed at unity and loudness-normalised for delivery.
+        filtergraph = (
+            "[0:a]asplit=2[vo][key];"
+            "[1:a]aformat=channel_layouts=stereo[mus];"
+            "[mus][key]sidechaincompress=threshold=0.03:ratio=8:attack=80:release=400:makeup=1[duck];"
+            "[vo][duck]amix=inputs=2:duration=first:normalize=0,"
+            "loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+        )
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            audio_path,
+            "-filter_complex",
+            filtergraph,
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            out_path,
+        ]
+    else:
+        # Silent video: loop the bed under the whole clip with fades.
+        fade_in = "afade=t=in:d=1"
+        fade_out = f",afade=t=out:st={max(0.0, duration - 1.5):.2f}:d=1.5" if duration > 2 else ""
+        filtergraph = f"[1:a]{fade_in}{fade_out},aformat=channel_layouts=stereo,loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            audio_path,
+            "-filter_complex",
+            filtergraph,
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            out_path,
+        ]
     proc = await _asyncio.create_subprocess_exec(
         *cmd,
         stdout=_asyncio.subprocess.PIPE,
@@ -1244,6 +1414,44 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
         return video_path  # fall back to original
     logger.info("[publishing] Mixed music into video → %s", out_path)
     return out_path
+
+
+async def _apply_music_bed(post: Post, db: AsyncSession, media_paths: list[str]) -> list[str]:
+    """Mux a music bed into every muxable video on the post.
+
+    Explicit ``post.music_asset_id`` wins and applies even to voiced
+    videos (the bed is ducked under the existing audio). Auto-picked beds
+    only attach to silent videos — a video that already carries audio
+    (voiceover, pre-mixed/burned-in music) is left untouched. Mixed files
+    are cached per (post, video, bed) so N platform targets mux once."""
+    video_idx = [
+        i
+        for i, p in enumerate(media_paths)
+        if p.lower().endswith(_MUXABLE_VIDEO_EXTS)
+    ]
+    if not video_idx:
+        return media_paths
+    music_path = await _resolve_music_path(post, db)
+    if not music_path:
+        return media_paths
+    explicit = bool(getattr(post, "music_asset_id", None))
+    out = list(media_paths)
+    for i in video_idx:
+        vpath = media_paths[i]
+        has_audio, duration = await _probe_video_audio(vpath)
+        if has_audio and not explicit:
+            # Video already carries audio — an auto-bed would fight it.
+            continue
+        key = (str(getattr(post, "id", "")), vpath, music_path)
+        mixed = _MUSIC_MIX_CACHE.get(key)
+        if not mixed or not os.path.exists(mixed):
+            mixed = await _mix_audio_into_video(vpath, music_path, has_audio=has_audio, duration=duration)
+            if len(_MUSIC_MIX_CACHE) >= _MUSIC_MIX_CACHE_MAX:
+                _MUSIC_MIX_CACHE.clear()
+            _MUSIC_MIX_CACHE[key] = mixed
+        if mixed != vpath:
+            out[i] = mixed
+    return out
 
 
 class _TaggedLinkPost:
