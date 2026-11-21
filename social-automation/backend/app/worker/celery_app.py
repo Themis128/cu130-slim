@@ -64,6 +64,7 @@ celery_app = Celery(
         "app.worker.tasks.tiktok_inbox_reconcile",
         "app.worker.tasks.instagram_messenger",
         "app.worker.tasks.instagram_token_refresh",
+        "app.worker.tasks.instagram_lane_guard",
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.whatsapp_templates",
@@ -1322,6 +1323,15 @@ celery_app.conf.update(
             "task": "app.worker.tasks.instagram_messenger.poll_instagram_messenger",
             "schedule": 180.0,  # every 3 minutes
             "options": {"queue": "messenger"},
+        },
+        # Instagram publish-lane guard — auto-failover permission-failed
+        # (#10 / instagram_content_publish) IG targets from the fb_onboarding
+        # row to the healthy business_login row (graph.instagram.com lane,
+        # immune to the Page instagram_business_account Graph bug).
+        "instagram-lane-guard": {
+            "task": "app.worker.tasks.instagram_lane_guard.run_instagram_lane_guard",
+            "schedule": 900.0,  # every 15 minutes
+            "options": {"queue": "default"},
         },
         # Refresh Instagram long-lived access tokens before they expire (60 days).
         # Runs daily to refresh tokens that will expire within 14 days (the
