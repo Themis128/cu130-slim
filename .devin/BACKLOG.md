@@ -4309,3 +4309,57 @@ Recovery attempts + findings:
 - [ ] **IG account rows** — `38ddbd44` (cloudless.gr, web_rupload lane)
   is canonical; `d2215106` duplicate also flipped active — candidate for
   retire once publishes confirm which row actually ships.
+
+## 2026-11-21 — WhatsApp token + workforce_audit crash (worker-health triage)
+
+- [ ] **WhatsApp WABA token re-auth** — `whatsapp_templates` poll fails with
+  OAuthException code 190 ("user changed their password"): the 2026-11-21 Meta
+  password change invalidated the WABA 1717901383017723 token. Re-auth via the
+  Accounts UI OAuth (FB debug-browser session live since ~13:50) or re-mint
+  the WABA token and update the account row; template poll should return 0
+  errors afterwards. No whatsapp_reauth.py exists yet — instagram_reauth.py is
+  the pattern to copy if a beat lane is wanted.
+- [ ] **workforce_audit crash every beat** — `app/worker/tasks/workforce_audit.py`
+  does `import scripts.workforce_audit` but the container's `/app/scripts/`
+  lacks `__init__.py`, so the import raises ModuleNotFoundError each beat
+  (worker-health critical noise, per beat). Fix: importlib file-load fallback
+  (pattern: instagram_reauth's missing-script guard) or add
+  `scripts/__init__.py` to the image; alert lane quiets once it stops raising.
+
+## 2026-11-21 — Instagram publish fully blocked (all five lanes) — needs manual re-auth
+
+Post `4e4a063c` (GTA-6 reel, GTA cloud bill hook) recurred 7× as publish-failed
+critical; marked `failed` with the real reason. Root cause chain verified live:
+
+- `graph_fb`: `(#10) Requires instagram_content_publish` on
+  `/17841436821573754/media` even with a **valid** user token carrying the
+  scope. Page `116436681562585` has only `connected_instagram_account` —
+  `instagram_business_account` is absent, which is the API-usable business
+  link. Completing it (FB Page → Settings → Linked accounts → Instagram →
+  "Review connection" accordion → IG OIDC popup) hits the documented
+  FB-account-standing gate (Account Quality, 2021 ad-policy flag).
+- `business_login` (`38ddbd44`, ig `28747382798219804`): token dead 190,
+  browser sessionid dead (login redirect loop). Retire note "covered by
+  d2215106" was wrong — d2215106's graph path is the one that's blocked.
+- `instagrapi` 2.6.9: `qe/sync` 404 → `password_publickeys` TypeError
+  (upstream #2920). Ephemeral upgrade to 3.2.19 in social-worker-meta
+  passes encryption but hits `needs_upgrade` — IG gates the spoofed app
+  version even at 449 (upstream #2881, open). Dockerfile bumped to 3.2.19.
+- `web_rupload` / sidecar sessions: all dead post-password-change; fresh
+  instagram.com web login with stored creds → `FakeIncorrectPassword`
+  (stored IG password stale — Meta password change applied to IG too).
+- Debug Chrome :9229 has only the `t_baltzakis` (personal) saved IG
+  profile — no @cloudless.gr session to transplant.
+
+**What unblocks it (pick one, all manual-ish):**
+1. New IG password → login @cloudless.gr in the debug Chrome (or
+   Accounts UI private-login), then re-transplant sessionid → web_rupload.
+2. Complete the FB Page↔IG business link (blocked by Account Quality —
+   needs the 2021 restriction resolved or a review submitted).
+3. Upstream fix for instagrapi/aiograpi needs_upgrade (#2881), then
+   `cl.login` with META_TOTP_SECRET works again.
+
+Status corrections made: `9355ed63` (fb user) + `d2215106` (ig fb-graph)
+→ `active` (debug_token verified valid — statuses were false-negative);
+`38ddbd44`/`9eded1e5` stay `expired`, `threads cloudless.gr` stays
+`revoked`. workforce_audit crash was already fixed by PR #2445.
