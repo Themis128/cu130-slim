@@ -61,8 +61,12 @@ def targets():
 
 
 def auth_tab():
+    def _is_auth(url: str) -> bool:
+        host = urllib.parse.urlparse(url).hostname or ""
+        return host == "auth.meta.com" or host.endswith(".auth.meta.com")
+
     return [t for t in targets()
-            if t.get("type") == "page" and "auth.meta.com" in t.get("url", "")]
+            if t.get("type") == "page" and _is_auth(t.get("url", ""))]
 
 
 class CdpSession:
