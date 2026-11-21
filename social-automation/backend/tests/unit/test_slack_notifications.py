@@ -798,9 +798,31 @@ async def test_ntfy_alert_posts_when_configured():
     assert call["url"] == "https://ntfy.example.com/cloudless-alerts"
     assert call["content"] == b"disk full"
     assert call["headers"]["Authorization"] == "Bearer tk-test"
-    assert call["headers"]["Priority"] == "4"
+    # Recurrence-aware tuning (2026-11-21): first-seen ops soft-beeps at 3.
+    assert call["headers"]["Priority"] == "3"
     assert call["headers"]["Tags"] == "ops"
     assert "Mozilla" in call["headers"]["User-Agent"]
+
+
+@pytest.mark.asyncio
+async def test_ntfy_priority_escalates_with_recurrence():
+    settings = SimpleNamespace(
+        NTFY_ALERT_BASE_URL="https://ntfy.example.com",
+        NTFY_ALERT_TOKEN="tk-test",
+    )
+    fake = _FakeNtfyClient(response=_FakeResponse(200, "ok"))
+
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        for text, _expected in (
+            ("first-seen without recur marker", None),
+            ("[ops-agent/critical] db down\nrecur=0", None),
+            ("[ops-agent/critical] db down\nrecur=2", None),
+            ("[ops-agent/critical] db down\nrecur=9", None),
+        ):
+            await sn._post_ntfy_alert("critical", text)
+
+    prios = [c["headers"]["Priority"] for c in fake.calls]
+    assert prios == ["3", "3", "4", "5"]
 
 
 @pytest.mark.asyncio
