@@ -49,10 +49,8 @@ ON CONFLICT (fingerprint) DO UPDATE SET
     WHEN ops_incidents.status = 'resolved'
          AND ops_incidents.resolved_at < now() - interval '24 hours' THEN 0
     ELSE ops_incidents.agent_attempts END,
-  first_seen = CASE
-    WHEN ops_incidents.status = 'resolved'
-         AND ops_incidents.resolved_at < now() - interval '24 hours' THEN now()
-    ELSE ops_incidents.first_seen END,
+  first_seen = CASE WHEN ops_incidents.status = 'resolved' THEN now()
+                    ELSE ops_incidents.first_seen END,
   status = CASE WHEN ops_incidents.status = 'resolved' THEN 'open'
                 ELSE ops_incidents.status END,
   resolved_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
