@@ -218,7 +218,11 @@ class InstagramAPIClient:
         url = f"{self.base_url}/{self.ig_user_id}/media"
         fields = {
             "video_url": video_url,
-            "media_type": "VIDEO",
+            # graph.instagram.com (Business Login) rejects media_type=VIDEO —
+            # video containers there must be REELS (subcode 2207067).
+            "media_type": "REELS"
+            if self.base_url.startswith(INSTAGRAM_BUSINESS_LOGIN_API_BASE)
+            else "VIDEO",
             "caption": caption[:MAX_CAPTION_CHARS],
         }
         if is_ai_generated:

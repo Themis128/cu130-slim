@@ -154,6 +154,20 @@ async def test_create_video_container_success(client):
     assert fake.calls[0]["data"]["media_type"] == "VIDEO"
     assert fake.calls[0]["data"]["caption"] == "Reel caption"
 
+@pytest.mark.asyncio
+async def test_create_video_container_business_login_uses_reels():
+    """graph.instagram.com rejects media_type=VIDEO (subcode 2207067) —
+    Business Login containers must be REELS."""
+    biz = api.InstagramAPIClient(
+        access_token="tok-123", ig_user_id="987654321",
+        use_business_login_api=True)
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012360"}))
+    with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
+        mock_client.return_value = fake
+        result = await biz.create_video_container("https://example.com/v.mp4")
+    assert result == "17890012360"
+    assert fake.calls[0]["data"]["media_type"] == "REELS"
+
 
 @pytest.mark.asyncio
 async def test_create_carousel_item_success(client):
