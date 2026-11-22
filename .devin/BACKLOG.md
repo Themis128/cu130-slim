@@ -4536,3 +4536,23 @@ assistant chat for the reply.
 - #2474 CF-model migration: stale test assertions healed upstream by f7508bfc (all 33 previously-failing tests verified green locally). My ea15ac04 dead-code removal caused 3 of them — retired-path tests updated to assert None.
 - Queue at sweep: #2466 #2474 #2480 #2482 #2484 — all armed, zero actionable failures, CI-pending only.
 - Outstanding: dirty `scripts/threads_reauth.py` — other agent's WIP, left untouched.
+
+## 2026-11-22b — battle test + queue sweep
+
+- **pr-autopilot cancellation root cause**: GitHub pending-collapse, not an
+  outside actor — shared concurrency group + cancel-in-progress:false = one
+  pending run allowed; triggers cancelled each other (46/50). Fixed by
+  per-PR group scoping in #2492 (merged).
+- merge_queue.py preflight verified: refuses on User-owned repo before any
+  API write (#2487 merged).
+- skill_mirror_check battle-tested: caught+synced 7 tracked gap files,
+  detects planted doc-drift with exit 1 (#2489 merged).
+- ci_fails.py verified on stubbed failing check (extracts FAILED lines,
+  ignores non-required checks) + live --healer QUOTA-DEAD report.
+- #2488 DIRTY healed via worktree rebase: pr-ci-triage was already upstream
+  via #2486 (kept master's richer SKILL.md); true delta = env_parity_check
+  only. social-stack-ops SKILL.md took their additive version.
+- gemini-ci-fix STILL quota-dead (TerminalQuotaError) — manual heals only
+  until daily reset. slack-github-notify's cancels are the same documented
+  pending-collapse — by design.
+- Queue at close: #2494 #2493 #2488 #2484 — all armed, zero failures.
