@@ -70,6 +70,36 @@ lane is immune — prefer it as canonical for publishing.
 - Orphan media containers (`/media` without `/media_publish`) expire
   harmlessly.
 
+## Cold-start fallback — `scripts/ig2_oauth_drive.py` (no session blob)
+
+When the stored `sessionid` is dead (password rotation invalidates every
+IG session + derived token — Graph 190 subcode 460), the cookie-inject
+lane can't start. `ig2_oauth_drive.py` does the full login instead:
+
+1. Mints the signed authorize URL inside `social-api` (signed state +
+   `instagram_business_*` scope string).
+2. Navigates the **main** `instagram.com` tab (exact URL match — a
+   substring pick can land on a stale login/reset tab and drive the
+   wrong page; the driver pins `flow_id` and follows that target only).
+3. Handles every screen: profile chooser (`cloudless.gr` tile — no
+   username input exists there), username+password form
+   (`INSTAGRAM_PASSWORD` from `.env`), 2FA method picker (clicks the
+   `Authentication app` *label* — radio indices shift), TOTP fill+submit
+   (`META_TOTP_SECRET_IG` — click the Continue *closest below* the code
+   input; the page has two), consent `Allow`.
+4. `--verify` short-circuits when the stored token already answers
+   `graph.instagram.com/me` — run that first, always.
+
+Verified live 2026-11-22 after the password-rotation kill: full drive →
+callback 200 → `VERIFY active cloudless.gr`.
+
+**Password rotation cascade**: `ig_pw_reset`/`meta_reset_watch` write the
+new secret to repo-root `.env` ONLY — `deploy/socialauto-standalone/.env`
+(the file that actually feeds containers via `env_file`) keeps the old
+one. After any rotation, sync `INSTAGRAM_PASSWORD` +
+`META_TOTP_SECRET_IG` into the standalone `.env` and `docker compose up
+-d` the workers — restarts do not reload `env_file`.
+
 ## Accounts (cloudless.gr)
 
 - business_login row: `38ddbd44-8811-4d0b-be62-a23fd2f50490`,
