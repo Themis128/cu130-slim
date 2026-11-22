@@ -648,7 +648,10 @@ Current chain (oldest → newest, 39 revisions):
 
 - **#7043** (High) — Polynomial regex in `plain_english.py:137`: fixed by replacing `\s` with `[ \t]` in `_REWRITTEN_MARKERS` and `_ORIGINAL_MARKERS` to eliminate overlapping whitespace quantifiers.
 - **#7052** (Medium) — Log injection in `linkedin_api.py:141`: fixed by applying `_sanitize_log_text()` to the `url` parameter before logging in `_log_api_error` and `_raise_for_status`.
+- **#7833** (High) — URL substring sanitization in `meta_reset_watch.py`: fixed by hostname-parsing the CDP target URL (`urlparse().hostname == "auth.meta.com"`).
+- **#7834/#7835** (High) — Clear-text storage of the recovered Meta password to `.env` in `fb_reset2.py`/`meta_reset_watch.py`: dismissed `"won't fix"` — the scripts' purpose is persisting the password to the gitignored chmod-600 `.env` store; same class as open #7698 on merged `fb_pw_reset.py`.
 - When fixing CodeQL alerts, always sanitize any user-controlled or external data passed to `logger` calls (URLs, response text, error messages).
+- A `CodeQL fail` check-run is a real merge gate (new diff-introduced alerts), NOT advisory — triage via `.devin/skills/codeql-triage-ops/scripts/codeql_pr_alerts.py`. The `?pr=` API filter also returns dep-CVE rows; only `tool=CodeQL` open alerts gate.
 - Do not claim CodeQL alerts are closed until GitHub scan results confirm closure.
 
 ## Documentation & diagrams
