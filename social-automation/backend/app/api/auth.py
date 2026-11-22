@@ -320,12 +320,12 @@ PLATFORM_SCOPES: dict[str, list[str]] = {
         "read_insights",
         "instagram_basic",
         "instagram_manage_insights",
-        "instagram_content_publish", "instagram_manage_contents",
+        "instagram_content_publish", "instagram_manage_comments",
         "instagram_manage_messages",
     ],
     "instagram": [
         "instagram_basic",
-        "instagram_content_publish", "instagram_manage_contents",
+        "instagram_content_publish", "instagram_manage_comments",
         "instagram_manage_messages",
         "pages_show_list",
         "pages_read_engagement",
@@ -485,7 +485,7 @@ instagram_client = BaseOAuth2(
     authorize_endpoint="https://www.facebook.com/dialog/oauth",
     access_token_endpoint=facebook_graph_url("oauth/access_token"),
     refresh_token_endpoint=facebook_graph_url("oauth/access_token"),
-    base_scopes=["instagram_basic", "instagram_content_publish", "instagram_manage_contents", "instagram_manage_messages", "pages_show_list"],
+    base_scopes=["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "instagram_manage_messages", "pages_show_list"],
     name="instagram",
 )
 # TikTok OAuth 2.0 — uses client_key (not client_id) and custom token endpoint
@@ -1524,7 +1524,7 @@ async def oauth_callback(
                     scopes = [
                         "instagram_basic",
                         "instagram_content_publish",
-                        "instagram_manage_contents",
+                        "instagram_manage_comments",
                         "instagram_manage_messages",
                         "pages_show_list",
                         "pages_read_engagement",
@@ -1597,7 +1597,7 @@ async def oauth_callback(
                         "business_management",
                         "instagram_basic",
                         "instagram_manage_insights",
-                        "instagram_content_publish", "instagram_manage_contents",
+                        "instagram_content_publish", "instagram_manage_comments",
                         "instagram_manage_messages",
                     ]
 
@@ -1795,7 +1795,7 @@ async def oauth_callback(
                 display_name = fb_info.get("name", "")
                 avatar_url = fb_info.get("picture", {}).get("data", {}).get("url")
                 access_token = long_lived_token
-            scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_contents", "instagram_manage_messages", "pages_show_list"]
+            scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "instagram_manage_messages", "pages_show_list"]
         elif platform == "tiktok":
             # TikTok token response includes open_id alongside access_token
             open_id = token.get("open_id", "")
@@ -2129,7 +2129,7 @@ async def instagram_onboarding_authorize(
     # Facebook Login for Business with IG API Onboarding
     # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-login-for-instagram/
     extras = _json.dumps({"setup": {"channel": "IG_API_ONBOARDING"}})
-    scope = "instagram_basic,instagram_content_publish,instagram_manage_contents,instagram_manage_messages,pages_show_list,pages_read_engagement"
+    scope = "instagram_basic,instagram_content_publish,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_read_engagement"
     redirect_uri = settings.FACEBOOK_REDIRECT_URI
 
     auth_url = (
