@@ -205,6 +205,7 @@ async def test_sweep_retires_target_when_bl_owns_post():
         _result(rows=[bl]),
         _result(rows=[tgt]),
         _result(one=MagicMock()),    # active queue row exists on BL lane
+        _result(one=None),           # existing BL target check (short-circuit is post-query)
         _result(),                   # cancel broken-lane queue rows
     ])
     db = MagicMock()
