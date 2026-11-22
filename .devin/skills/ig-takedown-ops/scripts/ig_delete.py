@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ig_delete.py — delete an Instagram post programmatically.
 
-Graph API cannot delete organic IG media. This drives the working path:
+Fast lane: Graph API DELETE /{ig-media-id} (2025-12-03+) when a
+Facebook-Login token carries instagram_manage_contents. Fallback:
 browser-novnc bridge eval login (remembered profile → WhatsApp 2FA code
 read off the phone via ADB) → fresh sessionid → instagrapi media_delete.
 
@@ -144,9 +145,109 @@ def drop_local_row(post_id: str) -> None:
         check=True)
 
 
+def graph_delete(code: str) -> bool | None:
+    """Fast lane: Meta's DELETE /{ig-media-id} (added 2025-12-03).
+
+    Requires the ``instagram_manage_contents`` permission granted via
+    **Facebook Login** — Instagram-Login (business_login) tokens can't
+    use it. Returns True = deleted, False = API rejected (fall through
+    to the browser lane), None = media already gone.
+    """
+    import asyncio
+
+    import httpx as _hx
+    from sqlalchemy import select
+
+    from app.core.security import decrypt_token
+    from app.models.social_account import SocialAccount
+    from app.worker._async import task_session
+
+    async def _run() -> bool | None:
+        async with task_session() as db:
+            rows = (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform.in_(["facebook", "instagram"]),
+                        SocialAccount.access_token_enc.is_not(None),
+                    )
+                )
+            ).scalars().all()
+        candidates = []
+        for a in rows:
+            meta = a.meta_data or {}
+            ig_uid = a.account_id or meta.get("instagram_user_id") or meta.get("ig_user_id")
+            try:
+                tok = decrypt_token(bytes(a.access_token_enc))
+            except Exception:
+                tok = None
+            if tok and ig_uid:
+                candidates.append((tok, str(ig_uid)))
+        if not candidates:
+            return False
+        async with _hx.AsyncClient(timeout=20) as client:
+            for tok, ig_uid in candidates:
+                # Resolve shortcode -> ig media id via the user media edge.
+                media_id = None
+                try:
+                    r = await client.get(
+                        f"https://graph.facebook.com/v26.0/{ig_uid}/media",
+                        params={
+                            "fields": "id,permalink",
+                            "limit": 100,
+                            "access_token": tok,
+                        },
+                    )
+                    if r.status_code != 200:
+                        continue
+                    for m in r.json().get("data", []):
+                        pl = m.get("permalink") or ""
+                        if f"/{code}/" in pl or f"/{code}?" in pl:
+                            media_id = m["id"]
+                            break
+                except Exception:
+                    continue
+                if not media_id:
+                    continue
+                try:
+                    d = await client.delete(
+                        f"https://graph.facebook.com/v26.0/{media_id}",
+                        params={"access_token": tok},
+                    )
+                    body = d.json() if d.content else {}
+                    if d.status_code == 200 and body.get("success"):
+                        return True
+                    if d.status_code == 404 or "not found" in str(body).lower():
+                        return None
+                    print(f"graph delete rejected ({d.status_code}): {str(body)[:200]}")
+                    return False
+                except Exception as exc:
+                    print(f"graph delete error: {exc}")
+                    return False
+        return False
+
+    return asyncio.run(_run())
+
+
 def main() -> int:
     pk = sys.argv[1]
     row = sys.argv[sys.argv.index("--row") + 1] if "--row" in sys.argv else None
+    # Shortcode (e.g. DgBTeXijaAs) or numeric media_pk both accepted.
+    if not pk.isdigit():
+        # Accept bare shortcode, /p/CODE/, or full instagram.com URL.
+        seg = pk.strip("/").split("/")[-1]
+        code = seg[2:] if seg.startswith("p/") else seg
+        print(f"trying Graph DELETE fast lane for /p/{code}/ …")
+        res = graph_delete(code)
+        if res is True:
+            print("deleted via Graph API")
+            return 0
+        if res is None:
+            print("already gone on IG")
+            return 0
+        print("graph lane unavailable — falling back to browser+instagrapi")
+        pk = None  # resolved below is not possible; require numeric pk for fallback
+        print("ERROR: fallback needs numeric media_pk — rerun with the pk")
+        return 2
     print("starting IG session on bridge…")
     start_ig_session()
     print("logging in via remembered profile + WhatsApp 2FA…")
