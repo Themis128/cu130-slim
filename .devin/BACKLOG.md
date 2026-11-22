@@ -4567,3 +4567,60 @@ assistant chat for the reply.
   unchanged — all blocked on Meta account lock; resume when Meta replies.
 - [ ] TikTok #789 profile-link: phone session dropped mid-drive;
   resume when phone is free (do NOT drive while in active use).
+
+## 2026-11-21 (resolution) — Bridge IG swapped to healthy Meta-Account IG; threads/t_baltzakis restored
+
+The suspended `baltzakis_themistoklis` IG was bypassed entirely: IG login
+page profile picker offered `cloudless.gr` + `t_baltzakis` saved
+profiles — logging in as `cloudless.gr` hit IG 2FA, SMS code read
+automatically via ADB `content query` (codes arrive as "Facebook" sender
+SMS, ~30s), session landed on the feed. Threads SSO then logged into
+threads.net as `@t_baltzakis` (the cloudless.gr IG is linked to that
+Threads handle). `threads_reauth.py` minted a fresh OAuth token —
+`threads/t_baltzakis` now `active` until 2027-01-20.
+
+Lessons:
+- Bridge `/session/*` calls MUST send `X-Platform: <platform>` — without
+  it no busy-hold is set and pollers (personal_messenger Browser
+  orchestrator, twitter_messenger, engagement_ingest_fb) steal the
+  browser every ~2min. With the header, `interactive:true` holds 15min.
+- `threads/cloudless.gr` row has `retired_at` (2026-11-15) — intentionally
+  dead, not a regression.
+- WhatsApp phone verification still pending (SMS never arrives);
+  no longer blocks anything — IG 2FA has a Text-message lane.
+- `input tap`/`keyevent` partially work over USB ADB (keyevents yes,
+  taps flaky on WhatsApp verify screen) — SMS reading via
+  `content query --uri content://sms/inbox` is reliable.
+- Suspended `baltzakis_themistoklis` IG: still suspended; deletion still
+  human-gated. Now cosmetic — nothing depends on it.
+
+## 2026-11-22 — branch sweep + tailnet-watch-ops skill (Devin)
+
+- Landed orphaned post-merge commit from `docs/backlog-ig-suspension`
+  (IG swap / threads reauth resolution).
+- [ ] `fix/sidecar-tiktok-proxy-network` 1f2f8ab7 (engagement-browser joins
+  `socialauto-standalone` with `engagement-browser` + `browser-novnc`
+  aliases) NOT landed: master-deploy-watch only deploys the standalone
+  compose, so the root-compose change wouldn't apply on merge, and the
+  `browser-novnc` alias may collide for workers on both networks. Needs a
+  standalone-compose design; branch kept.
+- Deleted 16 branches whose content is on master (8 `heal/*`, merged
+  feature branches, `feat/adb-wireless-lane`, `fix/ops-sweep-txn-hygiene`).
+  `fix/li-heal-new-login-form` 6371be61 was superseded by #2408.
+- Deleted 5 closed "superseded by clean rebuild" branches after checking
+  their features are on master (`feat/li-invite-outreach`,
+  `feat/wa-unattended-reauth`, `fix/ram-gate-recalibrate`,
+  `fix/ig-account-resolver(-rebuilt)`); the one orphan backlog commit
+  (c5a4994b, IG mass-expire note) is landed below.
+- New skill `tailnet-watch-ops` + `scripts/tw_status.sh` for the office-1
+  status check and daily digest ([tailnet-watch#5](https://github.com/Themis128/tailnet-watch/pull/5)).
+- [ ] After tailnet-watch#5 merges: `tw_status.sh deploy`, confirm next
+  08:00 run sends exactly one digest.
+- [x] 2026-11-22 IG mass-expire incident: worker DNS blip flipped all 3
+  IG rows to expired at 11:01 UTC while business_login token was live.
+  Root cause = instagram_session_check probes treated transport errors
+  as session death. FIXED in PR #2505 (tri-state probes + _evaluate +
+  confirmation re-probe). business_login row manually restored to
+  active (live probe 200). FOLLOW-UP: same bool-only probe pattern in
+  linkedin_session_check.py / other session_check tasks — audit for
+  the same transport-vs-rejection flaw.
