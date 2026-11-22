@@ -43,6 +43,13 @@ ENV_FILE = os.path.join(REPO, ".env")
 CALLBACK_MARK = "/api/v1/auth/oauth/threads/callback"
 
 
+def _host_is(url: str, domain: str) -> bool:
+    """Hostname-suffix match — 'instagram.com' in url is spoofable
+    (evil.com/?q=instagram.com); CodeQL py/incomplete-url-substring-sanitization."""
+    host = (urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
 def load_env() -> dict[str, str]:
     env = {}
     try:
@@ -164,12 +171,61 @@ def _fill_first(page, selectors, value):
     return False
 
 
-def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
+IG_COOKIE_NAMES = {
+    "sessionid", "ds_user_id", "csrftoken", "mid", "ig_did", "datr",
+    "wd", "ps_l", "ps_n", "ds_user", "rur", "shbid", "shbts",
+}
+
+
+def harvest_ig_cookies(cdp: str) -> list[dict]:
+    """Read instagram.com cookies out of debug Chrome (read-only)."""
     from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.connect_over_cdp(cdp)
+        ctx = browser.contexts[0] if browser.contexts else None
+        if ctx is None:
+            return []
+        cookies = ctx.cookies(["https://www.instagram.com",
+                               "https://instagram.com"])
+        browser.close()
+    return [c for c in cookies if c.get("name") in IG_COOKIE_NAMES]
+
+
+def drive(url: str, cdp: str, timeout: int, secret: str,
+          profile: str | None = None) -> int:
+    from playwright.sync_api import sync_playwright
+    if profile:
+        # Isolated lane: harvest IG session from debug Chrome, replay it in
+        # a dedicated persistent context — immune to shared-browser churn.
+        cookies = harvest_ig_cookies(cdp)
+        if not any(c["name"] == "sessionid" for c in cookies):
+            print("no IG sessionid in debug Chrome — cannot seed isolated "
+                  "context", file=sys.stderr)
+            return 5
+        print(f"harvested {len(cookies)} IG cookies — isolated drive")
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(
+                profile,
+                headless=False,
+                viewport={"width": 1280, "height": 900},
+                locale="en-US",
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            ctx.add_cookies([
+                {**c, "domain": ".instagram.com", "path": "/"}
+                for c in cookies
+            ])
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            return _drive_loop(page, url, timeout, secret, ctx)
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(cdp)
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
+        return _drive_loop(page, url, timeout, secret, ctx, browser=browser)
+
+
+def _drive_loop(page, url: str, timeout: int, secret: str, ctx,
+                browser=None) -> int:
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
         deadline = time.time() + timeout
@@ -181,7 +237,8 @@ def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
             if is_cb:
                 print(f"callback reached: {cur[:120]}")
                 page.wait_for_timeout(5000)
-                browser.close()
+                if browser is not None:
+                    browser.close()
                 return 0
             low = _txt(page).lower()
             body_head = _txt(page)[:200].replace("\n", " | ")
@@ -191,9 +248,14 @@ def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
                 low0 = _txt(page).lower()
                 # chooser variant → real link click; login variant → IG button
                 for sel in ("a:has-text('Use your Instagram account')",
-                            "a:has-text('Instagram')",
+                            "text=Use your Instagram account",
+                            "text=Continue with Instagram",
+                            "text=Log in with Instagram",
+                            "[role=button]:has-text('Continue with Instagram')",
+                            "[role=button]:has-text('Log in with Instagram')",
                             "button:has-text('Continue with Instagram')",
-                            "button:has-text('Log in with Instagram')"):
+                            "button:has-text('Log in with Instagram')",
+                            "a:has-text('Instagram')"):
                     try:
                         loc = page.locator(sel).first
                         if loc.count():
@@ -204,7 +266,7 @@ def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
                 else:
                     page.evaluate(_CLICK_JS)
             # IG OAuth consent / account chooser
-            elif "instagram.com" in cur:
+            elif _host_is(cur, "instagram.com"):
                 if "two-factor" in low or "authentication app" in low or \
                         "verification code" in low:
                     print("2FA wall — driving TOTP")
@@ -222,7 +284,8 @@ def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
 
         print(f"TIMEOUT at {page.url[:120]}")
         print(_txt(page)[:300].replace("\n", " | "))
-        browser.close()
+        if browser is not None:
+            browser.close()
         return 4
 
 
@@ -309,6 +372,10 @@ def main() -> int:
     ap.add_argument("--api", default=None,
                     help="SocialAuto base URL (default env/https://social.cloudless.gr)")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--profile", default=None,
+                    help="isolated persistent-context profile dir — "
+                         "harvests IG cookies from CDP and drives without "
+                         "the shared debug Chrome (avoids tab churn)")
     args = ap.parse_args()
 
     env = load_env()
@@ -323,7 +390,7 @@ def main() -> int:
         print(url)
         return 0
 
-    rc = drive(url, cdp, args.timeout, secret)
+    rc = drive(url, cdp, args.timeout, secret, profile=args.profile)
     if rc == 0:
         time.sleep(8)  # let the backend exchange the code
         verify_rows()

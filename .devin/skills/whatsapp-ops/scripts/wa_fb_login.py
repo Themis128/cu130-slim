@@ -58,6 +58,13 @@ def _totp(secret):
                % 1000000).zfill(6)
 
 
+def _host_is(url: str, domain: str) -> bool:
+    """Hostname-suffix match — 'facebook.com' in url is spoofable
+    (evil.com/?q=facebook.com); CodeQL py/incomplete-url-substring-sanitization."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
 def tabs():
     return json.loads(urllib.request.urlopen(CDP + "/json/list", timeout=15).read())
 
@@ -75,8 +82,8 @@ def find_fb_tab():
                 return t
         _ACTIVE_TAB = None
     cands = [t for t in tabs() if t.get("type") == "page"
-             and ("facebook.com" in t.get("url", "")
-                  or "fb.com" in t.get("url", ""))]
+             and (_host_is(t.get("url", ""), "facebook.com")
+                  or _host_is(t.get("url", ""), "fb.com"))]
     pick = None
     # prefer the plain /login/ surface — login.php?skip_api_login is the
     # app-login interstitial whose 2FA hand-off breaks on scripted submits
