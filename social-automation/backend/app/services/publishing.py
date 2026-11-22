@@ -2729,6 +2729,36 @@ async def _instagram_public_urls(
     return urls
 
 
+async def _instagram_video_public_url(
+    storage_path: str,
+    post: Post,
+    db: AsyncSession | None = None,
+) -> str | None:
+    """Resolve a public URL for a single video asset.
+
+    Same sources as ``_instagram_public_urls`` but for video bytes —
+    no JPEG coercion; R2 serves the mp4 directly.
+    """
+    override: str | None = (post.platform_specific or {}).get("instagram", {}).get("video_url")
+    if override:
+        return override
+
+    r2_base = (_settings.R2_PUBLIC_URL or "").rstrip("/")
+    if db is not None and post.media_ids:
+        assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))).scalars().all()
+        meta_by_path = {a.storage_path: a for a in assets if a.storage_path}
+        asset = meta_by_path.get(storage_path)
+        if (
+            asset is not None
+            and r2_base
+            and (asset.storage_backend or "").lower() == "r2"
+            and not storage_path.startswith("/")
+        ):
+            return f"{r2_base}/{storage_path}"
+
+    return _media_public_url(storage_path)
+
+
 def _sidecar_file_path(host_path: str) -> str | None:
     """Map a host-side upload path to the sidecar container's view.
 
@@ -3720,10 +3750,64 @@ async def _publish_instagram_via_graph(
                     ),
                 )
 
-    image_urls = await _instagram_public_urls(storage_paths or [], post, db)
     caption = text[:2200]
 
-    if not image_urls:
+    # Single-video posts (reels/feed video) publish through the same
+    # container flow — Meta's crawler fetches a public mp4 URL exactly as
+    # it does images. Keeps video on the durable API lane for
+    # business_login instead of requiring a live browser session.
+    sp_list = storage_paths or []
+    video_sp = (
+        sp_list[0]
+        if len(sp_list) == 1 and sp_list[0].lower().endswith(VIDEO_EXTS_ALL)
+        else None
+    )
+    if video_sp is None and any(
+        sp.lower().endswith(VIDEO_EXTS_ALL) for sp in sp_list
+    ):
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram video inside a multi-item carousel is not supported via Graph.",
+        )
+    if (
+        video_sp is None
+        and media_paths
+        and media_paths[0].lower().endswith(VIDEO_EXTS_ALL)
+    ):
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error="Instagram video has no storage path to build a public URL from.",
+        )
+
+    video_url: str | None = None
+    image_urls: list[str] = []
+    if video_sp:
+        video_url = await _instagram_video_public_url(video_sp, post, db)
+        if not video_url:
+            return PublishResult(
+                success=False,
+                skipped=True,
+                error=(
+                    "Instagram video requires a publicly accessible URL. "
+                    "Set R2_PUBLIC_URL or MEDIA_PUBLIC_BASE_URL in .env."
+                ),
+            )
+        bad_media = _probe_first_failure(await _probe_public_media([video_url]))
+        if bad_media:
+            return PublishResult(
+                success=False,
+                error=(
+                    f"Instagram video URL preflight failed for {bad_media['url']}: "
+                    f"{bad_media.get('error') or 'unreachable'} — Meta's crawler "
+                    "must be able to fetch a public video URL."
+                )[:500],
+            )
+    else:
+        image_urls = await _instagram_public_urls(sp_list, post, db)
+
+    if not video_url and not image_urls:
         if media_paths:
             return PublishResult(
                 success=False,
@@ -3743,8 +3827,8 @@ async def _publish_instagram_via_graph(
             error="Instagram requires at least one image. Set an image on the post.",
         )
 
-    expected_urls = len((storage_paths or [])[:10])
-    if len(image_urls) < expected_urls:
+    expected_urls = 0 if video_url else len(sp_list[:10])
+    if image_urls and len(image_urls) < expected_urls:
         return PublishResult(
             success=False,
             skipped=True,
@@ -3759,7 +3843,7 @@ async def _publish_instagram_via_graph(
     # HTML-serving URL otherwise surfaces later as the misleading 9004
     # "Only photo or video can be accepted as media type". Fail fast
     # with the real cause; normal retry path absorbs transient blips.
-    bad_media = _probe_first_failure(await _probe_public_media(image_urls[:10]))
+    bad_media = _probe_first_failure(await _probe_public_media(image_urls[:10])) if image_urls else None
     if bad_media:
         return PublishResult(
             success=False,
@@ -3778,7 +3862,12 @@ async def _publish_instagram_via_graph(
     )
     publish_attempted = False
     try:
-        if len(image_urls) == 1:
+        if video_url:
+            creation_id = await client.create_video_container(
+                video_url=video_url,
+                caption=caption,
+            )
+        elif len(image_urls) == 1:
             creation_id = await client.create_image_container(
                 image_url=image_urls[0],
                 caption=caption,
@@ -3791,8 +3880,11 @@ async def _publish_instagram_via_graph(
             )
         # IG processes containers asynchronously — publishing before the
         # container reaches FINISHED fails with 9007 "Media ID is not
-        # available". Poll until ready (images are usually quick).
-        await client.wait_for_container_ready(creation_id, timeout=60.0)
+        # available". Poll until ready (images are usually quick; video
+        # transcode takes longer).
+        await client.wait_for_container_ready(
+            creation_id, timeout=180.0 if video_url else 60.0
+        )
         publish_attempted = True
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:

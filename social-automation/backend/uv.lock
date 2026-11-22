@@ -5973,6 +5973,7 @@ dependencies = [
     { name = "tweety-ns" },
     { name = "twscrape" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
     { name = "wheel" },
     { name = "yt-dlp" },
 ]
@@ -6064,6 +6065,7 @@ requires-dist = [
     { name = "tweety-ns", url = "https://github.com/mahrtayyab/tweety/archive/f6bfc8610bd3ec8af2fe000076bc1b53a6327e7d.zip" },
     { name = "twscrape", specifier = "==0.20.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29.0,<1.0.0" },
+    { name = "websockets", specifier = ">=13,<18" },
     { name = "wheel", specifier = ">=0.46.2" },
     { name = "yt-dlp", specifier = "==2026.8.19" },
 ]
