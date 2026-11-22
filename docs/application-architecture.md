@@ -1991,6 +1991,34 @@ cloudless.gr playbook form
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### Platform credential store policy (2026-11-22)
+
+Social-platform **login credentials** (passwords, TOTP seeds, OAuth
+client secrets, session tokens for Facebook/Instagram/Meta/WhatsApp/
+LinkedIn/TikTok/X/Google/Skool/Twitter) are managed **only through the
+SocialAuto secret store** — never by hand-editing `.env` files:
+
+- **Write path**: authenticated `POST|PUT /api/v1/secrets/{key}` →
+  `secret_store.set()` writes Cloudflare D1 → Postgres `SocialSecret` →
+  syncs the container `/app/.env` mirror. Agents and humans both use it.
+- **Read path**: `secret_store.get()` / `GET /api/v1/secrets` — `.env`
+  values are fallbacks, not the source of truth.
+- **`.env` files are mirrors**: root `.env` and
+  `deploy/socialauto-standalone/.env` are synced by `--fix-mirror`,
+  never edited directly for platform creds. Two `.env` copies +
+  store-only writes caused the 2026-11-22 Meta divergence (store held a
+  working password neither `.env` had).
+- **Audit**: `.devin/skills/platform-cred-store-ops/scripts/cred_audit.py`
+  hash-compares every platform-cred key across store + both `.env`
+  mirrors (values never printed); exits nonzero on drift,
+  `--fix-mirror` realigns hosts to the store.
+- **Verification before trusting a credential**: a store value is only
+  canonical after a live platform probe (e.g. `ig_login.py`) accepts it —
+  do not propagate an unverified value across Meta platforms (IG and FB
+  passwords can legitimately differ).
+- Runbook + rotation/concurrency rules:
+  `.devin/skills/platform-cred-store-ops/SKILL.md`.
+
 ## Environment Variables
 
 ### Core

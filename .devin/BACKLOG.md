@@ -4665,3 +4665,13 @@ Lessons:
   `TIKTOK_CLIENT_SECRET` and `TWITTER_ACCESS_TOKEN_SECRET`), so the lines were
   removed (backups `*.bak-pre404fix-*`). Containers drop them on their next
   recreate.
+- [x] 2026-11-22 platform-cred divergence resolved via SocialAuto-only
+  strategy: `platform-cred-store-ops` skill + `cred_audit.py` shipped.
+  First audit found 4 diverged keys (FB/IG passwords, IG username, WA
+  token); store held the working IG password (verified via ig_login —
+  accepted vs both .env values rejected). `--fix-mirror` realigned all
+  7 .env slots; re-audit = 18/18 OK, 0 diverged. Policy documented in
+  docs/application-architecture.md "Platform credential store policy".
+  Remaining: store-only keys (SKOOL_PASSWORD, TWITTER_*, FB_USER_TOKEN,
+  LINKEDIN_MEMBER_DP_TOKEN, MESSENGER_VERIFY_TOKEN) not yet in audit
+  inventory — add on next touch.
