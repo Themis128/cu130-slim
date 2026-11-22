@@ -1,7 +1,11 @@
 # ig-takedown-ops — delete Instagram organic posts programmatically
 
-IG Graph API **cannot delete organic media** — that is a platform limit,
-not a missing scope. When a bad post must come down (garbled media,
+IG Graph API gained `DELETE /{ig-media-id}` on 2025-12-03 (changelog)
+— it deletes organic posts/reels/stories/carousels but requires the
+`instagram_manage_contents` permission granted via **Facebook Login**
+(Instagram-Login `business_login` tokens can't use it). `ig_delete.py`
+tries that fast lane first; until a token carries the scope it falls
+through to the browser+instagrapi chain below (the old universal path): When a bad post must come down (garbled media,
 wrong account, policy fix), the working path is:
 
 1. `POST /session/start {"platform":"instagram"}` on `browser-novnc:9223`
