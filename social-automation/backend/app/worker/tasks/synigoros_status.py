@@ -53,6 +53,12 @@ def _env_file() -> dict:
                     out[m.group(1)] = m.group(2).strip().strip('"').strip("'")
     except OSError:
         pass
+    # Baked-image containers (deploy/socialauto-standalone) get creds via
+    # env_file — there is no /app/.env file. environ wins over the file.
+    for k in ("GMAIL_REFRESH_TOKEN", "GMAIL_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_SECRET"):
+        v = os.environ.get(k)
+        if v:
+            out[k] = v
     return out
 
 
