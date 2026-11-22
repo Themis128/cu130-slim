@@ -145,6 +145,10 @@ async def test_understated_drift_alerts_once():
         # second sweep inside 24h — deduped
         await R._reconcile()
         assert alert.await_count == 1
+        # unparseable stamp — treated as never alerted
+        acc.meta_data["understated_alert_at"] = "not-a-date"
+        await R._reconcile()
+        assert alert.await_count == 2
 
 
 @pytest.mark.asyncio
