@@ -208,12 +208,13 @@ def trusted_click(patterns):
 
 
 def click_text(patterns):
-    # trusted mouse events first — Meta profile-picker/consent controls
-    # ignore synthetic .click()
+    # BOTH input lanes every time — Meta controls have flip-flopped which
+    # synthetic vs trusted events they honor (picker ignored trusted clicks,
+    # consent ignored .click()). Each lane re-queries the DOM, so the second
+    # click lands on whatever is current; nav buttons tolerate double-fire.
     r = trusted_click(patterns)
-    if isinstance(r, dict) and r.get("clicked"):
-        return r
-    return fb_eval("""(()=>{
+    trusted_hit = isinstance(r, dict) and r.get("clicked")
+    js = fb_eval("""(()=>{
       const pats=%s.map(p=>new RegExp(p,'i'));
       const els=[...document.querySelectorAll(
         'button,[role=button],input[type=submit],div[role=button],a')];
@@ -227,6 +228,10 @@ def click_text(patterns):
       return{err:'notfound',labels:vis.map(x=>(x.innerText||x.value||'')
         .trim().slice(0,30)).filter(Boolean).slice(0,15)};
     })()""" % json.dumps(patterns))
+    if trusted_hit:
+        r["js_also"] = js
+        return r
+    return js
 
 
 def fill(sel_js, value):
@@ -302,6 +307,7 @@ def main():
 
     deadline = time.time() + TIMEOUT
     last = ""
+    reloads = 0
     backup_idx = 0
     while time.time() < deadline:
         st = fb_body()
@@ -311,6 +317,20 @@ def main():
             print("screen:", state, "|", u[:90])
             print("  body:", (body or "")[:200].replace("\n", " "))
             last = state
+
+        # Meta intermittently serves "This page isn't available right now /
+        # try reloading" on two_step_verification — classify() buckets it as
+        # unknown/2fa and the loop would poll forever. Reload once or twice;
+        # the challenge page usually renders the real method picker after.
+        if ("isn't available" in body.lower() or "try reloading" in body.lower()) \
+                and reloads < 2:
+            reloads += 1
+            _t = find_fb_tab()
+            if _t:
+                cdp_send(_t["webSocketDebuggerUrl"], "Page.reload")
+            print("  reload:", reloads, "|", u[:80])
+            time.sleep(6)
+            continue
 
         if state == "feed":
             if session_alive():

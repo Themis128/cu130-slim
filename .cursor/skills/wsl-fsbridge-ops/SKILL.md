@@ -113,6 +113,25 @@ the heal:
    `docker-compose.override.yml` volume override keeps it managed).
    `C:\` mounts are unaffected by this failure class.
 
+
+## chroma rescue instance (2026-11-22)
+
+`chroma` (CHROMA_URL dep of social-api/workers) was fsbridge-dead; rescued
+as `chroma-rescue` on named volume `chroma-rescue-data` with a network
+ALIAS so `http://chroma:8000` still resolves:
+
+    docker rename chroma chroma-dead-fsbridge   # free the name claim
+    docker run -d --name chroma-rescue --network cu130-backend \
+        --restart unless-stopped -p 8001:8000 \
+        -v chroma-rescue-data:/chroma/chroma chromadb/chroma:1.5.9
+    docker network connect --alias chroma cu130-backend chroma-rescue
+
+Fresh DB — old embeddings stay trapped in the dead bind mount until the
+bridge heals (re-embeds on next writes). The same poison class still
+kills stack-ops / stack-watchers / compose-healer / dmr-watchdog /
+autoheal — including `/var/run/docker.sock` mounts; no container-side
+fix exists, only `wsl --shutdown` or the 9p/exec workarounds above.
+
 ## Working while the exec channel is dead
 
 The 9p file channel (`\\wsl.localhost\<distro>` from Windows) stays alive

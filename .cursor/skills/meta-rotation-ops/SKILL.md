@@ -98,6 +98,22 @@ recovery with zero human steps.
   submit ONCE. Rejected code ⇒ request a fresh resend, never reuse.
 - **WhatsApp 2FA is a dead lane** on this phone (WA stuck at "Verifying
   your number") — always pick Text message / Authentication app instead.
+- **IG browser session without password (verified 2026-11-22)**:
+  `ig_emaillogin_session.py` fetches Meta's `web_emaillogin` link → 2FA
+  picker → "Authentication app" TOTP → trust-device → sessionid. After
+  the Meta security event, `business_login` tokens die with
+  `190 session invalidated` — re-run `ig2_oauth_drive.py` to re-mint,
+  then `ig_lane_doctor.py report` must show `token-valid` +
+  `publish lane: OK`. Persist the live cookies into
+  `social_accounts.meta_data.browser_cookies` (platform='instagram') so
+  `session_healer`/CDP lanes see them.
+- **Reset-confirm tokens are single-use** — a failed submit ("Something
+  went wrong") burns the link; the page then reads "Expired token".
+  Don't retry submits; fetch a fresh `web_emaillogin`/reset mail.
+- **Profile picker after login** — instagram.com may land on
+  "Use another profile"/login wall; navigate to `instagram.com/` again
+  and the feed loads for the last-used profile. Verify with the
+  `ds_user_id` cookie, not `document.cookie` alone.
 
 ## Known platform gates (NOT automatable — document, don't churn)
 
