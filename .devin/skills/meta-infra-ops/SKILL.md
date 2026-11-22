@@ -35,9 +35,12 @@ Transcript: `/app/uploads/meta-infra-log.jsonl` (token never logged).
 
 ## Gotchas (live-verified 2026-11-22)
 
-- `POST /system_users` answered `(#100) apps with the capability` — the
-  SocialAuto app may need the capability granted, OR this is the same
-  restriction surfacing as a capability error. Re-probe after identity clears.
+- `POST /system_users` answered `(#100) apps with the capability` — per
+  Meta docs the call only needs an admin user token; the likely gates are
+  (a) the app isn't claimed by/owned in the BM, or (b) the same personal
+  restriction surfacing as a capability error. Re-probe after identity clears;
+  if it persists, claim app 1936126137016578 into BM 1558125105019725
+  (`POST /<bm>/apps` or Business Settings > Accounts > Apps).
 - `POST /adaccount` answered `subcode 2859015` explicitly naming the account
   restriction — this is the canonical signal to wait, not retry.
 - The Appeals API, `me/businesses`, `debug_token`, WABA status reads all
