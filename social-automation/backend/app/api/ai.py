@@ -1712,6 +1712,7 @@ async def generate_content(
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
             f"{structure_hint}{email_hint}{pillar_section}{web_section}{doctrine_section}"
+            f"\n\n{COUNTDOWN_RULE}"
             f"\n\nReturn JSON with: {json_contract}"
         )
     else:

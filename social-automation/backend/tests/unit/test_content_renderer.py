@@ -305,7 +305,7 @@ class TestCountdownToken:
         assert "{countdown:" not in out
 
     def test_render_post_text_expands(self):
-        post = self._post("Deal closes in {countdown:2026-11-27T23:59:00+02:00}")
+        post = self._post("Deal closes in {countdown:2099-01-01T00:00:00+00:00}")
         out = render_post_text(post, "linkedin")
         assert "{countdown:" not in out
         assert "days," in out and "minutes" in out
@@ -324,13 +324,13 @@ class TestCountdownToken:
 
     def test_override_also_expands(self):
         post = self._post("ignored")
-        post.platform_specific = {"instagram": {"content_text": "{countdown:2026-11-27T23:59:00+02:00} to go"}}
+        post.platform_specific = {"instagram": {"content_text": "{countdown:2099-01-01T00:00:00+00:00} to go"}}
         out = render_post_text(post, "instagram")
         assert "{countdown" not in out and "to go" in out
 
     def test_bare_token_reads_meta_offer_ends_at(self):
         post = self._post("Only {countdown} left")
-        post.meta_data = {"offer_ends_at": "2026-11-27T23:59:00+02:00"}
+        post.meta_data = {"offer_ends_at": "2099-01-01T00:00:00+00:00"}
         out = render_post_text(post, "linkedin")
         assert "{countdown" not in out
         assert "days," in out and "left" in out

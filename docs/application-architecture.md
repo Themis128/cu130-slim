@@ -473,7 +473,11 @@ app/services/
 │   ├── image_enhance.py      — Image enhancement
 │   ├── image_transform.py    — Image transforms
 │   ├── infographic_renderer.py — Procedural infographic renderer
-│   └── content_renderer.py   — Content rendering
+│   └── content_renderer.py   — Content rendering (hashtags/link injection,
+│                              platform overrides; `{countdown}` token expands
+│                              to live days/hours/minutes at publish — bare
+│                              form reads meta_data["offer_ends_at"], see
+│                              guides/25-offer-countdown.md)
 │
 ├── ── CRM & Leads ───────────────────────────────────────────
 │   ├── espocrm_client.py     — EspoCRM REST client (X-Api-Key → internal

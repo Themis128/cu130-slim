@@ -212,23 +212,29 @@ def _max_chars(platform: str) -> int:
     return int(mc) if isinstance(mc, int) else 3000
 
 
-def render_post_text(post: Post, platform: str) -> str:
+def render_post_text(post: Post, platform: str, *, expand_countdown: bool = True) -> str:
     """Adapt ``post`` content for ``platform``.
 
     * Uses per-platform override from ``post.platform_specific`` if present.
     * Appends hashtags (capped to the platform's ideal range).
     * Appends link URL for platforms that support in-body links.
     * Truncates to the platform's max character limit.
+
+    ``expand_countdown=False`` keeps ``{countdown}`` tokens raw — used when
+    the rendered text is persisted for a later publish (cross-posting), so
+    the countdown stays live until the actual send instead of freezing at
+    adapt time.
     """
     parts: list[str] = []
 
     # Per-platform text override takes priority
     meta = getattr(post, "meta_data", None) or {}
+    expand = _expand_countdown_tokens if expand_countdown else (lambda t, **_: t)
     override = (post.platform_specific or {}).get(platform, {})
     if override.get("content_text"):
-        parts.append(_expand_countdown_tokens(sanitize_generated_text(override["content_text"]), meta=meta))
+        parts.append(expand(sanitize_generated_text(override["content_text"]), meta=meta))
     elif post.content_text:
-        parts.append(_expand_countdown_tokens(sanitize_generated_text(post.content_text), meta=meta))
+        parts.append(expand(sanitize_generated_text(post.content_text), meta=meta))
 
     body = parts[0] if parts else ""
 
