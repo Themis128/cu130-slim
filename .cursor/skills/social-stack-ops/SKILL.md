@@ -77,13 +77,13 @@ docker compose restart social-worker-publishing social-worker-media social-worke
 ```bash
 docker compose ps
 docker compose restart social-worker-publishing social-worker-media social-worker-default celery-beat
-docker compose logs -f social-api social-worker-publishing social-worker-media social-worker-default n8n --tail=100
-docker compose up -d n8n social-api social-worker-publishing social-worker-media social-worker-default celery-beat
 
 # NEVER `compose up -d <svc>` without --no-deps for a single-service image
 # swap: the dependency chain recreates n8n + social-api too → public 502s on
 # n8n.cloudless.gr during the image pull (learned 2026-10-16). Correct:
 docker compose up -d --no-deps --force-recreate social-frontend
+docker compose logs -f social-api social-worker-publishing social-worker-media social-worker-default n8n --tail=100
+docker compose up -d n8n social-api social-worker-publishing social-worker-media social-worker-default celery-beat
 
 # check all 4 Celery worker nodes
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
@@ -191,3 +191,21 @@ social-api + celery-beat (`DMR_MEDIA_MODEL`, `ESPOCRM_API_KEY/BASE_URL`,
 `INTRANET_FEED_TEAM_ID/TOKEN`, `NEWSLETTER_SERVICE_TOKEN`) — same class as
 the NEXTCLOUD incident; declare them in compose or a shared anchor before
 the next `compose up`.
+
+## Healthcheck restart-loop audit
+
+`python3 scripts/healthcheck_loop_audit.py` — flags autoheal-managed
+services whose healthcheck grace (start_period + interval×retries) is
+shorter than realistic cold-boot time. The 2026-11-13 celery-worker
+incident: start_period=30s vs ~120s boot → autoheal killed workers
+right as they became ready → publish tasks died mid-flight. Fix pattern
+= raise start_period past boot time (PR #1830). celery-beat still
+flags RISK (grace=105s) — same fix applies if it flap-loops.
+
+## Publish queue shepherd (automated)
+
+`scripts/publish_queue_shepherd.py` lives at
+`social-automation/backend/scripts/` (bind-mounted `/app/scripts` in
+workers). compose-watchdog runs it every 30min: resets stale
+processing locks, dispatches process_publish_queue, alerts on targets
+pending >60min.

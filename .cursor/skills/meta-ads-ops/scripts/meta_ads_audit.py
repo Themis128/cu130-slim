@@ -65,7 +65,8 @@ def main():
             urllib.request.urlopen(f"{SIDECAR}/session/validate", timeout=15).read()
         )
         if not v.get("logged_in"):
-            print("SIDECAR NOT LOGGED IN — aborting"); sys.exit(1)
+            print("SIDECAR NOT LOGGED IN — aborting")
+            sys.exit(1)
     except Exception:
         print("sidecar validate failed (may be waking); retrying in 8s")
         time.sleep(8)

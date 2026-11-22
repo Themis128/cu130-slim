@@ -75,3 +75,28 @@ GET /api/v1/bluesky/{account_id}/status
   with links are the AT-native format); the media-required rule still applies.
 - `social-content-core` — funnel/quality rules; Bluesky is a brand-funnel
   surface (Polar CTA), not FB-Stars.
+
+## Provisioning (bsky_provision.py)
+
+`.devin/skills/bluesky-ops/scripts/bsky_provision.py` — three cred paths:
+
+```bash
+# have the account's MAIN password → fully automated
+bsky_provision.py from-password --handle <h> --password <pw>
+#   createSession → createAppPassword → POST /api/v1/bluesky/connect
+
+# create a NEW account (bsky.social requires phone SMS since 2026-10)
+bsky_provision.py create --handle cloudless-gr.bsky.social --email <e>
+#   → prints the phone-verification requirement; then:
+bsky_provision.py create --handle ... --email ... --phone +30X... --code <SMS>
+#   → createAccount → app password → connect. Prints the main pw — save it.
+
+# paste an existing app password straight in
+bsky_provision.py connect --handle <h> --app-password <xxxx-xxxx-xxxx-xxxx>
+```
+
+Facts learned 2026-10-29: `requestPasswordReset` returns 200 for ANY email
+(anti-enumeration); `cloudless.gr` + `cloudless.bsky.social` are the SAME DID
+(`did:plc:m5rblmnkvg2rlbftvcqdnsqs` — domain-verified, registered email
+unknown); `createAccount` on bsky.social fails `InvalidPhoneVerification`
+without `verificationPhone` + `verificationCode`.

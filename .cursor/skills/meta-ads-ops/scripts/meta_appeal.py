@@ -8,7 +8,6 @@ Usage: meta_appeal.py [step]
     call can continue. Idempotent — safe to re-run on timeouts.
 """
 import json
-import sys
 import time
 import urllib.request
 

@@ -513,7 +513,7 @@ Environment variables:
 | `scripts/dmr-route.py` | Preview platform-aware routing without sending a request |
 | `scripts/dmr-validate.py` | Check all expected models are pulled |
 | `scripts/dmr-env-check.py` | Reconcile `.env` `DMR_*_MODEL` refs vs `/engines/v1/models` — classifies OK / PULLABLE / CUSTOM, `--pull` pulls missing refs sequentially (concurrent pulls hit Windows blob file-locks), `--probe` runs a minimal inference call per model |
-| `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
+| `scripts/dmr_env_drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 | `scripts/dmr_pressure.py` | Fleet pressure verdict — wedged loads, low host RAM, dmr_lock contention, chat-probe canary |
 | `scripts/dmr-restore.sh` | Runner-container-GONE recovery — image pull (EOF retry), `install-runner` with `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1`, API wait + verify. `--check` reports state only |
@@ -706,11 +706,11 @@ Root cause was NOT a wedged lock holder — it was **config drift**:
   stayed continuously held by the churn → looked "wedged" but was
   actually saturated.
 
-Detection: `scripts/dmr-env-drift.py [--fix]` — compares `.env`,
+Detection: `scripts/dmr_env_drift.py [--fix]` — compares `.env`,
 container env (`docker exec social-api env`), and `docker model list`
 against the canonical fleet, plus flags stuck `Loading...` entries.
 
 Remediation order: fix `.env` explicit values → `docker model pull`
 missing models → `docker compose up -d` the 6 app services (env_file
 vars are baked at container CREATE — `restart` does NOT reload them)
-→ verify `dmr-env-drift.py` clean + `check_dmr_health` missing_models=[].
+→ verify `dmr_env_drift.py` clean + `check_dmr_health` missing_models=[].

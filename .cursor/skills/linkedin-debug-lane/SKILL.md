@@ -116,7 +116,7 @@ reconnects the target websocket after navigation (nav can drop it).
 - If :9229 is down: `schtasks /run /tn ChromeDebug` via
   `powershell.exe` (the task now runs `restart-chrome-debug.ps1`,
   unified 2026-11-16 — it manages chrome-debug-profile, NOT Edge :9222).
-  `scripts/cdp-debug-watch.py` (cron) auto-restarts it.
+  `~/scripts/cdp-debug-watch.py` (host cron, every 10min) auto-restarts it.
 - :9222/Edge lane is deprecated for agent use — LenovoVantage WebView2
   steals the port and agent-spawned launches can't bind it anyway
   (see `debug-launch-ops` for the history).

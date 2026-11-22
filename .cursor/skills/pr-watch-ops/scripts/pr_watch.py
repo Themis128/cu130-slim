@@ -27,8 +27,10 @@ REPO = "Themis128/cu130-slim"
 MASTER = "master"
 
 # Check-name signatures -> classification. Anything not matching is ACTIONABLE.
+# Note: "CodeQL" is deliberately NOT advisory — a failed CodeQL check-run
+# means new diff-introduced alerts (a real merge gate, proven on #2463).
+# Triage those with codeql-triage-ops/scripts/codeql_pr_alerts.py.
 ADVISORY_PATTERNS = (
-    "CodeQL",            # dependency-CVE + config-drift alerts; never a gate
     "Cursor Approval",   # informational reviewer bots
     "SonarCloud",
     "codecov",

@@ -11,7 +11,6 @@ Usage: talk-check.py [--json]
 
 import json
 import socket
-import ssl
 import struct
 import sys
 import urllib.request

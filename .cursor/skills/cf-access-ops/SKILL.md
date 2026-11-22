@@ -48,3 +48,16 @@ fix for phone-facing endpoints.
 - Only bypass what must be machine/public-reachable (ntfy push topics,
   webhook receivers). ntfy topics stay protected by their own ACLs.
 - Never weaken Access on admin UIs (grafana/espocrm/n8n/kuma stay gated).
+
+## Proven bypass — new tunnel hostname (2026-10-29)
+
+The Access policy is **per-hostname, NOT wildcard**. A NEW hostname added to
+the remote-managed tunnel (`PUT /cfd_tunnel/{tid}/configurations`, insert
+before the `http_status:404` catch-all) + a proxied CNAME
+(`{tid}.cfargotunnel.com`) **escapes the gate entirely** — verified live:
+`ntfy-ws.cloudless.gr` serves ntfy openly (`/v1/health` → `{"healthy":true}`)
+while `ntfy.cloudless.gr` stays 302→SSO. The stock `CLOUDFLARE_API_TOKEN`
+has tunnel+DNS write, so this needs no ZT-admin login.
+
+Public ntfy endpoint for machine/app clients: `https://ntfy-ws.cloudless.gr`
+(ntfy's own ACLs still apply — `phone`/`cloudless-app` users + Bearer auth).

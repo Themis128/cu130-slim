@@ -62,6 +62,6 @@ async def main():
 
 asyncio.run(main())
 """ % (repr(image_url), page_account)], cwd=repo_root(), capture_output=True, text=True)
-out = "\n".join(l for l in (r.stdout + r.stderr).splitlines()
+out = "\n".join(l for l in (r.stdout + r.stderr).splitlines()  # noqa: E741
                 if not any(s in l for s in ("sqlalchemy", "INFO", "BEGIN", "ROLLBACK", "SELECT", "WHERE", "FROM")))
 print(out)

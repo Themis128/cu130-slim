@@ -6,7 +6,7 @@ cd "$(git rev-parse --show-toplevel)"
 KEY="${1:?usage: email-setup.sh <resend_api_key>}"
 grep -qE '^SMTP_PASSWORD=' .env && sed -i "s|^SMTP_PASSWORD=.*|SMTP_PASSWORD=$KEY|" .env || echo "SMTP_PASSWORD=$KEY" >> .env
 echo "SMTP_PASSWORD set. Restarting…"
-docker compose restart social-api social-worker-publishing >/dev/null 2>&1 || true
+docker compose up -d --force-recreate social-api social-worker-publishing >/dev/null 2>&1 || true
 sleep 8
 echo "Test send:"
 docker compose exec -T social-api python - <<'PY'

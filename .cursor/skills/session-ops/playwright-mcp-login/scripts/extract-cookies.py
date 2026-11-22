@@ -10,7 +10,6 @@ formats it. For HTTP-only cookies, the browser-novnc bridge
 /session/cookies endpoint is used after navigation."""
 
 import sys
-from pathlib import Path
 
 DOMAINS = {
     "twitter": ".x.com", "x": ".x.com", "tiktok": ".tiktok.com",

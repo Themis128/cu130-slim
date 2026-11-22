@@ -67,9 +67,16 @@ def _api(method: str, path: str, token: str, body: dict | None = None) -> dict:
 
 def unpaid_via_api() -> dict:
     tok = _env("CLOUDFLARE_BILLING_TOKEN") or _env("CLOUDFLARE_API_TOKEN")
-    d = _api("GET", f"/accounts/{ACC}/billing/unpaid-invoice", tok)
+    # /billing/unpaid-invoice and /billing/invoices return 10404 on this
+    # API version — /billing/history is the routed read and carries the
+    # same invoice rows (status OPEN + amount_to_pay > 0 = payable).
+    d = _api("GET", f"/accounts/{ACC}/billing/history?per_page=25", tok)
     if d.get("success"):
-        return {"lane": "api", "invoices": (d.get("result") or {}).get("invoices") or []}
+        rows = d.get("result") or []
+        open_inv = [r for r in rows
+                    if r.get("type") == "invoice" and r.get("status") == "OPEN"
+                    and (r.get("amount_to_pay") or 0) > 0]
+        return {"lane": "api", "invoices": open_inv}
     errs = "; ".join(e.get("message", "?") for e in d.get("errors", []))
     return {"lane": "api", "error": errs, "needs_billing_token": "Billing" in errs or "uthentication" in errs}
 

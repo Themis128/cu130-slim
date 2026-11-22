@@ -9,7 +9,6 @@ browser logged into dash.cloudflare.com.
     obs_cancel.py run       # navigate → cancel → verify
     obs_cancel.py check     # just report the subscription row state
 """
-import base64
 import json
 import sys
 import time
@@ -39,7 +38,7 @@ def check() -> int:
         print("no dashboard tab — open dash.cloudflare.com in the debug browser")
         return 2
     print("observability rows:",
-          [l for l in txt.splitlines() if "bservability" in l][:3] or "none visible")
+          [l for l in txt.splitlines() if "bservability" in l][:3] or "none visible")  # noqa: E741
     return 0
 
 
@@ -48,7 +47,8 @@ def run() -> int:
     target = json.loads(urllib.request.urlopen(CDP + "/json").read())
     tab = next((t for t in target if "dash.cloudflare.com" in t.get("url", "")), None)
     if not tab:
-        print("no CF dashboard tab found"); return 2
+        print("no CF dashboard tab found")
+        return 2
     import websocket
     ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=20)
     def _call(mid, method, params=None):
@@ -62,16 +62,17 @@ def run() -> int:
     time.sleep(8)
     _call(3, "Runtime.evaluate", {"expression": "document.body.innerText.slice(0,6000)",
                                   "returnByValue": True})
-    body = _call(3, "Runtime.evaluate", {})["result"]["result"].get("value", "")
+    body = _call(3, "Runtime.evaluate", {})["result"]["result"].get("value", "")  # noqa: F841
     # find + click the Observability cancel control
     js = """(()=>{
       const rows=[...document.querySelectorAll('*')].filter(e=>
-        /observability/i.test(e.textContent||'') && e.children.length<8);
+        /observability/i.test(e.textContent||'') && e.children.length<8)
       if(!rows.length) return 'no-row';
       const btn=[...document.querySelectorAll('button,a')].find(b=>
-        /cancel|downgrade|free plan/i.test(b.textContent||''));
+        /cancel|downgrade|free plan/i.test(b.textContent||''))
       if(!btn) return 'no-cancel-btn';
-      btn.click(); return 'clicked';
+      btn.click()
+ return 'clicked'
     })()"""
     r = _call(4, "Runtime.evaluate",
               {"expression": js, "returnByValue": True})["result"]["result"].get("value")

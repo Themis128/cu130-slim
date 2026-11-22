@@ -34,6 +34,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(sync, "ENV_FILE", env_file)
     monkeypatch.setattr(sync, "COMPOSE_DIR", compose)
     monkeypatch.setattr(sync, "PENDING_MARKER", tmp_path / "pending")
+    # keep the Infisical mirror hermetic — tests never touch the real script
+    monkeypatch.setattr(sync, "INFISICAL_SYNC", str(tmp_path / "no-infisical-sync.py"))
     return SimpleNamespace(tok=tok, env=env_file, compose=compose, pending=tmp_path / "pending")
 
 
@@ -407,3 +409,37 @@ def test_script_run_no_args_exits_1_on_empty_token_dir(tmp_path, monkeypatch):
     )
     assert r.returncode == 1
     assert "no Slack-scoped token file found" in r.stderr
+
+
+def test_push_token_to_infisical_invokes_sync_script(env, monkeypatch, tmp_path):
+    """The live token is mirrored to Infisical prod via infisical-sync.py push."""
+    stub = tmp_path / "infisical-sync.py"
+    stub.write_text("#!/usr/bin/env python3\nimport sys\nprint('push', sys.argv[1:])\n")
+    monkeypatch.setattr(sync, "INFISICAL_SYNC", str(stub))
+    seen = {}
+
+    def spy(cmd, **kw):
+        seen["cmd"] = cmd
+        # the envfile is unlinked after the call — read it while it exists
+        envfile = Path(cmd[cmd.index("push") + 1])
+        seen["body"] = envfile.read_text()
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(sync.subprocess, "run", spy)
+    sync._push_token_to_infisical("xoxe-SECRET")
+    cmd = seen["cmd"]
+    assert cmd[0] == "python3" and cmd[1] == str(stub)
+    assert "push" in cmd and "--overwrite" in cmd
+    assert seen["body"] == "SLACK_BOT_TOKEN=xoxe-SECRET\n"
+
+
+def test_push_token_to_infisical_missing_script_is_noop(env, monkeypatch):
+    monkeypatch.setattr(sync, "INFISICAL_SYNC", "/nonexistent/infisical-sync.py")
+    sync._push_token_to_infisical("xoxe-SECRET")  # must not raise
+
+
+def test_push_token_to_infisical_failure_never_raises(env, monkeypatch):
+    stub = env.pending.parent / "infisical-sync.py"
+    stub.write_text("#!/usr/bin/env python3\nimport sys; sys.exit(3)\n")
+    monkeypatch.setattr(sync, "INFISICAL_SYNC", str(stub))
+    sync._push_token_to_infisical("xoxe-SECRET")  # rc!=0 → warning only

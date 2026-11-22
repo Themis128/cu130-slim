@@ -15,7 +15,7 @@ from _common import NODE_WORK, OUT_DIR, ensure_playwright, run_mjs  # noqa: E402
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 ensure_playwright()
-import shutil
+import shutil  # noqa: E402
 shutil.copy(SCRIPT_DIR / "lib/domain-verify.mjs", NODE_WORK / "domain-verify.mjs")
 
 print("== Pass 1: capture domain token ==")

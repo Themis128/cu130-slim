@@ -2,7 +2,6 @@
 """Update Instagram profile picture via aiograpi-rest.
 Usage: update-picture.py <session_id> <image_file>"""
 
-import json
 import sys
 import urllib.error
 import urllib.request

@@ -5,7 +5,8 @@ Classifies recent publishing failures and analytics-sync errors from the
 SocialAuto Postgres DB into actionable buckets, so Slack-digest alerts can be
 triaged in seconds instead of read one by one.
 
-Stdlib-only; runs on the host and shells out to `docker exec social-postgres
+Stdlib-only
+runs on the host and shells out to `docker exec social-postgres
 psql`. No secrets printed.
 
 Usage:

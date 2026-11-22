@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 check() { # name envvar
-  v=$(grep -E "^$2=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r"')
+  v=$(grep -E "^$2=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r"' || true)
   if [ -n "$v" ] && [[ "$v" != *"<"* ]]; then echo "  ✓ $1"; else echo "  ✗ $1  (empty)"; fi
 }
 echo "== X/Twitter =="
