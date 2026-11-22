@@ -414,7 +414,7 @@ class TestDispatchBodyShapes:
         await S._handle_call_tool(None, _params("messenger_set_auto_reply", account_id="a", enabled=False))
         body = api[-1][2]
         assert body["enabled"] is False
-        assert body["model"] == "@cf/meta/llama-3.1-8b-instruct"
+        assert body["model"] == "@cf/meta/llama-4-scout-17b-16e-instruct"
         assert body["max_tokens"] == 200
 
     @pytest.mark.asyncio

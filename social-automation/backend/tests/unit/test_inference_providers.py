@@ -609,7 +609,7 @@ async def test_workers_ai_img2img(monkeypatch, _cf):
 
     # happy JSON path — image downscaled to 512 for the model
     fake = _http(monkeypatch, posts=[_Resp(200, {"image": "eGk="})])
-    out = await I._call_workers_ai_img2img("p", img_bytes)
+    out = await I._call_workers_ai_img2img("p", img_bytes, model="@cf/test/i2img")
     payload = fake.post_calls[0]["json"]
     assert payload["width"] == 512 and payload["image_b64"]
     assert out["image_base64"] == "eGk="
@@ -621,20 +621,20 @@ async def test_workers_ai_img2img(monkeypatch, _cf):
     monkeypatch.setattr(I.settings, "HUGGINGFACE_API_KEY", "hf-k", raising=False)
     hf_ok = _Resp(200, content=b"HFPNG")
     _http(monkeypatch, posts=[_Resp(429, text="quota"), _Resp(429, text="quota"), hf_ok])
-    out = await I._call_workers_ai_img2img("p", img_bytes, max_retries=2, allow_fallback=True)
+    out = await I._call_workers_ai_img2img("p", img_bytes, model="@cf/test/i2img", max_retries=2, allow_fallback=True)
     assert out["provider"] == "huggingface"
 
     # fallback disabled → 502 capacity error
     _http(monkeypatch, posts=[_Resp(429, text="quota")])
     with pytest.raises(HTTPException) as ei:
-        await I._call_workers_ai_img2img("p", img_bytes, max_retries=1, allow_fallback=False)
+        await I._call_workers_ai_img2img("p", img_bytes, model="@cf/test/i2img", max_retries=1, allow_fallback=False)
     assert ei.value.status_code == 502
     assert "capacity" in ei.value.detail
 
     # non-429 error → immediate 502
     _http(monkeypatch, posts=[_Resp(500, text="boom")])
     with pytest.raises(HTTPException):
-        await I._call_workers_ai_img2img("p", img_bytes, max_retries=3)
+        await I._call_workers_ai_img2img("p", img_bytes, model="@cf/test/i2img", max_retries=3)
 
 
 @pytest.mark.asyncio
@@ -850,13 +850,13 @@ async def test_workers_ai_img2img_branches(monkeypatch, _cf):
         monkeypatch,
         posts=[_Resp(200, content=b"IMG", headers={"content-type": "image/png"})],
     )
-    out = await I._call_workers_ai_img2img("p", src)
+    out = await I._call_workers_ai_img2img("p", src, model="@cf/test/i2img")
     assert out["image_base64"]
 
     # JSON with no image data → 502 (994)
     _http(monkeypatch, posts=[_Resp(200, {"result": {"nothing": 1}})])
     with pytest.raises(HTTPException) as ei:
-        await I._call_workers_ai_img2img("p", src)
+        await I._call_workers_ai_img2img("p", src, model="@cf/test/i2img")
     assert ei.value.status_code == 502
 
     # capacity exhausted + HF fallback also fails → original error (1022-23, 1025)
@@ -868,7 +868,7 @@ async def test_workers_ai_img2img_branches(monkeypatch, _cf):
     )
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     with pytest.raises(HTTPException) as ei:
-        await I._call_workers_ai_img2img("p", src, max_retries=2)
+        await I._call_workers_ai_img2img("p", src, model="@cf/test/i2img", max_retries=2)
     assert "capacity" in ei.value.detail
 
 

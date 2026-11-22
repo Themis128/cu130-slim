@@ -166,12 +166,13 @@ async def test_refresh_async_paths(monkeypatch):
     await TR._refresh_expiring_tokens_async()
     assert acct.scopes == ["tweet.read", "tweet.write", "users.read"]
 
-    # tiktok — no expires_in → 24h default
+    # tiktok — no expires_in → 2h default (access tokens die at 2h from 2026-12-01)
     acct = _account(platform="tiktok")
     fake_client.refresh_token = AsyncMock(return_value={"access_token": "AT"})
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     await TR._refresh_expiring_tokens_async()
-    assert acct.token_expires_at > datetime.now(UTC) + timedelta(hours=20)
+    assert acct.token_expires_at > datetime.now(UTC) + timedelta(hours=1)
+    assert acct.token_expires_at < datetime.now(UTC) + timedelta(hours=3)
 
     # linkedin — no expires_in → expiry cleared
     acct = _account(platform="linkedin")

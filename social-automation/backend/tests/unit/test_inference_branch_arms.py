@@ -54,7 +54,7 @@ async def test_img2img_rate_limited_without_hf_key_raises(monkeypatch):
     with respx.mock(assert_all_called=True) as router:
         route = router.post(url__regex=r".*/accounts/acct/ai/run/.*").mock(return_value=httpx.Response(429, text="neurons exhausted"))
         with pytest.raises(HTTPException) as ei:
-            await I._call_workers_ai_img2img("p", _png(), negative_prompt="", max_retries=2)
+            await I._call_workers_ai_img2img("p", _png(), model="@cf/test/i2img", negative_prompt="", max_retries=2)
     assert ei.value.status_code == 502
     assert route.call_count == 2 and sleep.await_count == 2
     body = json.loads(route.calls[0].request.content)

@@ -1201,7 +1201,7 @@ async def test_generate_image_cf_model_normalize(monkeypatch):
     }
     cf_call = _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=cf_result)
     await generate_image(MediaGenerateImageRequest(prompt="x", options=MediaGenerateOptions(model="stable-diffusion-3")), team.id, _user(), _DB(team=team))
-    assert cf_call.await_args.kwargs["model"] == "@cf/stabilityai/stable-diffusion-3"
+    assert cf_call.await_args.kwargs["model"] == "@cf/black-forest-labs/flux-1-schnell"
 
 
 @pytest.mark.asyncio

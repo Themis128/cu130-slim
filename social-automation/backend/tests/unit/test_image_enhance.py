@@ -285,50 +285,15 @@ class _Http:
 
 
 @pytest.mark.asyncio
-async def test_remove_background_cf_mask_path(monkeypatch):
-    # build a small mask image
-    mask_img = Image.new("L", (8, 8), 255)
-    mbuf = io.BytesIO()
-    mask_img.save(mbuf, format="PNG")
-    import base64 as b64
+async def test_remove_background_cf_retired_returns_none():
+    """CF segmentation model retired 2026-11-20 — always falls through to rembg."""
+    out = await remove_background_cf(_make_image("RGBA", (8, 8)))
+    assert out is None
 
-    payload = {"result": {"image": b64.b64encode(mbuf.getvalue()).decode()}}
+    # creds present don't matter — the endpoint is gone
     with (
         patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc"),
         patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok"),
-        patch("app.services.image_enhance.httpx.AsyncClient", return_value=_Http(_Resp(payload))),
-    ):
-        out = await remove_background_cf(_make_image("RGBA", (8, 8)))
-    assert out is not None
-    assert out[:4] == b"\x89PNG"
-
-
-@pytest.mark.asyncio
-async def test_remove_background_cf_output_and_error_paths():
-    import base64 as b64
-
-    # "output" variant
-    payload = {"result": {"output": b64.b64encode(b"pngbytes").decode()}}
-    with (
-        patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc"),
-        patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok"),
-        patch("app.services.image_enhance.httpx.AsyncClient", return_value=_Http(_Resp(payload))),
-    ):
-        assert await remove_background_cf(_make_image(size=(8, 8))) == b"pngbytes"
-
-    # non-200 -> warning + None
-    with (
-        patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc"),
-        patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok"),
-        patch("app.services.image_enhance.httpx.AsyncClient", return_value=_Http(_Resp({"x": 1}, status=500, text="err"))),
-    ):
-        assert await remove_background_cf(_make_image(size=(8, 8))) is None
-
-    # http exception -> warning + None
-    with (
-        patch.object(image_enhance.settings, "CLOUDFLARE_ACCOUNT_ID", "acc"),
-        patch.object(image_enhance.settings, "CLOUDFLARE_AI_API_TOKEN", "tok"),
-        patch("app.services.image_enhance.httpx.AsyncClient", return_value=_Http(exc=RuntimeError("conn"))),
     ):
         assert await remove_background_cf(_make_image(size=(8, 8))) is None
 
