@@ -9,6 +9,7 @@ Uses the platform hints already defined in ``app.services.seo``.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 
 from app.models.content import Post
 from app.services.seo import _PLATFORM_HINTS
@@ -66,6 +67,56 @@ def _drop_placeholder_links(text: str) -> str:
         i = end + 1
     out.append(text[i:])
     return "".join(out)
+
+
+# Offer countdown token: ``{countdown}`` or ``{countdown:<ISO-8601 deadline>}``
+# expands at render time (i.e. at publish) to a live "N days, H hours,
+# M minutes" string — owner rule 2026-11-22: every Black Friday campaign post
+# carries the real remaining time, never a static "this weekend".
+# The bare form reads the deadline from ``post.meta_data["offer_ends_at"]``.
+_COUNTDOWN_TOKEN = re.compile(r"\{countdown(?::([^}\s]+))?\}")
+
+
+def _expand_countdown_tokens(
+    text: str,
+    *,
+    now: datetime | None = None,
+    meta: dict | None = None,
+) -> str:
+    """Expand countdown tokens to a live countdown.
+
+    ``{countdown:<ISO-8601>}`` carries its own deadline; bare ``{countdown}``
+    resolves ``meta["offer_ends_at"]``. A naive deadline is read as UTC, so
+    authoring should carry an explicit offset (EET = +02:00, EEST = +03:00).
+    An expired deadline renders "expired". A bare token with no meta deadline,
+    or one that does not parse, is left in place rather than silently dropped,
+    so a typo is visible in review instead of publishing missing copy.
+    """
+    if "{countdown" not in text:
+        return text
+    now = now or datetime.now(UTC)
+
+    def _render(match: re.Match[str]) -> str:
+        iso = match.group(1)
+        if iso is None:
+            iso = str((meta or {}).get("offer_ends_at") or "")
+            if not iso:
+                return match.group(0)
+        try:
+            deadline = datetime.fromisoformat(iso.strip())
+        except ValueError:
+            return match.group(0)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=UTC)
+        delta = deadline - now
+        if delta.total_seconds() <= 0:
+            return "expired"
+        days = delta.days
+        hours = delta.seconds // 3600
+        minutes = (delta.seconds % 3600) // 60
+        return f"{days} days, {hours} hours, {minutes} minutes"
+
+    return _COUNTDOWN_TOKEN.sub(_render, text)
 
 
 def sanitize_generated_text(text: str) -> str:
@@ -161,22 +212,29 @@ def _max_chars(platform: str) -> int:
     return int(mc) if isinstance(mc, int) else 3000
 
 
-def render_post_text(post: Post, platform: str) -> str:
+def render_post_text(post: Post, platform: str, *, expand_countdown: bool = True) -> str:
     """Adapt ``post`` content for ``platform``.
 
     * Uses per-platform override from ``post.platform_specific`` if present.
     * Appends hashtags (capped to the platform's ideal range).
     * Appends link URL for platforms that support in-body links.
     * Truncates to the platform's max character limit.
+
+    ``expand_countdown=False`` keeps ``{countdown}`` tokens raw — used when
+    the rendered text is persisted for a later publish (cross-posting), so
+    the countdown stays live until the actual send instead of freezing at
+    adapt time.
     """
     parts: list[str] = []
 
     # Per-platform text override takes priority
+    meta = getattr(post, "meta_data", None) or {}
+    expand = _expand_countdown_tokens if expand_countdown else (lambda t, **_: t)
     override = (post.platform_specific or {}).get(platform, {})
     if override.get("content_text"):
-        parts.append(sanitize_generated_text(override["content_text"]))
+        parts.append(expand(sanitize_generated_text(override["content_text"]), meta=meta))
     elif post.content_text:
-        parts.append(sanitize_generated_text(post.content_text))
+        parts.append(expand(sanitize_generated_text(post.content_text), meta=meta))
 
     body = parts[0] if parts else ""
 
@@ -199,10 +257,20 @@ def render_post_text(post: Post, platform: str) -> str:
 
     text = "\n\n".join(p for p in parts if p)
 
-    # Truncate to platform max (leave room for ellipsis)
+    # Truncate to platform max (leave room for ellipsis). If the cut lands
+    # inside a {countdown} token, drop back to before it — a truncated token
+    # can't be expanded at publish and would ship as literal garbage.
+    # Literal braces (JSON-style bodies) are ordinary content and stay.
     max_len = _max_chars(platform)
     if len(text) > max_len:
-        text = text[: max_len - 1].rstrip() + "…"
+        cut = text[: max_len - 1]
+        brace = cut.rfind("{")
+        frag = cut[brace:] if brace != -1 else ""
+        if frag and "}" not in frag and (
+            "{countdown".startswith(frag) or frag.startswith("{countdown")
+        ):
+            cut = cut[:brace]
+        text = cut.rstrip() + "…"
 
     return text
 

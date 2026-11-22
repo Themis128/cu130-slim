@@ -39,6 +39,7 @@ from app.models.email_campaign import (
 )
 from app.models.lead import Lead, LeadInterest, LeadSource
 from app.services import espocrm_client
+from app.services.content_renderer import _expand_countdown_tokens
 from app.services.leads import _is_synthetic_email, is_valid_email
 
 logger = logging.getLogger(__name__)
@@ -321,6 +322,13 @@ def build_bodies(
             hero_url=(campaign.meta_data or {}).get("hero_url"),
         )
     html = render_template(html, ctx) if html else None
+    # Offer countdowns ({countdown[:ISO]} / bare {countdown} from
+    # meta_data.offer_ends_at) expand at send — the same live-deadline
+    # semantics as render_post_text for social posts.
+    campaign_meta = campaign.meta_data or {}
+    text = _expand_countdown_tokens(text, meta=campaign_meta)
+    if html:
+        html = _expand_countdown_tokens(html, meta=campaign_meta)
     if html:
         html += f'<hr><p style="font-size:12px;color:#666"><a href="{unsub}">Unsubscribe</a></p>'
     return text, html

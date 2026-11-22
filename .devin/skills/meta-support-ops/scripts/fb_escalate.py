@@ -149,7 +149,7 @@ def drive(key, page):
         transcript.append(f"!! chat textbox failed: {e}")
     for i in range(4):
         time.sleep(12)
-        transcript.append(f"CHAT-{i}: " + snap_text(page)[:900])
+        transcript.append(f"CHAT-{i}: " + snap_text(page))
     return "\n".join(transcript)
 
 def main(key):

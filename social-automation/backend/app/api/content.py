@@ -616,14 +616,22 @@ async def cross_post_to_platform(
             detail=f"No active {request.target_platform} account found for your team",
         )
 
-    # Adapt content for the target platform
+    # Adapt content for the target platform. Keep {countdown} tokens raw —
+    # the cross-posted post is rendered again at publish, where the token
+    # expands to the live remaining time; expanding here would freeze it.
     if request.adapt_content:
-        adapted_text = render_post_text(post, request.target_platform)
+        adapted_text = render_post_text(post, request.target_platform, expand_countdown=False)
     else:
         adapted_text = post.content_text or ""
 
     corrected_text = await auto_correct(adapted_text)
     final_text = strip_embedded_metadata(corrected_text or adapted_text, post.hashtags, post.link_url)
+
+    # Carry the offer deadline forward so bare {countdown} keeps resolving.
+    src_meta = post.meta_data or {}
+    new_meta = {"cross_posted_from": str(post_id), "source_platform": str(post.targets[0].social_account_id) if post.targets else None}
+    if src_meta.get("offer_ends_at"):
+        new_meta["offer_ends_at"] = src_meta["offer_ends_at"]
 
     new_post = Post(
         team_id=team_id,
@@ -637,7 +645,7 @@ async def cross_post_to_platform(
         link_url=post.link_url,
         link_preview_override=post.link_preview_override,
         scheduled_at=request.schedule_at,
-        meta_data={"cross_posted_from": str(post_id), "source_platform": str(post.targets[0].social_account_id) if post.targets else None},
+        meta_data=new_meta,
         music_asset_id=post.music_asset_id,
     )
     db.add(new_post)

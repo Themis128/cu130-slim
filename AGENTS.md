@@ -679,6 +679,7 @@ Current chain (oldest → newest, 39 revisions):
 21. [Sales-funnel audit](docs/superpowers/guides/21-funnel-audit.md) — live stage counts, weakest-transition detection, auction warning (fix conversion before buying traffic)
 22. [Lead-gen readiness audit](docs/superpowers/guides/22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, 30d lead volume (Meta lead-gen model)
 24. [Funnel email layout](docs/superpowers/guides/24-funnel-email-layout.md) — `funnel_email.render_funnel_html`: one branded multipart layout for every funnel/lifecycle email
+25. [Offer countdown token](docs/superpowers/guides/25-offer-countdown.md) — `{countdown}` live days/hours/minutes expansion at publish (posts, cross-posts, campaign emails)
 
 ## Current plans
 

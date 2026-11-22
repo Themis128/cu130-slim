@@ -29,6 +29,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 23. [Synigoros complaint status](23-synigoros-complaint-status.md) — poll the Ombudsman tracking page via the adhoc bridge; failure states and change alerts.
 
 - [Funnel email layout](24-funnel-email-layout.md) — shared branded HTML layout for every funnel/lifecycle email (text + HTML, CTA button)
+- [Offer countdown token](25-offer-countdown.md) — live days/hours/minutes `{countdown}` in posts, cross-posts and campaign emails
 
 ## Product plans
 

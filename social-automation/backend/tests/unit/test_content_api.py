@@ -167,7 +167,7 @@ def _seams(monkeypatch):
     monkeypatch.setattr(C, "check_quota", AsyncMock())
     monkeypatch.setattr(C, "auto_correct", AsyncMock(side_effect=lambda t: t))
     monkeypatch.setattr(C, "strip_embedded_metadata", lambda t, _h, _l: t or "")
-    monkeypatch.setattr(C, "render_post_text", lambda _p, _pl: "adapted")
+    monkeypatch.setattr(C, "render_post_text", lambda _p, _pl, **_k: "adapted")
     monkeypatch.setattr(C, "log_action", AsyncMock())
 
 
