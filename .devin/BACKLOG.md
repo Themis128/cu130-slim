@@ -4603,9 +4603,11 @@ Lessons:
 - Deleted 16 branches whose content is on master (8 `heal/*`, merged
   feature branches, `feat/adb-wireless-lane`, `fix/ops-sweep-txn-hygiene`).
   `fix/li-heal-new-login-form` 6371be61 was superseded by #2408.
-- Left alone (closed PRs with unique commits — not merged, owner to decide):
-  `feat/li-invite-outreach`, `feat/wa-unattended-reauth`,
-  `fix/ram-gate-recalibrate`, `fix/ig-account-resolver(-rebuilt)`.
+- Deleted 5 closed "superseded by clean rebuild" branches after checking
+  their features are on master (`feat/li-invite-outreach`,
+  `feat/wa-unattended-reauth`, `fix/ram-gate-recalibrate`,
+  `fix/ig-account-resolver(-rebuilt)`); the one orphan backlog commit
+  (c5a4994b, IG mass-expire note) is landed below.
 - New skill `tailnet-watch-ops` + `scripts/tw_status.sh` for the office-1
   status check and daily digest ([tailnet-watch#5](https://github.com/Themis128/tailnet-watch/pull/5)).
 - [ ] After tailnet-watch#5 merges: `tw_status.sh deploy`, confirm next
