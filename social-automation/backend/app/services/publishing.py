@@ -2501,8 +2501,24 @@ async def _publish_linkedin(
     # If we have a browser session, try the sidecar first (supports personal + company)
     sidecar_res: PublishResult | None = None
     if _has_linkedin_browser_session(account):
-        sidecar_res = await _publish_linkedin_via_sidecar(account, text, post, media_paths)
-        if sidecar_res.success:
+        try:
+            sidecar_res = await _publish_linkedin_via_sidecar(account, text, post, media_paths)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            # Sidecar unreachable — the request never left, so nothing was
+            # posted. Fall through to the official API lane below.
+            logger.warning("linkedin sidecar unreachable (account %s): %s", account.id, exc)
+            sidecar_res = None
+        except (httpx.TimeoutException, TimeoutError, OSError) as exc:
+            # The request may have reached LinkedIn mid-flight — the post
+            # could exist. Defer without burning an attempt (the worker
+            # bounds total deferral) rather than risk a double-post via the
+            # API fallback.
+            return PublishResult(
+                success=False,
+                retry_after=datetime.now(UTC) + timedelta(minutes=15),
+                error=f"LinkedIn sidecar timeout — possible partial post, deferred for verification: {exc}",
+            )
+        if sidecar_res is not None and sidecar_res.success:
             return sidecar_res
         # If sidecar fails, fall through to official API below
 
