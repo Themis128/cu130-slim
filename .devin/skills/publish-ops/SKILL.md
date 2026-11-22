@@ -50,7 +50,15 @@ python3 scripts/publish_queue.py targets <post_id>   # per-platform status
 python3 scripts/publish_queue.py dupes <post_id>     # queue + target rows
 python3 scripts/publish_queue.py reset <queue_id>    # failed -> pending (attempts=0)
 python3 scripts/publish_queue.py unstick [--minutes 15]  # reclaim stale processing
+python3 scripts/publish_failure_diag.py <post_id|queue_id>   # full failure classification
+python3 scripts/publish_failure_diag.py --latest-failed --platform linkedin
 ```
+
+`publish_failure_diag.py` is read-only: queue+target DB state, worker-log
+exception signature (CancelledError/TimeoutError/LinkedInSidecarError),
+sidecar `/health`, whether the running image carries the transport fix,
+and verdict lines. Use it FIRST on any "Publish failed" alert before
+resetting anything.
 
 Or via the API: `POST /api/v1/publishing/queue/{id}/retry` (admin token).
 
@@ -88,6 +96,8 @@ that row is the tracked one. The tool marks deleted rows
 | `401` on tweets | OAuth2 token stale — auto-refresh attempted once at publish time |
 | stuck `processing` | worker was restarted mid-task — `unstick` or wait 25 min |
 | stuck `publishing` >5 min | not a queue wedge — an in-flight publish op is holding the row; triage below |
+| `Unhandled exception while publishing` + `CancelledError`/`TimeoutError` in worker log at `linkedin_sidecar.post_image` | sidecar transport hang escaping raw — pre-#2540 signature. Fixed code classifies it: unreachable→API fallback, mid-flight timeout→`retry_after` defer (no attempt burn). Check `fix_deployed_linkedin` in `publish_failure_diag`; if false, wait for the GHCR image redeploy, don't reset blindly — a timed-out image post may exist on LinkedIn already |
+| LinkedIn item deadline vs sidecar timeout | was 120s==120s race (deadline cancelled first, always "Unhandled exception"); now 300s item deadline vs 120s client timeout — client error always wins and classifies |
 
 ### Stuck-`publishing` triage (verified 2026-11-16)
 
