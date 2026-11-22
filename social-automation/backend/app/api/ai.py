@@ -1284,23 +1284,39 @@ async def post_draft(request: PostDraftRequest, team_id: TeamId, current_user: U
 
     # Resolve social account
     if request.account_id:
-        account_result = await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.id == request.account_id,
-                SocialAccount.team_id == team.id,
+        account = (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.id == request.account_id,
+                    SocialAccount.team_id == team.id,
+                )
             )
-        )
+        ).scalar_one_or_none()
     else:
-        account_result = await db.execute(
-            select(SocialAccount)
-            .where(
-                SocialAccount.team_id == team.id,
-                SocialAccount.platform == request.platform,
-                SocialAccount.status == "active",
+        accounts = (
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.team_id == team.id,
+                        SocialAccount.platform == request.platform,
+                        SocialAccount.status == "active",
+                    )
+                )
             )
-            .limit(1)
+            .scalars()
+            .all()
         )
-    account = account_result.scalar_one_or_none()
+        # Instagram has two live lanes: prefer business_login
+        # (graph.instagram.com) — fb_onboarding dies on Graph #10 when the
+        # Page↔IG business link breaks.
+        account = next(
+            (
+                a
+                for a in accounts
+                if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"
+            ),
+            accounts[0] if accounts else None,
+        )
     if not account:
         raise HTTPException(status_code=404, detail=f"No connected {request.platform} account found")
 
