@@ -348,7 +348,7 @@ TOOLS: list[Tool] = [
                 "account_id": {"type": "string", "description": "Facebook Page account UUID"},
                 "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
                 "system_prompt": {"type": "string", "description": "System prompt for AI (supports {page_name} placeholder)"},
-                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-4-scout-17b-16e-instruct)"},
                 "fallback_text": {"type": "string", "description": "Fallback text if AI fails"},
                 "max_tokens": {"type": "integer", "description": "Max response tokens (default 200)"},
             },
@@ -440,7 +440,7 @@ TOOLS: list[Tool] = [
                 "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
                 "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
                 "system_prompt": {"type": "string", "description": "AI system prompt ({page_name} is replaced)"},
-                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-4-scout-17b-16e-instruct)"},
                 "fallback_text": {"type": "string", "description": "Fallback if AI fails"},
                 "max_tokens": {"type": "integer", "description": "Max response tokens (default: 200)"},
             },
@@ -730,7 +730,7 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
             body = {
                 "enabled": arguments["enabled"],
                 "system_prompt": arguments.get("system_prompt", "You are a helpful assistant for {page_name}. Reply concisely and professionally."),
-                "model": arguments.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+                "model": arguments.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct"),
                 "fallback_text": arguments.get("fallback_text", "Thanks for your message! We'll get back to you soon."),
                 "max_tokens": arguments.get("max_tokens", 200),
             }

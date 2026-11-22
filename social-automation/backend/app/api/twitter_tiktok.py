@@ -52,7 +52,7 @@ async def _get_account(
 class DMAutoReplyConfig(BaseModel):
     enabled: bool = False
     system_prompt: str = "You are a helpful assistant for {account_name}. Reply concisely and professionally."
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    model: str = "@cf/meta/llama-4-scout-17b-16e-instruct"
     fallback_text: str = "Thanks for your message! I'll get back to you soon."
     max_tokens: int = 250
     cooldown_seconds: int = 300
@@ -75,7 +75,7 @@ async def get_twitter_dm_auto_reply(
     return DMAutoReplyConfig(
         enabled=config.get("enabled", False),
         system_prompt=config.get("system_prompt", DMAutoReplyConfig().system_prompt),
-        model=config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        model=config.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct"),
         fallback_text=config.get("fallback_text", DMAutoReplyConfig().fallback_text),
         max_tokens=config.get("max_tokens", 250),
         cooldown_seconds=config.get("cooldown_seconds", 300),
@@ -209,7 +209,7 @@ async def get_tiktok_dm_auto_reply(
     return DMAutoReplyConfig(
         enabled=config.get("enabled", False),
         system_prompt=config.get("system_prompt", DMAutoReplyConfig().system_prompt),
-        model=config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        model=config.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct"),
         fallback_text=config.get("fallback_text", DMAutoReplyConfig().fallback_text),
         max_tokens=config.get("max_tokens", 250),
         cooldown_seconds=config.get("cooldown_seconds", 300),

@@ -44,7 +44,7 @@ ADMIN_PASSWORD = os.getenv("SOCIAL_ADMIN_PASSWORD", "")
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 DMR_BASE_URL = os.getenv("DMR_BASE_URL", "http://host.docker.internal:12435")
-DEFAULT_MODEL = os.getenv("MESSENGER_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct")
+DEFAULT_MODEL = os.getenv("MESSENGER_AI_MODEL", "@cf/meta/llama-4-scout-17b-16e-instruct")
 
 # Stats
 _stats = {

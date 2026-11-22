@@ -225,9 +225,13 @@ async def _refresh_expiring_tokens_async() -> dict:
             if expires_in:
                 account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
             else:
-                # TikTok doesn't return expires_in on refresh — default to 24h
+                # TikTok may omit expires_in on refresh. From 2026-12-01
+                # access tokens live only 2h (and refresh tokens rotate on
+                # every refresh — already persisted above), so a 24h
+                # fallback would leave the token marked valid ~22h past
+                # death. Conservative 2h keeps the hourly sweeper honest.
                 if platform == "tiktok":
-                    account.token_expires_at = datetime.now(UTC) + timedelta(seconds=86400)
+                    account.token_expires_at = datetime.now(UTC) + timedelta(seconds=7200)
                 # Meta long-lived tokens are 60 days
                 elif platform in ("facebook", "instagram", "threads"):
                     account.token_expires_at = datetime.now(UTC) + timedelta(days=60)

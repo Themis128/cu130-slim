@@ -479,7 +479,7 @@ async def get_threads_followers(
 class ThreadsAutoReplyConfig(BaseModel):
     enabled: bool = False
     system_prompt: str = "You are a helpful assistant for {account_name}. Reply concisely and professionally."
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    model: str = "@cf/meta/llama-4-scout-17b-16e-instruct"
     fallback_text: str = "Thanks for your message! I'll get back to you soon."
     max_tokens: int = 250
     cooldown_seconds: int = 300
@@ -499,7 +499,7 @@ async def get_threads_dm_auto_reply(
     return ThreadsAutoReplyConfig(
         enabled=config.get("enabled", False),
         system_prompt=config.get("system_prompt", ThreadsAutoReplyConfig().system_prompt),
-        model=config.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+        model=config.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct"),
         fallback_text=config.get("fallback_text", ThreadsAutoReplyConfig().fallback_text),
         max_tokens=config.get("max_tokens", 250),
         cooldown_seconds=config.get("cooldown_seconds", 300),

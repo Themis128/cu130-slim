@@ -723,7 +723,8 @@ async def generate_image(body: MediaGenerateImageRequest, team_id: TeamId, curre
     if generated is None:
         cf_model = opts.model or CF_TXT2IMG_FREE
         if cf_model and not cf_model.startswith("@cf/"):
-            cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
+            # stabilityai/* retired 2026-11-20 — non-@cf names resolve to FLUX schnell
+            cf_model = CF_TXT2IMG_FREE
         try:
             logger.info("[media/generate] Trying Cloudflare Workers AI")
             generated = await _call_workers_ai_image(
