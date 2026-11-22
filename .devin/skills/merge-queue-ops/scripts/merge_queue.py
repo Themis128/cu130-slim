@@ -53,7 +53,18 @@ def ruleset() -> dict | None:
     return None
 
 
+def owner_type() -> str:
+    repo = gh_api(f"repos/{REPO}") or {}
+    return (repo.get("owner") or {}).get("type", "unknown")
+
+
 def cmd_status() -> None:
+    otype = owner_type()
+    print(f"repo owner type: {otype}")
+    if otype == "User":
+        print("merge queue: UNAVAILABLE — GitHub gates merge queues to "
+              "organization-owned repos (verified 2026-11-22: rulesets API "
+              "rejects merge_queue with HTTP 422 on this repo). Requires org transfer.")
     prot = protection()
     checks = prot.get("required_status_checks") or {}
     print(f"classic protection strict: {checks.get('strict')}")
@@ -81,6 +92,14 @@ def cmd_verify() -> None:
 
 
 def cmd_enable() -> None:
+    if owner_type() == "User":
+        raise SystemExit(
+            "merge queue is unavailable on user-owned repos — GitHub "
+            "restricts it to organization-owned repositories (verified "
+            "2026-11-22: rulesets API rejected merge_queue with HTTP 422 "
+            "on Themis128/cu130-slim). Transfer the repo to an org first; "
+            "pr-autopilot + auto-merge already cover this gap meanwhile."
+        )
     cmd_verify()
 
     # 1) strict -> false so the queue (not manual update-branch) handles freshness
