@@ -28,7 +28,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 CONFIG = REPO / ".devin" / "mcp_config.json"
-TIMEOUT = 30
+TIMEOUT = 60
 
 
 def load_config() -> dict:
