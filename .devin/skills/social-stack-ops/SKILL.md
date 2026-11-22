@@ -209,3 +209,42 @@ flags RISK (grace=105s) — same fix applies if it flap-loops.
 workers). compose-watchdog runs it every 30min: resets stale
 processing locks, dispatches process_publish_queue, alerts on targets
 pending >60min.
+
+## Deploy pipeline & image drift (the ONE compose that matters)
+
+The running fleet is compose project **`socialauto-standalone`** — file
+`deploy/socialauto-standalone/docker-compose.yml`, env from that dir's
+`.env`. The ROOT `docker-compose.yml` is a superset that re-declares the
+same `container_name`s — **`compose up` from root adopts live containers
+under the wrong project + wrong env** (wiped INSTAGRAM_BROWSER_CDP_URL /
+INSTAGRAM2_* / rotated IG password on 2026-11-22). Always
+`cd deploy/socialauto-standalone` for compose ops.
+
+Chain: PR merge → CI `Docker CI` build-and-push → `:latest` tag moves →
+`stack-image-sync` cron (*/30, `home-ops/scripts/stack-image-sync.py`,
+symlinked at `~/scripts`) digests-compares, pulls serially, recreates
+drifted services via the standalone compose → containers run new code.
+Merge storms cancel queued builds (concurrency group) — the first build
+that escapes the queue wins; lag is normal during storms.
+
+Verify real state, never infer:
+```bash
+python3 .devin/skills/social-stack-ops/scripts/deploy_lag.py
+# CURRENT / PULL-OK-RECREATE-PENDING / LAGGING per container
+
+# prove a code feature exists in the RUNNING image (not a docker-cp
+# patch that the next recreate wipes — that's not durable):
+python3 .devin/skills/social-stack-ops/scripts/deploy_lag.py \
+  --probe social-worker-meta app/services/publishing.py 'create_video_container'
+```
+
+Rules:
+- `docker restart` reloads code only if bind-mounted; `env_file` changes
+  need `compose up -d` (recreate), never restart.
+- `docker cp` into containers is transient — the next recreate drops it.
+  Durable = merge to master → CI image → sync pull.
+- `docker pull`s are SERIALIZED (parallel pulls crashed Docker Desktop
+  twice — wsl-docker-doctor); comfyui pull can block ~15min.
+- Hash-prefixed `<sha>_svc` `Created` containers are recreate-race
+  orphans — remove them when the real service is Up; never remove an
+  `Up` one (38209cd8f1f6_tiktok-browser-sidecar is the LIVE sidecar).
