@@ -63,7 +63,7 @@ from skill_http import social_api, request_status  # noqa: E402
 PLATFORM_CRED_KEYS = [
     # Meta family
     "FACEBOOK_PASSWORD", "INSTAGRAM_PASSWORD",
-    "META_TOTP_SECRET", "META_TOTP_SECRET_IG",
+    "META_TOTP_SECRET", "META_TOTP_SECRET_IG", "META_TOTP_SECRET_AC",
     "FACEBOOK_USERNAME", "INSTAGRAM_USERNAME",
     "FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET",
     "INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET",
@@ -77,7 +77,11 @@ PLATFORM_CRED_KEYS = [
     "TWITTER_PASSWORD", "TWITTER_TOTP_SECRET",
     "X_OAUTH_CLIENT_ID", "X_OAUTH_CLIENT_SECRET",
     "X_BEARER_TOKEN", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET",
-    "X_REFRESH_TOKEN", "X_WEB_AUTH_TOKEN",
+    "X_REFRESH_TOKEN", "X_WEB_AUTH_TOKEN", "X_WEB_CT0", "X_WEB_COOKIES_JSON",
+    # Bluesky (AT Protocol)
+    "BSKY_MAIN_PASSWORD", "BSKY_CREDENTIALS", "BSKY_RAW",
+    # Meta session jars (browser cookie exports — meta_cookie_sync.py)
+    "IG_COOKIES_JSON", "FB_COOKIES_JSON", "THREADS_COOKIES_JSON",
     # Google (brand-account logins used by platform flows)
     "GOOGLE_PASSWORD", "GOOGLE_APP_PASSWORD",
 ]
@@ -128,7 +132,19 @@ def main() -> int:
 
     envs = {name: _parse_env(p) for name, p in ENV_FILES.items()}
     present = {k for e in envs.values() for k in e}
-    keys = [k for k in PLATFORM_CRED_KEYS if k in present]
+
+    # store keys first — a cred that exists ONLY in the store still needs
+    # auditing (mirror propagation gap otherwise hides new keys forever)
+    store_keys = set()
+    code, body = request_status("GET", f"{api}/api/v1/secrets", token=tok)
+    if code == 200:
+        try:
+            import json
+            store_keys = {s.get("key") for s in json.loads(body).get("secrets", [])}
+        except Exception:
+            pass
+
+    keys = [k for k in PLATFORM_CRED_KEYS if k in present or k in store_keys]
 
     rows = []
     for key in keys:
@@ -153,14 +169,6 @@ def main() -> int:
         rows.append((key, status, hashes))
 
     # also flag store keys that look like platform creds but aren't in env
-    code, body = request_status("GET", f"{api}/api/v1/secrets", token=tok)
-    store_keys = set()
-    if code == 200:
-        try:
-            import json
-            store_keys = {s.get("key") for s in json.loads(body).get("secrets", [])}
-        except Exception:
-            pass
     extra = sorted(k for k in store_keys
                    if re.search(r"PASSWORD|TOTP|SECRET|TOKEN", k)
                    and k not in keys and k not in PLATFORM_CRED_KEYS

@@ -43,6 +43,24 @@ ISSUES = {
                  "Users shows the 'Add' button disabled because of the account "
                  "restriction. Requesting manual unblock or admin-side system user "
                  "creation so our WhatsApp Business API lane can be restored.")},
+    "meta-2fa-codes": {
+        "asset": "Instagram account cloudless.gr — profile URL "
+                 "https://www.instagram.com/cloudless.gr/ (personal Meta "
+                 "account baltzakis.themis@gmail.com)",
+        "text": ("Instagram account cloudless.gr (profile URL "
+                 "https://www.instagram.com/cloudless.gr/) cannot complete "
+                 "login two-factor "
+                 "authentication: the password is accepted and Meta offers "
+                 "confirmation codes via WhatsApp and SMS to the phone number "
+                 "ending 38, but NO code ever arrives on either channel "
+                 "(verified over repeated attempts across multiple days). "
+                 "Authentication-app TOTP codes from the stored seed are rejected, "
+                 "previously generated backup codes no longer work, and "
+                 "trusted-device approval succeeded for Facebook but the "
+                 "Instagram challenge persists. Requesting: (1) investigation of "
+                 "why WhatsApp/SMS 2FA codes are not delivered to this number, "
+                 "and (2) an account-recovery path that does not depend on "
+                 "receiving those codes.")},
 }
 
 def snap_text(page):

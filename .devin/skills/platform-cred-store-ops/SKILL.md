@@ -224,3 +224,38 @@ Battle-test findings (2026-11-22):
 - `cred_audit.py` PLATFORM_CRED_KEYS now includes `X_WEB_CT0`,
   `X_WEB_COOKIES_JSON`, `BSKY_*` — previously diverged silently because they
   weren't in the audit inventory.
+
+## Meta session jars (2026-11-23)
+
+`scripts/meta_cookie_sync.py` — the IG/FB/Threads equivalent of the X
+cookie lane. Meta has no passwordless session export, so once a live
+login exists in debug Chrome:
+
+```bash
+python3 meta_cookie_sync.py --export --store   # dump jars -> store + file
+python3 meta_cookie_sync.py --inject           # push stored jars -> :9229
+python3 meta_cookie_sync.py                    # --check liveness
+```
+
+- Writes `C:\Users\tbaltzakis\meta_cookies.json` (0600, nested
+  `{domain: {name: value}}`) and, with `--store`, `IG_COOKIES_JSON` /
+  `FB_COOKIES_JSON` / `THREADS_COOKIES_JSON` via `cred_set.py` (stdin).
+- All three keys are in `PLATFORM_CRED_KEYS` — drift-audited like every
+  other platform cred; `browser_secret_sync.py --cookies` injects them
+  alongside the X jar.
+- Validity markers: IG needs `sessionid`+`ds_user_id`, FB needs
+  `c_user`+`xs`. `ds_user_id` alone = remembered-user picker, NOT a
+  session (zombie-picker signature — see battle-test findings).
+
+### Meta 2FA reality (corrects earlier assumption)
+
+Meta Account 2FA offers **Notification-on-device, WhatsApp, SMS, Backup
+code** — there is NO authenticator-app/TOTP option in the observed flow,
+so `ig2_oauth_drive.py`'s TOTP branch can never succeed on Meta Account
+(it printed `2fa-done` while the challenge page persisted). The verified
+unattended lane is **SMS**: challenge → "Try another way" → "See more
+options" → "Text message" → code arrives as a Google-Messages
+notification readable via `adb shell dumpsys notification --noredact` →
+`phone-2fa-ops/scripts/fb_code.py` → fill via native setter. Trusted-device
+"Was this you?" push approval on the Galaxy S22+ is the other working
+lane — see `meta-account-lock-ops`.
