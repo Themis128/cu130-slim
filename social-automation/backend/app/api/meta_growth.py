@@ -155,7 +155,7 @@ async def create_organic_campaign(
     ig = [a for a in accounts if a.platform == "instagram"]
     if len(ig) > 1:
         keep = next(
-            (a for a in ig if (a.meta_data or {}).get("login_type") == "business_login"),
+            (a for a in ig if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"),
             ig[0],
         )
         accounts = [a for a in accounts if a.platform != "instagram" or a.id == keep.id]

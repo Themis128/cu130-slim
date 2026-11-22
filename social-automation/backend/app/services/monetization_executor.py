@@ -126,7 +126,7 @@ async def _resolve_account(db: AsyncSession, team_id: uuid.UUID, platform: str, 
         # the broken lane; instagram_lane_guard remains the heal for rows
         # already targeted at fb_onboarding.
         business_login = [
-            a for a in accounts if (a.meta_data or {}).get("login_type") == "business_login"
+            a for a in accounts if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"
         ]
         if business_login:
             return business_login[0]

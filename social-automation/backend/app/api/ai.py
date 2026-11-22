@@ -1313,7 +1313,7 @@ async def post_draft(request: PostDraftRequest, team_id: TeamId, current_user: U
             (
                 a
                 for a in accounts
-                if (a.meta_data or {}).get("login_type") == "business_login"
+                if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"
             ),
             accounts[0] if accounts else None,
         )
