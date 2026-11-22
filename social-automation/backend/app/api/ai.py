@@ -1632,6 +1632,7 @@ async def generate_content(
                 "focus and goal. Use the pillar's opening style.\n"
             )
 
+    from app.services.content_guides import COUNTDOWN_RULE
     from app.services.plain_english import (
         PLAIN_ENGLISH_RULES,
         SOFIA_POST_SPEC,
@@ -1724,6 +1725,7 @@ Include emojis: {request.include_emojis}
 
 {PLAIN_ENGLISH_RULES}
 {SOFIA_POST_SPEC}
+{COUNTDOWN_RULE}
 
 HASHTAG RULES (critical for 2026 platform algorithms):
 - Choose hashtags that are semantically relevant to the post content. A disconnect between

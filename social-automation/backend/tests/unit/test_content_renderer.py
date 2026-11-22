@@ -1,5 +1,7 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
 
+from datetime import datetime, timezone
+
 from app.models.content import Post
 from app.services import content_renderer as cr
 from app.services.content_renderer import (
@@ -284,3 +286,57 @@ def test_render_post_text_truncates(monkeypatch):
         assert out.endswith("…") and len(out) <= 20
     finally:
         cr._PLATFORM_HINTS = orig
+
+
+class TestCountdownToken:
+    """``{countdown:<ISO deadline>}`` expands to a live days/hours/minutes
+    string at render time — owner rule 2026-11-22 for BF campaign posts."""
+
+    NOW = datetime(2026, 11, 22, 2, 0, tzinfo=timezone.utc)  # = 04:00 EET
+
+    def _post(self, text: str) -> Post:
+        return Post(content_text=text, hashtags=None, platform_specific=None, link_url=None)
+
+    def test_expands_days_hours_minutes(self):
+        post = self._post("Offer ends soon — {countdown:2026-11-27T23:59:00+02:00} left!")
+        now = datetime(2026, 11, 22, 2, 40, tzinfo=timezone.utc)
+        out = cr._expand_countdown_tokens(post.content_text, now=now)
+        assert "5 days, 19 hours, 19 minutes" in out
+        assert "{countdown:" not in out
+
+    def test_render_post_text_expands(self):
+        post = self._post("Deal closes in {countdown:2026-11-27T23:59:00+02:00}")
+        out = render_post_text(post, "linkedin")
+        assert "{countdown:" not in out
+        assert "days," in out and "minutes" in out
+
+    def test_expired_renders_expired(self):
+        out = cr._expand_countdown_tokens("ends {countdown:2026-11-20T00:00:00+02:00}", now=self.NOW)
+        assert out == "ends expired"
+
+    def test_naive_deadline_read_as_utc(self):
+        out = cr._expand_countdown_tokens("{countdown:2026-11-22T05:00:00}", now=self.NOW)
+        assert out == "0 days, 3 hours, 0 minutes"
+
+    def test_unparseable_token_left_untouched(self):
+        text = "ends {countdown:friday}"
+        assert cr._expand_countdown_tokens(text, now=self.NOW) == text
+
+    def test_override_also_expands(self):
+        post = self._post("ignored")
+        post.platform_specific = {"instagram": {"content_text": "{countdown:2026-11-27T23:59:00+02:00} to go"}}
+        out = render_post_text(post, "instagram")
+        assert "{countdown" not in out and "to go" in out
+
+    def test_bare_token_reads_meta_offer_ends_at(self):
+        post = self._post("Only {countdown} left")
+        post.meta_data = {"offer_ends_at": "2026-11-27T23:59:00+02:00"}
+        out = render_post_text(post, "linkedin")
+        assert "{countdown" not in out
+        assert "days," in out and "left" in out
+
+    def test_bare_token_without_meta_left_untouched(self):
+        post = self._post("Only {countdown} left")
+        post.meta_data = {}
+        out = render_post_text(post, "linkedin")
+        assert "{countdown}" in out

@@ -130,6 +130,20 @@ HASHTAG RULES (critical for 2026 platform algorithms):
 - Never copy-paste the same hashtag block across posts — platforms penalize this as spam.
 - Respect each platform's hashtag cap (see platform guidelines above)."""
 
+# Owner rule 2026-11-22: time-boxed campaign posts (e.g. Black Friday) carry a
+# live countdown to the offer deadline — days, hours and minutes — computed at
+# publish, never a static "this weekend". Generation emits the token verbatim;
+# content_renderer expands it at publish time.
+COUNTDOWN_RULE = """\
+OFFER COUNTDOWN (mandatory when the brief names a campaign deadline):
+- Include the literal token `{countdown:<ISO-8601 deadline>}` where the
+  remaining-time sentence goes, e.g. "Only {countdown:2026-11-27T23:59:00+02:00}
+  left — the offer ends Friday." Always write the offset (+02:00 EET winter,
+  +03:00 EEST summer).
+- The platform expands it to live days/hours/minutes at publish — never write
+  a static duration or vague "this weekend" for a dated offer.
+- Omit the token entirely when the brief has no deadline."""
+
 CONTENT_SCHEMA = {
     "type": "object",
     "properties": {
