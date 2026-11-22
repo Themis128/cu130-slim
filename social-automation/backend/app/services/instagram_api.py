@@ -170,20 +170,24 @@ class InstagramAPIClient:
         self,
         image_url: str,
         caption: str = "",
+        is_ai_generated: bool = False,
     ) -> str:
         """Create a media container for a single image.
 
         Returns the container id to be passed to ``publish_container``.
+        ``is_ai_generated`` applies Meta's "AI info" label (Content
+        Publishing API, available on all versions since 2026-06-22).
         """
         if not image_url:
             raise ValueError("image_url is required")
         url = f"{self.base_url}/{self.ig_user_id}/media"
-        payload = self._params(
-            {
-                "image_url": image_url,
-                "caption": caption[:MAX_CAPTION_CHARS],
-            }
-        )
+        fields = {
+            "image_url": image_url,
+            "caption": caption[:MAX_CAPTION_CHARS],
+        }
+        if is_ai_generated:
+            fields["is_ai_generated"] = "true"
+        payload = self._params(fields)
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(url, data=payload)
             self._raise_for_status(resp, url)
@@ -201,21 +205,25 @@ class InstagramAPIClient:
         self,
         video_url: str,
         caption: str = "",
+        is_ai_generated: bool = False,
     ) -> str:
         """Create a media container for a single video.
 
         Returns the container id to be passed to ``publish_container``.
+        ``is_ai_generated`` applies Meta's "AI info" label — required by
+        IG policy for realistic-looking AI video/audio.
         """
         if not video_url:
             raise ValueError("video_url is required")
         url = f"{self.base_url}/{self.ig_user_id}/media"
-        payload = self._params(
-            {
-                "video_url": video_url,
-                "media_type": "VIDEO",
-                "caption": caption[:MAX_CAPTION_CHARS],
-            }
-        )
+        fields = {
+            "video_url": video_url,
+            "media_type": "VIDEO",
+            "caption": caption[:MAX_CAPTION_CHARS],
+        }
+        if is_ai_generated:
+            fields["is_ai_generated"] = "true"
+        payload = self._params(fields)
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, data=payload)
             self._raise_for_status(resp, url)
@@ -261,11 +269,14 @@ class InstagramAPIClient:
         self,
         children_ids: list[str],
         caption: str = "",
+        is_ai_generated: bool = False,
     ) -> str:
         """Create a parent carousel container referencing child item containers.
 
         ``children_ids`` must be a list of container ids returned by
         ``create_carousel_item``. Instagram allows 2-10 items per carousel.
+        Per Meta docs the AI label goes on the carousel (parent) container
+        only — never on the children.
         """
         if not children_ids:
             raise ValueError("children_ids must contain at least one item")
@@ -275,13 +286,14 @@ class InstagramAPIClient:
             _validate_id(cid, "children_id")
 
         url = f"{self.base_url}/{self.ig_user_id}/media"
-        payload = self._params(
-            {
-                "media_type": "CAROUSEL",
-                "children": ",".join(children_ids),
-                "caption": caption[:MAX_CAPTION_CHARS],
-            }
-        )
+        fields = {
+            "media_type": "CAROUSEL",
+            "children": ",".join(children_ids),
+            "caption": caption[:MAX_CAPTION_CHARS],
+        }
+        if is_ai_generated:
+            fields["is_ai_generated"] = "true"
+        payload = self._params(fields)
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(url, data=payload)
             self._raise_for_status(resp, url)
