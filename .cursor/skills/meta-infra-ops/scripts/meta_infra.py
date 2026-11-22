@@ -143,8 +143,52 @@ def chain(tok):
     return 0
 
 
+
+
+async def _all_tokens():
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.core.security import decrypt_token
+    from app.models.social_account import SocialAccount
+    e = create_async_engine(os.environ["DATABASE_URL"])
+    S = async_sessionmaker(e)
+    async with S() as db:
+        rows = (await db.execute(select(SocialAccount).where(
+            SocialAccount.platform.in_(["facebook", "instagram", "threads", "whatsapp"]),
+            SocialAccount.status == "active"))).scalars().all()
+    out = {}
+    for a in rows:
+        try:
+            out[f"{a.platform}/{a.username}"] = decrypt_token(a.access_token_enc)
+        except Exception:
+            pass
+    return out
+
+
+def audit():
+    """Full Meta-infra audit: debug_token every active row + live IG probe."""
+    import asyncio as aio
+    ts = aio.run(_all_tokens())
+    for label, tok in ts.items():
+        d = g("debug_token", tok, params={"input_token": tok}).get("data", {})
+        print(f"{label}: type={d.get('type')} valid={d.get('is_valid')} "
+              f"expires={d.get('expires_at')} app={d.get('app_id')}")
+    ig = ts.get("instagram/cloudless.gr")
+    if ig:
+        try:
+            r = urllib.request.urlopen(
+                f"https://graph.instagram.com/v26.0/me?fields=id,username"
+                f"&access_token={ig}", timeout=20)
+            print("IG graph.instagram.com/me:", r.read()[:200])
+        except Exception as e:
+            print("IG probe FAIL:", str(e)[:150])
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "probe"
+    if cmd == "audit":
+        audit()
+        return 0
     tok = asyncio.run(_token())
     if cmd == "probe":
         probe(tok)

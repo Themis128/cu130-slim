@@ -17,6 +17,7 @@ id/hub identity clears.
 ```bash
 # inside social-api (stdlib + repo deps; reuses meta_appeals._fb_token):
 python /app/scripts/meta_infra.py probe   # sysusers, WABA status, ad accounts
+python /app/scripts/meta_infra.py audit   # debug_token every active row + live IG probe
 python /app/scripts/meta_infra.py chain   # full provisioning, idempotent
 ```
 
