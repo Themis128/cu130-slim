@@ -238,6 +238,14 @@ python3 .devin/skills/social-stack-ops/scripts/deploy_lag.py \
   --probe social-worker-meta app/services/publishing.py 'create_video_container'
 ```
 
+Env parity between the two .env files (root vs standalone) drifts
+silently — rotation lanes write root `.env` only:
+```bash
+python3 .devin/skills/social-stack-ops/scripts/env_parity_check.py
+# DIVERGED keys + ROOT-ONLY keys the standalone stack consumes
+# (values never printed)
+```
+
 Rules:
 - `docker restart` reloads code only if bind-mounted; `env_file` changes
   need `compose up -d` (recreate), never restart.
