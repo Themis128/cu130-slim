@@ -13,6 +13,19 @@ code), then push the fix and let auto-merge land it.
    python3 .devin/skills/pr-ci-triage/scripts/pr_fail_digest.py --all
    ```
 
+   **Before pushing a model/constant migration**, catch stale assertions
+   proactively:
+
+   ```bash
+   python3 .devin/skills/pr-ci-triage/scripts/test_const_drift.py
+   ```
+
+   Scans `tests/` for `@cf/` IDs that are retired or absent from the live
+   Workers AI catalog (reuses `cloudflare-ops/scripts/cf_model_audit.py`).
+   Exit 1 on hits — **review each**: explicit `model=` fixtures exercising
+   URL/payload mechanics are benign (they never hit the catalog); only
+   assertions on *defaults* or removed code paths actually break.
+
    Prints each failing check + failed test node IDs + first assertion
    lines. `--full` for more context.
 
