@@ -186,10 +186,9 @@ async def remove_background_cf(image_bytes: bytes) -> bytes | None:
     img.save(buf, format="JPEG", quality=90)
     image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    # Try Workers AI rembg model
-    # @cf/baai/baseten-lightning-iris is a segmentation model
-    model = quote("@cf/baai/baseten-lightning-iris", safe="@/")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    # Workers AI segmentation retired (@cf/baai/baseten-lightning-iris dead
+    # since 2026-11-20, no live CF seg model) — go straight to local rembg.
+    return None
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:

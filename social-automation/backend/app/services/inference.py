@@ -383,8 +383,10 @@ STT_MODELS: dict[str, str] = {
     "whisper": "@cf/openai/whisper",
     "whisper-large-v3-turbo": "@cf/openai/whisper-large-v3-turbo",
     "whisper-tiny-en": "@cf/openai/whisper",  # tiny-en retired 2026-11-20; base whisper is live
-    "wav2vec2": "@cf/facebook/wav2vec2-base-960h",
-    "speechbrain": "@cf/speechbrain/asr-cnn-transformer",
+    # wav2vec2 + speechbrain ASR retired 2026-11-20 — aliases kept so old
+    # callers still transcribe via the live whisper models.
+    "wav2vec2": "@cf/openai/whisper-large-v3-turbo",
+    "speechbrain": "@cf/openai/whisper",
     "nova-3": "@cf/deepgram/nova-3",
     "flux": "@cf/deepgram/flux",
 }
@@ -605,7 +607,7 @@ _WORKERS_AI_IMAGE_KEYWORDS = (
     "craiy",
 )
 
-# Model identifiers are ``@author/name[/subname]`` (e.g. ``@cf/meta/llama-3.2-3b-instruct``).
+# Model identifiers are ``@author/name[/subname]`` (e.g. ``@cf/meta/llama-4-scout-17b-16e-instruct``).
 _WORKERS_AI_MODEL_RE = re.compile(r"^@[\w./-]+$")
 
 
