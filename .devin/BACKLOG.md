@@ -4528,3 +4528,11 @@ assistant chat for the reply.
   INSTAGRAM2_CLIENT_SECRET actually reachable in-container before relying
   on future instagram2 re-auths.
 - Orphan media container 18112822550227386 (probe) — expires unpublished.
+
+## 2026-11-22 — PR automation complete + queue sweep
+
+- **#2483 pr-autopilot MERGED** — event-driven arm-on-open + merge-on-green now on master. Future PRs self-arm; no local babysitter needed. Backstops: auto-merge.yml 15-min + pr-sweep.yml 2x/hr + gemini-ci-fix (quota-exhausted today — manual heal needed when it hits TerminalQuotaError).
+- **Native merge queue: impossible** — org-owned repos only; this repo is user-owned. Verified via rulesets API 422 + GitHub docs. Requires org transfer to enable.
+- #2474 CF-model migration: stale test assertions healed upstream by f7508bfc (all 33 previously-failing tests verified green locally). My ea15ac04 dead-code removal caused 3 of them — retired-path tests updated to assert None.
+- Queue at sweep: #2466 #2474 #2480 #2482 #2484 — all armed, zero actionable failures, CI-pending only.
+- Outstanding: dirty `scripts/threads_reauth.py` — other agent's WIP, left untouched.
