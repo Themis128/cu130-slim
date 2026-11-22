@@ -9,7 +9,7 @@ Uses the platform hints already defined in ``app.services.seo``.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.content import Post
 from app.services.seo import _PLATFORM_HINTS
@@ -94,7 +94,7 @@ def _expand_countdown_tokens(
     """
     if "{countdown" not in text:
         return text
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
 
     def _render(match: re.Match[str]) -> str:
         iso = match.group(1)
@@ -107,7 +107,7 @@ def _expand_countdown_tokens(
         except ValueError:
             return match.group(0)
         if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=timezone.utc)
+            deadline = deadline.replace(tzinfo=UTC)
         delta = deadline - now
         if delta.total_seconds() <= 0:
             return "expired"

@@ -1,6 +1,6 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.content import Post
 from app.services import content_renderer as cr
@@ -292,14 +292,14 @@ class TestCountdownToken:
     """``{countdown:<ISO deadline>}`` expands to a live days/hours/minutes
     string at render time — owner rule 2026-11-22 for BF campaign posts."""
 
-    NOW = datetime(2026, 11, 22, 2, 0, tzinfo=timezone.utc)  # = 04:00 EET
+    NOW = datetime(2026, 11, 22, 2, 0, tzinfo=UTC)  # = 04:00 EET
 
     def _post(self, text: str) -> Post:
         return Post(content_text=text, hashtags=None, platform_specific=None, link_url=None)
 
     def test_expands_days_hours_minutes(self):
         post = self._post("Offer ends soon — {countdown:2026-11-27T23:59:00+02:00} left!")
-        now = datetime(2026, 11, 22, 2, 40, tzinfo=timezone.utc)
+        now = datetime(2026, 11, 22, 2, 40, tzinfo=UTC)
         out = cr._expand_countdown_tokens(post.content_text, now=now)
         assert "5 days, 19 hours, 19 minutes" in out
         assert "{countdown:" not in out
