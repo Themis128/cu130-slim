@@ -4642,6 +4642,12 @@ Lessons:
   compose, which is what spawned hash-renamed root-project duplicates.
   Remove the stopped container + old volume once TikTok publishing is
   confirmed on the standalone sidecar.
-- [ ] Workers' `TIKTOK_APP_SECRET` env holds a GitHub API 404 JSON body
-  ("Not Found ... get-a-repository-variable") instead of a secret — some
-  env sync wrote an error response. Find the writer and fix the `.env`.
+- [x] `TIKTOK_APP_SECRET` and `X_ACCESS_SECRET` in all three `.env` copies
+  (WSL root, WSL `deploy/socialauto-standalone/.env`, Windows checkout) held a
+  GitHub API 404 body ("Not Found ... get-a-repository-variable"). They first
+  appear in `.env.bak-20261111053501`, written 2026-11-10 22:23 by a one-off
+  `gh api .../actions/variables` style write; no cron or script in the repo or
+  crontab writes them. No code reads either key (canonical names are
+  `TIKTOK_CLIENT_SECRET` and `TWITTER_ACCESS_TOKEN_SECRET`), so the lines were
+  removed (backups `*.bak-pre404fix-*`). Containers drop them on their next
+  recreate.
