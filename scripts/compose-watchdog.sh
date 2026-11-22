@@ -188,11 +188,37 @@ is_mount_broken() {
   docker logs --tail 30 "$1" 2>&1 | grep -qiE "error mounting|not a directory.*(mount|bind)|failed to create shim task"
 }
 recreate_container() {
-  local c="$1" svc
+  local c="$1" svc proj files wd f ok=1
+  local -a cf_args=() cf_list=()
   svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
   case "$svc" in ""|*" "*) log "$c: no compose service label — cannot recreate"; return 1;; esac
-  log "recreating $c (compose service $svc — mount-broken)"
-  docker compose up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
+  # Recreate inside the container's OWN compose project: the live stack is
+  # deploy/socialauto-standalone, and an unpinned call from the repo root
+  # creates a second root-project copy (hash-renamed <id>_<name>). Every file
+  # in config_files is passed, so override files (fsbridge transplants) stay.
+  proj=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$c" 2>/dev/null || true)
+  files=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$c" 2>/dev/null || true)
+  wd=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c" 2>/dev/null || true)
+  if [ -n "$files" ]; then
+    IFS=',' read -r -a cf_list <<< "$files"
+    for f in "${cf_list[@]}"; do
+      [ -f "$f" ] || { ok=0; break; }
+      cf_args+=(-f "$f")
+    done
+  else
+    ok=0
+  fi
+  if [ "$ok" = 1 ] && [ -d "$wd" ]; then
+    log "recreating $c (compose service $svc, project ${proj:-?} — mount-broken)"
+    docker compose "${cf_args[@]}" --project-directory "$wd" \
+      up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
+  elif [ -z "$proj" ] || [ "$proj" = "$(basename "$PWD" | tr '[:upper:]' '[:lower:]')" ]; then
+    log "recreating $c (compose service $svc — mount-broken)"
+    docker compose up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
+  else
+    log "$c: project $proj compose files not found (${files:-<none>}) — cannot recreate"
+    return 1
+  fi
 }
 # Tailnet-IP drift — compose binds ${INFISICAL_TAILNET_IP:-<stale-default>}
 # for the omv/GitHub-runner path; when tailscale re-registers the node the

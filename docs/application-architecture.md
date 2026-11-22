@@ -2131,13 +2131,27 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 9392 | n8n-metrics | nginx /metrics exporter (n8n) |
 | 9100/9101 | minio | S3 storage |
 | 9223 | browser-novnc | CDP bridge |
-| 9224 | tiktok-browser-sidecar | TikTok |
+| 9224 | tiktok-browser-sidecar | TikTok (standalone project owns it; root copy behind profile `root-tiktok-sidecar`) |
 | 9225 | linkedin-browser-sidecar | LinkedIn |
 | 9226 | facebook-browser-sidecar | Facebook |
 | 9227 | linkedin-mcp-server | LinkedIn MCP |
 | 9228/9229 | airbyte-mcp-server | Airbyte MCP |
 | 9230 | messenger-sidecar | Messenger |
 | 12435 | DMR (host) | Local AI (not 12434) |
+
+**Compose project ownership.** The live containers belong to project
+`socialauto-standalone` (`deploy/socialauto-standalone/docker-compose.yml`,
+deployed by `scripts/master-deploy-watch.sh`). The root `docker-compose.yml`
+reuses many of the same `container_name`s, so a root `up` of one of them makes a
+second, hash-renamed copy (`<id>_<name>`) on `cu130-backend`, and workers on
+both networks can resolve the copy instead of the live container.
+Because of this:
+- The root `tiktok-browser-sidecar` sits behind profile `root-tiktok-sidecar`.
+- `scripts/compose-watchdog.sh` recreates containers in their own project. It
+  reads the `com.docker.compose.project.config_files` and `working_dir` labels
+  and passes every file, so override files are kept.
+- `engagement-browser` stays on `cu130-backend` only, with no alias on the
+  standalone network.
 | 5433 | social-postgres | App DB |
 
 ## Cloudflare platform updates (October 2026)
