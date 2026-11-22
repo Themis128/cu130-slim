@@ -26,10 +26,13 @@ Per-entity `status` in the response:
 
 ## Token requirements
 
-`business_management` scope (the cloudless.gr FB user token already carries
-it — verify with `debug_token`), admin on the appealed assets, and the token
-must be a **User** token (Page tokens 400 on `/me/businesses`). The SocialAuto
-`facebook` account row stores the FB Login user token.
+`business_management` scope, admin on the appealed assets, and a **User**
+token (Page tokens 400 on `/me/businesses`). Verified sourcing: the
+`facebook` account row holds a **Page** token — the USER token lives on the
+**whatsapp** account row because `business_management` rides the WhatsApp
+OAuth scope list (`whatsapp/authorize`, not `facebook/authorize`). If no
+USER token exists, mint one: `meta-oauth-ops` → `mint_authorize.sh whatsapp`
+then drive the URL through the sidecar/debug Chrome.
 
 ## Tool
 
@@ -56,5 +59,11 @@ Every run appends a JSONL transcript to `/app/uploads/meta-appeals-log.jsonl`
 - The `app` parameter is the Meta developer-app id that owns the
   `business_management` grant — read it from `debug_token`'s `app_id`,
   not from env guesswork.
+- `ad_account_ids`/`business_manager_ids` must be a **JSON array**
+  (`["123"]`), not repeated form params — Meta 400s with
+  "param … must be an array" otherwise.
+- Verified run 2026-11-22: BM 1558125105019725 + ad accounts
+  2771400643144250 / 657781691826702 all answered `appeal_entity_invalid`
+  (outside window) — the API confirmed what the wizard hinted.
 - `appeal_case_id` IS the trackable number the support wizard fails to mint —
   archive it into `meta-support-comm` (meta-support-ops skill) when it lands.
