@@ -46,7 +46,8 @@ CHECKPOINT_MARKERS = [
 
 def sh(cmd, device=None):
     full = f"{ADB} -s {device} shell {cmd}" if device else f"{ADB} shell {cmd}"
-    return subprocess.run(full, capture_output=True, text=True, timeout=30).stdout
+    return subprocess.run(full, capture_output=True, text=True,
+                          timeout=30, shell=True).stdout
 
 
 def devices():
@@ -88,21 +89,47 @@ def dump(dev):
     return sh("cat /sdcard/_igwin.xml", dev)
 
 
-NODE_RE = re.compile(
-    r'<node[^>]*?(?:text="([^"]*)")?[^>]*?(?:content-desc="([^"]*)")?'
-    r'[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', re.S)
+NODE_TAG_RE = re.compile(r'<node\b[^>]*>', re.S)
+ATTR_RES = {
+    "text": re.compile(r'\btext="([^"]*)"'),
+    "desc": re.compile(r'\bcontent-desc="([^"]*)"'),
+    "bounds": re.compile(r'\bbounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'),
+}
+
+
+def node_boxes(xml):
+    """Return [(label, cx, cy, x1, y1, x2, y2)] for labeled nodes."""
+    out = []
+    for m in NODE_TAG_RE.finditer(xml):
+        tag = m.group(0)
+        t = ATTR_RES["text"].search(tag)
+        d = ATTR_RES["desc"].search(tag)
+        b = ATTR_RES["bounds"].search(tag)
+        label = ((t.group(1) if t else "") or
+                 (d.group(1) if d else "")).strip()
+        if not label or not b:
+            continue
+        x1, y1, x2, y2 = map(int, b.groups())
+        out.append((label, (x1 + x2) // 2, (y1 + y2) // 2,
+                    x1, y1, x2, y2))
+    return out
 
 
 def nodes(xml):
-    """Yield (text, desc, cx, cy, clickable-ish) for nodes with text/desc."""
-    out = []
-    for m in NODE_RE.finditer(xml):
-        text, desc, x1, y1, x2, y2 = m.groups()
-        label = (text or desc or "").strip()
-        if not label:
+    return [(l, x, y) for l, x, y, *_ in node_boxes(xml)]
+
+
+def find_box(dev, needle, ymax=None, ymin=None):
+    """First node whose label contains needle, optionally y-filtered."""
+    for label, x, y, x1, y1, x2, y2 in node_boxes(dump(dev)):
+        if needle.lower() not in label.lower():
             continue
-        out.append((label, (int(x1) + int(x2)) // 2, (int(y1) + int(y2)) // 2))
-    return out
+        if ymax is not None and y > ymax:
+            continue
+        if ymin is not None and y < ymin:
+            continue
+        return label, x, y
+    return None
 
 
 def screen_text(dev):
@@ -185,48 +212,107 @@ def cmd_account(dev, _):
     return 0
 
 
+LOGIN_MARKERS = ["password", "log in", "username or email", "mobile number"]
+
+
+def _wait_text(dev, needles, timeout=8):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        txt = screen_text(dev)
+        for n in needles:
+            if n in txt:
+                return n
+        time.sleep(1.5)
+    return None
+
+
 def cmd_switch(dev, args):
-    """Switch active IG account. IG hides the switcher while an account is
-    active on some builds — tries the known surfaces, then reports the
-    exact screen so a human/agent can finish manually."""
+    """Switch the active IG account — live-verified path (2026-11-23):
+
+      profile tab → tap the header username (top clickable row) →
+      account switcher sheet → tap target row → 'Instagram from Meta'
+      profile picker → tap target row again → session restore.
+
+    If the target's saved session is dead IG shows a login form — that is
+    a human gate (credentials), reported as SESSION_DEAD, never typed.
+    """
     ok, why = preflight(dev)
     if not ok:
         sys.exit(f"preflight blocked: {why}")
     want = args.username.lstrip("@").lower()
 
-    # Path 1: profile page → options/profile chip may expose a switcher.
-    sh("input tap 108 2137", dev); time.sleep(2.5)
+    # go to profile tab via its nav node
+    prof = find_box(dev, "Profile", ymin=2000)
+    if prof:
+        tap_xy(dev, prof[1], prof[2])
+        time.sleep(3)
+    else:
+        sh("input tap 972 2137", dev)
+        time.sleep(3)
+
     hits = checkpoint_hit(dev)
     if hits:
         sys.exit(f"CHECKPOINT on profile screen: {hits} — manual step needed")
 
-    # Path 2: Settings and activity → scroll for 'Switch accounts'.
-    sh("input tap 972 2137", dev); time.sleep(2)   # profile tab again (safe)
-    tapped = tap_text(dev, "Settings and activity", timeout=4)
-    if tapped:
-        time.sleep(3)
-        # scroll down a few times looking for the switcher entry
-        for _ in range(6):
-            if tap_text(dev, "switch account", timeout=1):
+    # header username: a labeled node in the top band that is NOT 'Options'
+    # etc. Prefer the current-account username if known, else widest top row.
+    header = None
+    for label, x, y, x1, y1, x2, y2 in node_boxes(dump(dev)):
+        if y > 260 or y1 < 60:
+            continue
+        if label.strip().startswith("@") or re.fullmatch(
+                r"[a-z0-9._]{3,30}", label.strip()):
+            header = (label, x, y)
+            break
+    if not header:
+        # fall back: the wide clickable header row
+        for label, x, y, x1, y1, x2, y2 in node_boxes(dump(dev)):
+            if y < 260 and (x2 - x1) > 500:
+                header = (label, x, y)
                 break
-            sh("input swipe 540 1600 540 700", dev); time.sleep(1)
-        else:
-            # dump what we see and stop — do NOT log out
-            print("no 'Switch accounts' entry found in Settings — dumping screen")
-            cmd_dump(dev, argparse.Namespace(out=None))
-            sys.exit("BLOCKED: IG exposes no in-app switcher on this build/state. "
-                     "Manual path: IG login screen → 'Switch accounts', or log "
-                     "out and pick @" + want + " at login (credentials = human gate).")
-    else:
-        sys.exit("BLOCKED: could not reach Settings — see `dump` output")
+    if not header:
+        cmd_dump(dev, argparse.Namespace(out=None))
+        sys.exit("BLOCKED: no profile-header username node — see dump")
+    tap_xy(dev, header[1], header[2])
+    time.sleep(2.5)
 
-    # On the switcher screen, pick the target account.
-    if not tap_text(dev, want, timeout=6):
+    # switcher sheet should offer 'Add Instagram'/'Dismiss' + account rows
+    if not _wait_text(dev, ["add instagram", "dismiss"], timeout=6):
+        cmd_dump(dev, argparse.Namespace(out=None))
+        sys.exit("BLOCKED: tapping the header did not open the account "
+                 "switcher — see dump (IG build may differ)")
+
+    # tap the target account row in the sheet
+    row = find_box(dev, want, ymin=900)
+    if not row:
         cmd_dump(dev, argparse.Namespace(out=None))
         sys.exit(f"BLOCKED: switcher open but @{want} not listed")
+    tap_xy(dev, row[1], row[2])
     time.sleep(3)
-    print("switched — verify with: ig_acct_drive.py account")
-    return 0
+
+    # 'Instagram from Meta' interstitial → tap the target row again
+    if _wait_text(dev, ["use another profile", "instagram from meta"],
+                  timeout=6):
+        row = find_box(dev, want, ymin=900)
+        if row:
+            tap_xy(dev, row[1], row[2])
+
+    # session restore — poll for outcome
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        txt = screen_text(dev)
+        if any(m in txt for m in LOGIN_MARKERS) and "log in" in txt:
+            sys.exit("SESSION_DEAD: @{0} needs a fresh login (password/2FA) "
+                     "— human gate, credentials are never typed".format(want))
+        top = find_box(dev, want, ymax=260)
+        if top:
+            print(f"switched — @{want} is now the active account")
+            return 0
+        if "checkpoint" in txt or "verify" in txt or "suspicious" in txt:
+            sys.exit(f"CHECKPOINT during switch — markers on screen: {txt[:200]}")
+        time.sleep(2)
+    sys.exit("TIMEOUT: switch did not settle — run `dump` to see where IG "
+             "landed (possible silent revert to previous account)")
 
 
 def cmd_convert_pro(dev, args):
