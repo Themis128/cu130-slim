@@ -58,6 +58,7 @@ material, OAuth client credentials for social platforms):
 | TikTok | `TIKTOK_DEV_PASSWORD`, `TIKTOK_*` client creds |
 | X/Twitter | `TWITTER_*`/`X_*` password + TOTP (`TWITTER_TOTP_SECRET`) + OAuth |
 | Google (brand acct) | `GOOGLE_*` passwords/app passwords used for platform login |
+| Store-only session material | `FB_USER_TOKEN`, `LINKEDIN_MEMBER_DP_TOKEN`, `MESSENGER_VERIFY_TOKEN`, `SKOOL_PASSWORD`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`, `TWITTER_API_SECRET` — live in the store only, never mirrored to `.env` (tracked as `KNOWN_STORE_ONLY_KEYS` in cred_audit.py) |
 
 Infra secrets (DB passwords, API keys, broker creds) stay in Infisical —
 the store's env-fallback still resolves them, but they are NOT platform
@@ -81,7 +82,12 @@ login creds and are out of scope for this rule.
 ## Workflow: rotate/store a platform credential
 
 ```bash
-# 1. Write via the platform (ONLY path) — value via stdin, never argv/history
+# THE write tool — store write + mirror realign + hash verify in one step.
+# Value via getpass/stdin, NEVER argv (shell history leaks secrets).
+python3 .devin/skills/platform-cred-store-ops/scripts/cred_set.py INSTAGRAM_PASSWORD
+python3 .devin/skills/platform-cred-store-ops/scripts/cred_set.py INSTAGRAM_PASSWORD --value-stdin --desc "rotation 2026-11-22"
+
+# Manual equivalent (what cred_set.py does internally):
 python3 - <<'EOF'
 import sys; sys.path.insert(0, '.devin/skills/_lib')
 from skill_http import set_secret
@@ -90,13 +96,13 @@ set_secret("INSTAGRAM_PASSWORD", getpass.getpass("new value: "),
            "Meta IG password rotation 2026-11-22")
 EOF
 
-# 2. Audit drift across store + both .env mirrors
+# Audit drift across store + both .env mirrors
 python3 .devin/skills/platform-cred-store-ops/scripts/cred_audit.py
 
-# 3. If host mirrors diverge, align them to the store value
+# If host mirrors diverge outside a cred_set run, align them to the store
 python3 .devin/skills/platform-cred-store-ops/scripts/cred_audit.py --fix-mirror
 
-# 4. Consumers pick it up:
+# Consumers pick it up:
 #    - in-app: next secret_store.get() call (no restart needed)
 #    - containers: env_file vars need recreate — deploy-watch or
 #      `compose up -d --force-recreate <svc>` if the key is env-injected
