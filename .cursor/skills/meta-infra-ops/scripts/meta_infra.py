@@ -17,9 +17,9 @@ import asyncio
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -148,6 +148,7 @@ def chain(tok):
 async def _all_tokens():
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from app.core.security import decrypt_token
     from app.models.social_account import SocialAccount
     e = create_async_engine(os.environ["DATABASE_URL"])

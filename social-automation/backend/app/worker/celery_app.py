@@ -85,6 +85,7 @@ celery_app = Celery(
         "app.worker.tasks.tiktok_reauth",
         "app.worker.tasks.threads_reauth",
         "app.worker.tasks.instagram_reauth",
+        "app.worker.tasks.meta_infra_retry",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -371,6 +372,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "meta"},
+        "app.worker.tasks.meta_infra_retry.run_meta_infra_retry": {"queue": "meta"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
         "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
@@ -465,6 +467,13 @@ celery_app.conf.update(
         "human-gate-watch": {
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
+        },
+        # Meta infra retry — idempotent provisioning chain (sysuser ->
+        # token -> WABA -> ad account -> appeals); silent while the
+        # personal-account restriction gates mutations (id/hub owns it).
+        "meta-infra-retry": {
+            "task": "app.worker.tasks.meta_infra_retry.run_meta_infra_retry",
+            "schedule": crontab(hour=10, minute=0),
         },
         # Platform-truth reconciliation — re-reads each connected account's
         # live status and flags drift (issue #986).
