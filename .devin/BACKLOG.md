@@ -4556,3 +4556,21 @@ assistant chat for the reply.
   until daily reset. slack-github-notify's cancels are the same documented
   pending-collapse — by design.
 - Queue at close: #2494 #2493 #2488 #2484 — all armed, zero failures.
+
+## 2026-11-22c — REELS lane durable + env parity closed (Devin)
+
+- `media_type=VIDEO` rejected on graph.instagram.com (subcode 2207067) —
+  fixed to REELS for Business Login host (#2494, merged `12105588`).
+  Live-verified: reel `18139763452693001` →
+  https://www.instagram.com/reel/DgBkbsNEm6E/ (200).
+- env_parity_check root-vs-standalone reconciled: synced 5 diverged keys
+  (POSTGRES_USER/PASSWORD — live DB runs on standalone creds; DMR_MODEL 4B
+  interim; NTFY_ALERT_TOKEN; X_WEB_FALLBACK_ENABLED) + added 7
+  standalone-only keys to root `.env`. Tool now exits 0.
+- stack-image-sync pull stall fixed: PULL_TIMEOUT 900→2700 (home-ops
+  `9e763ea`) — comfyui layer exceeded 900s and partial layers restart,
+  making the stall permanent.
+- Remaining: social-api/frontend/comfyui images converge on next sync
+  pass; durable REELS code reaches workers when post-#2494 image builds.
+- Still open: dead-CDP browser fallback (`Failed to fetch`) and instagrapi
+  DNS transport — graph lane covers publishing; fallbacks stay degraded.
