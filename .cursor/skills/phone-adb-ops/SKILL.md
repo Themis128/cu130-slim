@@ -1,14 +1,16 @@
 # phone-adb-ops
 
-Galaxy S22+ (SM-S906B) ADB access — two lanes, one entrypoint:
-`scripts/phone_adb.py` (mirrored under `.cursor/skills/`).
+Galaxy S22+ (SM-S906B) ADB access — three lanes, entrypoints
+`scripts/phone_adb.py` (tcpip/USB) + `scripts/adb_wireless.py`
+(Android 11+ TLS wireless debugging) — mirrored under `.cursor/skills/`.
 
-## The two lanes
+## The lanes
 
 | Lane | Transport | adb binary | Serial |
 |---|---|---|---|
 | `usb` | USB-C cable | **Windows** `adb.exe` (WSL2 cannot see USB) | `RFCTA0AEKZP` |
-| `net` | Tailscale wireless ADB | WSL `adb` (or same adb.exe) | `100.84.31.85:5555` |
+| `net` | Tailscale wireless ADB (`adb tcpip 5555`) | WSL `adb` (or same adb.exe) | `100.84.31.85:5555` |
+| `tls` | Developer-options **Wireless debugging** (mDNS TLS, rotating port) | WSL `adb` | discovered per-session, e.g. `192.168.1.77:46439` |
 
 **WSL2 has no USB passthrough** — the Linux `adb` never sees the cable.
 Always route USB serials through the Windows platform-tools:
@@ -19,7 +21,28 @@ Always route USB serials through the Windows platform-tools:
 
 (`phone_adb.py` auto-detects it; `PHONE_ADB_EXE` overrides.)
 
-## Usage
+## TLS wireless-debugging lane (`adb_wireless.py`)
+
+When the user toggles **Developer options → Wireless debugging** (or the
+phone reboots), adbd stops listening on `:5555` and only speaks TLS on a
+random mDNS port that changes every toggle. `phone_adb.py`'s `net` lane
+goes dark; use:
+
+```bash
+W=.devin/skills/phone-adb-ops/scripts/adb_wireless.py
+python3 $W status       # live devices + which lane is up + mDNS endpoints
+python3 $W discover     # _adb-tls-pairing / _adb-tls-connect IP:port list
+python3 $W connect      # discover → adb connect (auto)
+python3 $W pair --code 123456   # first-time pair; --auto scrapes the dialog
+```
+
+- Pairing is one-time per host key; after `adb pair` succeeds, `connect`
+  works until the toggle flips or keys rotate.
+- The connect port rotates — never hardcode it; always `discover`/`connect`.
+- mDNS needs same L2 subnet (LAN), NOT tailnet — use LAN IP endpoints.
+- Legacy `:5555` and TLS can coexist; `status` reports which is live.
+
+## Usage (`phone_adb.py`)
 
 ```bash
 S=.devin/skills/phone-adb-ops/scripts/phone_adb.py
