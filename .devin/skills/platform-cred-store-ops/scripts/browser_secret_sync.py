@@ -52,6 +52,15 @@ CSV_MAP = [
 COOKIE_SOURCES = [
     ("/mnt/c/Users/tbaltzakis/x_cookies.json", "x.com"),
     ("X_WEB_COOKIES_JSON", "x.com"),
+    # Meta session jars — populated by meta_cookie_sync.py --export --store
+    # once a live IG/FB login exists in debug Chrome. IG first: it is the
+    # auth root for Threads.
+    ("/mnt/c/Users/tbaltzakis/meta_cookies.json", "instagram.com"),
+    ("IG_COOKIES_JSON", "instagram.com"),
+    ("/mnt/c/Users/tbaltzakis/meta_cookies.json", "facebook.com"),
+    ("FB_COOKIES_JSON", "facebook.com"),
+    ("/mnt/c/Users/tbaltzakis/meta_cookies.json", "threads.net"),
+    ("THREADS_COOKIES_JSON", "threads.net"),
 ]
 
 
@@ -137,6 +146,11 @@ def inject_cookies(env: dict) -> int:
             cookies = json.loads(raw)
         except Exception:
             continue
+        # meta_cookies.json is nested {domain: {name: value}} — unwrap the
+        # jar for this source's domain when present.
+        if isinstance(cookies, dict) and domain in cookies \
+                and isinstance(cookies[domain], dict):
+            cookies = cookies[domain]
         items = []
         for k, v in cookies.items():
             if isinstance(v, dict):
