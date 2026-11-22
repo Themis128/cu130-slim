@@ -75,9 +75,10 @@ def probe_stdio(spec: dict) -> tuple[bool, str]:
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ]
     try:
+        # Do NOT close stdin — mcp-remote-style proxies exit on stdin EOF
+        # before answering. Keep it open until we've read the response.
         proc.stdin.write("\n".join(json.dumps(m) for m in msgs) + "\n")
         proc.stdin.flush()
-        proc.stdin.close()
     except Exception as e:
         proc.kill()
         return False, f"stdin write failed: {e}"

@@ -77,10 +77,27 @@ there, not in ad-hoc scripts.
 | linkedin-ads | stdio (uvx) | ✅ 11 tools |
 | nextcloud | http :9231 | ✅ alive |
 | deepwiki | http | ✅ alive |
-| linkedin | http :9227 | ⚠️ container up, port not host-published (in-stack only via `stack-ops`) |
-| airbyte | http :9228 | ⚠️ same — in-stack only |
-| playwright | stdio (docker run) | slow first launch (image pull) — probe may time out, not broken |
-| slack, slack-cloudless, polar, cloudflare-api, cloudflare-docs | mcp-remote OAuth | needs one interactive auth each |
+| linkedin | http :9227 | ✅ alive (stack-ops publishes the socat forward) |
+| airbyte | http :9228 | ✅ alive (stack-ops socat forward) |
+| playwright | stdio (docker run) | ✅ 25 tools — needs `.playwright-data/pw-mcp-config.json` + `init-script.js` (gitignored; restore from git history `a94ff269f` if the dir is wiped) |
+| slack, slack-cloudless | mcp-remote OAuth | ✅ 27 tools each — tokens cached in `~/.mcp-auth/<workspace>/` |
+| polar | mcp-remote OAuth | ✅ 5 tools |
+| cloudflare-api | mcp-remote OAuth | ✅ 5 tools |
+| cloudflare-docs | mcp-remote OAuth | ✅ 2 tools |
+
+**20/20 healthy** as of 2026-11-22. Two probe gotchas learned the hard way:
+mcp-remote proxies take ~20-75s warmup (OAuth discovery + token refresh),
+and they **exit on stdin EOF** — the probe keeps stdin open; MCP clients
+must too.
+
+### If an OAuth token ever expires
+
+mcp-remote re-opens the browser automatically on next launch (refresh-token
+failure → interactive consent). For unattended re-auth, the proven pattern
+(github.com/Lifecycle-Innovations-Limited/claude-ops `ops-mcp-reauth.py`):
+spawn the wrapper, scrape the `authorize?` URL from stderr, drive consent in
+the :9229 CDP Chrome, mcp-remote writes `tokens.json` itself. mcp-remote also
+supports `--device-code` (RFC 8628) for hosts without a browser.
 
 ## Fallback when MCP is down
 
