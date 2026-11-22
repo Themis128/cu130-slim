@@ -819,11 +819,26 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **`browser_secret_sync.py`** (platform-cred-store-ops/scripts):
   regenerates `C:\Users\tbaltzakis\Downloads\browser-passwords-import.csv`
   from .env platform-cred keys (8 social rows), `--cookies` injects
-  .env-held session cookies (X_WEB_COOKIES_JSON → 14 cookies) into debug
-  Chrome :9229 via CDP Network.setCookie. `--check` = drift report.
-  CSV import into Chrome/Edge password managers remains a manual
-  file-picker step (OS-encrypted stores have no API); run sync after any
-  `cred_set.py` rotation, then re-import.
+  session cookies into debug Chrome :9229 via CDP Network.setCookie.
+  `--check` = drift report. CSV import into Chrome/Edge password
+  managers remains a manual file-picker step (OS-encrypted stores have
+  no API); run sync after any `cred_set.py` rotation, then re-import.
+- **`browser_auth_probe.py`** (same dir): battle-tests REAL auth state
+  on debug Chrome :9229 — classifies each platform tab
+  AUTHENTICATED / LOGIN-WALL / PROFILE-PICKER / CHECKPOINT from visible
+  text (cookie presence ≠ logged in). `--click-continue` attempts the
+  one-tap picker. Run with `/home/tbaltzakis/.venv-igreset/bin/python`.
+- **2026-11-22 battle-test verdicts**: X = AUTHENTICATED (fresh cookies
+  from `C:\Users\tbaltzakis\x_cookies.json` — `.env X_WEB_COOKIES_JSON`
+  was the STALE pre-rotation session; store/envs now carry the fresh
+  JSON). IG + FB profile pickers are ZOMBIE sessions — Continue never
+  authenticates, only fresh password+2FA login revives them. Bluesky:
+  `BSKY_MAIN_PASSWORD` works ONLY with the email identifier
+  (baltzakis.themis@gmail.com), not the handle; `BSKY_CREDENTIALS` app
+  password was stale → rotated to `sa-rot-1795383255` via
+  createAppPassword (app-pass JWTs can't self-manage — need main pw).
+  cred_audit PLATFORM_CRED_KEYS now covers X_WEB_CT0/X_WEB_COOKIES_JSON/
+  BSKY_* — all 23 keys converged store↔root↔standalone.
 - **TikTok**: sidecar session live (@cloudless.gr, tiktok.com/setting
   verified). `TIKTOK_DEV_EMAIL/PASSWORD` is the best-known account cred —
   unverified as the *account* password (TikTok may be Google-SSO).
