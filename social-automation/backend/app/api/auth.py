@@ -320,11 +320,13 @@ PLATFORM_SCOPES: dict[str, list[str]] = {
         "read_insights",
         "instagram_basic",
         "instagram_manage_insights",
-        "instagram_content_publish", "instagram_manage_messages",
+        "instagram_content_publish",
+        "instagram_manage_messages",
     ],
     "instagram": [
         "instagram_basic",
-        "instagram_content_publish", "instagram_manage_messages",
+        "instagram_content_publish",
+        "instagram_manage_messages",
         "pages_show_list",
         "pages_read_engagement",
         "pages_manage_posts",
@@ -1594,7 +1596,8 @@ async def oauth_callback(
                         "business_management",
                         "instagram_basic",
                         "instagram_manage_insights",
-                        "instagram_content_publish", "instagram_manage_messages",
+                        "instagram_content_publish",
+                        "instagram_manage_messages",
                     ]
 
             # If this was a WhatsApp connect, fetch WABA and phone numbers

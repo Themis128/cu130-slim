@@ -71,13 +71,17 @@ async def _fb_token():
     S = async_sessionmaker(engine)
     async with S() as db:
         rows = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform.in_(["facebook", "whatsapp"]),
-                    SocialAccount.status == "active",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform.in_(["facebook", "whatsapp"]),
+                        SocialAccount.status == "active",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     candidates = []
     for a in rows:
         try:
@@ -104,11 +108,9 @@ def _status(token):
     bms = _g("me/businesses", token, params={"fields": "id,name"})
     for b in bms.get("data", []):
         print("BM:", b.get("name"), b.get("id"))
-        accts = _g(f"{b['id']}/owned_ad_accounts", token,
-                   params={"fields": "account_id,name,account_status"})
+        accts = _g(f"{b['id']}/owned_ad_accounts", token, params={"fields": "account_id,name,account_status"})
         for a in accts.get("data", []):
-            print("  ad acct:", a.get("name"), a.get("account_id"),
-                  "status:", a.get("account_status"))
+            print("  ad acct:", a.get("name"), a.get("account_id"), "status:", a.get("account_status"))
     return data
 
 
@@ -123,11 +125,9 @@ def _appeal(token, kind, ids):
     for bm in bms:
         ep = "ad_review_requests" if kind == "accounts" else "bm_review_requests"
         key = "ad_account_ids" if kind == "accounts" else "business_manager_ids"
-        resp = _g(f"{bm['id']}/{ep}", token, method="POST",
-                  data={key: json.dumps(ids), "app": app_id})
+        resp = _g(f"{bm['id']}/{ep}", token, method="POST", data={key: json.dumps(ids), "app": app_id})
         print(f"BM {bm['name']} ({bm['id']}):", json.dumps(resp, indent=1)[:1200])
-        _log({"action": kind, "bm": bm["id"], "ids": ids,
-              "app": app_id, "result": resp})
+        _log({"action": kind, "bm": bm["id"], "ids": ids, "app": app_id, "result": resp})
     return 0
 
 
