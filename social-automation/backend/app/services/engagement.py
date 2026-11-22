@@ -216,13 +216,20 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     """Score + queue an engagement action (respecting daily caps)."""
     from sqlalchemy import select
 
-    q_ok, q_seo = post_quality_gate(candidate.post_text, candidate.platform)
-    if not q_ok:
-        return {"skipped": f"quality gate seo={q_seo} (min {min_engage_score()})"}
+    has_text = bool((candidate.post_text or "").strip())
+    if has_text:
+        q_ok, q_seo = post_quality_gate(candidate.post_text, candidate.platform)
+        if not q_ok:
+            return {"skipped": f"quality gate seo={q_seo} (min {min_engage_score()})"}
 
     plan = score_candidate(candidate)
     if plan.action is None:
         return {"skipped": plan.reason, "kill_switched": plan.kill_switched}
+    # Textless posts (video/image-only) can't ground a genuine 3C comment —
+    # cap them at like/repost so a generic draft never ships.
+    if not has_text and plan.action == "comment":
+        plan.action = "like"
+        plan.reason += " (textless → like)"
 
     # per-platform daily cap check — count today's actions
     from datetime import UTC, datetime, timedelta
