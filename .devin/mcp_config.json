@@ -59,17 +59,15 @@
     "socialauto": {
       "command": "docker",
       "args": [
-        "compose",
         "exec",
-        "-T",
+        "-i",
         "-e",
         "SOCIALAUTO_URL=http://social-api:8000",
         "social-api",
         "python3",
         "-m",
         "app.mcp.server"
-      ],
-      "cwd": "/home/tbaltzakis/cu130-slim"
+      ]
     },
     "tiktok-console": {
       "command": "python3",
