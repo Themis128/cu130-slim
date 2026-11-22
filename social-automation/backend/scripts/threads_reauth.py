@@ -330,7 +330,15 @@ def _targets_refreshed(targets: list) -> tuple[bool, str]:
 
 
 def main() -> int:
-    if _throttled():
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--verify-only", action="store_true",
+                    help="skip drive; just report whether flagged threads "
+                         "accounts refreshed (used by threads_cdp_drive.py)")
+    args = ap.parse_args()
+
+    if _throttled() and not args.verify_only:
         print("throttled — recent attempt or max consecutive fails")
         return 0
     try:
@@ -344,6 +352,11 @@ def main() -> int:
     if not targets:
         print("no threads account needs re-auth")
         return 0
+
+    if args.verify_only:
+        ok, detail = _targets_refreshed(targets)
+        print(f"verify-only: {detail}")
+        return 0 if ok else 4
 
     print(f"threads re-auth needed for {[t['username'] for t in targets]} — probing bridge session")
     ident = _bridge_identity()
