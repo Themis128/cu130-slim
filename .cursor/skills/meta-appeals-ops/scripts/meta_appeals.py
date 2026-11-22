@@ -56,6 +56,11 @@ def _log(entry):
 
 
 async def _fb_token():
+    """First active token whose debug_token reports type USER.
+
+    The Appeals API rejects Page tokens; WhatsApp/facebook OAuth rows hold
+    the user-grant token (business_management rides the whatsapp flow).
+    """
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -65,17 +70,30 @@ async def _fb_token():
     engine = create_async_engine(os.environ["DATABASE_URL"])
     S = async_sessionmaker(engine)
     async with S() as db:
-        a = (
+        rows = (
             await db.execute(
                 select(SocialAccount).where(
-                    SocialAccount.platform == "facebook",
+                    SocialAccount.platform.in_(["facebook", "whatsapp"]),
                     SocialAccount.status == "active",
                 )
             )
-        ).scalars().first()
-        if not a:
-            raise SystemExit("no active facebook account row")
-        return decrypt_token(a.access_token_enc)
+        ).scalars().all()
+    candidates = []
+    for a in rows:
+        try:
+            candidates.append((a.platform, a.username, decrypt_token(a.access_token_enc)))
+        except Exception:
+            continue
+    for platform, username, token in candidates:
+        t = _g("debug_token", token, params={"input_token": token}).get("data", {}).get("type")
+        if t == "USER":
+            print(f"token: USER via {platform}/{username}")
+            return token
+    if candidates:
+        platform, username, token = candidates[0]
+        print(f"WARN: no USER token; using {platform}/{username} (appeals may 400)")
+        return token
+    raise SystemExit("no active facebook/whatsapp account row")
 
 
 def _status(token):
@@ -106,7 +124,7 @@ def _appeal(token, kind, ids):
         ep = "ad_review_requests" if kind == "accounts" else "bm_review_requests"
         key = "ad_account_ids" if kind == "accounts" else "business_manager_ids"
         resp = _g(f"{bm['id']}/{ep}", token, method="POST",
-                  data={key: ids, "app": app_id})
+                  data={key: json.dumps(ids), "app": app_id})
         print(f"BM {bm['name']} ({bm['id']}):", json.dumps(resp, indent=1)[:1200])
         _log({"action": kind, "bm": bm["id"], "ids": ids,
               "app": app_id, "result": resp})
