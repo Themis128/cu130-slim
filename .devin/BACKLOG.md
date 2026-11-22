@@ -4689,3 +4689,20 @@ Lessons:
 - [ ] 2026-11-23 human gates — both confirmed live-blocked, not automatable today:
   - **LinkedIn debug-browser session DEAD**: :9229 tab `linkedin.com/login` → `ERR_TOO_MANY_REDIRECTS`, `/feed/` nav → **HTTP 429**. Daily credential-login cap already consumed + Cloudflare challenge; auto-heal correctly stopped. Resume path: ONE manual login on the Windows debug Chrome (visible window, profile `chrome-debug-profile`) → then `linkedin-portal-gates-ops/member_dp_probe.py` verifies `developers.linkedin.com` state. Do NOT retry credential login until the cap resets (~24h).
   - **IG @cloudless.gr professional conversion**: account exists in Meta Accounts Center (6 profiles: t_baltzakis + cloudless.gr IG/Threads pairs under baltzakis.themis@gmail.com). IG app has no reachable "switch accounts" entry while `t_baltzakis` is active; phone ended on an SMS "Verifying your number" screen then launcher — treat as human gate: user opens IG → switches to @cloudless.gr → Profile → Edit profile → Account type → switch to Professional (Business). Then Graph `/media`+`/insights` on IG user `17841463022505300` should clear `(#10)`; legacy row `28747382798219804` reconciles via `account_truth.py`.
+- [x] 2026-11-23 IG @cloudless.gr — RESOLVED differently than diagnosed: the
+  in-app account switch SUCCEEDED via the real switcher (profile header
+  username tap → account sheet → "Instagram from Meta" picker → target row;
+  codified in ig-account-switch-ops `switch`). @cloudless.gr is ALREADY
+  professional/business — "Information Technology Company" category on
+  profile, and Graph `/media` on fb_onboarding row d2215106 returns real
+  media (IG user 17841436821573754, 112 media/16 followers — matches phone).
+  CORRECTION to earlier diagnosis: the (#10) on /insights is NOT
+  consumer-account — it's missing `instagram_manage_insights` scope /
+  Page-Publishing-Authorization on the app (same class as
+  instagram_content_publish). Remaining IG work: (a) grant
+  instagram_manage_insights in App Dashboard → Facebook Login for Business
+  → permissions, re-auth fb_onboarding token; (b) business_login row
+  38ddbd44 (IG user 28747382798219804, Instagram-Login surface) token is
+  DEAD (190 password-change) — re-auth via ig-business-login-ops
+  ig_emaillogin_session/ig2_oauth_drive; (c) reconcile which lane is
+  canonical via account_truth.py. Phone left on @cloudless.gr active.
