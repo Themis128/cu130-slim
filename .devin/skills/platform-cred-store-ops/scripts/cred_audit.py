@@ -82,6 +82,19 @@ PLATFORM_CRED_KEYS = [
     "GOOGLE_PASSWORD", "GOOGLE_APP_PASSWORD",
 ]
 
+# Store-only platform creds (verified present in the store 2026-11-22;
+# intentionally absent from host .env — listed so they aren't flagged as
+# unknown store-only keys, and so a future .env appearance gets audited).
+KNOWN_STORE_ONLY_KEYS = {
+    "FB_USER_TOKEN",
+    "LINKEDIN_MEMBER_DP_TOKEN",
+    "MESSENGER_VERIFY_TOKEN",
+    "SKOOL_PASSWORD",
+    "TWITTER_ACCESS_TOKEN",
+    "TWITTER_ACCESS_TOKEN_SECRET",
+    "TWITTER_API_SECRET",
+}
+
 ENV_FILES = {
     "root": MAIN / ".env",
     "standalone": MAIN / "deploy/socialauto-standalone/.env",
@@ -150,7 +163,13 @@ def main() -> int:
             pass
     extra = sorted(k for k in store_keys
                    if re.search(r"PASSWORD|TOTP|SECRET|TOKEN", k)
-                   and k not in keys and k not in PLATFORM_CRED_KEYS)
+                   and k not in keys and k not in PLATFORM_CRED_KEYS
+                   and k not in KNOWN_STORE_ONLY_KEYS)
+
+    # Known store-only keys: confirm they still exist in the store.
+    missing_store_only = sorted(
+        k for k in KNOWN_STORE_ONLY_KEYS
+        if k not in store_keys and k not in present)
 
     bad = 0
     for key, status, h in rows:
@@ -162,6 +181,11 @@ def main() -> int:
         print("\nstore-only secret-looking keys (not in audit inventory):")
         for k in extra[:30]:
             print(f"  ? {k}")
+    if missing_store_only:
+        bad += len(missing_store_only)
+        print("\n! known store-only keys missing from store AND env:")
+        for k in missing_store_only:
+            print(f"  ! {k}")
 
     if fix:
         fixed = 0
