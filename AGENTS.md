@@ -839,6 +839,16 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
   createAppPassword (app-pass JWTs can't self-manage — need main pw).
   cred_audit PLATFORM_CRED_KEYS now covers X_WEB_CT0/X_WEB_COOKIES_JSON/
   BSKY_* — all 23 keys converged store↔root↔standalone.
+- **2026-11-22 phone-lane breakthrough**: `INSTAGRAM_PASSWORD` is
+  **VALID** (shared Meta account password — phone app login as
+  `t_baltzakis` succeeded; earlier instagrapi failures were lane-side,
+  not bad-credentials). Phone now holds live sessions: FB personal
+  (@themis.baltzakis), IG t_baltzakis, IG **cloudless.gr** (one-tap from
+  picker — its Accounts Center row shows "Instagram・Locked" but the
+  on-device session authenticated fine). Samsung Pass IG passkey is
+  dead (device-bound); Google Password Manager entry untested.
+  `ig_phone_passkey.py` automates this lane. Meta account password was
+  "Updated 3 hours ago" per Security Checkup — explains token churn.
 - **TikTok**: sidecar session live (@cloudless.gr, tiktok.com/setting
   verified). `TIKTOK_DEV_EMAIL/PASSWORD` is the best-known account cred —
   unverified as the *account* password (TikTok may be Google-SSO).
