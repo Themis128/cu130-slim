@@ -1521,7 +1521,14 @@ async def oauth_callback(
                     avatar_url = ig_account.get("profile_picture_url")
                     access_token = page_token or long_lived_token
                     platform = "instagram"
-                    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_contents", "instagram_manage_messages", "pages_show_list", "pages_read_engagement"]
+                    scopes = [
+                        "instagram_basic",
+                        "instagram_content_publish",
+                        "instagram_manage_contents",
+                        "instagram_manage_messages",
+                        "pages_show_list",
+                        "pages_read_engagement",
+                    ]
                     fb_pages = []
                     fb_info = {"id": user_info["id"]}
                 else:
