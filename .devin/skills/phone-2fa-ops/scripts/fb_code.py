@@ -54,7 +54,13 @@ def _pick_serial(fallback: str) -> str:
 
 SER = _pick_serial("192.168.1.77:5555")
 CDP = os.environ.get("CDP_URL", "http://100.83.120.93:9223")
-CODE_RE = re.compile(r"Use\s+(\d{4,8})\s+for two-factor")
+# Meta SMS formats observed 2026-11-22: "231702 is your Facebook code.
+# Don't share it." / "894568 is your Instagram code." — plus the older
+# "Use NNNNNN for two-factor authentication" phrasing.
+CODE_RE = re.compile(
+    r"Use\s+(\d{4,8})\s+for two-factor|(\d{4,8})\s+is your\s+"
+    r"(?:Facebook|Instagram|Meta|WhatsApp)\s+code"
+)
 
 
 def sh(*a: str) -> str:
@@ -70,7 +76,7 @@ def wake() -> None:
 
 def codes() -> list[str]:
     out = sh("dumpsys notification --noredact")
-    return CODE_RE.findall(out)
+    return [next(g for g in m if g) for m in CODE_RE.findall(out)]
 
 
 def latest_code(timeout_s: int = 0) -> str | None:
