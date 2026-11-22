@@ -1,0 +1,67 @@
+name: PR autopilot — arm on open, merge on green
+
+# Event-driven companion to pr-sweep (2x/hr) + auto-merge (15-min poll):
+# closes the two residual waits in the merge treadmill.
+#
+#   1. pull_request opened/ready/reopened → arm squash auto-merge instantly
+#      (previously up to 30 min until the scheduled sweep armed it).
+#   2. Required-check workflow completes → merge any open PR GitHub already
+#      reports CLEAN instead of waiting for the next poll tick.
+#
+# Merge queue itself is unavailable (user-owned repo — org-only feature),
+# so this workflow is the event-driven equivalent: required checks are the
+# only gate; strict:false means BEHIND does not block.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+  workflow_run:
+    workflows:
+      - "Docker Compose Validation"
+      - "Secret Scan"
+      - "Ruff Lint"
+      - "Social Automation Backend CI"
+      - "Full Stack Integration Tests"
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pr-autopilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Arm auto-merge on newly opened PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=${{ github.event.pull_request.number }}
+          gh pr merge "$n" --squash --delete-branch --auto \
+            && echo "armed #$n" || echo "arm skipped for #$n (may already be armed)"
+
+      - name: Merge any CLEAN PRs after a required-check run completes
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          merged=0
+          for n in $(gh pr list --state open --json number --jq '.[].number'); do
+            state=$(gh pr view "$n" --json mergeStateStatus --jq .mergeStateStatus || echo UNKNOWN)
+            if [ "$state" = "CLEAN" ]; then
+              gh pr merge "$n" --squash --delete-branch \
+                && { echo "merged #$n"; merged=$((merged+1)); } \
+                || echo "merge attempt failed for #$n"
+            else
+              # keep it armed so GitHub fires it the moment it turns CLEAN
+              gh pr merge "$n" --squash --delete-branch --auto >/dev/null 2>&1 || true
+              echo "#$n ($state) — armed, waiting"
+            fi
+          done
+          echo "merged=$merged"
