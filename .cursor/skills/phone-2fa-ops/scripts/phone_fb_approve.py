@@ -146,14 +146,19 @@ def device_text(xml):
     if m:
         return m.group(1)
     # Mobile-web pushes phrase the device differently (or omit the
-    # "Login attempt from" prefix). Grab the text nodes surrounding the
-    # approval phrasing — the allowlist regex then searches the card
-    # copy itself for linux|wsl|windows|chrome|edge|docker.
+    # "Login attempt from" prefix). Look for a device-shaped node —
+    # "attempt from <os>", "on <browser>", or any node that itself
+    # matches the allowlist device regex — so the allowlist search
+    # lands on the device copy, never on the card title.
     texts = re.findall(r'(?:text|content-desc)="([^"]{2,120})"', xml)
-    for i, t in enumerate(texts):
-        if re.search(r"trying to log|log ?in attempt|was this you|"
-                     r"approve.*log|new login", t, re.I):
-            return " | ".join(texts[max(0, i - 2):i + 4])
+    for t in texts:
+        if re.search(r"attempt from|log ?in from|login on|logged in on", t, re.I):
+            return t
+    for t in texts:
+        if ALLOW_RE.search(t) and not re.search(
+            r"trying to log|let us know|was this you|approve|notification",
+            t, re.I):
+            return t
     return ""
 
 
