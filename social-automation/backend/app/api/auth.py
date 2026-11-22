@@ -1524,7 +1524,7 @@ async def oauth_callback(
                     scopes = [
                         "instagram_basic",
                         "instagram_content_publish",
-                        
+
                         "instagram_manage_messages",
                         "pages_show_list",
                         "pages_read_engagement",
