@@ -1,0 +1,129 @@
+---
+name: platform-cred-store-ops
+description: Strategy + tooling for social-platform login credentials managed ONLY through the SocialAuto secret store. Covers the canonical write path (POST /api/v1/secrets/{key}), the read path (secret_store.get / API), the platform-cred key inventory, the .env-as-mirror rule, and the drift audit (scripts/cred_audit.py). Use when rotating any platform password/TOTP/session credential, when .env files diverge on platform creds, or when an agent needs to store a new social login secret.
+---
+
+# Platform credential store ops
+
+**Rule (user directive 2026-11-22): credentials for social-media platform
+logins are written ONLY via SocialAuto — never by hand-editing `.env`
+files.** `.env` files are read-only mirrors produced by the store.
+
+## Why (the incident that created this)
+
+2026-11-22: Meta password changed on the phone. Two `.env` files carried
+*different* `FACEBOOK_PASSWORD`/`INSTAGRAM_PASSWORD` values — neither
+matched the new password. Agents hand-editing `.env` produced silent
+divergence; `sidecar-relogin.py` (reads root `.env`) and containers
+(read `deploy/socialauto-standalone/.env` via `env_file:`) used different
+credentials. Instagram login failed with both stored values.
+
+## Architecture
+
+```
+WRITE (only path)
+  agent/human → POST /api/v1/secrets/{KEY}  (Bearer admin token)
+                     │
+                     ▼
+        app/services/secret_store.py :: SecretStore.set()
+                     │
+        ┌────────────┼─────────────┐
+        ▼            ▼             ▼
+   Cloudflare D1   Postgres    /app/.env (container)
+   social_secrets  social_secrets   best-effort sync
+        │            │             │
+        └──── read order: D1 → PG → env ────┘
+                     │
+        GET /api/v1/secrets/{KEY} → raw value
+```
+
+- `POST`/`PUT /api/v1/secrets/{key}` — upsert; response `sources` shows
+  which stores accepted the write.
+- `GET /api/v1/secrets` — list keys (values masked).
+- `GET /api/v1/secrets/{key}` — raw value (admin auth required).
+- In-app code: `from app.services.secret_store import secret_store;
+  await secret_store.get(KEY)` — never `os.environ` for platform creds.
+- External scripts: `skill_http.get_secret(KEY)` / `set_secret(KEY, val)`
+  (`.devin/skills/_lib/skill_http.py`) — API first.
+
+## Platform-cred key inventory
+
+Keys that MUST go through the store (passwords, second factors, session
+material, OAuth client credentials for social platforms):
+
+| Platform | Keys |
+|---|---|
+| Meta/FB/IG/Threads/WA | `FACEBOOK_PASSWORD`, `INSTAGRAM_PASSWORD`, `META_TOTP_SECRET`, `META_TOTP_SECRET_IG`, `WHATSAPP_*` tokens, `FACEBOOK_*`/`INSTAGRAM_*` OAuth client id/secret |
+| LinkedIn | `LINKEDIN_PASSWORD`, `LINKEDIN_*` OAuth client creds, session blobs |
+| TikTok | `TIKTOK_DEV_PASSWORD`, `TIKTOK_*` client creds |
+| X/Twitter | `TWITTER_*`/`X_*` password + TOTP (`TWITTER_TOTP_SECRET`) + OAuth |
+| Google (brand acct) | `GOOGLE_*` passwords/app passwords used for platform login |
+
+Infra secrets (DB passwords, API keys, broker creds) stay in Infisical —
+the store's env-fallback still resolves them, but they are NOT platform
+login creds and are out of scope for this rule.
+
+## The .env mirror rule
+
+- `deploy/socialauto-standalone/.env` is what `env_file:` injects into
+  containers at **create** time — env changes need `compose up -d`
+  (recreate), never `docker restart`.
+- The store's `_sync_env_file` writes `/app/.env` **inside the container**
+  — that is the container's own copy, updated on every `set()`.
+- Host-side `.env` files (repo root + standalone) are bootstrap/mirror
+  copies for host-run scripts (`sidecar-relogin.py`, `ig_login.py`).
+  Hand-editing platform-cred keys there is FORBIDDEN — it recreates the
+  divergence this skill exists to kill.
+- Transitional reality: host scripts still read `.env` today. Until they
+  are rewired to the API, mirror writes must keep all host copies in
+  parity — use `cred_audit.py --fix-mirror` after any store write.
+
+## Workflow: rotate/store a platform credential
+
+```bash
+# 1. Write via the platform (ONLY path) — value via stdin, never argv/history
+python3 - <<'EOF'
+import sys; sys.path.insert(0, '.devin/skills/_lib')
+from skill_http import set_secret
+import getpass
+set_secret("INSTAGRAM_PASSWORD", getpass.getpass("new value: "),
+           "Meta IG password rotation 2026-11-22")
+EOF
+
+# 2. Audit drift across store + both .env mirrors
+python3 .devin/skills/platform-cred-store-ops/scripts/cred_audit.py
+
+# 3. If host mirrors diverge, align them to the store value
+python3 .devin/skills/platform-cred-store-ops/scripts/cred_audit.py --fix-mirror
+
+# 4. Consumers pick it up:
+#    - in-app: next secret_store.get() call (no restart needed)
+#    - containers: env_file vars need recreate — deploy-watch or
+#      `compose up -d --force-recreate <svc>` if the key is env-injected
+#    - host scripts: read .env on each run — immediate
+```
+
+## Audit tool
+
+`scripts/cred_audit.py` — compares every platform-cred key across:
+
+1. SocialAuto secret store (via `GET /api/v1/secrets/{key}`)
+2. repo-root `.env`
+3. `deploy/socialauto-standalone/.env`
+
+Reports per key: `OK` (all sources agree), `DIVERGED` (hashes differ —
+values never printed), `MISSING` (absent from a source). `--fix-mirror`
+copies the store value into any diverging host `.env` (store wins — it is
+canonical). Exit 1 on divergence.
+
+## Consumer migration status
+
+| Consumer | Reads | Status |
+|---|---|---|
+| in-app workers/api | `secret_store.get()` / env fallback | ✅ canonical already |
+| `sidecar-relogin.py` (home-ops) | root `.env` | ⏳ phase 2 — API-first rewrite |
+| `ig_login.py` | root `.env` | ⏳ phase 2 — API-first rewrite |
+| `instagram_reauth.py` | admin login + sidecar | ✅ no password needed (OAuth lane) |
+
+Phase 2 (tracked in BACKLOG): rewire host scripts to `get_secret()` with
+`.env` fallback so the store becomes the single read path everywhere.
