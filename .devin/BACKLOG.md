@@ -4593,3 +4593,20 @@ Lessons:
   `content query --uri content://sms/inbox` is reliable.
 - Suspended `baltzakis_themistoklis` IG: still suspended; deletion still
   human-gated. Now cosmetic — nothing depends on it.
+
+## 2026-11-22 — branch sweep + tailnet-watch-ops skill (Devin)
+
+- Landed orphaned post-merge commits: `docs/backlog-ig-suspension`
+  (IG swap / threads reauth resolution) and `fix/sidecar-tiktok-proxy-network`
+  1f2f8ab7 (engagement-browser joins `socialauto-standalone` with
+  `engagement-browser` + `browser-novnc` aliases).
+- Deleted 16 branches whose content is on master (8 `heal/*`, merged
+  feature branches, `feat/adb-wireless-lane`, `fix/ops-sweep-txn-hygiene`).
+  `fix/li-heal-new-login-form` 6371be61 was superseded by #2408.
+- Left alone (closed PRs with unique commits — not merged, owner to decide):
+  `feat/li-invite-outreach`, `feat/wa-unattended-reauth`,
+  `fix/ram-gate-recalibrate`, `fix/ig-account-resolver(-rebuilt)`.
+- New skill `tailnet-watch-ops` + `scripts/tw_status.sh` for the office-1
+  status check and daily digest ([tailnet-watch#5](https://github.com/Themis128/tailnet-watch/pull/5)).
+- [ ] After tailnet-watch#5 merges: `tw_status.sh deploy`, confirm next
+  08:00 run sends exactly one digest.
