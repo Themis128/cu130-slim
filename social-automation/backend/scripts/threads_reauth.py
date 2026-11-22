@@ -333,9 +333,9 @@ def main() -> int:
     import argparse
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--verify-only", action="store_true",
-                    help="skip drive; just report whether flagged threads "
-                         "accounts refreshed (used by threads_cdp_drive.py)")
+    ap.add_argument(
+        "--verify-only", action="store_true", help="skip drive; just report whether flagged threads accounts refreshed (used by threads_cdp_drive.py)"
+    )
     args = ap.parse_args()
 
     if _throttled() and not args.verify_only:

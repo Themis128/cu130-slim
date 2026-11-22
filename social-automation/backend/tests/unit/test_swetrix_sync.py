@@ -81,14 +81,11 @@ class TestSyncProject:
     @pytest.mark.asyncio
     async def test_upserts_daily_rows_and_breakdown_meta(self):
         series = [
-            {"timestamp": "2026-11-21T00:00:00+02:00", "visitors": 3, "pageviews": 7,
-             "session_duration": 12.5, "bounce_rate": 42.0},
-            {"timestamp": "2026-11-22T00:00:00+02:00", "visitors": 1, "pageviews": 2,
-             "session_duration": 0, "bounce_rate": 100.0},
+            {"timestamp": "2026-11-21T00:00:00+02:00", "visitors": 3, "pageviews": 7, "session_duration": 12.5, "bounce_rate": 42.0},
+            {"timestamp": "2026-11-22T00:00:00+02:00", "visitors": 1, "pageviews": 2, "session_duration": 0, "bounce_rate": 100.0},
             {"timestamp": "bad", "visitors": 9},
         ]
-        breakdown = {"page": [{"value": "/", "visitors": 1}], "country": [],
-                     "referrer": [], "utm_source": []}
+        breakdown = {"page": [{"value": "/", "visitors": 1}], "country": [], "referrer": [], "utm_source": []}
         db = _FakeDB()
         with (
             patch.object(swetrix_sync, "_timeseries", new=AsyncMock(return_value=series)),
@@ -106,16 +103,21 @@ class TestSyncProject:
     @pytest.mark.asyncio
     async def test_existing_row_is_updated_not_duplicated(self):
         existing = SimpleNamespace(
-            swetrix_pid="", visitors=0, pageviews=0, bounce_rate=0.0,
-            session_duration_sec=0.0, synced_at=None, meta={}, date=date(2026, 11, 21),
+            swetrix_pid="",
+            visitors=0,
+            pageviews=0,
+            bounce_rate=0.0,
+            session_duration_sec=0.0,
+            synced_at=None,
+            meta={},
+            date=date(2026, 11, 21),
         )
 
         class _DB(_FakeDB):
             async def execute(self, _stmt):
                 return _ScalarResult(existing)
 
-        series = [{"timestamp": "2026-11-21T00:00:00+02:00", "visitors": 5,
-                   "pageviews": 9, "session_duration": 3.0, "bounce_rate": 20.0}]
+        series = [{"timestamp": "2026-11-21T00:00:00+02:00", "visitors": 5, "pageviews": 9, "session_duration": 3.0, "bounce_rate": 20.0}]
         with (
             patch.object(swetrix_sync, "_timeseries", new=AsyncMock(return_value=series)),
             patch.object(swetrix_sync, "_breakdown", new=AsyncMock(return_value=[])),
@@ -142,7 +144,8 @@ class TestSyncAll:
     async def test_project_failure_does_not_abort_sweep(self):
         with patch.object(swetrix_sync, "settings", _settings()):
             with patch.object(
-                swetrix_sync, "sync_project",
+                swetrix_sync,
+                "sync_project",
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ):
                 out = await swetrix_sync.sync_all_swetrix(_FakeDB())

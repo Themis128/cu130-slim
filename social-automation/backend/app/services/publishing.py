@@ -958,9 +958,7 @@ async def publish_to_platform(
     # still image on a video-native platform is first converted to a
     # music-bed video — a silent image post is a broken asset there.
     if account.platform in _MUSIC_PLATFORMS:
-        media_paths, storage_paths = await _ensure_music_media(
-            post, db, account.platform, media_paths, storage_paths
-        )
+        media_paths, storage_paths = await _ensure_music_media(post, db, account.platform, media_paths, storage_paths)
         media_paths = await _apply_music_bed(post, db, media_paths)
 
     dispatch: dict[str, Any] = {
@@ -1177,14 +1175,38 @@ _MUSIC_MIX_CACHE_MAX = 64
 # by scripts/tag_music_moods.py). Untagged beds always stay in the pool.
 _MOOD_KEYWORDS = {
     "energetic": (
-        "launch", "launched", "breaking", "win", "won", "growth", "fast",
-        "deal", "black friday", "offer", "vs", "versus", "battle", "dropped",
-        "new release", "speed", "record",
+        "launch",
+        "launched",
+        "breaking",
+        "win",
+        "won",
+        "growth",
+        "fast",
+        "deal",
+        "black friday",
+        "offer",
+        "vs",
+        "versus",
+        "battle",
+        "dropped",
+        "new release",
+        "speed",
+        "record",
     ),
     "calm": (
-        "guide", "checklist", "walkthrough", "explained", "tutorial",
-        "deep dive", "audit", "analysis", "story", "lessons", "retrospective",
-        "how we", "why we",
+        "guide",
+        "checklist",
+        "walkthrough",
+        "explained",
+        "tutorial",
+        "deep dive",
+        "audit",
+        "analysis",
+        "story",
+        "lessons",
+        "retrospective",
+        "how we",
+        "why we",
     ),
 }
 
@@ -1223,11 +1245,7 @@ async def _auto_music_asset(post: Post, db: AsyncSession) -> MediaAsset | None:
         return None
     mood = _post_mood(getattr(post, "content_text", "") or "")
     if mood:
-        mood_beds = [
-            b
-            for b in beds
-            if ((getattr(b, "meta_data", None) or {}).get("music_mood") == mood)
-        ]
+        mood_beds = [b for b in beds if ((getattr(b, "meta_data", None) or {}).get("music_mood") == mood)]
         if mood_beds:
             beds = mood_beds
     idx = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16) % len(beds)
@@ -1431,11 +1449,7 @@ async def _apply_music_bed(post: Post, db: AsyncSession, media_paths: list[str])
     only attach to silent videos — a video that already carries audio
     (voiceover, pre-mixed/burned-in music) is left untouched. Mixed files
     are cached per (post, video, bed) so N platform targets mux once."""
-    video_idx = [
-        i
-        for i, p in enumerate(media_paths)
-        if p.lower().endswith(_MUXABLE_VIDEO_EXTS)
-    ]
+    video_idx = [i for i, p in enumerate(media_paths) if p.lower().endswith(_MUXABLE_VIDEO_EXTS)]
     if not video_idx:
         return media_paths
     music_path = await _resolve_music_path(post, db)
@@ -2906,12 +2920,7 @@ async def _instagram_video_public_url(
         assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))).scalars().all()
         meta_by_path = {a.storage_path: a for a in assets if a.storage_path}
         asset = meta_by_path.get(storage_path)
-        if (
-            asset is not None
-            and r2_base
-            and (asset.storage_backend or "").lower() == "r2"
-            and not storage_path.startswith("/")
-        ):
+        if asset is not None and r2_base and (asset.storage_backend or "").lower() == "r2" and not storage_path.startswith("/"):
             return f"{r2_base}/{storage_path}"
 
     return _media_public_url(storage_path)
@@ -3266,11 +3275,7 @@ async def _publish_instagram_via_browser(
         return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
 
     page = next(
-        (
-            t
-            for t in targets
-            if _is_instagram_page_target(t)
-        ),
+        (t for t in targets if _is_instagram_page_target(t)),
         None,
     )
     if not page:
@@ -3352,7 +3357,7 @@ window.__igpub='pending';(async()=>{{if(window.__igterm&&window.__igtermid===win
   const upload_id=String(Date.now())+String(i);
   const entity='fb_uploader_'+upload_id;
   const params={{media_type:1,upload_id:upload_id,upload_media_height:imgs[i].h,upload_media_width:imgs[i].w}};
-  {'params.is_sidecar="1";' if is_carousel else ''}
+  {'params.is_sidecar="1";' if is_carousel else ""}
   const r1=await fetch('https://www.instagram.com/rupload_igphoto/'+entity,{{method:'POST',headers:{{'X-IG-App-ID':'936619743392459','x-csrftoken':csrf,'X-Entity-Name':entity,'X-Entity-Length':String(bytes.length),'X-Entity-Type':'image/jpeg','Offset':'0','X-Instagram-Rupload-Params':JSON.stringify(params),'Content-Type':'application/octet-stream'}},body:bytes}});
   const t1=await r1.text();
   if(r1.status!==200){{window.__igpub='r1:'+i+':'+r1.status+':'+t1.slice(0,200);return;}}
@@ -3631,11 +3636,7 @@ async def _publish_instagram_reel_via_browser(
         return PublishResult(success=False, error=f"Instagram browser CDP unreachable: {exc}")
 
     page = next(
-        (
-            t
-            for t in targets
-            if _is_instagram_page_target(t)
-        ),
+        (t for t in targets if _is_instagram_page_target(t)),
         None,
     )
     if not page:
@@ -3669,7 +3670,8 @@ async def _publish_instagram_reel_via_browser(
     except Exception as exc:
         return PublishResult(success=False, error=f"Failed to inject reel media into page: {exc}")
 
-    kick_js = f"""{_IG_PUB_LATCH_JS}
+    kick_js = (
+        f"""{_IG_PUB_LATCH_JS}
 window.__igpub='pending';(async()=>{{if(window.__igterm&&window.__igtermid===window.__igid)return;try{{
  const b64=window.__igchunks.join('');window.__igchunks=null;
  const bin=atob(b64);const bytes=new Uint8Array(bin.length);
@@ -3698,7 +3700,10 @@ window.__igpub='pending';(async()=>{{if(window.__igterm&&window.__igtermid===win
  const ttxt=await rt.text();
  if(rt.status!==200){{window.__igpub='thb:'+rt.status+':'+ttxt.slice(0,200);return;}}
  window.__igpub='uploaded';
-""" + _REEL_COMET_JS.replace("__CAPTION__", json.dumps(caption)) + """}catch(e){window.__igpub='EXC '+e}})();'kicked'"""
+"""
+        + _REEL_COMET_JS.replace("__CAPTION__", json.dumps(caption))
+        + """}catch(e){window.__igpub='EXC '+e}})();'kicked'"""
+    )
 
     try:
         await _cdp_eval(ws_url, kick_js)
@@ -3895,9 +3900,7 @@ async def _post_has_ai_media(post: Post, db: AsyncSession | None) -> bool:
 
         from app.models.content import MediaAsset
 
-        rows = await db.execute(
-            select(MediaAsset.source).where(MediaAsset.id.in_(media_ids))
-        )
+        rows = await db.execute(select(MediaAsset.source).where(MediaAsset.id.in_(media_ids)))
         return any(src in _AI_MEDIA_SOURCES for (src,) in rows.all())
     except Exception as exc:
         logger.warning("[publishing] AI-media check failed for post %s: %s", getattr(post, "id", "?"), exc)
@@ -3944,24 +3947,14 @@ async def _publish_instagram_via_graph(
     # it does images. Keeps video on the durable API lane for
     # business_login instead of requiring a live browser session.
     sp_list = storage_paths or []
-    video_sp = (
-        sp_list[0]
-        if len(sp_list) == 1 and sp_list[0].lower().endswith(VIDEO_EXTS_ALL)
-        else None
-    )
-    if video_sp is None and any(
-        sp.lower().endswith(VIDEO_EXTS_ALL) for sp in sp_list
-    ):
+    video_sp = sp_list[0] if len(sp_list) == 1 and sp_list[0].lower().endswith(VIDEO_EXTS_ALL) else None
+    if video_sp is None and any(sp.lower().endswith(VIDEO_EXTS_ALL) for sp in sp_list):
         return PublishResult(
             success=False,
             skipped=True,
             error="Instagram video inside a multi-item carousel is not supported via Graph.",
         )
-    if (
-        video_sp is None
-        and media_paths
-        and media_paths[0].lower().endswith(VIDEO_EXTS_ALL)
-    ):
+    if video_sp is None and media_paths and media_paths[0].lower().endswith(VIDEO_EXTS_ALL):
         return PublishResult(
             success=False,
             skipped=True,
@@ -3976,10 +3969,7 @@ async def _publish_instagram_via_graph(
             return PublishResult(
                 success=False,
                 skipped=True,
-                error=(
-                    "Instagram video requires a publicly accessible URL. "
-                    "Set R2_PUBLIC_URL or MEDIA_PUBLIC_BASE_URL in .env."
-                ),
+                error=("Instagram video requires a publicly accessible URL. Set R2_PUBLIC_URL or MEDIA_PUBLIC_BASE_URL in .env."),
             )
         bad_media = _probe_first_failure(await _probe_public_media([video_url]))
         if bad_media:
@@ -4073,9 +4063,7 @@ async def _publish_instagram_via_graph(
         # container reaches FINISHED fails with 9007 "Media ID is not
         # available". Poll until ready (images are usually quick; video
         # transcode takes longer).
-        await client.wait_for_container_ready(
-            creation_id, timeout=180.0 if video_url else 60.0
-        )
+        await client.wait_for_container_ready(creation_id, timeout=180.0 if video_url else 60.0)
         publish_attempted = True
         media_id = await client.publish_container(creation_id)
     except InstagramAPIError as exc:

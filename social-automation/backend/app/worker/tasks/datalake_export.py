@@ -427,13 +427,7 @@ async def _export_site_traffic(db: AsyncSession) -> list[dict]:
     """Swetrix CE daily traffic rollup — cookieless top-of-funnel truth."""
     since = datetime.now(UTC) - timedelta(days=120)
     rows = (
-        (
-            await db.execute(
-                select(SiteTrafficDaily)
-                .where(SiteTrafficDaily.date >= since.date())
-                .order_by(SiteTrafficDaily.domain, SiteTrafficDaily.date)
-            )
-        )
+        (await db.execute(select(SiteTrafficDaily).where(SiteTrafficDaily.date >= since.date()).order_by(SiteTrafficDaily.domain, SiteTrafficDaily.date)))
         .scalars()
         .all()
     )

@@ -168,7 +168,7 @@ async def cmd_report() -> None:
             print(f"  publish lane: {'OK' if ok else 'BROKEN — re-auth via instagram2 authorize'}")
         else:
             st = await _fb_page_link_state(token, a.account_id)
-            print(f"  fb/page probe: {st['state']}  page={st.get('page_name','?')} ({st.get('page_id','?')})")
+            print(f"  fb/page probe: {st['state']}  page={st.get('page_name', '?')} ({st.get('page_id', '?')})")
             print(f"    linked_ig: {st.get('linked_ig')}  row_ig: {a.account_id}")
             if st["state"] == "token-invalid":
                 print("  publish lane: BROKEN — token invalid, needs re-auth")
@@ -220,8 +220,7 @@ async def cmd_repoint(acct_prefix: str) -> None:
     target = next((a for a in accounts if str(a.id).startswith(acct_prefix)), None)
     if not target:
         raise SystemExit(f"no instagram account matching {acct_prefix}")
-    print(f"re-pointing pending IG targets → {target.username} [{str(target.id)[:8]}] "
-          f"({(target.meta_data or {}).get('login_type')})")
+    print(f"re-pointing pending IG targets → {target.username} [{str(target.id)[:8]}] ({(target.meta_data or {}).get('login_type')})")
     from app.db.session import async_session_maker
 
     async with async_session_maker() as db:

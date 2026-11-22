@@ -422,11 +422,7 @@ async def _quality_gate_rewrite(post: Post, account: SocialAccount, db: AsyncSes
     from app.services.inference import call_inference
 
     platform = account.platform
-    link_rule = (
-        "Include one relevant link."
-        if platform in ("linkedin", "facebook")
-        else "Do not include any links."
-    )
+    link_rule = "Include one relevant link." if platform in ("linkedin", "facebook") else "Do not include any links."
     prompt = f"""Rewrite this {platform} post completely — new wording, same topic and intent.
 
 Current post (it failed the publishing quality gate):
@@ -838,9 +834,7 @@ async def _process_publish_queue_async(
                     # re-gates the new content hash; exhausted budget or a
                     # failed rewrite falls through to skip + alert.
                     cfg = get_settings()
-                    rewrites = int(
-                        (post.platform_specific or {}).get("quality_gate_rewrites") or 0
-                    )
+                    rewrites = int((post.platform_specific or {}).get("quality_gate_rewrites") or 0)
                     if rewrites < int(getattr(cfg, "PUBLISH_GATE_REWRITE_MAX", 1)):
                         try:
                             rewritten = await _quality_gate_rewrite(post, account, db)
@@ -852,9 +846,7 @@ async def _process_publish_queue_async(
                             )
                             rewritten = False
                         if rewritten:
-                            delay = int(
-                                getattr(cfg, "PUBLISH_GATE_REWRITE_DELAY_S", 300)
-                            )
+                            delay = int(getattr(cfg, "PUBLISH_GATE_REWRITE_DELAY_S", 300))
                             item.status = QueueStatus.PENDING
                             item.locked_at = None
                             item.locked_by = None

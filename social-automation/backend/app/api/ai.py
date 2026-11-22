@@ -1310,11 +1310,7 @@ async def post_draft(request: PostDraftRequest, team_id: TeamId, current_user: U
         # (graph.instagram.com) — fb_onboarding dies on Graph #10 when the
         # Page↔IG business link breaks.
         account = next(
-            (
-                a
-                for a in accounts
-                if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"
-            ),
+            (a for a in accounts if (getattr(a, "meta_data", None) or {}).get("login_type") == "business_login"),
             accounts[0] if accounts else None,
         )
     if not account:
