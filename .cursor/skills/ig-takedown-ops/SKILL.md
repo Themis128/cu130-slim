@@ -33,3 +33,31 @@ instagrapi); `adb` must reach the phone from the WSL host.
 exhausted (Graph no-delete, instagrapi `publickeys` bug kills password
 login, stored sessionid expired, CDP real-Chrome blocked by dead WSL
 interop). This flow worked end-to-end.
+
+## Caption edits (`scripts/ig_edit.py`)
+
+IG Graph API **cannot edit organic captions either** —
+`POST /{ig-media-id}?caption=` returns 400 "(#3) Unknown method" (verified
+2026-11-22). Options ranked:
+
+1. `instagrapi media_edit(pk, caption)` — works when a valid private-API
+   session exists. Gotchas: `login_by_sessionid` with a **web-extracted**
+   sessionid gets 403 `login_required` on `i.instagram.com` (web cookies
+   don't authorize the mobile surface); password login can die with
+   `ClientNeedsUpgradeError` when the bundled app version goes stale.
+2. Bridge web UI edit: post ⋯ "More options" → dialog "Edit" → the
+   caption field is `div[role=dialog] [contenteditable="true"]` (Lexical,
+   NOT a textarea). `/session/fill` on it is the lane that fires trusted
+   input; `execCommand('insertText')`/innerText writes are ignored by
+   Lexical's model (counter stays 0/2200, Done saves nothing).
+3. `/session/extract` POST — forces cookie extraction and flips a
+   "waiting" session to done, bypassing the `/session/cookies` state gate.
+   Use when the session is logged in but stuck in `waiting`.
+4. Last resort: delete + repost (dedup guards by media_id — needs a new
+   media asset; loses permalink + engagement).
+
+Fresh-bridge gotcha (2026-11-22): after a container restart the bridge
+profile loses the remembered `cloudless.gr` login AND the login form may
+not render inputs — verify `[name=email]`/`[name=pass]` exist before
+driving, and expect the stored `INSTAGRAM_PASSWORD` to be stale; the
+forgot-password + user-supplied code lane is the fallback.
