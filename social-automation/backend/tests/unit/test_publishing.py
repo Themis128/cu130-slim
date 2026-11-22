@@ -1703,6 +1703,58 @@ async def test_publish_instagram_graph_url_none_when_permalink_absent(account, p
     assert r.success is True and r.platform_url is None
 
 
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_single_video_uses_video_container(account, post, monkeypatch):
+    """A lone .mp4 publishes via create_video_container on the Graph lane —
+    video no longer depends on a live browser session."""
+    calls = {}
+
+    class _IGVideo(_IGClient):
+        async def create_video_container(self, video_url, caption):
+            calls["video_url"] = video_url
+            return "cid-v"
+
+        async def publish_container(self, creation_id):
+            assert creation_id == "cid-v"
+            return "media-v"
+
+        async def get_media_permalink(self, media_id):
+            return "https://www.instagram.com/reel/Xyz/"
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGVideo())
+    monkeypatch.setattr(pub, "_instagram_video_public_url", AsyncMock(return_value="https://cdn/v.mp4"))
+    monkeypatch.setattr(pub, "_probe_public_media", AsyncMock(return_value=[{"url": "https://cdn/v.mp4", "ok": True}]))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/v.mp4"], ["2026/11/v.mp4"], None)
+    assert r.success is True and r.platform_post_id == "media-v"
+    assert calls["video_url"] == "https://cdn/v.mp4"
+    assert r.platform_url == "https://www.instagram.com/reel/Xyz/"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_video_no_url_skips(account, post, monkeypatch):
+    """Single video without a resolvable public URL is skipped — the chain
+    falls through to the browser lane rather than hard-failing."""
+    monkeypatch.setattr(pub, "_instagram_video_public_url", AsyncMock(return_value=None))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/v.mp4"], ["2026/11/v.mp4"], None)
+    assert r.success is False and r.skipped is True
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_mixed_video_carousel_skips(account, post, monkeypatch):
+    """A video inside a multi-item carousel isn't Graph-publishable — clean
+    skip, not a broken force-jpeg image container."""
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph(
+        "tok", "cap", account, post, ["/tmp/v.mp4", "/tmp/a.jpg"], ["2026/11/v.mp4", "2026/11/a.jpg"], None
+    )
+    assert r.success is False and r.skipped is True
+
+
 class _Res2:
     def __init__(self, v):
         self._v = v
