@@ -95,13 +95,22 @@ class TestCheckSidecarSession:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_connection_error_returns_false(self):
+    async def test_connection_error_returns_none(self):
         with patch(
             "app.worker.tasks.instagram_session_check.httpx.AsyncClient",
             return_value=_FakeAsyncClient(exc=ConnectionError("refused")),
         ):
             result = await _check_sidecar_session("sid", "http://sidecar:8000")
-        assert result is False
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_5xx_returns_none(self):
+        with patch(
+            "app.worker.tasks.instagram_session_check.httpx.AsyncClient",
+            return_value=_FakeAsyncClient(response=_FakeResponse(503)),
+        ):
+            result = await _check_sidecar_session("sid", "http://sidecar:8000")
+        assert result is None
 
 
 class TestCheckSidecarHealth:
@@ -268,7 +277,9 @@ class TestCheckGraphToken:
         monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(401)))
         assert await T._check_graph_token(_acct()) is False
         monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(exc=RuntimeError("net")))
-        assert await T._check_graph_token(_acct()) is False
+        assert await T._check_graph_token(_acct()) is None
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(500)))
+        assert await T._check_graph_token(_acct()) is None
 
 
 class _WireDB:
@@ -285,6 +296,7 @@ def _wire_run(monkeypatch, accounts, db_extra=(), *, sidecar_up=True, graph=True
     monkeypatch.setattr(T, "_check_sidecar_health", AsyncMock(return_value=sidecar_up))
     monkeypatch.setattr(T, "_check_graph_token", AsyncMock(return_value=graph))
     monkeypatch.setattr(T, "_check_sidecar_session", AsyncMock(return_value=session))
+    monkeypatch.setattr(T.asyncio, "sleep", AsyncMock())
     db = _WireDB([_scalars(accounts), *db_extra])
     monkeypatch.setattr(T, "_worker_db", lambda: _Session(db))
     return db
@@ -338,6 +350,24 @@ class TestRunCheck:
         out = await T._run_check()
         assert out["healthy"] == 1
         T._check_sidecar_session.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_business_login_sidecar_unreachable_is_inconclusive(self, monkeypatch):
+        # Graph rejects but the sidecar fallback can't be reached — must NOT
+        # flip to expired on an unverifiable lane (DNS-blip incident).
+        acct = _acct(meta_data={"login_type": "business_login", "private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], graph=False, session=None)
+        out = await T._run_check()
+        assert out["checked"] == 0
+        assert acct.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_sidecar_session_unreachable_is_inconclusive(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], session=None)
+        out = await T._run_check()
+        assert out["checked"] == 0
+        assert acct.status == "active"
 
     @pytest.mark.asyncio
     async def test_business_login_expired_alerts(self, monkeypatch):

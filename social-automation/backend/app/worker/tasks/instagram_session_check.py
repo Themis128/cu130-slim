@@ -10,6 +10,7 @@ status is set to ``expired`` and an alert email is sent to the team owner.
 The task is non-fatal — a single account failure does not abort the loop.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -33,22 +34,33 @@ logger = logging.getLogger(__name__)
 # Alert cooldown — don't email the same owner more than once per day per account.
 _ALERT_COOLDOWN_HOURS = 24
 
+# Delay before the confirmation re-probe on a negative result.
+_RECHECK_DELAY_S = 10.0
+
 
 _worker_db = task_session
 
 
-async def _check_sidecar_session(session_id: str, sidecar_url: str) -> bool:
-    """Return True if the session is valid (GET /account succeeds)."""
+async def _check_sidecar_session(session_id: str, sidecar_url: str) -> bool | None:
+    """Return True/False on a definitive answer, None when unreachable.
+
+    A transport failure (DNS blip, sidecar down) is NOT proof the session
+    died — callers must treat None as inconclusive, never as expired.
+    """
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 f"{sidecar_url.rstrip('/')}/account",
                 headers={"X-Session-ID": session_id},
             )
-            return resp.status_code == 200
     except Exception as exc:
         logger.warning("Instagram sidecar unreachable: %s", exc)
+        return None
+    if resp.status_code == 200:
+        return True
+    if resp.status_code in (400, 401, 403):
         return False
+    return None
 
 
 async def _check_sidecar_health(sidecar_url: str) -> bool:
@@ -61,7 +73,7 @@ async def _check_sidecar_health(sidecar_url: str) -> bool:
         return False
 
 
-async def _check_graph_token(account: SocialAccount) -> bool:
+async def _check_graph_token(account: SocialAccount) -> bool | None:
     """Return True if the account's Business Login OAuth token is valid.
 
     ``business_login`` accounts publish via graph.instagram.com with their
@@ -81,10 +93,41 @@ async def _check_graph_token(account: SocialAccount) -> bool:
                 "https://graph.instagram.com/v26.0/me",
                 params={"fields": "id", "access_token": token},
             )
-            return resp.status_code == 200
     except Exception as exc:
         logger.warning("IG Graph token check failed for @%s: %s", account.username, exc)
+        return None
+    if resp.status_code == 200:
+        return True
+    if resp.status_code in (400, 401, 403):
         return False
+    return None
+
+
+async def _evaluate(account: SocialAccount, session_id: str, sidecar_url: str) -> bool | None:
+    """Combine the Graph-token and sidecar probes into one verdict.
+
+    Returns True (healthy), False (definitively rejected), or None
+    (inconclusive — transport failure / nothing to probe). ``business_login``
+    accounts check the Graph token first and fall back to the sidecar
+    session; the account is only expired when a lane definitively rejects
+    and no fallback can confirm health.
+    """
+    meta = account.meta_data or {}
+    if meta.get("login_type") == "business_login":
+        graph = await _check_graph_token(account)
+        if graph is True:
+            return True
+        if not session_id:
+            return graph
+        sidecar = await _check_sidecar_session(session_id, sidecar_url)
+        if sidecar is True:
+            return True
+        if sidecar is False:
+            return False
+        return None
+    if session_id:
+        return await _check_sidecar_session(session_id, sidecar_url)
+    return None
 
 
 async def _send_alert(owner: User, account_username: str, reason: str) -> None:
@@ -156,15 +199,13 @@ async def _run_check() -> dict:
             session_id_enc = meta.get("private_api_session_id")
             session_id = (decrypt_field(session_id_enc) or "") if session_id_enc else ""
 
-            healthy: bool | None = None
-            if meta.get("login_type") == "business_login":
-                # Primary path is the Graph API OAuth token — check it first,
-                # then fall back to the sidecar session if one is stored.
-                healthy = await _check_graph_token(account)
-                if not healthy and session_id:
-                    healthy = await _check_sidecar_session(session_id, sidecar_url)
-            elif session_id:
-                healthy = await _check_sidecar_session(session_id, sidecar_url)
+            healthy = await _evaluate(account, session_id, sidecar_url)
+            if healthy is False:
+                # Confirmation pass — a single transport blip must never flip
+                # a live account to expired (2026-11-22 incident: worker DNS
+                # failure expired all three IG rows while tokens were valid).
+                await asyncio.sleep(_RECHECK_DELAY_S)
+                healthy = await _evaluate(account, session_id, sidecar_url)
             if healthy is None:
                 continue
 
