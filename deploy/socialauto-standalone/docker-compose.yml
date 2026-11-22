@@ -377,16 +377,10 @@ services:
     restart: unless-stopped
 
   # Gateways
-  social-api-gateway:
-    image: nginx:1.27-alpine
-    container_name: social-api-gateway
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/social-api.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - social-api
-    restart: unless-stopped
+  # social-api-gateway removed: the dev-stack `cu130-slim` project's api-gateway
+  # owns container_name `social-api-gateway` (blue/green frontend upstream).
+  # This duplicate made every `compose up -d` abort on a name conflict, leaving
+  # recreated services stuck in "Created". Ingress is cloudflared -> social-api:8000.
 
   social-metrics:
     image: nginx:1.27-alpine
