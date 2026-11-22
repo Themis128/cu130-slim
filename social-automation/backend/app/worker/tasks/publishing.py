@@ -884,6 +884,12 @@ async def _process_publish_queue_async(
                     _item_deadline = 660.0
                 elif account.platform == "instagram":
                     _item_deadline = 300.0
+                elif account.platform == "linkedin":
+                    # Browser-sidecar posts do multi-step page automation
+                    # (image upload + composer) — needs headroom over the
+                    # 120s sidecar client timeout so transport failures
+                    # surface as classified results, not deadline cancels.
+                    _item_deadline = 300.0
                 else:
                     _item_deadline = 120.0
                 pub = await asyncio.wait_for(publish_to_platform(account, post, db), timeout=_item_deadline)
