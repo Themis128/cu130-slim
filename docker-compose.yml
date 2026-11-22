@@ -1900,6 +1900,13 @@ services:
       dockerfile: Dockerfile
     container_name: tiktok-browser-sidecar
     init: true  # browser processes spawn zombies
+    # Live owner is deploy/socialauto-standalone (master-deploy-watch). A
+    # root-project copy with the same container_name ends up hash-renamed
+    # (<id>_tiktok-browser-sidecar) on cu130-backend, where workers resolve it
+    # ahead of the standalone one, against a different session volume.
+    # Run explicitly: docker compose --profile root-tiktok-sidecar up -d tiktok-browser-sidecar
+    profiles:
+      - root-tiktok-sidecar
     networks:
       - backend
     environment:

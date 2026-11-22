@@ -4598,12 +4598,10 @@ Lessons:
 
 - Landed orphaned post-merge commit from `docs/backlog-ig-suspension`
   (IG swap / threads reauth resolution).
-- [ ] `fix/sidecar-tiktok-proxy-network` 1f2f8ab7 (engagement-browser joins
-  `socialauto-standalone` with `engagement-browser` + `browser-novnc`
-  aliases) NOT landed: master-deploy-watch only deploys the standalone
-  compose, so the root-compose change wouldn't apply on merge, and the
-  `browser-novnc` alias may collide for workers on both networks. Needs a
-  standalone-compose design; branch kept.
+- [x] `fix/sidecar-tiktok-proxy-network` resolved 2026-11-22 (branch
+  deleted): its standalone tiktok sidecar is already on master, and the
+  engagement-browser alias was not needed (workers reach it on
+  `cu130-backend`). See the 2026-11-22 browser-network entry.
 - Deleted 16 branches whose content is on master (8 `heal/*`, merged
   feature branches, `feat/adb-wireless-lane`, `fix/ops-sweep-txn-hygiene`).
   `fix/li-heal-new-login-form` 6371be61 was superseded by #2408.
@@ -4624,3 +4622,26 @@ Lessons:
   active (live probe 200). FOLLOW-UP: same bool-only probe pattern in
   linkedin_session_check.py / other session_check tasks — audit for
   the same transport-vs-rejection flaw.
+
+## 2026-11-22 — browser sidecar network cleanup (Devin)
+
+- Live fix: engagement-browser had been hand-attached to
+  `socialauto-standalone_default` with a `browser-novnc` alias (the
+  collision the review flagged). Disconnected; workers still resolve
+  `engagement-browser` (cu130-backend) and `browser-novnc` correctly.
+- Live fix: two TikTok sidecars were running. Workers resolved
+  `tiktok-browser-sidecar` to the stale root-project
+  `38209cd8f1f6_tiktok-browser-sidecar` (cu130-backend, volume
+  `cu130-slim_tiktok_browser_data`, has_session=true); the standalone one
+  had no session. Copied `tiktok-session.json` into
+  `socialauto-standalone_tiktok-browser-data`, restarted it
+  (has_session=true), and STOPPED (not removed) the stale one. Root
+  compose now gates its copy behind profile `root-tiktok-sidecar`, and
+  `compose-watchdog.sh` `recreate_container` now recreates in the
+  container's own project (compose labels) instead of the repo-root
+  compose, which is what spawned hash-renamed root-project duplicates.
+  Remove the stopped container + old volume once TikTok publishing is
+  confirmed on the standalone sidecar.
+- [ ] Workers' `TIKTOK_APP_SECRET` env holds a GitHub API 404 JSON body
+  ("Not Found ... get-a-repository-variable") instead of a secret — some
+  env sync wrote an error response. Find the writer and fix the `.env`.

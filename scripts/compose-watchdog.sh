@@ -191,8 +191,20 @@ recreate_container() {
   local c="$1" svc
   svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
   case "$svc" in ""|*" "*) log "$c: no compose service label — cannot recreate"; return 1;; esac
-  log "recreating $c (compose service $svc — mount-broken)"
-  docker compose up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
+  # Recreate inside the container's OWN compose project: the live stack is
+  # deploy/socialauto-standalone, and an unpinned call from the repo root
+  # creates a second root-project copy (hash-renamed <id>_<name>).
+  local files wd
+  files=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$c" 2>/dev/null || true)
+  wd=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c" 2>/dev/null || true)
+  if [ -n "$files" ] && [ -f "${files%%,*}" ] && [ -d "$wd" ]; then
+    log "recreating $c (compose service $svc in ${files%%,*} — mount-broken)"
+    docker compose -f "${files%%,*}" --project-directory "$wd" \
+      up -d --no-deps --pull never --force-recreate "$svc" >/dev/null 2>&1
+  else
+    log "$c: compose file ${files:-<none>} not found — cannot recreate in its project"
+    return 1
+  fi
 }
 # Tailnet-IP drift — compose binds ${INFISICAL_TAILNET_IP:-<stale-default>}
 # for the omv/GitHub-runner path; when tailscale re-registers the node the

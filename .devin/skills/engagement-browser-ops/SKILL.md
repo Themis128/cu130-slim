@@ -16,6 +16,19 @@ ingestors/actors → ENGAGEMENT_BROWSER_URL (default
 All files using it: `worker/tasks/engagement_ingest_*.py`,
 `services/engagement_actors/*.py` — `BRIDGE` constant per file.
 
+
+### Networks (do not add a standalone-net alias)
+
+Workers and celery-beat sit on **both** `cu130-backend` and
+`socialauto-standalone_default`, so `engagement-browser` is reachable on
+`cu130-backend` alone. Do NOT `docker network connect
+socialauto-standalone_default engagement-browser` (or give it a
+`browser-novnc` alias there): on dual-homed workers the `browser-novnc`
+name then resolves to either container, and platform cookie sweeps land
+on the ingestion browser. Check with
+`docker inspect -f '{{json .NetworkSettings.Networks}}' engagement-browser`
+— only `cu130-backend` should be listed.
+
 ## Container ops
 
 ```bash
