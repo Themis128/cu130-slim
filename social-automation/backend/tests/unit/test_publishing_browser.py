@@ -237,7 +237,9 @@ async def _run_image_lane(monkeypatch, tmp_path, states, images=1):
     monkeypatch.setattr(pub, "_cdp_eval", _cdp_dispatcher(states, calls=calls))
     paths = [_jpeg(tmp_path / f"i{k}.jpg") for k in range(images)]
     acct = SimpleNamespace(
-        account_id="1", username="cloudless.gr", platform="instagram",
+        account_id="1",
+        username="cloudless.gr",
+        platform="instagram",
         meta_data={"private_api_ds_user_id": "36910035385"},
     )
     post = SimpleNamespace(platform_specific={})
@@ -416,38 +418,38 @@ async def _run_reel_lane(monkeypatch, tmp_path, states, video_bytes=b"fake-video
     vp = tmp_path / "v.mp4"
     vp.write_bytes(video_bytes)
     acct = SimpleNamespace(
-        account_id="1", username="cloudless.gr", platform="instagram",
+        account_id="1",
+        username="cloudless.gr",
+        platform="instagram",
         meta_data={"private_api_ds_user_id": "36910035385"},
     )
     return await pub._publish_instagram_reel_via_browser(
-        acct, "reel caption", SimpleNamespace(platform_specific={}), str(vp),
-        "http://cdp.test:9229", "36910035385",
+        acct,
+        "reel caption",
+        SimpleNamespace(platform_specific={}),
+        str(vp),
+        "http://cdp.test:9229",
+        "36910035385",
     )
 
 
 @pytest.mark.asyncio
 async def test_reel_probe_fails(monkeypatch, ig_account, _reel_mocks):
     monkeypatch.setattr(pub, "_ig_probe_video", AsyncMock(return_value=None))
-    result = await pub._publish_instagram_reel_via_browser(
-        ig_account, "t", SimpleNamespace(platform_specific={}), "/v.mp4", "http://x", "1"
-    )
+    result = await pub._publish_instagram_reel_via_browser(ig_account, "t", SimpleNamespace(platform_specific={}), "/v.mp4", "http://x", "1")
     assert result.success is False and "ffprobe" in result.error
 
 
 @pytest.mark.asyncio
 async def test_reel_thumb_fails(monkeypatch, ig_account, _reel_mocks):
     monkeypatch.setattr(pub, "_ig_video_thumbnail_b64", AsyncMock(return_value=None))
-    result = await pub._publish_instagram_reel_via_browser(
-        ig_account, "t", SimpleNamespace(platform_specific={}), "/v.mp4", "http://x", "1"
-    )
+    result = await pub._publish_instagram_reel_via_browser(ig_account, "t", SimpleNamespace(platform_specific={}), "/v.mp4", "http://x", "1")
     assert result.success is False and "thumbnail" in result.error
 
 
 @pytest.mark.asyncio
 async def test_reel_unreadable_video(monkeypatch, ig_account, _reel_mocks):
-    result = await pub._publish_instagram_reel_via_browser(
-        ig_account, "t", SimpleNamespace(platform_specific={}), "/nonexistent/v.mp4", "http://x", "1"
-    )
+    result = await pub._publish_instagram_reel_via_browser(ig_account, "t", SimpleNamespace(platform_specific={}), "/nonexistent/v.mp4", "http://x", "1")
     assert result.success is False and "Failed to read video" in result.error
 
 
@@ -457,9 +459,7 @@ async def test_reel_cdp_unreachable(monkeypatch, tmp_path, _reel_mocks):
     vp = tmp_path / "v.mp4"
     vp.write_bytes(b"v")
     acct = SimpleNamespace(account_id="1", username="u", platform="instagram", meta_data={})
-    result = await pub._publish_instagram_reel_via_browser(
-        acct, "t", SimpleNamespace(platform_specific={}), str(vp), "http://x", None
-    )
+    result = await pub._publish_instagram_reel_via_browser(acct, "t", SimpleNamespace(platform_specific={}), str(vp), "http://x", None)
     assert "unreachable" in result.error
 
 
@@ -470,7 +470,11 @@ async def test_reel_no_tab(monkeypatch, tmp_path, _reel_mocks):
     vp.write_bytes(b"v")
     result = await pub._publish_instagram_reel_via_browser(
         SimpleNamespace(account_id="1", username="u", platform="instagram", meta_data={}),
-        "t", SimpleNamespace(platform_specific={}), str(vp), "http://x", None,
+        "t",
+        SimpleNamespace(platform_specific={}),
+        str(vp),
+        "http://x",
+        None,
     )
     assert "No live instagram.com tab" in result.error
 
@@ -483,7 +487,11 @@ async def test_reel_uid_mismatch(monkeypatch, tmp_path, _reel_mocks):
     vp.write_bytes(b"v")
     result = await pub._publish_instagram_reel_via_browser(
         SimpleNamespace(account_id="1", username="u", platform="instagram", meta_data={}),
-        "t", SimpleNamespace(platform_specific={}), str(vp), "http://x", "36910035385",
+        "t",
+        SimpleNamespace(platform_specific={}),
+        str(vp),
+        "http://x",
+        "36910035385",
     )
     assert "expected 36910035385" in result.error
 
@@ -518,7 +526,11 @@ async def test_reel_uploaded_then_lost_is_ambiguous(monkeypatch, tmp_path, _reel
     vp.write_bytes(b"v")
     result = await pub._publish_instagram_reel_via_browser(
         SimpleNamespace(account_id="1", username="u", platform="instagram", meta_data={}),
-        "t", SimpleNamespace(platform_specific={}), str(vp), "http://x", None,
+        "t",
+        SimpleNamespace(platform_specific={}),
+        str(vp),
+        "http://x",
+        None,
     )
     assert result.success is False and result.ambiguous is True
 

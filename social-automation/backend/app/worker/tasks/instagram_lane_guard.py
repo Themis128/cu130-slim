@@ -57,14 +57,18 @@ _PERMISSION_MARKERS = (
 
 async def _business_login_rows(db, team_id) -> list[SocialAccount]:
     rows = (
-        await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.platform == "instagram",
-                SocialAccount.team_id == team_id,
-                SocialAccount.meta_data["login_type"].astext == "business_login",
+        (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "instagram",
+                    SocialAccount.team_id == team_id,
+                    SocialAccount.meta_data["login_type"].astext == "business_login",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return rows
 
 
@@ -72,9 +76,7 @@ async def _token_alive(account: SocialAccount) -> bool:
     try:
         token = decrypt_token(bytes(account.access_token_enc))
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(
-                _GRAPH_ME, params={"fields": "user_id,username", "access_token": token}
-            )
+            r = await client.get(_GRAPH_ME, params={"fields": "user_id,username", "access_token": token})
         return r.status_code == 200
     except Exception as exc:  # noqa: BLE001
         logger.warning("ig lane guard token probe failed for %s: %s", account.id, exc)
@@ -91,30 +93,15 @@ async def _sweep() -> dict:
     repointed = 0
     dead_tokens: list[str] = []
     async with task_session() as db:
-        ig_accounts = (
-            (
-                await db.execute(
-                    select(SocialAccount).where(SocialAccount.platform == "instagram")
-                )
-            )
-            .scalars()
-            .all()
-        )
+        ig_accounts = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))).scalars().all()
         by_team: dict = {}
         for acc in ig_accounts:
             by_team.setdefault(acc.team_id, []).append(acc)
 
         for team_id, accounts in by_team.items():
-            healthy_bl = [
-                a for a in await _business_login_rows(db, team_id)
-                if a.status == "active" and await _token_alive(a)
-            ]
+            healthy_bl = [a for a in await _business_login_rows(db, team_id) if a.status == "active" and await _token_alive(a)]
             bl_ids = {a.id for a in accounts if (a.meta_data or {}).get("login_type") == "business_login"}
-            dead_bl = [
-                a.username or str(a.id)
-                for a in accounts
-                if a.id in bl_ids and a.status == "active" and a not in healthy_bl
-            ]
+            dead_bl = [a.username or str(a.id) for a in accounts if a.id in bl_ids and a.status == "active" and a not in healthy_bl]
             dead_tokens.extend(dead_bl)
             if not healthy_bl:
                 continue
@@ -125,9 +112,7 @@ async def _sweep() -> dict:
                 (
                     await db.execute(
                         select(PostTarget).where(
-                            PostTarget.social_account_id.in_(
-                                [a.id for a in accounts if a.id not in bl_ids]
-                            ),
+                            PostTarget.social_account_id.in_([a.id for a in accounts if a.id not in bl_ids]),
                             PostTarget.status == "failed",
                             PostTarget.updated_at > now - _FAIL_WINDOW,
                         )
@@ -147,9 +132,7 @@ async def _sweep() -> dict:
                         select(PublishQueue.id).where(
                             PublishQueue.post_id == tgt.post_id,
                             PublishQueue.social_account_id == target_acc.id,
-                            PublishQueue.status.in_(
-                                [QueueStatus.PENDING, QueueStatus.PROCESSING]
-                            ),
+                            PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
                         )
                     )
                 ).scalar_one_or_none()
@@ -168,9 +151,7 @@ async def _sweep() -> dict:
                         .where(
                             PublishQueue.post_id == tgt.post_id,
                             PublishQueue.social_account_id == tgt.social_account_id,
-                            PublishQueue.status.in_(
-                                [QueueStatus.PENDING, QueueStatus.PROCESSING, QueueStatus.FAILED]
-                            ),
+                            PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING, QueueStatus.FAILED]),
                         )
                         .values(
                             social_account_id=target_acc.id,
@@ -208,9 +189,7 @@ async def _sweep() -> dict:
                         .where(
                             PublishQueue.post_id == tgt.post_id,
                             PublishQueue.social_account_id == tgt.social_account_id,
-                            PublishQueue.status.in_(
-                                [QueueStatus.PENDING, QueueStatus.PROCESSING, QueueStatus.FAILED]
-                            ),
+                            PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING, QueueStatus.FAILED]),
                         )
                         .values(status=QueueStatus.CANCELLED)
                     )
@@ -220,7 +199,9 @@ async def _sweep() -> dict:
                 repointed += 1
                 logger.info(
                     "ig lane guard: repointed post %s %s -> business_login %s",
-                    tgt.post_id, tgt.social_account_id, target_acc.id,
+                    tgt.post_id,
+                    tgt.social_account_id,
+                    target_acc.id,
                 )
         await db.commit()
 

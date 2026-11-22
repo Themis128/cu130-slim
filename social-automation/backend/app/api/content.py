@@ -602,11 +602,7 @@ async def cross_post_to_platform(
             # that requires Page Publishing Authorization and fails with
             # Graph error (#10) until it is completed.
             target_account = next(
-                (
-                    a
-                    for a in candidates
-                    if (a.meta_data or {}).get("login_type") == "business_login"
-                ),
+                (a for a in candidates if (a.meta_data or {}).get("login_type") == "business_login"),
                 target_account,
             )
 

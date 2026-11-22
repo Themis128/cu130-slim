@@ -7,8 +7,7 @@ import pytest
 from app.worker.tasks import instagram_lane_guard as G
 
 
-def _acc(platform="instagram", team="t1", login_type="fb_onboarding",
-         status="active", uid="acc-1", username="cloudless.gr"):
+def _acc(platform="instagram", team="t1", login_type="fb_onboarding", status="active", uid="acc-1", username="cloudless.gr"):
     a = MagicMock()
     a.platform = platform
     a.team_id = team
@@ -75,11 +74,15 @@ def _sess(db):
 
 # ── _is_permission_failure ───────────────────────────────────────────
 
-@pytest.mark.parametrize("err", [
-    "OAuthException (#10) Requires instagram_content_publish",
-    "requires instagram_content_publish permission",
-    "user does not have permission for this action",
-])
+
+@pytest.mark.parametrize(
+    "err",
+    [
+        "OAuthException (#10) Requires instagram_content_publish",
+        "requires instagram_content_publish permission",
+        "user does not have permission for this action",
+    ],
+)
 def test_permission_markers_match(err):
     assert G._is_permission_failure(err)
 
@@ -90,6 +93,7 @@ def test_permission_markers_ignore_content_errors(err):
 
 
 # ── _token_alive ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_token_alive_200():
@@ -115,6 +119,7 @@ async def test_token_alive_non200_and_exception():
 
 
 # ── _sweep ───────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_sweep_no_accounts():
@@ -151,15 +156,17 @@ async def test_sweep_repoints_permission_failures():
     bl = _acc(login_type="business_login", uid="bl-1")
     fb = _acc(uid="fb-1")
     tgt = _target(post_id="p1", account_id="fb-1")
-    calls = iter([
-        _result(rows=[fb, bl]),      # all IG accounts
-        _result(rows=[bl]),          # business_login rows
-        _result(rows=[tgt]),         # failed targets
-        _result(one=None),           # active queue check → none
-        _result(one=None),           # existing BL target → none
-        _result(),                   # queue update
-        _result(),                   # target update
-    ])
+    calls = iter(
+        [
+            _result(rows=[fb, bl]),  # all IG accounts
+            _result(rows=[bl]),  # business_login rows
+            _result(rows=[tgt]),  # failed targets
+            _result(one=None),  # active queue check → none
+            _result(one=None),  # existing BL target → none
+            _result(),  # queue update
+            _result(),  # target update
+        ]
+    )
     db = MagicMock()
     db.execute = AsyncMock(side_effect=lambda *a, **k: next(calls))
     db.commit = AsyncMock()
@@ -200,14 +207,16 @@ async def test_sweep_retires_target_when_bl_owns_post():
     bl = _acc(login_type="business_login", uid="bl-1")
     fb = _acc(uid="fb-1")
     tgt = _target(post_id="p1", account_id="fb-1")
-    calls = iter([
-        _result(rows=[fb, bl]),
-        _result(rows=[bl]),
-        _result(rows=[tgt]),
-        _result(one=MagicMock()),    # active queue row exists on BL lane
-        _result(one=None),           # existing BL target check (short-circuit is post-query)
-        _result(),                   # cancel broken-lane queue rows
-    ])
+    calls = iter(
+        [
+            _result(rows=[fb, bl]),
+            _result(rows=[bl]),
+            _result(rows=[tgt]),
+            _result(one=MagicMock()),  # active queue row exists on BL lane
+            _result(one=None),  # existing BL target check (short-circuit is post-query)
+            _result(),  # cancel broken-lane queue rows
+        ]
+    )
     db = MagicMock()
     db.execute = AsyncMock(side_effect=lambda *a, **k: next(calls))
     db.commit = AsyncMock()

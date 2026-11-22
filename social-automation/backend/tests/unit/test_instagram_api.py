@@ -154,13 +154,12 @@ async def test_create_video_container_success(client):
     assert fake.calls[0]["data"]["media_type"] == "VIDEO"
     assert fake.calls[0]["data"]["caption"] == "Reel caption"
 
+
 @pytest.mark.asyncio
 async def test_create_video_container_business_login_uses_reels():
     """graph.instagram.com rejects media_type=VIDEO (subcode 2207067) —
     Business Login containers must be REELS."""
-    biz = api.InstagramAPIClient(
-        access_token="tok-123", ig_user_id="987654321",
-        use_business_login_api=True)
+    biz = api.InstagramAPIClient(access_token="tok-123", ig_user_id="987654321", use_business_login_api=True)
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012360"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -202,9 +201,7 @@ async def test_create_image_container_ai_label(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012362"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        await client.create_image_container(
-            "https://example.com/ai.jpg", is_ai_generated=True
-        )
+        await client.create_image_container("https://example.com/ai.jpg", is_ai_generated=True)
     assert fake.calls[0]["data"]["is_ai_generated"] == "true"
 
 
@@ -213,9 +210,7 @@ async def test_create_video_container_ai_label(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012363"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        await client.create_video_container(
-            "https://example.com/ai.mp4", is_ai_generated=True
-        )
+        await client.create_video_container("https://example.com/ai.mp4", is_ai_generated=True)
     assert fake.calls[0]["data"]["is_ai_generated"] == "true"
 
 
@@ -224,17 +219,13 @@ async def test_create_carousel_container_ai_label_on_parent_only(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012364"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
-        await client.create_carousel_container(
-            ["111111", "222222"], is_ai_generated=True
-        )
+        await client.create_carousel_container(["111111", "222222"], is_ai_generated=True)
     assert fake.calls[0]["data"]["is_ai_generated"] == "true"
 
 
 @pytest.mark.asyncio
 async def test_create_containers_omit_ai_label_by_default(client):
-    fake = _FakeAsyncClient(
-        [_FakeResponse(200, {"id": f"1789001236{i}"}) for i in range(3)]
-    )
+    fake = _FakeAsyncClient([_FakeResponse(200, {"id": f"1789001236{i}"}) for i in range(3)])
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         await client.create_image_container("https://example.com/plain.jpg")

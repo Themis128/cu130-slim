@@ -266,9 +266,7 @@ def render_post_text(post: Post, platform: str, *, expand_countdown: bool = True
         cut = text[: max_len - 1]
         brace = cut.rfind("{")
         frag = cut[brace:] if brace != -1 else ""
-        if frag and "}" not in frag and (
-            "{countdown".startswith(frag) or frag.startswith("{countdown")
-        ):
+        if frag and "}" not in frag and ("{countdown".startswith(frag) or frag.startswith("{countdown")):
             cut = cut[:brace]
         text = cut.rstrip() + "…"
 

@@ -1749,9 +1749,7 @@ async def test_publish_instagram_graph_mixed_video_carousel_skips(account, post,
     skip, not a broken force-jpeg image container."""
     account.meta_data = {"account_type": "business"}
     post.platform_specific = {}
-    r = await pub._publish_instagram_via_graph(
-        "tok", "cap", account, post, ["/tmp/v.mp4", "/tmp/a.jpg"], ["2026/11/v.mp4", "2026/11/a.jpg"], None
-    )
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/v.mp4", "/tmp/a.jpg"], ["2026/11/v.mp4", "2026/11/a.jpg"], None)
     assert r.success is False and r.skipped is True
 
 
