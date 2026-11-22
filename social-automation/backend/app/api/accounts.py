@@ -263,7 +263,7 @@ async def connect_account_body(
             "business_management",
             "pages_show_list",
         ],
-        "instagram": ["instagram_basic", "instagram_content_publish", "instagram_manage_contents", "pages_show_list"],
+        "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         # Scopes enabled on the production TikTok app (verified via devportal
         # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
@@ -333,7 +333,7 @@ async def connect_account(
             "business_management",
             "pages_show_list",
         ],
-        "instagram": ["instagram_basic", "instagram_content_publish", "instagram_manage_contents", "pages_show_list"],
+        "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
         # Scopes enabled on the production TikTok app (verified via devportal
         # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
