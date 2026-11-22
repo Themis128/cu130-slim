@@ -62,15 +62,50 @@ def tabs():
     return json.loads(urllib.request.urlopen(CDP + "/json/list", timeout=15).read())
 
 
+_ACTIVE_TAB = None
+
+
 def find_fb_tab():
+    """Pin ONE fb tab for the whole session — evals/clicks on different
+    tabs silently no-op (the multi-login-tab scatter bug)."""
+    global _ACTIVE_TAB
+    if _ACTIVE_TAB:
+        for t in tabs():
+            if t.get("id") == _ACTIVE_TAB and t.get("type") == "page":
+                return t
+        _ACTIVE_TAB = None
     cands = [t for t in tabs() if t.get("type") == "page"
              and ("facebook.com" in t.get("url", "")
                   or "fb.com" in t.get("url", ""))]
-    # prefer a login page, else any fb tab
+    pick = None
+    # prefer the plain /login/ surface — login.php?skip_api_login is the
+    # app-login interstitial whose 2FA hand-off breaks on scripted submits
     for t in cands:
-        if "login" in t.get("url", ""):
-            return t
-    return cands[0] if cands else None
+        if "/login/" in t.get("url", "") and "skip_api_login" not in t.get("url",""):
+            pick = t
+            break
+    if not pick:
+        for t in cands:
+            if "login" in t.get("url", ""):
+                pick = t
+                break
+    pick = pick or (cands[0] if cands else None)
+    if pick:
+        _ACTIVE_TAB = pick.get("id")
+    return pick
+
+
+def goto_login():
+    """Force the pinned tab onto the plain login page."""
+    t = find_fb_tab()
+    if not t:
+        return
+    u = t.get("url", "")
+    if "/login/" in u and "skip_api_login" not in u:
+        return
+    ws = t["webSocketDebuggerUrl"]
+    cdp_send(ws, "Page.navigate",
+             {"url": "https://www.facebook.com/login/"})
 
 
 def new_tab(url):
@@ -117,7 +152,60 @@ def fb_body(n=1200):
     return r if isinstance(r, dict) and "u" in r else {"u": "", "b": str(r)}
 
 
+def cdp_send(ws_url, method, params=None, timeout=20, _id=1):
+    from websockets.sync.client import connect
+    with connect(ws_url, max_size=None) as ws:
+        ws.send(json.dumps({"id": _id, "method": method,
+                            "params": params or {}}))
+        end = time.time() + timeout
+        while time.time() < end:
+            m = json.loads(ws.recv(timeout=timeout))
+            if m.get("id") == _id:
+                return m.get("result", {})
+    return {}
+
+
+def trusted_click_expr(patterns):
+    """Find element center coords for trusted mouse click. Returns {x,y,label}
+    or {err}. Meta UI ignores synthetic .click() on key controls."""
+    return fb_eval("""(()=>{
+      const pats=%s.map(p=>new RegExp(p,'i'));
+      const els=[...document.querySelectorAll(
+        'button,[role=button],input[type=submit],div[role=button],a,div[role=link]')];
+      const vis=els.filter(x=>x.getClientRects().length>0);
+      for(const re of pats){
+        const b=vis.find(x=>re.test(
+          (x.innerText||x.value||x.getAttribute('aria-label')||'').trim()));
+        if(b){b.scrollIntoView({block:'center'});
+          const r=b.getBoundingClientRect();
+          return{x:r.left+r.width/2,y:r.top+r.height/2,
+                 label:(b.innerText||b.value||'').trim().slice(0,60)};}
+      }
+      return{err:'notfound'};
+    })()""" % json.dumps(patterns))
+
+
+def trusted_click(patterns):
+    t = find_fb_tab()
+    if not t:
+        return {"err": "no fb tab"}
+    ws = t["webSocketDebuggerUrl"]
+    box = trusted_click_expr(patterns)
+    if not isinstance(box, dict) or "err" in box or "x" not in box:
+        return box if isinstance(box, dict) else {"err": str(box)}
+    x, y = box["x"], box["y"]
+    for evt in ("mousePressed", "mouseReleased"):
+        cdp_send(ws, "Input.dispatchMouseEvent", {
+            "type": evt, "x": x, "y": y, "button": "left", "clickCount": 1})
+    return {"clicked": box.get("label", "")}
+
+
 def click_text(patterns):
+    # trusted mouse events first — Meta profile-picker/consent controls
+    # ignore synthetic .click()
+    r = trusted_click(patterns)
+    if isinstance(r, dict) and r.get("clicked"):
+        return r
     return fb_eval("""(()=>{
       const pats=%s.map(p=>new RegExp(p,'i'));
       const els=[...document.querySelectorAll(
@@ -169,6 +257,8 @@ def classify(u, body):
         return "feed"
     if "choose a page" in b or "switch" in b and "page" in b:
         return "pagepicker"
+    if "use another profile" in b or "create new account" in b:
+        return "profilepicker"
     return "unknown"
 
 
@@ -221,14 +311,48 @@ def main():
                 sys.exit(0)
             # feed-looking page but probe failed — keep trying
         elif state == "login":
-            f1 = fill("document.querySelector('input[name=email],input#email,input[type=email],input[name=identifier]')", email)
-            time.sleep(0.5)
-            f2 = fill("document.querySelector('input[name=pass],input#pass,input[type=password]')", password)
-            print("  fill:", f1, f2)
-            time.sleep(0.5)
-            r = click_text([r"^log in$", r"^sign in$", r"log in"])
+            goto_login()
+            time.sleep(4)
+            # dismiss cookie/consent banner — it overlays and eats clicks
+            fb_eval("""(()=>{const b=[...document.querySelectorAll(
+              'button,[role=button],div[role=button]')].find(x=>
+              x.getClientRects().length>0&&/allow.*cookie|accept/i
+              .test(x.innerText||''));if(b)b.click();return 1})()""")
+            time.sleep(1)
+            # scope EVERYTHING to the form that owns the email input —
+            # the page carries a second decoy form + nav 'Log In' links
+            r = fb_eval("""(()=>{
+              const f=[...document.querySelectorAll('form')].find(x=>
+                x.querySelector('input[name=email],input[type=email],'
+                +'input[name=identifier]'));
+              if(!f)return{err:'noform'};
+              const set=(el,v)=>{if(!el)return 0;
+                const s=Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype,'value').set;
+                s.call(el,v);
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+                el.dispatchEvent(new Event('change',{bubbles:true}));
+                return 1};
+              const e=f.querySelector('input[name=email],input[type=email],'
+                +'input[name=identifier]');
+              const p=f.querySelector('input[name=pass],input[type=password]');
+              return{email:set(e,%s),pass:set(p,%s)};
+            })()""" % (json.dumps(email), json.dumps(password)))
+            print("  fill:", r)
+            time.sleep(1)
+            r = fb_eval("""(()=>{
+              const f=[...document.querySelectorAll('form')].find(x=>
+                x.querySelector('input[name=email],input[type=email],'
+                +'input[name=identifier]'));
+              if(!f)return{err:'noform'};
+              if(typeof f.requestSubmit==='function'){f.requestSubmit();
+                return{submitted:'requestSubmit'}}
+              const b=f.querySelector('button[type=submit],input[type=submit]');
+              if(b){b.click();return{submitted:'click'}}
+              return{err:'nosubmit'};
+            })()""")
             print("  submit:", r)
-            time.sleep(5)
+            time.sleep(6)
         elif state == "2fa":
             # prefer authentication-app path
             r = click_text([r"authentication app", r"try another way",
@@ -271,6 +395,15 @@ def main():
         elif state == "checkpoint":
             print("FAIL: checkpoint/suspicious-activity wall — needs human review")
             sys.exit(3)
+        elif state == "profilepicker":
+            # the profile-tile "Continue" is a dead end for automation
+            # (device-bound credential) — "Use another profile" opens the
+            # plain email/pass form, verified live
+            r = click_text([r"use another profile"])
+            if not (isinstance(r, dict) and r.get("clicked")):
+                r = click_text([r"themistoklis", r"baltzakis", r"continue"])
+            print("  profilepick:", r)
+            time.sleep(4)
         elif state == "pagepicker":
             r = click_text([r"cloudless", r"continue", r"switch"])
             print("  pagepick:", r)
