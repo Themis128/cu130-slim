@@ -405,6 +405,7 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
                 continue
             unsub = unsubscribe_url(rec.token)
             text, html = build_bodies(campaign, rec, unsub, crm=crm_profiles.get(rec.email))
+            campaign_meta = campaign.meta_data or {}
             try:
                 await send_email(
                     subject=campaign.subject,
@@ -415,8 +416,9 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
                         "List-Unsubscribe": f"<{unsub}>",
                         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
                     },
-                    reply_to=campaign.reply_to,
+                    reply_to=campaign.reply_to or campaign_meta.get("reply_to"),
                     from_name=campaign.from_name,
+                    from_addr=campaign_meta.get("from_email"),
                 )
                 rec.status = RecipientStatus.sent
                 rec.sent_at = datetime.now(UTC)
@@ -594,6 +596,9 @@ def campaign_payload(c: EmailCampaign) -> dict[str, Any]:
         "kind": c.kind.value,
         "subject": c.subject,
         "status": c.status.value,
+        "from_name": c.from_name,
+        "reply_to": c.reply_to,
+        "from_email": (c.meta_data or {}).get("from_email"),
         "survey_url": c.survey_url,
         "questions": survey_questions(c),
         "sent_at": c.sent_at.isoformat() if c.sent_at else None,
