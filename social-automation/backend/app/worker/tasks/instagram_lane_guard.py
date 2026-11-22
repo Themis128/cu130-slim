@@ -40,6 +40,7 @@ from app.models.content import PostTarget
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
 from app.worker._async import run_async, task_session
+from app.worker._probe_verdict import verdict_from_response
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +73,26 @@ async def _business_login_rows(db, team_id) -> list[SocialAccount]:
     return rows
 
 
-async def _token_alive(account: SocialAccount) -> bool:
+async def _token_alive(account: SocialAccount) -> bool | None:
+    """Tri-state token probe: True alive / False definitively rejected /
+    None inconclusive (transport error, unexpected status).
+
+    None must not count as dead — a worker DNS blip would otherwise
+    false-alert "business_login token dead" every sweep.
+    """
     try:
         token = decrypt_token(bytes(account.access_token_enc))
+    except Exception:
+        return False  # undecryptable credential is definitively unusable
+    if not token:
+        return False
+    try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(_GRAPH_ME, params={"fields": "user_id,username", "access_token": token})
-        return r.status_code == 200
+        return verdict_from_response(r)
     except Exception as exc:  # noqa: BLE001
         logger.warning("ig lane guard token probe failed for %s: %s", account.id, exc)
-        return False
+        return None
 
 
 def _is_permission_failure(err: str | None) -> bool:
@@ -99,9 +111,15 @@ async def _sweep() -> dict:
             by_team.setdefault(acc.team_id, []).append(acc)
 
         for team_id, accounts in by_team.items():
-            healthy_bl = [a for a in await _business_login_rows(db, team_id) if a.status == "active" and await _token_alive(a)]
+            bl_rows = await _business_login_rows(db, team_id)
+            bl_verdicts = {a.id: await _token_alive(a) for a in bl_rows}
+            healthy_bl = [a for a in bl_rows if a.status == "active" and bl_verdicts.get(a.id) is True]
             bl_ids = {a.id for a in accounts if (a.meta_data or {}).get("login_type") == "business_login"}
-            dead_bl = [a.username or str(a.id) for a in accounts if a.id in bl_ids and a.status == "active" and a not in healthy_bl]
+            dead_bl = [
+                a.username or str(a.id)
+                for a in accounts
+                if a.id in bl_ids and a.status == "active" and bl_verdicts.get(a.id) is False
+            ]
             dead_tokens.extend(dead_bl)
             if not healthy_bl:
                 continue

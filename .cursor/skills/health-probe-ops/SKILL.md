@@ -81,6 +81,6 @@ First run (2026-11-22): 9 high / 7 review hits. Verified triage:
 | `token_refresh.py:244` except→expired | false positive — already inside the definitive-rejection branch |
 | `instagram_session_check` decrypt-token except→False | acceptable — undecryptable credential IS dead |
 | `_check_sidecar_health` except→False | fine — sidecar liveness, not an account verdict |
-| `instagram_lane_guard._token_alive` except→False | **real follow-up** — transport error reads as dead token; repoints targets. Small blast radius (repoints TO the canonical lane) but should go tri-state |
+| `instagram_lane_guard._token_alive` except→False | **fixed** — now `-> bool \| None` via `verdict_from_response`; sweep only counts `is True` as healthy, `is False` as dead (regression tests in test_instagram_lane_guard.py) |
 | `instagram_token_refresh.py:64` except→False | review — earlier audit rated the task safe; confirm context |
 | `linkedin_session_check.py:156`, `engagement.py:77` dead-status writes | review — confirm guarded by definitive rejection |
