@@ -257,10 +257,16 @@ def render_post_text(post: Post, platform: str, *, expand_countdown: bool = True
 
     text = "\n\n".join(p for p in parts if p)
 
-    # Truncate to platform max (leave room for ellipsis)
+    # Truncate to platform max (leave room for ellipsis). If the cut lands
+    # inside a {token}, drop back to before it — a truncated token can't be
+    # expanded at publish and would ship as literal garbage.
     max_len = _max_chars(platform)
     if len(text) > max_len:
-        text = text[: max_len - 1].rstrip() + "…"
+        cut = text[: max_len - 1]
+        brace = cut.rfind("{")
+        if brace != -1 and "}" not in cut[brace:]:
+            cut = cut[:brace]
+        text = cut.rstrip() + "…"
 
     return text
 

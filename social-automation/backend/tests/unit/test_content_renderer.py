@@ -340,3 +340,11 @@ class TestCountdownToken:
         post.meta_data = {}
         out = render_post_text(post, "linkedin")
         assert "{countdown}" in out
+
+    def test_truncation_never_leaves_partial_token(self):
+        body = "x" * 260 + " {countdown:2026-11-27T23:59:00+02:00} left"
+        post = self._post(body)
+        out = render_post_text(post, "twitter", expand_countdown=False)
+        assert len(out) <= 280
+        assert out.endswith("…")
+        assert "{countdown" not in out
