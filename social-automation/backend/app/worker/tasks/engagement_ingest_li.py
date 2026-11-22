@@ -35,7 +35,9 @@ FETCH_JS = """(async()=>{
     who: (el.actor&&el.actor.description&&el.actor.description.text)||"",
     nav: (el.actor&&el.actor.navigationContext&&el.actor.navigationContext.accessibilityText)||"",
     age: (el.actor&&el.actor.subDescription&&el.actor.subDescription.text)||"",
-    text: ((el.commentary&&el.commentary.text&&el.commentary.text.text)||"").slice(0,1500)
+    // Array.from slices by code point — a raw .slice() can split a UTF-16
+    // surrogate pair and Postgres rejects the lone surrogate on insert.
+    text: Array.from(((el.commentary&&el.commentary.text&&el.commentary.text.text)||"")).slice(0,1500).join("")
   })));
 })()"""
 
@@ -114,12 +116,15 @@ async def _run():
     async with async_session_maker() as db:
         for p in posts:
             pid = _post_id(p)
-            text = (p.get("text") or "").strip()
             # Sponsored/promoted posts are ads — never engage them.
             if "sponsoredContentV2" in (p.get("urn") or "") or (p.get("age") or "").startswith("Promoted"):
                 seen_types["skipped"] += 1
                 continue
             author = _author(p)
+            # Drop lone UTF-16 surrogates — asyncpg/Postgres rejects them.
+            text = (p.get("text") or "").strip().encode("utf-8", "ignore").decode("utf-8")
+            if author:
+                author = author.encode("utf-8", "ignore").decode("utf-8")
             if not pid or len(text) < 30 or not author:
                 seen_types["skipped"] += 1
                 continue
