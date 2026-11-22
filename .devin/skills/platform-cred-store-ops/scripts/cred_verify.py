@@ -91,6 +91,10 @@ def _fb_probe(env: dict[str, str]) -> str:
     if str(d.get("logged_in")).lower() == "true" or d.get("status") == "ok" and d.get("logged_in") is True:
         return "OK"
     msg = str(d.get("message") or d.get("error") or "").lower()
+    # 2FA-required means the password itself was ACCEPTED — the credential
+    # is valid; only the second factor is pending. Not a rejection.
+    if "2fa required" in msg or "two_factor" in msg or "verification_code" in msg:
+        return "OK(2fa-required)"
     if "invalid" in msg or "incorrect" in msg or "failed" in msg:
         return "REJECTED"
     return f"UNCLEAR({str(d.get('message'))[:60]})"

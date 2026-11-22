@@ -125,21 +125,37 @@ undetected):
 Converged hashes ≠ working credential — run this after any Meta
 credential change before declaring the rotation done.
 
-### Verified Meta login facts (2026-11-22)
+### Verified Meta login facts (2026-11-22, corrected same-day)
 
-- The working Meta Account password lived **only in root `.env`** (the
-  other agent wrote it there + Windows checkout, never the store). It
-  passed FB login + 2FA; both store values were rejected. Always
-  `cred_verify.py` before trusting a rotation.
-- **`META_TOTP_SECRET_IG` is the working Meta Account 2FA secret** —
-  `META_TOTP_SECRET` codes were rejected ("code isn't right") on the
-  Meta Account two_step_verification flow. IG and FB share the Meta
-  Account, so the IG seed serves both.
-- Sidecar 2FA drive (no `/login` code path — do it via `/debug/eval`):
-  "Try another way" → click the `input[type=radio]` inside the
-  "Authentication app" row → last "Continue" → fill code input via the
-  native setter → Continue.
-- **Checkpoint gate**: after password+2FA, Meta can force
+- **Meta Account 2FA has NO authenticator-app/TOTP option** in the
+  observed flow — only Notification-on-device, WhatsApp, SMS
+  (Text message), and Backup code. `META_TOTP_SECRET` /
+  `META_TOTP_SECRET_IG` TOTP codes were both rejected ("code isn't
+  right"); do not burn attempts on them for Meta Account login.
+- **Working unattended 2FA lane = SMS**: sidecar `/login` (or
+  `/debug/eval` drive) → "Try another way" → "See more options" →
+  "Text message" row → Continue (click the LAST Continue — the method
+  panel has its own) → code arrives as a Google-Messages notification
+  readable via `adb shell dumpsys notification --noredact` →
+  `phone-2fa-ops/scripts/fb_code.py` (regex covers "NNNNNN is your
+  Facebook/Instagram code") → fill via native setter → Continue.
+  Verified end-to-end: full feed load, no checkpoint.
+- **`cred_verify.py` semantics**: `OK(2fa-required)` = password
+  ACCEPTED (credential valid, only 2FA pending) — not a failure.
+  `REJECTED` = bad password. Check `/debug/page-text` for the real
+  surface before assuming.
+- **Forced-reset checkpoint** ("secure your account → create a new
+  password") was completed 2026-11-22 ~20:32 EET by the parallel
+  agent's `credential-reset-ops/ig_pw_reset.py` drive — it logs out
+  all devices; the new password must then go through `cred_set.py`
+  immediately (done: store+3 mirrors converged, hash 1e3e2be4b4f0).
+- **`instagram_manage_contents` is a valid FB-Login-for-Business
+  permission but must be enabled in the app's Login Configuration**
+  (App Dashboard → Facebook Login for Business → Settings). Without
+  it the authorize URL returns `error_code=100 Invalid Scopes` and
+  the whole OAuth callback dies — keep it OUT of scope lists until
+  the config grants it, or every Meta re-auth breaks.
+- Checkpoint gate: after password+2FA, Meta can force
   `/checkpoint/.../secure your account` → "Create a new password" →
   `auth_platform/reset_password`. Completing it **logs out every
   device** (phone included). Abort by navigating away unless a full
