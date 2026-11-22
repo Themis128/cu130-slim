@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 import app.worker.tasks.token_refresh as TR
@@ -186,6 +187,14 @@ async def test_refresh_async_paths(monkeypatch):
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     out = await TR._refresh_expiring_tokens_async()
     assert out["errors"] and acct.status == "expired"
+
+    # transport error → inconclusive: error recorded, status untouched
+    acct = _account()
+    fake_client.refresh_token = AsyncMock(side_effect=httpx.ConnectError("dns down"))
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["errors"] and "transport" in out["errors"][0]
+    assert acct.status == "active"
 
     # no access_token in response → expired
     acct = _account()

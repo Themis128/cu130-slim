@@ -191,10 +191,19 @@ async def _refresh_expiring_tokens_async() -> dict:
                 else:
                     refresh_token = decrypt_token(account.refresh_token_enc)
                     token = await client.refresh_token(refresh_token)
+            except httpx.HTTPError as exc:
+                # Transport failure (DNS, timeout, reset) — the platform never
+                # answered, so this is inconclusive. Do NOT expire the account
+                # on a network blip; the next hourly sweep retries anyway.
+                msg = f"{account_label}: refresh transport error: {exc}"
+                logger.warning(msg)
+                summary["errors"].append(msg)
+                continue
             except Exception as exc:
                 logger.exception("Token refresh failed for %s: %s", account_label, exc)
                 summary["errors"].append(f"{account_label}: {exc}")
-                # Mark as expired if refresh fails
+                # Platform definitively rejected the refresh (invalid_grant,
+                # OAuth error) — mark expired so reconnect surfaces.
                 account.status = "expired"
                 await db.commit()
                 continue
