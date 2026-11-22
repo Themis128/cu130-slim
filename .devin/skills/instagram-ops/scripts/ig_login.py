@@ -52,14 +52,15 @@ def load_env() -> dict[str, str]:
 
 
 def totp_now(secret: str) -> str:
+    rem = 30 - int(time.time()) % 30
+    if rem < 5:
+        time.sleep(rem + 1)
     try:
         import pyotp
-        t = pyotp.TOTP(secret)
-        rem = 30 - int(time.time()) % 30
-        if rem < 5:
-            time.sleep(rem + 1)
-        return t.now()
-    except ImportError:
+        return pyotp.TOTP(secret).now()
+    except (ImportError, ValueError):
+        # ValueError: secret under pyotp's 112-bit floor (META_TOTP_SECRET_IG
+        # is 80-bit) — stdlib hmac accepts any length (verified 2026-11-22).
         import base64, hashlib, hmac, struct
         counter = int(time.time() // 30)
         key = base64.b32decode(secret.upper())

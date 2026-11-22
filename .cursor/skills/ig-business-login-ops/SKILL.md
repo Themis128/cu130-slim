@@ -43,8 +43,11 @@ lane is immune — prefer it as canonical for publishing.
    `Network.setCookie`, opens the authorize URL → consent → callback 200 →
    business_login row flips `active`.
    - No password/2FA needed while the private-API session blob is alive.
-   - If no session blob: heal IG session first (instagram-ops skill),
-     then re-run.
+   - If no session blob: bootstrap one passwordlessly —
+     `scripts/ig_emaillogin_session.py --dump /tmp/ig_cookies.json --inject`
+     fetches Meta's "Log back into Instagram" mail, passes the 2FA picker
+     via META_TOTP_SECRET_IG (stdlib TOTP — the secret is 80-bit, under
+     pyotp's floor), and injects cookies into CDP Chrome. Then re-run.
 4. **Verify** — script probes `graph.instagram.com/v21.0/me` and prints
    `VERIFY active cloudless.gr <user_id>`.
 5. **Repoint stuck targets** — `scripts/repoint_publish_target.py`:
