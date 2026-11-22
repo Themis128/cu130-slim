@@ -4675,3 +4675,14 @@ Lessons:
   Remaining: store-only keys (SKOOL_PASSWORD, TWITTER_*, FB_USER_TOKEN,
   LINKEDIN_MEMBER_DP_TOKEN, MESSENGER_VERIFY_TOKEN) not yet in audit
   inventory — add on next touch.
+- [ ] **`instagram_manage_contents` OAuth scope reverted (2026-11-22 eve)**:
+  added in #2514 for the Graph-DELETE fast lane in `ig_delete.py`, but the
+  app's Facebook-Login config does NOT grant it — every Meta OAuth
+  authorize URL died with `error_code=100 Invalid Scopes` (verified live
+  via instagram_reauth). Scope removed from all 9 request sites in
+  `auth.py`/`accounts.py`; `ig_delete.py` keeps the Graph lane (it fails
+  soft to the browser chain on #10). TODO human/agent: enable
+  `instagram_manage_contents` in App Dashboard → Facebook Login for
+  Business → Settings (or App Review → Permissions), then re-add the
+  scope to PLATFORM_SCOPES + instagram_client + accounts.py connect
+  lists. Until then Meta re-auth is unblocked.
