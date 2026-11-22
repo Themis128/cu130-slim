@@ -172,51 +172,8 @@ async def remove_background_cf(image_bytes: bytes) -> bytes | None:
         logger.warning("Cloudflare credentials not configured for background removal")
         return None
 
-    # Resize image to reasonable size for the model
-    img = Image.open(io.BytesIO(image_bytes))
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    max_edge = 1024
-    w, h = img.size
-    if max(w, h) > max_edge:
-        scale = max_edge / float(max(w, h))
-        img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
-
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=90)
-    image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-
     # Workers AI segmentation retired (@cf/baai/baseten-lightning-iris dead
     # since 2026-11-20, no live CF seg model) — go straight to local rembg.
-    return None
-
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                json={"image": image_b64},
-            )
-        if resp.status_code == 200:
-            data = resp.json()
-            result = data.get("result") or data
-            # The model returns a mask or segmented image
-            if "image" in result:
-                mask_b64 = result["image"]
-                mask_bytes = base64.b64decode(mask_b64)
-                # Apply mask to original image
-                return _apply_bg_mask(image_bytes, mask_bytes)
-            elif "output" in result:
-                output_b64 = result["output"]
-                if isinstance(output_b64, str):
-                    return base64.b64decode(output_b64)
-        logger.warning("CF background removal returned %s: %s", resp.status_code, resp.text[:200])
-    except Exception as exc:
-        logger.warning("CF background removal failed: %s", exc)
-
     return None
 
 
