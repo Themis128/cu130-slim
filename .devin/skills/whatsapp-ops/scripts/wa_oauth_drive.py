@@ -112,7 +112,62 @@ def page_state(substr="facebook.com", only_id=None):
     return r if isinstance(r, dict) and "u" in r else {"u": "", "b": str(r)}
 
 
+def cdp_send(ws_url, method, params=None, timeout=15, _id=1):
+    from websockets.sync.client import connect
+    with connect(ws_url, max_size=None) as ws:
+        ws.send(json.dumps({"id": _id, "method": method,
+                            "params": params or {}}))
+        end = time.time() + timeout
+        while time.time() < end:
+            m = json.loads(ws.recv(timeout=timeout))
+            if m.get("id") == _id:
+                return m.get("result", {})
+    return {}
+
+
+def _tab_ws(only_id):
+    for t in tabs():
+        if t.get("id") == only_id:
+            return t.get("webSocketDebuggerUrl")
+    return None
+
+
+def trusted_click_first(patterns, only_id):
+    """Coords + Input.dispatchMouseEvent — Meta consent controls ignore
+    synthetic .click(). Falls back to JS click if coords unavailable."""
+    ws = _tab_ws(only_id)
+    if not ws:
+        return {"err": "no tab"}
+    box = drive_tab("", """(()=>{
+      const pats=%s.map(p=>new RegExp(p,'i'));
+      const els=[...document.querySelectorAll(
+        'button,[role=button],input[type=submit],div[role=button],a,div[role=link]')];
+      const vis=els.filter(x=>x.getClientRects().length>0);
+      for(const re of pats){
+        const b=vis.find(x=>re.test(
+          (x.innerText||x.value||x.getAttribute('aria-label')||'').trim()));
+        if(b){b.scrollIntoView({block:'center'});
+          const r=b.getBoundingClientRect();
+          return{x:r.left+r.width/2,y:r.top+r.height/2,
+                 label:(b.innerText||b.value||'').trim().slice(0,60)};}
+      }
+      return{err:'notfound'};
+    })()""" % json.dumps(patterns), only_id=only_id)
+    if isinstance(box, dict) and "x" in box:
+        for evt in ("mousePressed", "mouseReleased"):
+            cdp_send(ws, "Input.dispatchMouseEvent", {
+                "type": evt, "x": box["x"], "y": box["y"],
+                "button": "left", "clickCount": 1})
+        return {"clicked": box.get("label", "")}
+    return box if isinstance(box, dict) else {"err": "no-box"}
+
+
 def click_first(substr, patterns, only_id=None):
+    if only_id:
+        r = trusted_click_first(patterns, only_id)
+        if isinstance(r, dict) and r.get("clicked"):
+            return r
+        # fall through to synthetic click
     """Click the first visible button/role=button matching any regex.
     Returns clicked label or {err}."""
     pats = json.dumps(patterns)
@@ -308,7 +363,7 @@ def main():
             time.sleep(1)
             clicked = click_first("", [r"^continue$", r"^next$", r"^done$", r"^confirm$"], only_id=our_id)
         elif state == "biz_picker":
-            r = click_checkbox_near("facebook.com", r"cloudless|1558125105019725")
+            r = click_checkbox_near("", r"cloudless|1558125105019725", only_id=our_id)
             print("  biz tick:", r)
             time.sleep(1)
             clicked = click_first("", [r"^continue$", r"^next$", r"^done$", r"^confirm$", r"select all"], only_id=our_id)
@@ -333,10 +388,9 @@ def main():
             print("  no actionable button; labels:", clicked.get("labels"))
             idle = 0
 
-        # page may have navigated away from facebook.com (threads/IG interstitial)
-        if "facebook.com" not in u and "whatsapp" not in u.lower():
-            # give navigation a moment; re-resolve next loop
-            pass
+        # page may have navigated away from facebook.com (threads/IG
+        # interstitial) — our_url is re-resolved by tab id each loop anyway
+        pass
         time.sleep(3)
 
     print("FAIL: timeout")

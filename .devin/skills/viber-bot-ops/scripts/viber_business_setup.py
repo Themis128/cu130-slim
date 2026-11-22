@@ -81,8 +81,8 @@ L_CHAT_LINK = ["chat link"]
 
 # Category picker cells observed: IT, Consulting, Electronics, Software-
 # adjacent labels. Exact-match first, substring fallback.
-CATEGORY_CANDIDATES = ["it services", "it", "software", "technology",
-                       "consulting", "electronics"]
+CATEGORY_CANDIDATES = ["it", "consulting", "technology", "software",
+                       "electronics", "it services"]
 
 
 def dump(sleep=0.5):
@@ -170,6 +170,7 @@ def _nodes():
             "cx": (x1 + x2) // 2, "cy": (y1 + y2) // 2,
             "x1": x1, "y1": y1, "x2": x2, "y2": y2,
             "clickable": attr("clickable") == "true",
+            "enabled": attr("enabled") != "false",
             "rid": attr("resource-id"),
             "class": attr("class"),
         })
@@ -279,8 +280,22 @@ def _pick_category(dry):
             print("!! no category cell matched — leaving unset")
             vpc.sh("input", "keyevent", "KEYCODE_BACK")
             return False
-    time.sleep(1)
-    return tap_first(L_SAVE, timeout=4) is not None
+    # WebView cells toggle selection asynchronously — Save stays
+    # enabled=false until the selection registers. Poll for an enabled
+    # Save node, then tap its bounds (tap_first ignores enabled state).
+    deadline = time.time() + 6
+    while time.time() < deadline:
+        save = [n for n in _nodes()
+                if n["text"].strip().lower() == "save" and n["enabled"]]
+        if save:
+            n = save[0]
+            vpc.sh("input", "tap", str(n["cx"]), str(n["cy"]))
+            time.sleep(1.5)
+            return True
+        time.sleep(0.8)
+    print("!! Save never enabled — category not selected")
+    vpc.sh("input", "keyevent", "KEYCODE_BACK")
+    return False
 
 
 def _goto_edit_profile():

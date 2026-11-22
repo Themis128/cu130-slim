@@ -734,3 +734,44 @@ refuses while the host pings fine. Recovery: TCP-scan the tailnet IP
 (python `connect_ex` over 30000–50000, ~5s at 300 threads) →
 `adb connect 100.84.31.85:<port>`. First connect may read `offline`
 during the TLS/auth handshake — `adb kill-server` + retry fixes it.
+
+## Unattended token re-auth (2026-11-22, verified live)
+
+The WhatsApp Cloud API token dies with every Meta password change
+(OAuthException 190/460) while the WABA, phone number, templates and
+webhook survive. The `social_accounts` row keeps showing `active`
+(FALSE-ACTIVE drift). Full unattended heal — no login form, no 2FA:
+
+```bash
+python3 .devin/skills/whatsapp-ops/scripts/wa_cookie_transplant.py
+python3 .devin/skills/whatsapp-ops/scripts/wa_oauth_drive.py
+python3 .devin/skills/whatsapp-ops/scripts/wa_token_sync.py
+```
+
+| Script | Role |
+|---|---|
+| `wa_cookie_transplant.py` | Pulls the live FB session cookies (incl. HttpOnly `xs`/`c_user`/`fr`/`datr`) from `facebook-browser-sidecar:9226` (`GET /debug/all-cookies`) and injects them into the debug Chrome on CDP `:9229` via `Network.setCookie`. Verify = `/me` redirect probe — `c_user` is httpOnly so `document.cookie` can't see it. Prereq: sidecar `/health` → `has_session:true`. |
+| `wa_oauth_drive.py` | Mints `/api/v1/auth/oauth/whatsapp/authorize` inside the API container (signed state `p=whatsapp`, scopes `whatsapp_business_management,messaging,business_management,pages_show_list`), opens a `:9229` tab, drives consent (Continue → possible WABA/business asset picker → Allow), watches OUR tab id for `oauth/facebook/callback?code=` (stale callback tabs from earlier flows must be ignored — match by tab id, not URL substring). `--verify` probes the stored token. |
+| `wa_token_sync.py` | Post-callback finisher: the OAuth callback stores the token in `access_token_enc` but leaves `meta_data.access_token`/`phone_number_id` EMPTY → every `_get_whatsapp_client()` send 400s. Decrypts the enc token in-container, writes `meta_data.access_token` (encrypt_field) + `phone_number_id` + `credentials_configured`, probes `/{phone_number_id}` live, and syncs `WHATSAPP_ACCESS_TOKEN` into both `.env` files (consent_healers + ops scripts). |
+
+Gotchas learned live:
+
+- `facebook.com/dialog/oauth` bounces to `login.php` when the driving
+  browser has no FB session — transplant cookies FIRST.
+- Meta consent/profile-picker controls ignore synthetic `el.click()` —
+  use `Input.dispatchMouseEvent` at `getBoundingClientRect` center
+  (trusted events). Profile-picker "Continue" is a dead end (device-bound
+  credential); "Use another profile" opens the usable email/pass form.
+- `facebook.com/login.php?skip_api_login=1` (app-login interstitial)
+  produces `two_step_verification` "Invalid request" on scripted submits —
+  prefer plain `/login/` or skip login entirely via transplant.
+- The OAuth callback's `error=access_denied&error_reason=user_denied`
+  means consent was refused — do NOT retry blindly; check which FB
+  identity the browser session belongs to.
+- Never print token material; `wa_token_sync.py` moves it container→host
+  via `docker cp` to a tmp file, never stdout.
+
+Remaining WhatsApp gates that are NOT this lane: phone-number
+re-verification (wa_verify/ADB SMS), WABA embedded signup for a NEW
+number, and Meta business verification (`business_verification_status`
+in meta_data — document upload, human).
