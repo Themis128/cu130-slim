@@ -46,9 +46,12 @@ CSV_MAP = [
     ("Bluesky", "https://bsky.app/", "tbaltzakis.bsky.social", "BSKY_MAIN_PASSWORD"),
 ]
 
-# .env key -> (cookie name, domain) injected into debug Chrome
-COOKIE_MAP = [
-    ("X_WEB_COOKIES_JSON", "x.com"),   # JSON dict of name->value
+# cookie sources, tried in order — first that yields a non-empty dict wins.
+# X_WEB_COOKIES_JSON in .env is STALE (pre-rotation session); the canonical
+# fresh set is C:\\Users\\tbaltzakis\\x_cookies.json (matches X_WEB_AUTH_TOKEN).
+COOKIE_SOURCES = [
+    ("/mnt/c/Users/tbaltzakis/x_cookies.json", "x.com"),
+    ("X_WEB_COOKIES_JSON", "x.com"),
 ]
 
 
@@ -119,21 +122,37 @@ def inject_cookies(env: dict) -> int:
                 return m.get("result", {})
 
     injected = 0
-    for env_key, domain in COOKIE_MAP:
-        raw = env.get(env_key, "")
+    for src, domain in COOKIE_SOURCES:
+        raw = ""
+        if src.startswith("/") and os.path.exists(src):
+            try:
+                raw = open(src).read()
+            except OSError:
+                continue
+        else:
+            raw = env.get(src, "")
         if not raw:
             continue
         try:
             cookies = json.loads(raw)
-            items = [{"name": k, "value": v, "domain": "." + domain,
-                      "path": "/", "secure": True} for k, v in cookies.items()]
         except Exception:
-            items = [{"name": env_key.lower(), "value": raw,
-                      "domain": "." + domain, "path": "/", "secure": True}]
+            continue
+        items = []
+        for k, v in cookies.items():
+            if isinstance(v, dict):
+                v = v.get("value", "")
+            if not isinstance(v, str):
+                v = json.dumps(v)
+            if v:
+                items.append({"name": k, "value": v, "domain": "." + domain,
+                              "path": "/", "secure": True})
+        ok = 0
         for c in items:
-            call("Network.setCookie", **{k: v for k, v in c.items()
-                                       if k in ("name", "value", "domain", "path", "secure")})
-            injected += 1
+            r = call("Network.setCookie", **c)
+            if isinstance(r, dict) and r.get("success"):
+                ok += 1
+        print(f"{domain}: {ok}/{len(items)} cookies set ({os.path.basename(src)})")
+        injected += ok
     # commit via Storage if needed — Network.setCookie applies immediately
     print(f"cookies injected: {injected}")
     ws.close()
