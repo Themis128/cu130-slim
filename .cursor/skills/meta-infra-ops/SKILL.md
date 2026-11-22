@@ -16,10 +16,11 @@ id/hub identity clears.
 
 `app.worker.tasks.meta_infra_retry` (beat `meta-infra-retry`, daily 10:00
 UTC = 12:00 EET, `meta` queue) runs `meta_infra.py chain`. Exit semantics:
-`0` = every step provisioned (Slack success alert); `3` = restriction
-2859015 still gates mutations (silent — the id/hub identity gate owns it);
-`1` = ordinary failure — capability, network, app claim — (Slack alert).
-Until identity clears, rc3 keeps the schedule quiet and self-recovering.
+`0` = every step provisioned (Slack success alert); `3` = a known
+human-gate — restriction 2859015 or the app-capability #100 — still gates
+mutations (silent; identity/app-claim owns it); `1` = ordinary failure —
+network, unexpected API errors — (Slack alert). Until identity clears,
+rc3 keeps the schedule quiet and self-recovering.
 
 ## Tool
 
