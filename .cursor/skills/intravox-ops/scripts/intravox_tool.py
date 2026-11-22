@@ -10,7 +10,8 @@ Quirks encoded here so callers don't rediscover them:
     silently stripped server-side on PUT — the row comes back empty).
   * News widget `sourcePath` is relative to the language root
     ('news', NOT 'en/news'). This tool normalizes a leading 'en/' away.
-  * Page create = POST /api/pages {id,title,language,parentPath}; content
+  * Page create = POST /api/pages {id,title,language,parentPath}
+  content
     then goes via PUT /api/pages/{uniqueId} with the FULL page object.
   * Navigation is a single document: GET /api/navigation, mutate,
     POST back the same shape.
@@ -233,30 +234,38 @@ def main() -> int:
     pg.set_defaults(f=cmd_page_get)
 
     pc = sub.add_parser("page-create")
-    pc.add_argument("id"); pc.add_argument("title")
-    pc.add_argument("--lang", default="en"); pc.add_argument("--parent", default="")
+    pc.add_argument("id")
+    pc.add_argument("title")
+    pc.add_argument("--lang", default="en")
+    pc.add_argument("--parent", default="")
     pc.set_defaults(f=cmd_page_create)
 
     wa = sub.add_parser("widget-add")
-    wa.add_argument("uid"); wa.add_argument("--type", required=True, choices=sorted(VALID_WIDGET_TYPES))
+    wa.add_argument("uid")
+    wa.add_argument("--type", required=True, choices=sorted(VALID_WIDGET_TYPES))
     wa.add_argument("--widget", required=True, help="full widget JSON incl. type")
     wa.add_argument("--column-count", type=int, default=1)
     wa.set_defaults(f=cmd_widget_add)
 
     nw = sub.add_parser("news")
-    nw.add_argument("--source", default="news"); nw.add_argument("--limit", type=int, default=5)
+    nw.add_argument("--source", default="news")
+    nw.add_argument("--limit", type=int, default=5)
     nw.set_defaults(f=cmd_news)
 
-    ng = sub.add_parser("nav-get"); ng.set_defaults(f=cmd_nav_get)
+    ng = sub.add_parser("nav-get")
+    ng.set_defaults(f=cmd_nav_get)
 
     na = sub.add_parser("nav-add-child")
     na.add_argument("parent", help="nav id e.g. nav_ops, or '' for root")
-    na.add_argument("id"); na.add_argument("title")
-    na.add_argument("--uid", default=None); na.add_argument("--url", default=None)
+    na.add_argument("id")
+    na.add_argument("title")
+    na.add_argument("--uid", default=None)
+    na.add_argument("--url", default=None)
     na.set_defaults(f=cmd_nav_add_child)
 
     up = sub.add_parser("upload")
-    up.add_argument("local"); up.add_argument("dest", help="user-visible folder e.g. IntraVox/media/x")
+    up.add_argument("local")
+    up.add_argument("dest", help="user-visible folder e.g. IntraVox/media/x")
     up.set_defaults(f=cmd_upload)
 
     a = ap.parse_args()

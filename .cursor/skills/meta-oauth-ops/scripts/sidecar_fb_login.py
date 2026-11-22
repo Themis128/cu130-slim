@@ -11,6 +11,9 @@ Env:
     FB_LOGIN_EMAIL      — account email        (required)
     FB_LOGIN_PASSWORD   — account password     (required)
     FB_BACKUP_CODE      — optional Meta backup code (8 digits, no space)
+    META_TOTP_SECRET    — optional base32 authenticator secret; when set the
+                          "Authentication app" method is tried before the
+                          device-approval/SMS lanes (unattended 2FA)
     FACEBOOK_SIDECAR    — default http://facebook-browser-sidecar:9226
     WAIT_APPROVAL_S     — seconds to wait for "Notification on another device"
                           approval on the user's Windows FB app (default 300)
@@ -29,6 +32,7 @@ SB = os.environ.get("FACEBOOK_SIDECAR", "http://facebook-browser-sidecar:9226")
 EMAIL = os.environ.get("FB_LOGIN_EMAIL", "")
 PASSWORD = os.environ.get("FB_LOGIN_PASSWORD", "")
 BACKUP = os.environ.get("FB_BACKUP_CODE", "")
+TOTP_SECRET = os.environ.get("META_TOTP_SECRET", "")
 WAIT = int(os.environ.get("WAIT_APPROVAL_S", "300"))
 
 
@@ -140,8 +144,34 @@ def main():
         click_label("log in")
         time.sleep(8)
 
-    # 4. 2FA — prefer "Notification on another device" (Windows FB app)
+    # 4. 2FA — authenticator app first (unattended), then device approval
     dismiss_cookie_consent()
+    if TOTP_SECRET:
+        try:
+            import pyotp
+            code = pyotp.TOTP(TOTP_SECRET).now()
+        except Exception:
+            code = None
+        if code:
+            click_label("try another way")
+            time.sleep(6)
+            if click_label("authentication app", "label") == "clicked" \
+                    or click_label("authenticator", "label") == "clicked":
+                click_last_continue()
+                time.sleep(5)
+                set_input("input", code)
+                click_label("continue|verify|confirm|next")
+                time.sleep(8)
+                if wait_login(time.time() + 30):
+                    print("totp accepted — logged in"); return 0
+            else:
+                # method picker may already show a code field for app
+                set_input("input", code)
+                click_label("continue|verify|confirm|next")
+                time.sleep(8)
+                if wait_login(time.time() + 30):
+                    print("totp accepted — logged in"); return 0
+
     click_label("try another way")
     time.sleep(6)
     if click_label("notification on another device", "label") == "clicked":

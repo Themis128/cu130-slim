@@ -28,7 +28,7 @@ METABASE_API_KEY=mb_...   # "devin-mcp" key, Administrators group
 `scripts/metabase-mcp.sh` sources it and execs the server. Regenerate a key:
 
 ```python
-# session auth → POST /api/api-key  (see scripts/bootstrap-metabase.py pattern)
+# session auth → POST /api/api-key  (bootstrap pattern documented below)
 ```
 
 ## Metabase API quirks (v0.63)

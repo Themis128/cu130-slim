@@ -33,37 +33,37 @@ print(f'  Edit button: {evaluate("""(async () => {
 
 set_js = f"""
 (async () => {{
-    const editor = document.querySelector('div[contenteditable="true"][role="textbox"]');
+    const editor = document.querySelector('div[contenteditable="true"][role="textbox"]')
     if (!editor) {{
-        const ta = document.querySelector('textarea');
+        const ta = document.querySelector('textarea')
         if (ta) {{
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-            setter.call(ta, {json.dumps(about)});
-            ta.dispatchEvent(new Event('input', {{bubbles: true}}));
-            return 'textarea set: ' + ta.value.length + ' chars';
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+            setter.call(ta, {json.dumps(about)})
+            ta.dispatchEvent(new Event('input', {{bubbles: true}}))
+            return 'textarea set: ' + ta.value.length + ' chars'
         }}
-        return 'no editor found';
+        return 'no editor found'
     }}
 
-    editor.focus();
-    await new Promise(r => setTimeout(r, 500));
+    editor.focus()
+    await new Promise(r => setTimeout(r, 500))
 
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    await new Promise(r => setTimeout(r, 500));
+    const range = document.createRange()
+    range.selectNodeContents(editor)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    await new Promise(r => setTimeout(r, 500))
 
-    document.execCommand('delete');
-    await new Promise(r => setTimeout(r, 500));
+    document.execCommand('delete')
+    await new Promise(r => setTimeout(r, 500))
 
-    document.execCommand('insertText', false, {json.dumps(about)});
-    await new Promise(r => setTimeout(r, 1000));
+    document.execCommand('insertText', false, {json.dumps(about)})
+    await new Promise(r => setTimeout(r, 1000))
 
-    editor.dispatchEvent(new InputEvent('input', {{bubbles: true, inputType: 'insertText', data: {json.dumps(about)}}}));
+    editor.dispatchEvent(new InputEvent('input', {{bubbles: true, inputType: 'insertText', data: {json.dumps(about)}}}))
 
-    return 'contenteditable set: ' + editor.textContent.length + ' chars';
+    return 'contenteditable set: ' + editor.textContent.length + ' chars'
 }})()
 """
 print(f"  Set: {evaluate(set_js, 15)}")

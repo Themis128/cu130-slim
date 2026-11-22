@@ -82,7 +82,7 @@ from app.core.security import decrypt_token
 async def go():
     e = create_async_engine(os.environ['DATABASE_URL'])
     async with e.connect() as c:
-        r = await c.execute(text("SELECT access_token_enc FROM social_accounts WHERE platform='tiktok'"))
+        r = await c.execute(text("SELECT access_token_enc FROM social_accounts WHERE platform='tiktok' AND status='active' ORDER BY updated_at DESC LIMIT 1"))
         row = r.first()
         if not row:
             print('NO_TIKTOK_ACCOUNT')
@@ -121,7 +121,7 @@ from app.core.security import decrypt_token
 async def go():
     e = create_async_engine(os.environ['DATABASE_URL'])
     async with e.connect() as c:
-        r = await c.execute(text("SELECT access_token_enc FROM social_accounts WHERE platform='tiktok'"))
+        r = await c.execute(text("SELECT access_token_enc FROM social_accounts WHERE platform='tiktok' AND status='active' ORDER BY updated_at DESC LIMIT 1"))
         row = r.first()
         tok = decrypt_token(bytes(row[0]))
         async with httpx.AsyncClient(timeout=20) as h:

@@ -15,8 +15,35 @@ export POLAR_ACCESS_TOKEN
 
 : "${POLAR_ACCESS_TOKEN:?POLAR_ACCESS_TOKEN not set — add it to the repo .env (see polar-ops SKILL.md)}"
 
-exec /home/tbaltzakis/.local/bin/node \
-  /home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js \
+# Dual-OS launcher - WSL paths when present, else Windows Git Bash.
+if [[ -x /home/tbaltzakis/.local/bin/node ]]; then
+  _NODE=/home/tbaltzakis/.local/bin/node
+  # mcp-remote lives on the Windows side; /mnt/c is the only WSL-visible copy.
+  _LIB=""
+  for _d in /mnt/c/Users/tbaltzakis/.local/lib "$HOME/.local/lib"; do
+    [[ -d $_d/mcp-remote ]] && _LIB=$_d && break
+  done
+else
+  if command -v node >/dev/null 2>&1; then
+    _NODE=node
+  elif [[ -x "/mnt/c/Program Files/nodejs/node.exe" ]]; then
+    _NODE="/mnt/c/Program Files/nodejs/node.exe"
+  else
+    _NODE="/c/Program Files/nodejs/node.exe"
+  fi
+  _LIB=""
+  for _d in "$HOME/.local/lib" /mnt/c/Users/tbaltzakis/.local/lib /c/Users/tbaltzakis/.local/lib; do
+    [[ -d $_d/mcp-remote ]] && _LIB=$_d && break
+  done
+fi
+
+_MOD="$_LIB/mcp-remote/node_modules/mcp-remote/dist/proxy.js"
+# wslpath -w is only valid when node itself is a Windows binary; a Linux node
+# cannot resolve \\wsl.localhost UNC paths.
+if [[ "$_NODE" == *.exe ]] && command -v wslpath >/dev/null 2>&1; then
+  _MOD="$(wslpath -w "$_MOD")"
+fi
+exec "$_NODE" "$_MOD" \
   https://mcp.polar.sh/mcp/polar-mcp \
   --header "Authorization: Bearer \${POLAR_ACCESS_TOKEN}" \
   "$@"

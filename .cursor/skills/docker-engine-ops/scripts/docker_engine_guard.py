@@ -39,19 +39,8 @@ STATE = HOME / ".local/state/docker-engine-guard/state.json"
 LOG = HOME / "logs/docker-engine-guard.log"
 TG = "/home/tbaltzakis/cu130-slim/.devin/skills/telegram-alert-ops/scripts/tg_alert.py"
 DOCKER_EXE = "/mnt/c/Users/tbaltzakis/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe"
-# Windows console exes spawned via WSL interop allocate a visible conhost
-# (popup flash). Route them through pythonw.exe + mcp-hide.pyw, which
-# creates the child with CREATE_NO_WINDOW — same pattern as win-hidden.sh.
-PYW = "/mnt/c/Program Files/Python312/pythonw.exe"
-MCP_HIDE_WSL = "/mnt/c/Users/tbaltzakis/devin-scripts/mcp-hide.pyw"
 DISTRO_SOCK = "/mnt/wsl/docker-desktop/shared-sockets/guest-services/distro-services/ubuntu-24-04.sock"
 DEDUPE_S = 6 * 3600
-
-
-def _winpath(p: str) -> str:
-    if p.startswith("/mnt/c/"):
-        return "C:\\" + p[len("/mnt/c/"):].replace("/", "\\")
-    return p
 
 
 def sh(cmd, timeout=20):
@@ -60,14 +49,6 @@ def sh(cmd, timeout=20):
         return r.returncode, (r.stdout + r.stderr).strip()
     except Exception as e:  # noqa: BLE001
         return 1, str(e)
-
-
-def sh_win(cmd, timeout=20):
-    """Run a Windows console exe from WSL without a console flash."""
-    if Path(PYW).exists() and Path(MCP_HIDE_WSL).exists():
-        hidden = [PYW, _winpath(MCP_HIDE_WSL)] + [_winpath(a) for a in cmd]
-        return sh(hidden, timeout=timeout)
-    return sh(cmd, timeout=timeout)
 
 
 def log(msg):
@@ -101,11 +82,26 @@ def check():
         findings.append(("FAIL", "proxy-dead",
                          "bare `docker info` unreachable — check dd-user-distro-proxy.service"))
 
+    # docker.exe interop spawns a console window on the Windows desktop —
+    # probe it at most hourly (stamp), not every */30 cron pass. Bare `docker`
+    # + systemd checks above still run every pass.
+    exe_stamp = STATE.parent / "exe-check.stamp"
+    exe_due = True
+    try:
+        exe_due = time.time() - exe_stamp.stat().st_mtime > 3600
+    except OSError:
+        pass
     name_exe = ""
-    if Path(DOCKER_EXE).exists():
-        rc_e, out_e = sh_win([DOCKER_EXE, "info", "--format", "{{.Name}}"], timeout=15)
-        name_exe = out_e.splitlines()[0].strip() if rc_e == 0 and out_e else ""
-    if name_exe == "docker-desktop":
+    if exe_due and Path(DOCKER_EXE).exists():
+        name_exe = docker_name(DOCKER_EXE)
+        try:
+            STATE.parent.mkdir(parents=True, exist_ok=True)
+            exe_stamp.write_text(str(time.time()))
+        except Exception:
+            pass
+    if not exe_due:
+        findings.append(("ok", "docker-exe", "skipped (hourly cadence)"))
+    elif name_exe == "docker-desktop":
         findings.append(("ok", "docker-exe", "docker.exe -> docker-desktop"))
     else:
         findings.append(("FAIL", "engine-down",

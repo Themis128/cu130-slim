@@ -4,7 +4,6 @@
 import json
 import subprocess
 import sys
-import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,7 +13,7 @@ for _p in Path(__file__).resolve().parents:
     if (_p / "_lib" / "skill_http.py").is_file():
         sys.path.insert(0, str(_p / "_lib"))
         break
-from skill_http import api_base, env, request, social_api  # noqa: E402
+from skill_http import env, request, social_api  # noqa: E402
 
 SIDECAR = "http://localhost:8011"
 

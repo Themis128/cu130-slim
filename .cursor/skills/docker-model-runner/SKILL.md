@@ -299,10 +299,14 @@ wiped on EVERY `docker restart docker-model-runner`, Docker Desktop reset, or
 WSL shutdown (verified: `configure show` returns `[]` after restart). They are
 NOT in the models volume.
 
-The `dmr-watchdog` compose service closes this gap: it mounts the
-`docker-model` CLI plugin (`/usr/local/lib/docker/cli-plugins/docker-model`,
-which resolves to the same path inside docker-desktop) and polls the runner's
-`StartedAt` every 60s — on change, it reapplies the canonical configs:
+The `dmr-watchdog` compose service closes this gap: it polls the runner's
+`StartedAt` every **10s** — on change it queues the canonical configs and
+applies **one model per tick** via `POST /engines/_configure`, staggering
+the background preloads each configure triggers (a burst of N configs = N
+simultaneous cold loads = the RAM stampede this design avoids). A failed
+push stays at the head of the queue and retries next tick. Canonical set
+lives in `MODEL_CONFIGS` in docker-compose.yml — update it there, not by
+hand:
 
 ```bash
 docker-model configure --context-size 6144 --keep-alive 5m ai/qwen3:8b-q4_K_M
@@ -509,7 +513,7 @@ Environment variables:
 | `scripts/dmr-route.py` | Preview platform-aware routing without sending a request |
 | `scripts/dmr-validate.py` | Check all expected models are pulled |
 | `scripts/dmr-env-check.py` | Reconcile `.env` `DMR_*_MODEL` refs vs `/engines/v1/models` — classifies OK / PULLABLE / CUSTOM, `--pull` pulls missing refs sequentially (concurrent pulls hit Windows blob file-locks), `--probe` runs a minimal inference call per model |
-| `scripts/dmr-env-drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
+| `scripts/dmr_env_drift.py` | Detect DMR env/model drift across `.env`, container env, and pulled models — run after any DMR alert or .env/compose edit |
 | `scripts/dmr-warmup.py` | Warm the 4B + 8B hot-path models |
 | `scripts/dmr_pressure.py` | Fleet pressure verdict — wedged loads, low host RAM, dmr_lock contention, chat-probe canary |
 | `scripts/dmr-restore.sh` | Runner-container-GONE recovery — image pull (EOF retry), `install-runner` with `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1`, API wait + verify. `--check` reports state only |
@@ -702,11 +706,11 @@ Root cause was NOT a wedged lock holder — it was **config drift**:
   stayed continuously held by the churn → looked "wedged" but was
   actually saturated.
 
-Detection: `scripts/dmr-env-drift.py [--fix]` — compares `.env`,
+Detection: `scripts/dmr_env_drift.py [--fix]` — compares `.env`,
 container env (`docker exec social-api env`), and `docker model list`
 against the canonical fleet, plus flags stuck `Loading...` entries.
 
 Remediation order: fix `.env` explicit values → `docker model pull`
 missing models → `docker compose up -d` the 6 app services (env_file
 vars are baked at container CREATE — `restart` does NOT reload them)
-→ verify `dmr-env-drift.py` clean + `check_dmr_health` missing_models=[].
+→ verify `dmr_env_drift.py` clean + `check_dmr_health` missing_models=[].

@@ -11,5 +11,5 @@ from skill_http import usage  # noqa: E402
 
 val = sys.argv[1] if len(sys.argv) > 1 else usage('Usage: fb-personal-update-bio.py "Bio text"')
 print(f"→ Updating ({len(val)} chars)...")
-print_result(http("POST", f"http://localhost:9226/profile/bio",
+print_result(http("POST", "http://localhost:9226/profile/bio",
                   json_body={"bio": val}))

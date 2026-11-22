@@ -38,7 +38,7 @@ Files: `services/engagement.py`, `models/engagement.py`,
 ## Ops scripts
 
 - `scripts/engagement-status.sh` — pending/dispatched/acted/failed counts + cooldown state
-- `scripts/approve-comments.sh <id>` — approve a human-gated comment draft
+- comment-draft approval goes through the content API (`action=approve` on the draft endpoint) — no dedicated script
 
 ## Common fixes
 

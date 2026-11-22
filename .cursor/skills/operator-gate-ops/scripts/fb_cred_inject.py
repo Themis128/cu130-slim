@@ -68,12 +68,16 @@ def main():
         print("no credentials supplied"); return 1
 
     _ensure_cdp()
-    p = Page()
-    fb_login(p, email, pw)
+    p = Page(url_match="facebook")
     t = p.poll("document.body.innerText", timeout=15) or ""
-    if "Create App" not in (p.goto("https://developers.facebook.com/apps/") or "") and "My Apps" not in t:
-        print("login may have failed or hit a checkpoint — check the Chrome window")
-        return 1
+    if "Create App" not in t and "My Apps" not in t:
+        fb_login(p, email, pw)
+        p.goto("https://developers.facebook.com/apps/")
+        time.sleep(6)
+        t = p.poll("document.body.innerText", timeout=15) or ""
+        if "Create App" not in t and "My Apps" not in t:
+            print("login may have failed or hit a checkpoint — check the Chrome window")
+            return 1
     print("FB login OK")
 
     print(A.stage())
@@ -81,6 +85,7 @@ def main():
     A.toast("Confirm the Meta re-auth — password will be auto-typed")
     deadline = time.time() + 300
     while time.time() < deadline:
+        p = Page(url_match="facebook")
         if R._dialog_open(p):
             p.js("(()=>{const i=document.querySelector('input[type=password]');"
                  "if(i){i.value=" + __import__('json').dumps(pw) + ";i.dispatchEvent(new Event('input',{bubbles:true}));"
@@ -93,6 +98,7 @@ def main():
         time.sleep(3)
     pw = None  # discard immediately
     while time.time() < deadline + 300:
+        p = Page(url_match="facebook")
         sec = R._secret_value(p)
         if sec:
             rc = R._envmgr_put("FACEBOOK_CLIENT_SECRET", sec)

@@ -12,7 +12,8 @@ Usage:
       [--post-text "..."] [--dry-run] [--container browser-novnc]
 
 Requires: bridge session for platform=linkedin already logged in
-(profile persists across restarts; if not, run once with --interactive and
+(profile persists across restarts
+if not, run once with --interactive and
 log in via noVNC at http://localhost:6080/vnc.html).
 """
 

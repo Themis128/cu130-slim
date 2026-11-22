@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-from skill_http import env, request  # noqa: E402
+from skill_http import env  # noqa: E402
 
 app_id = env("META_APP_ID", "1936126137016578")
 app_secret = env("FACEBOOK_APP_SECRET")

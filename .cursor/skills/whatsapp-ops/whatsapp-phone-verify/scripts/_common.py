@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Shared WhatsApp phone helpers for this skill's scripts."""
 
-import json
 import sys
 from pathlib import Path
 

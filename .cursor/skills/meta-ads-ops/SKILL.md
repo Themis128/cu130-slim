@@ -97,3 +97,18 @@ phone first — it makes the CDP session trusted-enough to proceed.
   current Meta token lacks them, so the UI path is the only introspection.
 - Business portfolio `cloudless.gr` (id `1558125105019725`), ad account
   `657781691826702`, WABA asset `1073707258453499`.
+
+## meta_2fa_drive.py gates (learned 2026-10-31)
+
+- **Profile gate**: `fb://settings` lands on a profile-switcher if the app
+  is on a page/business profile — the script now auto-taps
+  "Switch profiles"/"Switch to your main profile" before Accounts Center.
+- **ADB resolution**: script resolves `adb` via `ADBS` fallback list
+  (bare `adb` → WSL platform-tools `.exe` paths) — no PATH setup needed.
+- **Password gate**: wrong `--pw`/`FB_PASSWORD` is now detected
+  ("incorrect" on screen) and reported cleanly instead of stalling.
+- **Wrong-password flow**: password gate REJECTS silently in FB app —
+  check `PASSWORD REJECTED` output and retry with the real FB password
+  (the IG/Threads password is NOT the same credential).
+- **Email code**: `gmail_code_fetch.py` reads the FB confirmation code
+  from Gmail via `%APPDATA%\devin\secrets\gmail-token.json` (auto-refresh).

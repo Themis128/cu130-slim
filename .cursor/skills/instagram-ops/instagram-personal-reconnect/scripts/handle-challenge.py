@@ -14,7 +14,7 @@ if len(sys.argv) < 4:
 session_id, last_json, code = sys.argv[1], sys.argv[2], sys.argv[3]
 
 print("=== Resolving challenge ===", file=sys.stderr)
-import json
+import json  # noqa: E402
 raw = sidecar_post("/auth/challenge/resolve",
                    {"last_json": json.loads(last_json), "security_code": code},
                    session_id=session_id, json_body=True)

@@ -15,6 +15,32 @@ fi
 : "${METABASE_URL:?METABASE_URL not set — create .devin/metabase-mcp.env (see metabase-ops SKILL.md)}"
 : "${METABASE_API_KEY:?METABASE_API_KEY not set — create .devin/metabase-mcp.env}"
 
-exec /home/tbaltzakis/.local/bin/node \
-  /home/tbaltzakis/.local/lib/metabase-mcp/node_modules/@cognitionai/metabase-mcp-server/dist/server.js \
-  "$@"
+# Dual-OS launcher - WSL paths when present, else Windows Git Bash.
+if [[ -x /home/tbaltzakis/.local/bin/node ]]; then
+  _NODE=/home/tbaltzakis/.local/bin/node
+  # mcp-remote lives on the Windows side; /mnt/c is the only WSL-visible copy.
+  _LIB=""
+  for _d in /mnt/c/Users/tbaltzakis/.local/lib "$HOME/.local/lib"; do
+    [[ -d $_d/metabase-mcp ]] && _LIB=$_d && break
+  done
+else
+  if command -v node >/dev/null 2>&1; then
+    _NODE=node
+  elif [[ -x "/mnt/c/Program Files/nodejs/node.exe" ]]; then
+    _NODE="/mnt/c/Program Files/nodejs/node.exe"
+  else
+    _NODE="/c/Program Files/nodejs/node.exe"
+  fi
+  _LIB=""
+  for _d in "$HOME/.local/lib" /mnt/c/Users/tbaltzakis/.local/lib /c/Users/tbaltzakis/.local/lib; do
+    [[ -d $_d/metabase-mcp ]] && _LIB=$_d && break
+  done
+fi
+
+_MOD="$_LIB/metabase-mcp/node_modules/@cognitionai/metabase-mcp-server/dist/server.js"
+# wslpath -w is only valid when node itself is a Windows binary; a Linux node
+# cannot resolve \\wsl.localhost UNC paths.
+if [[ "$_NODE" == *.exe ]] && command -v wslpath >/dev/null 2>&1; then
+  _MOD="$(wslpath -w "$_MOD")"
+fi
+exec "$_NODE" "$_MOD" "$@"

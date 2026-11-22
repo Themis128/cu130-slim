@@ -55,16 +55,61 @@ def ev(expr: str, tries: int = 3) -> dict:
     return {"error": f"busy after {tries} tries: {last}"}
 
 
-def status() -> int:
-    for name, (url, mark) in PLATFORMS.items():
-        ev(f"location.href={json.dumps(url)}")
+def _res_obj(r: dict) -> dict:
+    res = r.get("result") or {}
+    if isinstance(res, str):
+        try:
+            res = json.loads(res)
+        except ValueError:
+            res = {"t": res}
+    return res if isinstance(res, dict) else {}
+
+
+def _bridge(method: str, path: str, data: dict | None = None):
+    r = urllib.request.Request(
+        BRIDGE + path,
+        data=json.dumps(data).encode() if data is not None else None,
+        headers={"Content-Type": "application/json"}, method=method)
+    try:
+        with urllib.request.urlopen(r, timeout=30) as f:
+            return json.loads(f.read())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _ensure_session() -> None:
+    """status() needs a live browser context — start one if idle/dead."""
+    st = _bridge("GET", "/session/status")
+    if st.get("error") or st.get("status") in (None, "idle", "error", "stopped"):
+        _bridge("POST", "/session/stop", {})
+        _bridge("POST", "/session/start", {"platform": "twitter"})
         time.sleep(5)
+
+
+def status() -> int:
+    import urllib.parse
+    _ensure_session()
+    for name, (url, mark) in PLATFORMS.items():
+        want_host = urllib.parse.urlparse(url).netloc.replace("www.", "")
+        _bridge("POST", "/session/navigate", {"url": url})
+        # Poll until the page actually lands on the target host — a fixed
+        # sleep races slow navigations and reads the previous platform's DOM.
+        for _ in range(10):
+            time.sleep(3)
+            rr = ev("location.href")
+            cur_url = rr.get("result")
+            if isinstance(cur_url, str) and want_host in cur_url:
+                break
         r = ev("""
-        (()=>({u:location.href,t:(document.body&&document.body.innerText||'').slice(0,400)}))()
+        (()=>({u:location.href,t:(document.body&&document.body.innerText||'').slice(0,2500)}))()
         """)
-        body = str(r.get("result") or "")
-        cur = (r.get("url") or "")
-        logged = any(m in body.lower() for m in mark.split("|")) or "login" not in cur.lower()
+        res = _res_obj(r)
+        body = str(res.get("t") or "")
+        cur = str(res.get("u") or "")
+        # A login/onboarding URL is a hard wall regardless of page text —
+        # x.com/i/jf/onboarding and /i/flow/login both contain marker words.
+        walled = any(w in cur.lower() for w in ("login", "signin", "sign-in", "i/flow", "onboarding", "auth"))
+        logged = (not walled) and any(m in body.lower() for m in mark.split("|"))
         print(f"{name:10} {'logged_in' if logged else 'LOGIN_WALL'}  {cur[:70]}")
     return 0
 
@@ -94,34 +139,6 @@ def seed_x() -> int:
         return 1
 
 
-def seed_linkedin() -> int:
-    li_at = os.environ.get("LINKEDIN_LI_AT", "")
-    jsid = os.environ.get("LINKEDIN_JSESSIONID", "")
-    if not li_at:
-        return err("need LINKEDIN_LI_AT (the li_at session cookie) in env")
-    # li_at + JSESSIONID are the LinkedIn session pair — both HttpOnly,
-    # so the bridge cookie endpoint is the only injection path.
-    cookies = [
-        {"name": "li_at", "value": li_at, "domain": ".linkedin.com",
-         "path": "/", "secure": True, "httpOnly": True},
-    ]
-    if jsid:
-        cookies.append({"name": "JSESSIONID", "value": jsid.strip('"'),
-                        "domain": ".linkedin.com", "path": "/",
-                        "secure": True, "httpOnly": True})
-    r = urllib.request.Request(
-        BRIDGE + "/session/cookies",
-        data=json.dumps({"cookies": cookies}).encode(),
-        headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(r, timeout=15) as f:
-            print("cookies:", f.read()[:200])
-            return 0
-    except Exception as e:
-        print("cookie endpoint failed:", str(e)[:120])
-        return 1
-
-
 def err(msg: str) -> int:
     print(msg)
     return 1
@@ -134,8 +151,6 @@ def main() -> int:
         return status()
     if cmd == "seed-x":
         return seed_x()
-    if cmd == "seed-linkedin":
-        return seed_linkedin()
     if cmd == "eval":
         print(ev(" ".join(sys.argv[2:])))
         return 0

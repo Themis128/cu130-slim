@@ -163,6 +163,27 @@ Caveats:
 - Survives until the next engine/VHDX event; the nightly `wsl --shutdown`
   still resets everything to the canonical path.
 
+## Orphan hashed-mount cleanup (verified 2026-11-20)
+
+Empty hashed dirs that NO container references are stale `/dev/sdd`
+bind-mount records that survive the bridge heal — `rmdir` fails with
+`Device or resource busy` until the mountpoint itself is released.
+From inside Ubuntu-24.04 (no docker-desktop exec needed), as root
+(`wsl.exe -d Ubuntu-24.04 -u root`):
+
+```sh
+cd /mnt/wsl/docker-desktop-bind-mounts/<distro>
+for h in */; do
+  [ -z "$(ls -A "$h" 2>/dev/null)" ] || continue          # skip non-empty
+  refs=$(docker ps -aq | xargs -r docker inspect \
+    --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' | grep -c "${h%/}")
+  [ "$refs" = "0" ] && umount "${h%/}" && rmdir "${h%/}"
+done
+```
+
+Only unmount hashes with zero container refs — an in-use empty mount is a
+casualty (fix via recreate/rebind above), not garbage.
+
 ## Related
 
 - `wsl-docker-doctor` — socket/interop/proxy-respawn classes, `.wslconfig` tuning
