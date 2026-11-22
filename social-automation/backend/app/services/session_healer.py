@@ -98,7 +98,18 @@ BRIDGE_PLATFORMS: dict[str, dict[str, str]] = {
         "nav": "https://www.tiktok.com/",
         "login_marker": '!!document.querySelector("[data-e2e=login-button]") && !document.querySelector("[data-e2e=profile-icon]")',
     },
+    "skool": {
+        # Community page redirects to /login or /about when logged out;
+        # logged-in it stays on the community/classroom path.
+        "nav": "https://www.skool.com/sofia-kakkava-coaching",
+        "login_marker": 'location.pathname.startsWith("/login") || location.pathname.endsWith("/about") || !!document.querySelector("input[type=password]")',
+    },
 }
+
+# Bridge platforms whose site config extracts no cookies — 'done' status
+# alone is the logged-in signal (cookies_found stays [] and would
+# otherwise never satisfy the poll/healthy checks).
+_SESSION_ONLY_PLATFORMS = {"skool"}
 
 THREADS_SSO_URL = "https://www.threads.com/login/?show_toa_choice_screen=false&variant=toa_ig"
 
@@ -503,7 +514,9 @@ async def _bridge_poll_done(platform: str, seconds: int = 45) -> bool:
     """Wait for the bridge detection loop to flip the session to done."""
     for _ in range(seconds // 3):
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if status.get("platform") == platform and status.get("status") in ("active", "done") and status.get("cookies_found"):
+        if status.get("platform") == platform and status.get("status") in ("active", "done") and (
+            status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS
+        ):
             return True
         await asyncio.sleep(3)
     return False
@@ -512,7 +525,10 @@ async def _bridge_poll_done(platform: str, seconds: int = 45) -> bool:
 async def _bridge_extract(platform: str) -> bool:
     code, data = await _bridge_call("/session/extract", platform, {}, timeout=60.0)
     found = data.get("cookies_found") or list((data.get("cookies") or {}).keys())
-    if code == 200 and found:
+    # Session-only platforms extract zero cookies by design — 'done' is
+    # the signal, nothing to sync.
+    session_only = platform in _SESSION_ONLY_PLATFORMS
+    if code == 200 and (found or session_only):
         cookies = data.get("cookies") or {}
         if cookies:
             await _sync_browser_cookies(platform, cookies)
@@ -646,6 +662,13 @@ async def _recover_bridge_platform(platform: str) -> bool:
             return await _bridge_login(platform, username.lstrip("@"), password)
         return False
 
+    if platform == "skool":
+        username = await _secret("SKOOL_EMAIL")
+        password = await _secret("SKOOL_PASSWORD")
+        if username and password:
+            return await _bridge_login(platform, username, password)
+        return False
+
     return False
 
 
@@ -654,7 +677,9 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
     try:
         # Current session already belongs to this platform and is done.
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if status.get("platform") == platform and status.get("status") in ("active", "done") and status.get("cookies_found"):
+        if status.get("platform") == platform and status.get("status") in ("active", "done") and (
+            status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS
+        ):
             slot["status"] = "healthy"
             await _clear_dead_marker(platform)
             return
@@ -758,6 +783,12 @@ async def heal_all_sessions() -> dict[str, Any]:
         for platform in ("facebook", "instagram", "threads", "twitter", "tiktok"):
             if platform in accounts:
                 await _heal_bridge_platform(platform, stats)
+
+        # Skool has no social_accounts row — it only feeds the VEC watcher.
+        # Heal last (never ahead of publish lanes) and only when creds exist,
+        # so a logged-out classroom self-recovers instead of alerting.
+        if await _secret("SKOOL_EMAIL") and await _secret("SKOOL_PASSWORD"):
+            await _heal_bridge_platform("skool", stats)
     finally:
         try:
             r = await _get_redis()
