@@ -146,20 +146,31 @@ def device_text(xml):
     if m:
         return m.group(1)
     # Mobile-web pushes phrase the device differently (or omit the
-    # "Login attempt from" prefix). Look for a device-shaped node —
-    # "attempt from <os>", "on <browser>", or any node that itself
-    # matches the allowlist device regex — so the allowlist search
-    # lands on the device copy, never on the card title.
+    # "Login attempt from" prefix). Find a device-shaped node —
+    # "attempt from <os>" first, then any SHORT node carrying an
+    # allowlist word that isn't dialog copy — and return it together
+    # with the surrounding card copy so the caller's DENY_HINT_RE check
+    # still sees "Unrecognized device"-style warnings sitting in
+    # neighbouring nodes.
     texts = re.findall(r'(?:text|content-desc)="([^"]{2,120})"', xml)
     for t in texts:
         if re.search(r"attempt from|log ?in from|login on|logged in on", t, re.I):
             return t
-    for t in texts:
-        if ALLOW_RE.search(t) and not re.search(
-            r"trying to log|let us know|was this you|approve|notification",
-            t, re.I):
-            return t
-    return ""
+    device = next(
+        (t for t in texts
+         if len(t) <= 60
+         and ALLOW_RE.search(t)
+         and not re.search(
+             r"trying to log|let us know|was this you|approve|"
+             r"notification|collapse|expand|login attempt|this device",
+             t, re.I)),
+        "")
+    if not device:
+        return ""
+    warns = [t for t in texts
+             if t != device and re.search(
+                 r"unrecognized|new device|suspicious", t, re.I)]
+    return " | ".join([device] + warns)
 
 
 def approve(aid):
