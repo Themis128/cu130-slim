@@ -58,8 +58,16 @@ def g(path, token, params=None, post=None):
 
 
 def restricted(resp):
+    """True when the failure is a known human-gate (silent-wait state).
+
+    Covers the personal restriction (subcode 2859015) and the app-capability
+    gate (#100 'apps with the capability') — both clear only via the id/hub
+    identity action or an app-claim, not by retrying, so the beat maps them
+    to rc3 instead of alerting daily."""
     err = resp.get("error", {})
-    return err.get("error_subcode") == 2859015 or "restricted" in str(err.get("error_user_msg", "")).lower()
+    msg = str(err.get("error_user_msg", "")).lower() + str(err.get("message", "")).lower()
+    return (err.get("error_subcode") == 2859015 or "restricted" in msg
+            or "with the capability" in msg)
 
 
 def log(step, result):
