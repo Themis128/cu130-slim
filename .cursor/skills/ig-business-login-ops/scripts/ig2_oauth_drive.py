@@ -313,6 +313,20 @@ def main():
         print("not live:", who)
         return 2
 
+    # Fail fast: every CDP eval below needs websockets; without it ev()
+    # raises inside try/except-pass wrappers and the drive polls a tab it
+    # never navigated for the full 240s deadline (burned a whole run
+    # 2026-11-22 on bare python3).
+    try:
+        import websockets.sync.client  # noqa: F401
+    except ImportError:
+        print("websockets missing for this interpreter — CDP drive would "
+              "silently no-op. Use an interpreter that has it, e.g.: "
+              "python3 -m venv ~/.venv-igdrive && "
+              "~/.venv-igdrive/bin/pip install websockets && "
+              "~/.venv-igdrive/bin/python ig2_oauth_drive.py")
+        return 4
+
     cid_ok, url = mint_url()
     if not cid_ok or not url:
         print("INSTAGRAM2_* not in API container env — add to standalone "
