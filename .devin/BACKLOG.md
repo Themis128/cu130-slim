@@ -4596,10 +4596,14 @@ Lessons:
 
 ## 2026-11-22 — branch sweep + tailnet-watch-ops skill (Devin)
 
-- Landed orphaned post-merge commits: `docs/backlog-ig-suspension`
-  (IG swap / threads reauth resolution) and `fix/sidecar-tiktok-proxy-network`
-  1f2f8ab7 (engagement-browser joins `socialauto-standalone` with
-  `engagement-browser` + `browser-novnc` aliases).
+- Landed orphaned post-merge commit from `docs/backlog-ig-suspension`
+  (IG swap / threads reauth resolution).
+- [ ] `fix/sidecar-tiktok-proxy-network` 1f2f8ab7 (engagement-browser joins
+  `socialauto-standalone` with `engagement-browser` + `browser-novnc`
+  aliases) NOT landed: master-deploy-watch only deploys the standalone
+  compose, so the root-compose change wouldn't apply on merge, and the
+  `browser-novnc` alias may collide for workers on both networks. Needs a
+  standalone-compose design; branch kept.
 - Deleted 16 branches whose content is on master (8 `heal/*`, merged
   feature branches, `feat/adb-wireless-lane`, `fix/ops-sweep-txn-hygiene`).
   `fix/li-heal-new-login-form` 6371be61 was superseded by #2408.
