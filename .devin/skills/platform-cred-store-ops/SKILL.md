@@ -125,6 +125,27 @@ undetected):
 Converged hashes ≠ working credential — run this after any Meta
 credential change before declaring the rotation done.
 
+### Verified Meta login facts (2026-11-22)
+
+- The working Meta Account password lived **only in root `.env`** (the
+  other agent wrote it there + Windows checkout, never the store). It
+  passed FB login + 2FA; both store values were rejected. Always
+  `cred_verify.py` before trusting a rotation.
+- **`META_TOTP_SECRET_IG` is the working Meta Account 2FA secret** —
+  `META_TOTP_SECRET` codes were rejected ("code isn't right") on the
+  Meta Account two_step_verification flow. IG and FB share the Meta
+  Account, so the IG seed serves both.
+- Sidecar 2FA drive (no `/login` code path — do it via `/debug/eval`):
+  "Try another way" → click the `input[type=radio]` inside the
+  "Authentication app" row → last "Continue" → fill code input via the
+  native setter → Continue.
+- **Checkpoint gate**: after password+2FA, Meta can force
+  `/checkpoint/.../secure your account` → "Create a new password" →
+  `auth_platform/reset_password`. Completing it **logs out every
+  device** (phone included). Abort by navigating away unless a full
+  reset is intended; if completed, immediately `cred_set.py` the new
+  password — it is the new canonical value.
+
 ## Audit tool
 
 `scripts/cred_audit.py` — compares every platform-cred key across:
