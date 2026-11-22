@@ -23,6 +23,9 @@ case "$1" in
     prev=""
     for a in "$@"; do
       if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *project.config_files* ]]; then printf '%s' "${FAKE_CFG_FILES:-}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *project.working_dir* ]]; then printf '%s' "${FAKE_WD:-}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [[ "$a" == *'"com.docker.compose.project"'* ]]; then printf '%s' "${FAKE_PROJECT:-}"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Health.Status* ]]; then echo "${FAKE_HEALTH:-healthy}"; exit 0; fi
       if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Status}}' ]; then
         if [ -n "${FAKE_CSTATE_FILE:-}" ] && [ -f "$FAKE_CSTATE_FILE" ]; then cat "$FAKE_CSTATE_FILE"; else echo "${FAKE_CSTATE:-running}"; fi
@@ -170,6 +173,42 @@ def test_mount_broken_exited_container_is_recreated_not_restarted(env):
     assert "start social-api" not in c and "restart social-api" not in c
     assert any("compose up -d --no-deps --pull never --force-recreate fake-svc" in x for x in c)
     assert "force-recreated" in log(repo)
+
+
+MOUNT_ERR = ('failed to create shim task: OCI runtime create failed: '
+             'error mounting "/run/desktop/mnt/host/wsl/..." to rootfs '
+             'at "/entrypoint.sh": not a directory')
+
+
+def test_recreate_uses_containers_own_project_files(env, tmp_path):
+    """Labels point at the standalone project → recreate there, keeping every
+    config file (overrides included), never the repo-root compose."""
+    repo, e, tmp = env
+    wd = tmp_path / "standalone"
+    wd.mkdir()
+    base, override = wd / "docker-compose.yml", wd / "docker-compose.override.yml"
+    base.write_text("services: {}\n")
+    override.write_text("services: {}\n")
+    run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS=MOUNT_ERR, WD_NOW=1000,
+        FAKE_PROJECT="socialauto-standalone", FAKE_CFG_FILES=f"{base},{override}",
+        FAKE_WD=str(wd))
+    c = calls(tmp)
+    want = (f"compose -f {base} -f {override} --project-directory {wd} "
+            "up -d --no-deps --pull never --force-recreate fake-svc")
+    assert want in c, c
+    assert not any(x.startswith("compose up") for x in c), c
+
+
+def test_recreate_refuses_foreign_project_without_files(env):
+    """Another project's compose file is unreadable → no root-compose recreate
+    (that would spawn a hash-renamed duplicate)."""
+    repo, e, tmp = env
+    run(repo, e, FAKE_STATUS="exited false", FAKE_LOGS=MOUNT_ERR, WD_NOW=1000,
+        FAKE_PROJECT="socialauto-standalone",
+        FAKE_CFG_FILES="/nonexistent/docker-compose.yml", FAKE_WD="/nonexistent")
+    c = calls(tmp)
+    assert not any("force-recreate" in x for x in c), c
+    assert "cannot recreate" in log(repo)
 
 
 def test_exited_container_without_mount_error_still_restarts(env):
