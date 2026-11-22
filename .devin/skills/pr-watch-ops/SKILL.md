@@ -27,7 +27,7 @@ Requires `gh` authenticated (Windows binary or `wsl gh` via `devin-queue/ghw.cmd
 
 | Signature | Class | Meaning |
 |---|---|---|
-| `CodeQL` | advisory | dependency-CVE alerts in scanned metadata + "config not found" drift warnings — **never a merge gate** |
+| `CodeQL` | **actionable** | a failed check means diff-introduced gate alerts — triage via `codeql-triage-ops/scripts/codeql_pr_alerts.py <pr>` (dep-CVE noise never reaches the gate) |
 | `Cursor Approval`, `SonarCloud`, `codecov` | advisory | informational bots — skip |
 | `Trivy *`, `container-scan`, `Generate SBOM` | scan | infra-flavored: check whether the branch carries the current fix stack before re-diagnosing (2026-11-04: trivy 0.58.1 yanked → 0.76.1; runner disk OOM → ungated cleanup) |
 | everything else (`test`, `integration-test`, `validate`, `secret-scan`, `Ruff Lint`, `build-and-push`) | **actionable** | pull the job log |

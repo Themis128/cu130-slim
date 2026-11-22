@@ -1,9 +1,24 @@
 # merge-queue-ops
 
-Enable, verify, and roll back GitHub **merge queue** on `master` for
-Themis128/cu130-slim — the canonical fix for the strict-protection merge
-treadmill (`strict: true` + 5 required checks invalidates every open PR on
-each merge).
+## ⚠️ UNAVAILABLE on this repo (verified 2026-11-22)
+
+GitHub gates merge queues to **organization-owned** public repositories.
+`Themis128/cu130-slim` is **user-owned** — the rulesets API rejects the
+`merge_queue` rule type with HTTP 422, and GraphQL has no
+`mergeQueueParameters` input. `merge_queue.py enable` refuses early via an
+owner-type preflight. The only way to enable it for real is transferring
+the repo to an org.
+
+What replaced the queue's role here:
+- `strict: false` on classic protection — BEHIND is cosmetic, armed
+  auto-merge fires the moment the 5 required checks pass, no
+  update-branch needed.
+- `.github/workflows/pr-autopilot.yml` (#2483) — event-driven
+  arm-on-open + merge-on-green; the gap a queue would have filled.
+
+The rest of this doc is preserved for the day the repo moves to an org.
+
+---
 
 ## Required-check map (branch protection)
 
