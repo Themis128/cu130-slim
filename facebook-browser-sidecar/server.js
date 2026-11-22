@@ -160,6 +160,39 @@ async function settle(timeout = 20000) {
   await page.waitForTimeout(1500);
 }
 
+/** Click a locator even when transparent overlay divs intercept pointer
+ * events at its centre (the recurring profile-picker wedge: Playwright's
+ * actionability check times out on "subtree intercepts pointer events").
+ * Marks the target, strips the elementFromPoint stack down to it, then
+ * issues a real mouse click at the centre coordinates. */
+async function clickThroughOverlay(locator) {
+  const box = await locator.boundingBox({ timeout: 5000 }).catch(() => null);
+  if (!box) return false;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await locator
+    .evaluate((el) => el.setAttribute("data-fb-click-target", "1"))
+    .catch(() => {});
+  const cleared = await page
+    .evaluate(
+      ([x, y]) => {
+        for (let i = 0; i < 10; i += 1) {
+          const top = document.elementFromPoint(x, y);
+          if (!top) break;
+          if (top.closest("[data-fb-click-target]")) return true;
+          top.style.pointerEvents = "none";
+          top.setAttribute("data-fb-overlay-kill", "1");
+        }
+        return false;
+      },
+      [cx, cy],
+    )
+    .catch(() => false);
+  if (!cleared) return false;
+  await page.mouse.click(cx, cy);
+  return true;
+}
+
 /** Dismiss any overlay dialogs left open (notifications panel, previous
  * composer, popups). They intercept pointer events on the composer trigger
  * and make Playwright clicks land on the wrong element. Escape is a real
@@ -490,7 +523,8 @@ async function handleProfilePicker() {
     }
 
     if (continueBtn) {
-      await continueBtn.click();
+      const clicked = await clickThroughOverlay(continueBtn).catch(() => false);
+      if (!clicked) await continueBtn.click({ timeout: 10000 }).catch(() => {});
       await settle(10000);
       console.log("Clicked Continue as button");
       // Persist updated session cookies after picker dismissal
@@ -523,7 +557,8 @@ async function handleProfilePicker() {
           'button:has-text("Continue"):visible',
         ], { timeout: 3000 });
         if (submitBtn) {
-          await submitBtn.click();
+          const clicked = await clickThroughOverlay(submitBtn).catch(() => false);
+          if (!clicked) await submitBtn.click().catch(() => {});
           await settle(10000);
           console.log("Selected profile from picker");
           // Persist updated session cookies after picker dismissal
