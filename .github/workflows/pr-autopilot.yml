@@ -30,7 +30,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pr-autopilot
+  group: pr-autopilot-${{ github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
