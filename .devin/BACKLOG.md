@@ -4642,9 +4642,13 @@ Lessons:
   compose, which is what spawned hash-renamed root-project duplicates.
   Remove the stopped container + old volume once TikTok publishing is
   confirmed on the standalone sidecar.
-- [x] The stopped stale `38209cd8f1f6_tiktok-browser-sidecar` came back up
-  on its own around 16:20 (`unless-stopped` restart policy, during the
-  fsbridge event) and workers resolved it again. Removed the container; the
+- [x] The stopped stale `38209cd8f1f6_tiktok-browser-sidecar` was started
+  again at 14:20Z by `~/scripts/social-stack-watchdog.sh`
+  `ensure_project_drift` ("compose-project container ... exited/created (not
+  sleep-managed) — starting"). It starts every exited `cu130-slim`-project
+  container, duplicates included, and workers resolved the duplicate again.
+  The watchdog now skips `^[0-9a-f]{12}_` names (backup
+  `.bak-pre-dupskip`). Removed the container; the
   volume `cu130-slim_tiktok_browser_data` is kept as a session backup.
   Workers now resolve the standalone sidecar (has_session=true).
 - [ ] 2026-11-22 16:20 fsbridge poison (`fsbridge_doctor.py probe` → MOUNT
