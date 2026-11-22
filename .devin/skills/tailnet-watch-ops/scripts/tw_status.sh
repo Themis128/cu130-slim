@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # tailnet-watch status/digest operator tool (WSL -> office-1 Windows).
 set -euo pipefail
-PS=(powershell.exe -NoProfile -NonInteractive -Command)
+# winps (popup-free-host rule) avoids a console flash; plain interop is the fallback.
+if [ -f "$HOME/scripts/win-hidden.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$HOME/scripts/win-hidden.sh"
+  PS=(winps -NoProfile -NonInteractive -Command)
+else
+  PS=(powershell.exe -NoProfile -NonInteractive -Command)
+fi
 ROOT='D:\tailnet-watch'
 TASK='\DevOptimizer-Tailnet-Watch-Status'
 
@@ -18,7 +25,8 @@ case "${1:-check}" in
     "${PS[@]}" "Get-ScheduledTask -TaskPath '\' -TaskName '${TASK#\\}' | Get-ScheduledTaskInfo |
       Format-List LastRunTime,LastTaskResult,NextRunTime" ;;
   deploy)
-    "${PS[@]}" "git -C '$ROOT' pull --ff-only; git -C '$ROOT' log --oneline -1;
+    "${PS[@]}" "git -C '$ROOT' pull --ff-only; if (\$LASTEXITCODE) { exit \$LASTEXITCODE };
+      git -C '$ROOT' log --oneline -1;
       Select-String -Path '$ROOT\scripts\run-status-check.ps1' -Pattern '--digest' -SimpleMatch" ;;
   *)
     echo "usage: $0 {check|history|task|deploy}" >&2; exit 2 ;;
