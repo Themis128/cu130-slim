@@ -17,9 +17,9 @@ import asyncio
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,8 +58,16 @@ def g(path, token, params=None, post=None):
 
 
 def restricted(resp):
+    """True when the failure is a known human-gate (silent-wait state).
+
+    Covers the personal restriction (subcode 2859015) and the app-capability
+    gate (#100 'apps with the capability') — both clear only via the id/hub
+    identity action or an app-claim, not by retrying, so the beat maps them
+    to rc3 instead of alerting daily."""
     err = resp.get("error", {})
-    return err.get("error_subcode") == 2859015 or "restricted" in str(err.get("error_user_msg", "")).lower()
+    msg = str(err.get("error_user_msg", "")).lower() + str(err.get("message", "")).lower()
+    return (err.get("error_subcode") == 2859015 or "restricted" in msg
+            or "with the capability" in msg)
 
 
 def log(step, result):
@@ -104,8 +112,8 @@ def chain(tok):
         elif restricted(r):
             print("   -> restricted (id/hub gate); rerun after identity clears")
             return 3
-        elif not su:
-            return 3
+        else:
+            return 1
     suid = su.get("id") if su else None
     if not suid:
         print("1) no system user id — abort")
@@ -114,26 +122,41 @@ def chain(tok):
     r = g(f"{suid}/applications", tok, post={"business_app": APP})
     print("2) app install:", json.dumps(r)[:250])
     log("applications.install", r)
+    if "error" in r:
+        return 3 if restricted(r) else 1
     # 3) generate non-expiring system-user token
     r = g(f"{BM}/access_token", tok,
           post={"business_app": APP, "scope": SCOPES, "set_token_expires_in_60_days": "false",
                 "system_user_id": suid})
     print("3) access_token:", "MINTED" if r.get("access_token") else json.dumps(r)[:300])
     log("access_token.generate", {k: v for k, v in r.items() if k != "access_token"})
+    if "error" in r:
+        return 3 if restricted(r) else 1
     su_tok = r.get("access_token", tok)
     # 4) assign WABA to system user
     r = g(f"{WABA}/assigned_users", su_tok, post={"user": suid, "tasks": '["MANAGE"]'})
     print("4) waba assign:", json.dumps(r)[:250])
     log("waba.assign", r)
-    # 5) create fresh ad account
-    r = g(f"{BM}/adaccount", tok, post={"name": "cloudless.gr-ads",
-          "currency": "EUR", "timezone_id": "105",
-          "end_advertiser": "NONE", "media_agency": "NONE", "partner": "NONE"})
-    print("5) ad account:", json.dumps(r)[:350])
-    log("adaccount.create", r)
+    if "error" in r:
+        return 3 if restricted(r) else 1
+    # 5) ad account — reuse a live one; create only when none exists
+    existing = g(f"{BM}/owned_ad_accounts", tok,
+                 params={"fields": "account_id,name,account_status"}).get("data", [])
+    live = next((a for a in existing if a.get("account_status") in (1, "1")), None)
+    if live:
+        print("5) ad account exists:", live.get("account_id"))
+        r = {"account_id": live["account_id"], "reused": True}
+    else:
+        r = g(f"{BM}/adaccount", tok, post={"name": "cloudless.gr-ads",
+              "currency": "EUR", "timezone_id": "105",
+              "end_advertiser": "NONE", "media_agency": "NONE", "partner": "NONE"})
+        print("5) ad account:", json.dumps(r)[:350])
+    log("adaccount.resolve", r)
     if restricted(r):
         print("   -> restricted; rerun after identity clears")
         return 3
+    if "error" in r:
+        return 1
     # 6) appeals pass on any live entities
     sys.path.insert(0, "/app/scripts")
     import meta_appeals as m
@@ -148,6 +171,7 @@ def chain(tok):
 async def _all_tokens():
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from app.core.security import decrypt_token
     from app.models.social_account import SocialAccount
     e = create_async_engine(os.environ["DATABASE_URL"])

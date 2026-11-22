@@ -12,6 +12,16 @@ personal-account restriction** — Meta answers
 identically through API and UI. The chain re-runs cleanly the moment the
 id/hub identity clears.
 
+## Scheduled operation
+
+`app.worker.tasks.meta_infra_retry` (beat `meta-infra-retry`, daily 10:00
+UTC = 12:00 EET, `meta` queue) runs `meta_infra.py chain`. Exit semantics:
+`0` = every step provisioned (Slack success alert); `3` = a known
+human-gate — restriction 2859015 or the app-capability #100 — still gates
+mutations (silent; identity/app-claim owns it); `1` = ordinary failure —
+network, unexpected API errors — (Slack alert). Until identity clears,
+rc3 keeps the schedule quiet and self-recovering.
+
 ## Tool
 
 ```bash
