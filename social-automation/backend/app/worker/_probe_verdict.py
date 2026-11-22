@@ -21,8 +21,14 @@ from __future__ import annotations
 _REJECT_STATUSES = frozenset({400, 401, 403})
 
 
-def verdict_from_status(status_code: int) -> bool | None:
-    """Map an HTTP status to True (healthy) / False (rejected) / None."""
+def verdict_from_status(status_code: int | None) -> bool | None:
+    """Map an HTTP status to True (healthy) / False (rejected) / None.
+
+    Non-integer/None inputs are inconclusive — a malformed response is
+    not proof the credential died.
+    """
+    if not isinstance(status_code, int) or isinstance(status_code, bool):
+        return None
     if 200 <= status_code < 300:
         return True
     if status_code in _REJECT_STATUSES:
@@ -31,5 +37,8 @@ def verdict_from_status(status_code: int) -> bool | None:
 
 
 def verdict_from_response(resp) -> bool | None:
-    """``verdict_from_status`` for an httpx-style response object."""
-    return verdict_from_status(resp.status_code)
+    """``verdict_from_status`` for an httpx-style response object.
+
+    A response object without a usable ``status_code`` is inconclusive.
+    """
+    return verdict_from_status(getattr(resp, "status_code", None))
