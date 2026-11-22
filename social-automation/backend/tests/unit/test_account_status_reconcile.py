@@ -108,6 +108,46 @@ async def test_reconcile_marks_expired_without_probe():
 
 
 @pytest.mark.asyncio
+async def test_understated_drift_alerts_once():
+    """Token probes active but DB says expired — reconcile must NOT promote
+    (session health owns that) but MUST surface the drift, deduped 24h."""
+    acc = MagicMock()
+    acc.token_expires_at = None
+    acc.access_token_enc = b"x"
+    acc.status = "expired"
+    acc.meta_data = {}
+    acc.platform = "instagram"
+    acc.username = "cloudless.gr"
+    acc.account_id = "1"
+
+    fake_db = MagicMock()
+    fake_db.execute = AsyncMock(return_value=MagicMock(scalars=lambda: MagicMock(all=lambda: [acc])))
+    fake_db.commit = AsyncMock()
+
+    class _Sess:
+        async def __aenter__(self):
+            return fake_db
+
+        async def __aexit__(self, *a):
+            return False
+
+    with (
+        patch.object(R, "task_session", lambda: _Sess()),
+        patch.object(R, "decrypt_token", return_value="tok"),
+        patch.object(R, "post_alert_to_slack", new=AsyncMock()) as alert,
+        patch.object(R, "_probe", new=AsyncMock(return_value="active")),
+    ):
+        await R._reconcile()
+        assert acc.status == "expired"  # never promoted by design
+        assert acc.meta_data["token_probe_status"] == "active"
+        assert "understated_alert_at" in acc.meta_data
+        alert.assert_awaited_once()
+        # second sweep inside 24h — deduped
+        await R._reconcile()
+        assert alert.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_web_lane_instagram_is_unprobed():
     """IG rows with a live web_rupload session must not be Graph-probed —
     the token is revoked by design and the sweep would flip-flop status."""

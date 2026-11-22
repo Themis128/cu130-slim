@@ -18,7 +18,7 @@ without a network probe. A single account failure never aborts the sweep.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import select
@@ -152,6 +152,25 @@ async def _reconcile() -> dict[str, int]:
             if acc.status != new_status:
                 if new_status == "active" and acc.status in ("expired", "revoked"):
                     logger.info("token OK but not promoting %s %s — session health owns %s", acc.platform, acc.username, acc.status)
+                    # UNDERSTATED drift is invisible otherwise: the token works
+                    # but every publish lane filters on status='active', so the
+                    # account is silently dark. Alert once per 24h — this exact
+                    # drift hid the 2026-11-22 IG mass-expire for hours.
+                    meta = acc.meta_data or {}
+                    last_alert = meta.get("understated_alert_at")
+                    alerted_recently = False
+                    if last_alert:
+                        try:
+                            alerted_recently = (now - datetime.fromisoformat(last_alert)) < timedelta(hours=24)
+                        except (TypeError, ValueError):
+                            alerted_recently = False
+                    if not alerted_recently:
+                        acc.meta_data = {**meta, "understated_alert_at": now.isoformat()}
+                        await post_alert_to_slack(
+                            f":information_source: Account drift — {acc.platform} `{acc.username or acc.account_id}` "
+                            f"token probes *active* but DB status is `{acc.status}`. "
+                            "Publish lanes skip it until session health restores the row."
+                        )
                     continue
                 logger.info("drift: %s %s status %s -> %s", acc.platform, acc.username, acc.status, new_status)
                 counts["drifted"] += 1
