@@ -23,6 +23,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -72,6 +76,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -95,6 +103,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     extra_hosts:
@@ -120,6 +132,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     volumes:
@@ -145,6 +161,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -170,6 +190,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
@@ -193,6 +217,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis/0
       - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     depends_on:
