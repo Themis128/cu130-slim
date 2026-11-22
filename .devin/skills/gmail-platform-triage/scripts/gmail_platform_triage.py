@@ -107,7 +107,8 @@ def _api(at: str, path: str, method: str = "GET", body: dict | None = None):
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Authorization": f"Bearer {at}", "Content-Type": "application/json"},
     )
-    return json.loads(urllib.request.urlopen(req, timeout=30).read())
+    raw = urllib.request.urlopen(req, timeout=30).read()
+    return json.loads(raw) if raw.strip() else {}
 
 
 def _hdr(msg: dict, name: str) -> str:
