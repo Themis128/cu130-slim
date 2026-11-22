@@ -1,6 +1,6 @@
 ---
 name: tailnet-watch-ops
-description: Operate the office-1 tailnet-watch status check and its daily digest email — run the check on Windows from WSL, read the hourly history and digest state, force or preview a digest, and verify the scheduled task. Use for "tailnet-watch status" Telegram alerts, a missing/duplicate 08:00 digest at tbaltzakis@cloudless.gr, or after changing D:\tailnet-watch.
+description: Operate the office-1 tailnet-watch status check and its daily digest email — run the check on Windows from WSL, read the hourly history and digest state, force a digest send, and verify the scheduled task. Use for "tailnet-watch status" Telegram alerts, a missing/duplicate 08:00 digest at tbaltzakis@cloudless.gr, or after changing D:\tailnet-watch.
 ---
 
 # tailnet-watch-ops
