@@ -439,3 +439,54 @@ Fresh `_popup-watch` capture after remediation, exercising every lane:
   spawns are client-internal; out of scope.
 - `wsl-vsock-autoheal` live-diagnosed `proxy-dead` during the battle test —
   3-consecutive-check escalation auto-respawns the proxy; healthy behavior.
+
+### 6. Windows-side grandchildren of headless tasks (2026-11-22)
+
+`conhost --headless` wraps the PARENT only: a console-subsystem grandchild
+spawned inside the script (`wsl.exe`, `adb.exe`, `tailscale.exe`, `tasklist.exe`,
+`Start-Job`'s pwsh, `Start-Process -WindowStyle Hidden`) still allocates a
+real console → flash, every pass. `_popup-watch` shows them as
+`conhost 0x4` children of the headless script's pwsh.
+
+Fixes applied (pattern: spawn with `CREATE_NO_WINDOW`, never bare `&`):
+
+- **`Watch-DockerWslIntegration.ps1`** — `Start-Process wsl.exe -WindowStyle
+  Hidden` → `-NoNewWindow` (attaches to the headless parent console).
+- **`repair-wsl-docker-integration.ps1`** `WslArgs` — `& wsl.exe` →
+  `ProcessStartInfo{CreateNoWindow=$true}` + ArgumentList (no quoting pitfalls).
+- **`phone-tailnet-watch.ps1`** — `Start-Job` (allocates a console for the job
+  pwsh) + bare `tailscale.exe`/`& $Adb` calls → shared `Invoke-Hidden` helper
+  (ProcessStartInfo, CREATE_NO_WINDOW, capture stdout, timeout+kill).
+- **`docker-socket-watch.bat`** — `wsl.exe` calls →
+  `pythonw.exe mcp-hide.pyw wsl.exe …` (exit code passthrough keeps
+  `if errorlevel` working).
+- **`wsl-resume-watch.ps1`** — all four `& wsl.exe` calls → `Invoke-Wsl`
+  helper (same CREATE_NO_WINDOW pattern).
+- **`gmail-telegram-watch/run-all-watches.bat`** — the bat itself ran
+  `python.exe` (console app) as its grandchild → `conhost 0x4` every ~10 min
+  even under `conhost --headless wscript → vbs` parent. Bat now calls
+  `pythonw.exe`; `\DevinGmailWatch` action simplified to
+  `conhost --headless cmd.exe /c run-all-watches.bat` (the vbs layer was
+  redundant — it hid the cmd window but could never stop the grandchild's
+  own console).
+- **`wsl.exe -e docker info` inside `cdp-relay-watch.ps1`** (spawned under
+  `conhost --headless chrome-launch-watch.bat`) allocated its own
+  `conhost 0x4` — same grandchild rule: inner Windows-console calls in
+  headless scripts need `CREATE_NO_WINDOW`/pythonw, never bare `wsl.exe`.
+
+### 7. Windows Terminal as default console host (2026-11-22)
+
+When `HKCU\Console\%%Startup` is absent ("Let Windows decide"), Windows
+Terminal handles every console hand-off. Two consequences (upstream
+microsoft/terminal#12464):
+
+- `wsl.exe -d <distro>` spawns **wslhost.exe with its own console**; under WT
+  the hand-off puts that console on screen → flash CREATE_NO_WINDOW cannot
+  reach (it belongs to wslhost, not the caller).
+- Bare console-app spawns (old tasks, IDE children) show WT windows/tabs
+  instead of conhost flashes.
+
+Fix: pin delegation to conhost — create `HKCU\Console\%%Startup` with
+`DelegationConsole` + `DelegationTerminal` =
+`{00000000-0000-0000-0000-000000000000}`. wslhost consoles then stay hidden;
+WT still works as an app. This host is pinned as of 2026-11-22.
