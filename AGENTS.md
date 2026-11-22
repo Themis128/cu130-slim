@@ -783,3 +783,66 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **Before publish**: verify what IS knowable — token expiry + publish scopes, media public-URL reachability, per-account dedup, correct-media gate. This is the only class of failure you can prevent.
 - **After publish**: a failure is not done when it retries — it is done when it is *classified* and *surfaced*. The path exists (retry ×3 → failed → failure-learning signature → Slack digest + remediation proposals at ≥3x/7d). Never leave a failed post silent: confirm the signature landed and, for recurring signatures, write the remediation note before being asked.
 - **The healer contract**: auto-heal mechanical stalls (queue orphans, wedged publishes, stale locks, daemon death); alert-not-autofix on judgment calls (media choice, content edits, platform policy decisions).
+
+## Browser credential sync + Meta/IG recovery findings (2026-11-22 night)
+
+- **`FACEBOOK_PASSWORD` (== `INSTAGRAM_PASSWORD` in .env) is VALID** — Meta
+  login on debug Chrome :9229 accepted it and reached
+  `/two_step_verification/authentication/`. The "old password" the user saw
+  in Chrome was a stale *saved* entry, not the account password. Do NOT
+  assume Meta creds are stale — probe before resetting.
+- **Meta code-reset lane is device-bound**: `facebook.com/login/identify`
+  + "No longer have access to these?" → `auth_platform/lrr_limbo`
+  ("can't match the device") on BOTH the FB sidecar (:9226) and fresh
+  Playwright profiles. Only previously-used devices get SMS/email codes.
+  Debug Chrome :9229 is also NOT a recognized device for this Meta
+  Account (transplanted cookies ≠ device registration).
+- **2FA checkpoint gate**: after valid password, Meta shows
+  `two_step_verification/authentication/` which can render "This page
+  isn't available" (poisoned encrypted_context). Lane: fresh attempt +
+  phone "Was this you?" approval — `phone-2fa-ops/scripts/phone_fb_approve.py`
+  (cron */3) auto-approves allowlisted device strings. Do NOT hammer
+  attempts (each poisons context + cooldown).
+- **IG password is genuinely unknown** — `ig_login.py` returns
+  bad-credentials for INSTAGRAM_PASSWORD. IG reset
+  (`instagram.com/accounts/password/reset/`) identify-submit returns
+  "Something went wrong" across debug-Chrome CDP, headed Playwright, AND
+  the patchright FB sidecar — IG risk-scores automation on this flow.
+  Working submit trick on sidecar: full PointerEvent+MouseEvent sequence
+  (pointerover/down/up + mouse + click) on the `div[role=button]` —
+  plain `.click()`/`/debug/click` do NOT fire IG's handler. Still got
+  server-side rejection → needs cooldown or the phone IG app.
+  Unattended consume lane once a mail exists:
+  `ig_emaillogin_session.py --dump /tmp/ig_cookies.json --inject`
+  (all stored web_emaillogin links are single-use — fetch_links()
+  iterates dead candidates, exits 4 when exhausted).
+- **`browser_secret_sync.py`** (platform-cred-store-ops/scripts):
+  regenerates `C:\Users\tbaltzakis\Downloads\browser-passwords-import.csv`
+  from .env platform-cred keys (8 social rows), `--cookies` injects
+  session cookies into debug Chrome :9229 via CDP Network.setCookie.
+  `--check` = drift report. CSV import into Chrome/Edge password
+  managers remains a manual file-picker step (OS-encrypted stores have
+  no API); run sync after any `cred_set.py` rotation, then re-import.
+- **`browser_auth_probe.py`** (same dir): battle-tests REAL auth state
+  on debug Chrome :9229 — classifies each platform tab
+  AUTHENTICATED / LOGIN-WALL / PROFILE-PICKER / CHECKPOINT from visible
+  text (cookie presence ≠ logged in). `--click-continue` attempts the
+  one-tap picker. Run with `/home/tbaltzakis/.venv-igreset/bin/python`.
+- **2026-11-22 battle-test verdicts**: X = AUTHENTICATED (fresh cookies
+  from `C:\Users\tbaltzakis\x_cookies.json` — `.env X_WEB_COOKIES_JSON`
+  was the STALE pre-rotation session; store/envs now carry the fresh
+  JSON). IG + FB profile pickers are ZOMBIE sessions — Continue never
+  authenticates, only fresh password+2FA login revives them. Bluesky:
+  `BSKY_MAIN_PASSWORD` works ONLY with the email identifier
+  (baltzakis.themis@gmail.com), not the handle; `BSKY_CREDENTIALS` app
+  password was stale → rotated to `sa-rot-1795383255` via
+  createAppPassword (app-pass JWTs can't self-manage — need main pw).
+  cred_audit PLATFORM_CRED_KEYS now covers X_WEB_CT0/X_WEB_COOKIES_JSON/
+  BSKY_* — all 23 keys converged store↔root↔standalone.
+- **TikTok**: sidecar session live (@cloudless.gr, tiktok.com/setting
+  verified). `TIKTOK_DEV_EMAIL/PASSWORD` is the best-known account cred —
+  unverified as the *account* password (TikTok may be Google-SSO).
+  Account region: Greece.
+- **facebook-browser-sidecar exited** mid-session (Exited 0); restart
+  with `docker start facebook-browser-sidecar` — `/debug/navigate`,
+  `/debug/eval`, `/debug/click {x,y}` are its endpoints (NOT /session/*).

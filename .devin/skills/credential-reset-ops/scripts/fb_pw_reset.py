@@ -158,7 +158,8 @@ def reset(new_pw, dry=False):
 
     print("[2] identify account — tap Search/Continue after entering id")
     if not dry:
-        fill("tbaltzakis")  # or email — the identify page takes either
+        ident = os.environ.get("FB_RESET_IDENT", "baltzakis.themis@gmail.com")
+        fill(ident)  # email — the identify page takes email/phone/username
         click("Search") or click("Continue")
         time.sleep(6)
 

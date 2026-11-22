@@ -186,3 +186,41 @@ canonical). Exit 1 on divergence.
 
 Phase 2 (tracked in BACKLOG): rewire host scripts to `get_secret()` with
 `.env` fallback so the store becomes the single read path everywhere.
+
+## Browser auth probe + secret sync (2026-11-22 battle test)
+
+`scripts/browser_auth_probe.py` — verifies REAL auth state on the debug
+Chrome CDP relay (`http://192.168.96.1:9229` by default). Classifies each
+platform tab as AUTHENTICATED / LOGIN-WALL / PROFILE-PICKER / CHECKPOINT /
+UNKNOWN from visible page text — cookie presence alone proves nothing
+(injected cookies can be stale or rejected). `--click-continue` attempts the
+one-tap profile-picker login and re-probes. Requires the igreset venv
+(`websocket-client`): `/home/tbaltzakis/.venv-igreset/bin/python`.
+
+`scripts/browser_secret_sync.py` — regenerates the Chrome/Edge password CSV
+(`C:\Users\tbaltzakis\Downloads\browser-passwords-import.csv`, 8 social rows)
+from canonical cred keys, `--cookies` injects session cookies into debug
+Chrome, `--check` audits drift. Chrome/Edge password stores have no write
+API — CSV import is the only bulk path (manual file-picker click per browser).
+
+Battle-test findings (2026-11-22):
+
+- **X session cookies**: canonical fresh set is `C:\Users\tbaltzakis\x_cookies.json`
+  (matches `X_WEB_AUTH_TOKEN`). `.env X_WEB_COOKIES_JSON` was STALE — the
+  pre-rotation session; store/envs now carry the fresh JSON. Inject →
+  `x.com/home` verified AUTHENTICATED.
+- **Meta one-tap pickers are zombie sessions**: IG `t_baltzakis` and FB
+  `Themistoklis Baltzakis` profile pickers render but Continue never
+  authenticates — Meta invalidated the saved sessions. Only a fresh
+  password+2FA login revives them.
+- **Bluesky**: `BSKY_MAIN_PASSWORD` is the account MAIN password — it only
+  authenticates with the EMAIL identifier (`baltzakis.themis@gmail.com`),
+  not the handle (`createSession` 401s on handle). `BSKY_CREDENTIALS` app
+  password was stale (401); rotated to `sa-rot-1795383255` via
+  `createAppPassword` using a main-password session — verified. App-password
+  JWTs (`scope com.atproto.appPass`) CANNOT call `listAppPasswords`/
+  `createAppPassword`/`refreshSession` ("Bad token scope") — rotation needs
+  the main password.
+- `cred_audit.py` PLATFORM_CRED_KEYS now includes `X_WEB_CT0`,
+  `X_WEB_COOKIES_JSON`, `BSKY_*` — previously diverged silently because they
+  weren't in the audit inventory.
