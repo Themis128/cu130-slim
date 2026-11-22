@@ -363,7 +363,7 @@ def main():
             time.sleep(1)
             clicked = click_first("", [r"^continue$", r"^next$", r"^done$", r"^confirm$"], only_id=our_id)
         elif state == "biz_picker":
-            r = click_checkbox_near("facebook.com", r"cloudless|1558125105019725")
+            r = click_checkbox_near("", r"cloudless|1558125105019725", only_id=our_id)
             print("  biz tick:", r)
             time.sleep(1)
             clicked = click_first("", [r"^continue$", r"^next$", r"^done$", r"^confirm$", r"select all"], only_id=our_id)
@@ -388,10 +388,9 @@ def main():
             print("  no actionable button; labels:", clicked.get("labels"))
             idle = 0
 
-        # page may have navigated away from facebook.com (threads/IG interstitial)
-        if "facebook.com" not in u and "whatsapp" not in u.lower():
-            # give navigation a moment; re-resolve next loop
-            pass
+        # page may have navigated away from facebook.com (threads/IG
+        # interstitial) — our_url is re-resolved by tab id each loop anyway
+        pass
         time.sleep(3)
 
     print("FAIL: timeout")

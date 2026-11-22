@@ -32,6 +32,13 @@ except Exception:
     WSL_HOST_IP = "192.168.96.1"
 
 CDP = "http://" + WSL_HOST_IP + ":9229"
+
+
+def _host_is(url: str, domain: str) -> bool:
+    """Hostname-suffix match — substring domain checks are spoofable
+    (evil.com/?q=facebook.com); CodeQL py/incomplete-url-substring-sanitization."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
 SIDECAR = os.environ.get("FACEBOOK_SIDECAR", "http://localhost:9226")
 
 # cookie name -> (domain, path, httpOnly, secure)
@@ -60,7 +67,7 @@ def tabs():
 
 def fb_tab():
     cands = [t for t in tabs() if t.get("type") == "page"
-             and "facebook.com" in t.get("url", "")]
+             and _host_is(t.get("url", ""), "facebook.com")]
     if cands:
         return cands[0]
     req = urllib.request.Request(
@@ -123,9 +130,10 @@ def main():
       return{url:resp.url};
     })()""", "returnByValue": True, "awaitPromise": True})
     me_url = (r.get("result", {}).get("value", {}) or {}).get("url", "")
-    logged_in = "themis.baltzakis" in me_url or (
-        "facebook.com" in me_url and "login" not in me_url
-        and me_url.rstrip("/").endswith("facebook.com") is False)
+    logged_in = ("themis.baltzakis" in urllib.parse.urlparse(me_url).path
+                 or (_host_is(me_url, "facebook.com")
+                     and "login" not in me_url
+                     and not me_url.rstrip("/").endswith("facebook.com")))
     print("verify: /me ->", me_url[:80])
     if logged_in:
         print("DONE: :9229 FB session live")
