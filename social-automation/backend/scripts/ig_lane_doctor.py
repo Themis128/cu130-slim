@@ -50,7 +50,7 @@ for path in ("/app", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Public, stable, tiny image used only for container probes. Unpublished
 # containers expire server-side; nothing is ever posted.
-_PROBE_IMAGE = "https://cloudless.gr/og-image.png"
+_PROBE_IMAGE = "https://pub-9dff040689a94928938b78da104c1ec4.r2.dev/2026/11/21/e3061270721345a9.jpg"
 
 
 async def _accounts() -> list:
