@@ -43,6 +43,13 @@ ENV_FILE = os.path.join(REPO, ".env")
 CALLBACK_MARK = "/api/v1/auth/oauth/threads/callback"
 
 
+def _host_is(url: str, domain: str) -> bool:
+    """Hostname-suffix match — 'instagram.com' in url is spoofable
+    (evil.com/?q=instagram.com); CodeQL py/incomplete-url-substring-sanitization."""
+    host = (urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
 def load_env() -> dict[str, str]:
     env = {}
     try:
@@ -204,7 +211,7 @@ def drive(url: str, cdp: str, timeout: int, secret: str) -> int:
                 else:
                     page.evaluate(_CLICK_JS)
             # IG OAuth consent / account chooser
-            elif "instagram.com" in cur:
+            elif _host_is(cur, "instagram.com"):
                 if "two-factor" in low or "authentication app" in low or \
                         "verification code" in low:
                     print("2FA wall — driving TOTP")
