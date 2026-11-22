@@ -81,3 +81,39 @@ Do not `depends_on` them or probe their ports for health — a probe is a wake.
 `python .devin/skills/mcp-ops/scripts/mcp_health.py` exit 0 = every probed
 server alive. Expect `metabase`/`polar` to fail with credential errors until
 the gaps above are closed — the scripts tell you exactly which var is missing.
+
+## Fleet doctor (2026-11-22 audit)
+
+`mcp_health.py` probes liveness; `mcp_fleet_doctor.py` adds the environment
+checks that were the actual root causes in the 2026-11-22 outage:
+
+```bash
+python3 .devin/skills/mcp-ops/scripts/mcp_fleet_doctor.py --all   # probe + env
+python3 .devin/skills/mcp-ops/scripts/mcp_fleet_doctor.py --env-only
+```
+
+Env checks: docker engine, stack-ops container + :9227/:9228 forwards,
+`.playwright-data/` files, `~/.mcp-auth/` OAuth caches, key containers.
+
+### Failure classes hit + fixes (verified live)
+
+1. **`docker compose exec` at repo root → "service not running"** — social-api
+   lives in the `socialauto-standalone` project (`deploy/socialauto-standalone`).
+   Use `docker exec -i` (fix merged #2479). `docker compose ps` at root lies
+   for social-* containers.
+2. **stack-ops Exited(127) → linkedin/airbyte MCP dead** — stack-ops publishes
+   the :9227/:9228 socat forwards. If the sidecars probe `000` AND stack-ops
+   is down (not asleep), it's not idle-sleep — check `docker ps -a` for
+   stack-ops, then `docker compose up -d --force-recreate --no-deps stack-ops`
+   (recreate mints fresh bind-mount hash dirs when fsbridge poisoned `.env`).
+3. **`.playwright-data/` wiped → playwright MCP ENOENT** — gitignored dir;
+   restore `pw-mcp-config.json` + `init-script.js` from git `a94ff269f`
+   (never restore `profile/`).
+4. **mcp-remote false-dead in probes** — 20-75s warmup AND exits on stdin
+   EOF. `mcp_health.py`/`mcp_fleet_doctor.py`/`socialauto_mcp_probe.py` all
+   hold stdin open ≥75s. (geelen/mcp-remote#272)
+5. **Fleet status 2026-11-22: 20/20 healthy** — socialauto 35, slack ×2 27 ea,
+   dmr 26, google-photos 26, playwright 25, metabase 19, n8n 13,
+   linkedin-ads 11, platform 8, cloudflare 8, phone 10 (probe quirk: 0 tools
+   listed but server alive), tiktok-console 9, polar 5, cloudflare-api 5,
+   cloudflare-docs 2, linkedin/airbyte/nextcloud/deepwiki HTTP-alive.
