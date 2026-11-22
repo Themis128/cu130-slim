@@ -157,7 +157,7 @@ class MessageResponse(BaseModel):
 class AutoReplyConfig(BaseModel):
     enabled: bool = False
     system_prompt: str = "You are a helpful assistant for {page_name}. Reply concisely and professionally."
-    model: str = "@cf/meta/llama-3.1-8b-instruct"
+    model: str = "@cf/meta/llama-4-scout-17b-16e-instruct"
     fallback_text: str = "Thanks for your message! We'll get back to you soon."
     max_tokens: int = 200
 
@@ -672,7 +672,7 @@ async def _generate_and_send_auto_reply(
             "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
         ).replace("{page_name}", page_name)
 
-        model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
+        model = config.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct")
         max_tokens = config.get("max_tokens", 200)
         fallback_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
 

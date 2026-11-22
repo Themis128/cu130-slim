@@ -204,7 +204,7 @@ async def test_provider(name: str, team_id: TeamId, current_user: User = Depends
         "sambanova": "gpt-oss-120b",
         "mistral": "mistral-small-latest",
         "cohere": "command-r7b-12-2024",
-        "cloudflare": "@cf/meta/llama-3.2-3b-instruct",
+        "cloudflare": "@cf/meta/llama-4-scout-17b-16e-instruct",
     }
     if not re.fullmatch(r"^[A-Za-z0-9_-]+$", name):
         raise HTTPException(status_code=400, detail="Invalid provider name")

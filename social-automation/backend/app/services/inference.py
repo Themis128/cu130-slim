@@ -284,20 +284,20 @@ PROVIDER_CATALOG = [
         "name": "cloudflare",
         "display_name": "Cloudflare Workers AI",
         "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/",
-        "default_model": "@cf/meta/llama-3.2-3b-instruct",
+        "default_model": "@cf/meta/llama-4-scout-17b-16e-instruct",
         "requires_key": True,
         "in_fallback_chain": True,
         "description": "Cloudflare Workers AI — LLMs, Whisper/Nova STT, FLUX images. The ONLY cloud fallback for text and image inference.",  # noqa: E501
         "model_examples": [
-            "@cf/meta/llama-3.2-1b-instruct",
-            "@cf/meta/llama-3.2-3b-instruct",
+            "@cf/meta/llama-3.2-11b-vision-instruct",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
             "@cf/openai/whisper",
             "@cf/openai/whisper-large-v3-turbo",
             "@cf/deepgram/nova-3",
-            "@cf/meta/llama-3.1-8b-instruct-fp8",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
             "@cf/black-forest-labs/flux-1-schnell",
-            "@cf/runwayml/stable-diffusion-v1-5-img2img",
-            "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            "@cf/black-forest-labs/flux-2-klein-9b",
+            "@cf/black-forest-labs/flux-2-klein-9b",
         ],
     },
 ]
@@ -382,7 +382,7 @@ def _resolve_base_url(provider_name: str, base_url: str) -> str:
 STT_MODELS: dict[str, str] = {
     "whisper": "@cf/openai/whisper",
     "whisper-large-v3-turbo": "@cf/openai/whisper-large-v3-turbo",
-    "whisper-tiny-en": "@cf/openai/whisper-tiny-en",
+    "whisper-tiny-en": "@cf/openai/whisper",  # tiny-en retired 2026-11-20; base whisper is live
     "wav2vec2": "@cf/facebook/wav2vec2-base-960h",
     "speechbrain": "@cf/speechbrain/asr-cnn-transformer",
     "nova-3": "@cf/deepgram/nova-3",
@@ -593,7 +593,7 @@ async def _call_workers_ai_chat(
 WORKERS_AI_DEFAULT_STRUCTURED_MAX_TOKENS = 4096
 
 # Keywords that identify image-generation models on Workers AI.  Text models
-# like ``@cf/meta/llama-3.1-8b-instruct`` do *not* match any of these, so the
+# like ``@cf/meta/llama-4-scout-17b-16e-instruct`` do *not* match any of these, so the
 # heuristic is safe for routing.
 _WORKERS_AI_IMAGE_KEYWORDS = (
     "stabilityai",
@@ -933,7 +933,7 @@ async def _call_workers_ai_image(
 async def _call_workers_ai_img2img(
     prompt: str,
     image_bytes: bytes,
-    model: str = "@cf/runwayml/stable-diffusion-v1-5-img2img",
+    model: str | None = None,  # CF img2img retired 2026-11-20 → HF fallback
     api_key: str | None = None,
     negative_prompt: str = "blurry, low quality, watermark, text, logo, letters",
     strength: float = 0.45,
@@ -946,8 +946,9 @@ async def _call_workers_ai_img2img(
 ) -> dict:
     """Enhance / transform an image via Cloudflare Workers AI img2img.
 
-    ``@cf/runwayml/stable-diffusion-v1-5-img2img`` accepts ``image_b64`` + ``prompt``
-    + optional ``strength`` / ``num_steps`` / ``guidance``.
+    No live Workers AI img2img model remains (runwayml img2img retired
+    2026-11-20); callers should pass ``model=None`` to go straight to the
+    HF instruct-pix2pix fallback.
     """
     import asyncio
     import base64
@@ -955,6 +956,25 @@ async def _call_workers_ai_img2img(
 
     from PIL import Image
 
+    if not model:
+        # No live Workers AI img2img model (runwayml img2img retired
+        # 2026-11-20) — go straight to the HF instruct-pix2pix fallback.
+        hf_key = (settings.HUGGINGFACE_API_KEY or "").strip()
+        if not hf_key:
+            raise HTTPException(status_code=503, detail="No img2img provider available (CF retired, HF key missing)")
+        import base64 as _b64
+
+        return await _call_hf_img2img(
+            prompt=prompt,
+            image_b64=_b64.b64encode(image_bytes).decode(),
+            model=HF_IMG2IMG_FALLBACK,
+            api_key=hf_key,
+            negative_prompt=negative_prompt,
+            strength=strength,
+            steps=steps,
+            width=width,
+            height=height,
+        )
     account_id, key = _workers_ai_credentials(api_key)
     model = _validate_workers_ai_model(model)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
@@ -1715,7 +1735,7 @@ async def _do_call_inference(
                     detail=(
                         f"The model '{model}' is a Workers AI image-generation model and "
                         f"cannot produce structured text/JSON output. Select a text-generation "
-                        f"model such as '@cf/meta/llama-3.1-8b-instruct' for content tasks."
+                        f"model such as '@cf/meta/llama-4-scout-17b-16e-instruct' for content tasks."
                     ),
                 )
             try:

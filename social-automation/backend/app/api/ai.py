@@ -868,7 +868,7 @@ async def generate_image(request: GenerateImageRequest, team_id: TeamId, current
                     status_code=400,
                     detail=(
                         f"'{model}' is not a Workers AI text-to-image model. Use a model like "
-                        f"'@cf/stabilityai/stable-diffusion-xl-base-1.0' or '@cf/black-forest-labs/flux-1-schnell'."
+                        f"'@cf/black-forest-labs/flux-2-klein-9b' or '@cf/black-forest-labs/flux-1-schnell'."
                     ),
                 )
             try:
@@ -903,7 +903,7 @@ async def generate_image(request: GenerateImageRequest, team_id: TeamId, current
                 status_code=400,
                 detail=(
                     f"'{model}' is not a Workers AI text-to-image model. Use a model like "
-                    f"'@cf/stabilityai/stable-diffusion-xl-base-1.0' or '@cf/black-forest-labs/flux-1-schnell'."
+                    f"'@cf/black-forest-labs/flux-2-klein-9b' or '@cf/black-forest-labs/flux-1-schnell'."
                 ),
             )
         result = None

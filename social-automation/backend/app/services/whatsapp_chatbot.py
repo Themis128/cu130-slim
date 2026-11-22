@@ -455,7 +455,7 @@ Reply with only the category name, nothing else."""
     # Fallback: CF Workers AI
     if cf_token and cf_account:
         try:
-            url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+            url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/@cf/meta/llama-4-scout-17b-16e-instruct"
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
                     url,
@@ -663,7 +663,7 @@ async def generate_contextual_reply(
 
     # 2. Fallback: Cloudflare Workers AI (cloud failover)
     cf_start = time.perf_counter()
-    model = config.get("model", "@cf/meta/llama-3.1-8b-instruct")
+    model = config.get("model", "@cf/meta/llama-4-scout-17b-16e-instruct")
     if cf_token and cf_account:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/ai/run/{model}"
