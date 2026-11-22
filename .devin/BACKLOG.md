@@ -4537,40 +4537,33 @@ assistant chat for the reply.
 - Queue at sweep: #2466 #2474 #2480 #2482 #2484 — all armed, zero actionable failures, CI-pending only.
 - Outstanding: dirty `scripts/threads_reauth.py` — other agent's WIP, left untouched.
 
-## 2026-11-22b — battle test + queue sweep
+## 2026-11-22 leftovers sweep — resolutions
 
-- **pr-autopilot cancellation root cause**: GitHub pending-collapse, not an
-  outside actor — shared concurrency group + cancel-in-progress:false = one
-  pending run allowed; triggers cancelled each other (46/50). Fixed by
-  per-PR group scoping in #2492 (merged).
-- merge_queue.py preflight verified: refuses on User-owned repo before any
-  API write (#2487 merged).
-- skill_mirror_check battle-tested: caught+synced 7 tracked gap files,
-  detects planted doc-drift with exit 1 (#2489 merged).
-- ci_fails.py verified on stubbed failing check (extracts FAILED lines,
-  ignores non-required checks) + live --healer QUOTA-DEAD report.
-- #2488 DIRTY healed via worktree rebase: pr-ci-triage was already upstream
-  via #2486 (kept master's richer SKILL.md); true delta = env_parity_check
-  only. social-stack-ops SKILL.md took their additive version.
-- gemini-ci-fix STILL quota-dead (TerminalQuotaError) — manual heals only
-  until daily reset. slack-github-notify's cancels are the same documented
-  pending-collapse — by design.
-- Queue at close: #2494 #2493 #2488 #2484 — all armed, zero failures.
-
-## 2026-11-22c — REELS lane durable + env parity closed (Devin)
-
-- `media_type=VIDEO` rejected on graph.instagram.com (subcode 2207067) —
-  fixed to REELS for Business Login host (#2494, merged `12105588`).
-  Live-verified: reel `18139763452693001` →
-  https://www.instagram.com/reel/DgBkbsNEm6E/ (200).
-- env_parity_check root-vs-standalone reconciled: synced 5 diverged keys
-  (POSTGRES_USER/PASSWORD — live DB runs on standalone creds; DMR_MODEL 4B
-  interim; NTFY_ALERT_TOKEN; X_WEB_FALLBACK_ENABLED) + added 7
-  standalone-only keys to root `.env`. Tool now exits 0.
-- stack-image-sync pull stall fixed: PULL_TIMEOUT 900→2700 (home-ops
-  `9e763ea`) — comfyui layer exceeded 900s and partial layers restart,
-  making the stall permanent.
-- Remaining: social-api/frontend/comfyui images converge on next sync
-  pass; durable REELS code reaches workers when post-#2494 image builds.
-- Still open: dead-CDP browser fallback (`Failed to fetch`) and instagrapi
-  DNS transport — graph lane covers publishing; fallbacks stay degraded.
+- [x] INSTAGRAM2_* env: VERIFIED present in running social-api
+  (CLIENT_ID=1462851805249610 etc.) — earlier "missing env" note was
+  stale; container recreate picked up deploy/socialauto-standalone/.env.
+- [x] INSTAGRAM_BROWSER_CDP_URL: present in social-api env
+  (http://192.168.96.1:9229) — rescue-model env gap resolved by the
+  same recreate; config.py default patch remains harmless.
+- [x] Canonical IG lane: PR #2496 — business_login preferred in all
+  three remaining arbitrary pickers (monetization_executor._resolve_account,
+  api/ai.py draft publish, api/meta_growth.py which would have
+  DOUBLE-posted IG). content.py cross-post already preferred it.
+  instagram_lane_guard still heals pre-existing fb_onboarding targets.
+- [x] MCP fleet: 20/20 healthy (PRs #2479 merged, #2480 merged,
+  #2490 merged). mcp_fleet_doctor.py + socialauto_mcp_probe.py on master.
+- [x] stack-ops + airbyte-mcp fsbridge exits: recreated, forwards live.
+- [x] playwright MCP: .playwright-data files restored from a94ff269f.
+- [~] Phantom post DgBTeXijaAs: NO post_targets/posts rows remain —
+  cannot reconcile DB↔live; live post still on profile. Manual decision:
+  keep or delete on IG directly.
+- [ ] instagrapi session churn: publish ladder already tries
+  business_login Graph FIRST; churn only affects fb_onboarding rows,
+  now deprioritized by #2496. Monitor; no code change needed unless
+  churn recurs on the canonical lane.
+- [ ] Orphan Graph media container 18112822550227386 — expires
+  unpublished, harmless.
+- [ ] Meta-support/ticket watches (IG #10, WA WABA, WA templates):
+  unchanged — all blocked on Meta account lock; resume when Meta replies.
+- [ ] TikTok #789 profile-link: phone session dropped mid-drive;
+  resume when phone is free (do NOT drive while in active use).
