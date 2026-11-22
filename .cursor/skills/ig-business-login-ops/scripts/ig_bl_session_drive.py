@@ -152,9 +152,23 @@ def cdp_eval(ws_url: str, expr: str):
             return r.get("result", {}).get("result", {}).get("value")
 
 
+def _close_stale_callback_tabs(cdp: str) -> None:
+    """Close leftover instagram2/callback tabs — the poll loop matches ANY
+    tab on that URL, so a previous run's finished tab false-positives the
+    'callback reached' check and the new code is never exchanged."""
+    for t in tabs(cdp):
+        if "oauth/instagram2/callback" in t.get("url", ""):
+            try:
+                urllib.request.urlopen(cdp + "/json/close/" + t["id"], timeout=10).read()
+                print("[*] closed stale callback tab", t["id"])
+            except Exception:
+                pass
+
+
 def inject_cookies_and_drive(cdp: str, auth_url: str, cookies: dict, wait_s: int = 90):
     """Open authorize URL in a new tab, set IG cookies first via a blank tab."""
     import websocket  # type: ignore
+    _close_stale_callback_tabs(cdp)
     # Seed cookies on instagram.com first
     seed = open_tab(cdp, "https://www.instagram.com/")
     time.sleep(4)
