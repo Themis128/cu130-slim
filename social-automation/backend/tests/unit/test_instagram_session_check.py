@@ -27,8 +27,15 @@ from app.worker.tasks.instagram_session_check import (
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int):
+    def __init__(self, status_code: int, body=None, text: str = ""):
         self.status_code = status_code
+        self._body = body
+        self.text = text
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no json")
+        return self._body
 
 
 class _FakeAsyncClient:
@@ -274,7 +281,8 @@ class TestCheckGraphToken:
     @pytest.mark.asyncio
     async def test_rejected_and_error(self, monkeypatch):
         monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
-        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(401)))
+        dead = {"error": {"code": 190, "type": "OAuthException"}}
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(401, dead)))
         assert await T._check_graph_token(_acct()) is False
         monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(exc=RuntimeError("net")))
         assert await T._check_graph_token(_acct()) is None
@@ -282,10 +290,48 @@ class TestCheckGraphToken:
         assert await T._check_graph_token(_acct()) is None
 
 
+class TestGraphVerdict:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"error": {"code": 4}},
+            {"error": {"code": 17}},
+            {"error": {"code": 32}},
+            {"error": {"code": 613}},
+            {"error": {"code": 1}},
+            {"error": {"code": 2}},
+            {"error": {"code": 190, "is_transient": True}},
+            None,
+        ],
+    )
+    async def test_throttle_transient_unparseable_inconclusive(self, monkeypatch, body):
+        monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(400, body)))
+        assert await T._check_graph_token(_acct()) is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("code", [190, 102])
+    async def test_oauth_token_death_is_false(self, monkeypatch, code):
+        monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
+        resp = _FakeResponse(400, {"error": {"code": code, "error_subcode": 463}})
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=resp))
+        assert await T._check_graph_token(_acct()) is False
+
+
+class TestSidecarLoginRequired:
+    @pytest.mark.asyncio
+    async def test_500_login_required_is_false(self, monkeypatch):
+        resp = _FakeResponse(500, text='{"detail": "Session not found (e.g. after reload process), please relogin"}')
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=resp))
+        assert await T._check_sidecar_session("sid", "http://sc") is False
+
+
 class _WireDB:
     def __init__(self, results):
         self._it = iter(results)
         self.commit = AsyncMock()
+        self.refresh = AsyncMock()
 
     async def execute(self, *a, **kw):
         return next(self._it)
@@ -359,6 +405,23 @@ class TestRunCheck:
         _wire_run(monkeypatch, [acct], graph=False, session=None)
         out = await T._run_check()
         assert out["checked"] == 0
+        assert acct.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_business_login_graph_inconclusive_sidecar_rejects_stays_active(self, monkeypatch):
+        acct = _acct(meta_data={"login_type": "business_login", "private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], graph=None, session=False)
+        out = await T._run_check()
+        assert out["checked"] == 0
+        assert acct.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_confirmation_reprobes_refreshed_account(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], session=False)
+        T._check_sidecar_session.side_effect = [False, True]
+        out = await T._run_check()
+        assert out["healthy"] == 1
         assert acct.status == "active"
 
     @pytest.mark.asyncio

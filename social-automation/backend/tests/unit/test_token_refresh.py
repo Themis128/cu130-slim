@@ -62,8 +62,53 @@ async def test_meta_self_refresh(monkeypatch):
 
     http, _ = _http(status=500, body={})
     monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
-    with pytest.raises(RuntimeError, match="th_refresh_token HTTP 500"):
+    with pytest.raises(TR.RefreshInconclusive, match="th_refresh_token HTTP 500"):
         await TR._refresh_threads_token("old")
+
+    # throttle / transient / non-JSON → inconclusive, never a rejection
+    for body in ({"error": {"code": 4, "message": "rate"}}, {"error": {"code": 190, "is_transient": True}}):
+        http, _ = _http(status=400, body=body)
+        monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+        with pytest.raises(TR.RefreshInconclusive):
+            await TR._refresh_instagram_business_token("old")
+
+    def _bad_json():
+        raise ValueError("html")
+
+    resp = SimpleNamespace(status_code=400, json=_bad_json)
+    http, _ = _http()
+    http.get = AsyncMock(return_value=resp)
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    with pytest.raises(TR.RefreshInconclusive, match="non-JSON"):
+        await TR._refresh_instagram_business_token("old")
+
+
+def test_is_inconclusive():
+    from httpx_oauth.oauth2 import RefreshTokenError
+
+    req = httpx.Request("POST", "https://x/token")
+    try:
+        try:
+            raise httpx.ConnectError("dns down", request=req)
+        except httpx.ConnectError as cause:
+            raise RefreshTokenError("x") from cause
+    except RefreshTokenError as exc:
+        assert TR._is_inconclusive(exc)
+
+    rejected = httpx.HTTPStatusError("400", request=req, response=httpx.Response(400, request=req))
+    try:
+        raise RefreshTokenError("invalid_grant", rejected.response) from rejected
+    except RefreshTokenError as exc:
+        assert not TR._is_inconclusive(exc)
+
+    upstream = httpx.HTTPStatusError("502", request=req, response=httpx.Response(502, request=req))
+    try:
+        raise RefreshTokenError("bad gateway", upstream.response) from upstream
+    except RefreshTokenError as exc:
+        assert TR._is_inconclusive(exc)
+
+    assert TR._is_inconclusive(TR.RefreshInconclusive("throttled"))
+    assert not TR._is_inconclusive(RuntimeError("invalid token"))
 
 
 def test_skip_for_recent_update():

@@ -375,7 +375,7 @@ If a refresh fails, the account is marked as `expired` and requires manual recon
 
 ### Instagram private-API session health check
 
-A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_sessions` runs every 6 hours (at :30 past, every 6h). It calls `GET /account` on the aiograpi-rest sidecar (`http://instagram-private-api:8000`) with each saved `X-Session-ID` from `social_accounts.meta_data["private_api_session_id"]`. If the session is expired or the sidecar is unreachable, the account is marked `expired` and the team owner gets an alert email (24h cooldown to avoid spam). The task is registered in `celery_app.py` beat_schedule as `check-instagram-sessions`.
+A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_sessions` runs every 6 hours (at :30 past, every 6h). It calls `GET /account` on the aiograpi-rest sidecar (`http://instagram-private-api:8000`) with each saved `X-Session-ID` from `social_accounts.meta_data["private_api_session_id"]`. Probes are tri-state: only a definitive rejection (sidecar 400/401/403 or a LoginRequired/missing-session 500; Graph OAuthException 190/102) counts as dead — transport errors, 5xx, Meta throttle/transient codes (1/2/4/17/32/613, `is_transient`) and unparseable bodies are inconclusive and leave status untouched. `business_login` rows can only be expired by a definitive Graph rejection. A negative verdict is re-probed once after 10s against the refreshed row before the account is marked `expired` and the team owner gets an alert email (24h cooldown to avoid spam). The task is registered in `celery_app.py` beat_schedule as `check-instagram-sessions`.
 
 ### Session auto-heal (hourly)
 
