@@ -1598,13 +1598,13 @@ class _IGClient:
         self._wait_exc = wait_exc
         self._publish_exc = publish_exc
 
-    async def create_image_container(self, image_url, caption):
+    async def create_image_container(self, image_url, caption, is_ai_generated=False):
         return "cid-1"
 
     async def create_carousel_item(self, image_url):
         return "cid"
 
-    async def create_carousel_container(self, children_ids, caption):
+    async def create_carousel_container(self, children_ids, caption, is_ai_generated=False):
         return "cid-1"
 
     async def wait_for_container_ready(self, creation_id, timeout):
@@ -1710,7 +1710,7 @@ async def test_publish_instagram_graph_single_video_uses_video_container(account
     calls = {}
 
     class _IGVideo(_IGClient):
-        async def create_video_container(self, video_url, caption):
+        async def create_video_container(self, video_url, caption, is_ai_generated=False):
             calls["video_url"] = video_url
             return "cid-v"
 

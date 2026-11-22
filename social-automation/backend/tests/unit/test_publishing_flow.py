@@ -1692,7 +1692,7 @@ async def test_ig_graph_single_and_carousel(monkeypatch):
         def __init__(self, **kw):
             pass
 
-        async def create_image_container(self, image_url, caption):
+        async def create_image_container(self, image_url, caption, is_ai_generated=False):
             calls.append(("img", image_url))
             return "cid"
 
@@ -1700,7 +1700,7 @@ async def test_ig_graph_single_and_carousel(monkeypatch):
             calls.append(("item", image_url))
             return f"c-{image_url}"
 
-        async def create_carousel_container(self, children_ids, caption):
+        async def create_carousel_container(self, children_ids, caption, is_ai_generated=False):
             calls.append(("carousel", children_ids))
             return "cid"
 
@@ -1736,7 +1736,7 @@ async def test_ig_graph_publish_error_ambiguous_then_live(monkeypatch):
         def __init__(self, **kw):
             pass
 
-        async def create_image_container(self, image_url, caption):
+        async def create_image_container(self, image_url, caption, is_ai_generated=False):
             return "cid"
 
         async def wait_for_container_ready(self, cid, timeout):
@@ -1760,7 +1760,7 @@ async def test_ig_graph_publish_error_ambiguous_then_live(monkeypatch):
 
     # error before publish_attempted → not ambiguous, no find_live poll
     class _IG2(_IG):
-        async def create_image_container(self, image_url, caption):
+        async def create_image_container(self, image_url, caption, is_ai_generated=False):
             raise _Err(400, "bad", "u")
 
     monkeypatch.setattr(P, "InstagramAPIClient", _IG2)

@@ -1567,6 +1567,11 @@ async def _ensure_music_media(
         )
         return media_paths, storage_paths
 
+    # The converted video derives from the source image — if that image
+    # was AI-generated the video inherits the AI label downstream
+    # (Instagram is_ai_generated, platform AI disclosures).
+    src_was_ai = await _post_has_ai_media(post, db)
+
     try:
         from app.services.media_storage import save_uploaded_media
 
@@ -1585,6 +1590,9 @@ async def _ensure_music_media(
             width=w,
             height=h,
         )
+        if src_was_ai and asset.source != "ai-generated":
+            asset.source = "ai-generated"
+            await db.commit()
     except Exception as exc:
         logger.warning("[publishing] failed to persist converted video for post %s: %s", key, exc)
         return media_paths, storage_paths
@@ -3867,6 +3875,35 @@ async def _instagram_find_live(client: InstagramAPIClient, caption: str, *, with
     return None
 
 
+_AI_MEDIA_SOURCES = {"ai-generated", "comfyui", "ai-enhanced", "ai-logo"}
+
+
+async def _post_has_ai_media(post: Post, db: AsyncSession | None) -> bool:
+    """True when any MediaAsset referenced by ``post.media_ids`` was
+    AI-generated — drives Meta's ``is_ai_generated`` container flag.
+
+    Advisory only: any lookup failure returns False so a metadata gap can
+    never block a publish.
+    """
+    if db is None:
+        return False
+    media_ids = list(getattr(post, "media_ids", None) or [])
+    if not media_ids:
+        return False
+    try:
+        from sqlalchemy import select
+
+        from app.models.content import MediaAsset
+
+        rows = await db.execute(
+            select(MediaAsset.source).where(MediaAsset.id.in_(media_ids))
+        )
+        return any(src in _AI_MEDIA_SOURCES for (src,) in rows.all())
+    except Exception as exc:
+        logger.warning("[publishing] AI-media check failed for post %s: %s", getattr(post, "id", "?"), exc)
+        return False
+
+
 async def _publish_instagram_via_graph(
     access_token: str,
     text: str,
@@ -4005,6 +4042,7 @@ async def _publish_instagram_via_graph(
         )
 
     is_business_login = (account.meta_data or {}).get("login_type") == "business_login"
+    ai_generated = await _post_has_ai_media(post, db)
     client = InstagramAPIClient(
         access_token=access_token,
         ig_user_id=ig_user_id,
@@ -4016,17 +4054,20 @@ async def _publish_instagram_via_graph(
             creation_id = await client.create_video_container(
                 video_url=video_url,
                 caption=caption,
+                is_ai_generated=ai_generated,
             )
         elif len(image_urls) == 1:
             creation_id = await client.create_image_container(
                 image_url=image_urls[0],
                 caption=caption,
+                is_ai_generated=ai_generated,
             )
         else:
             child_ids = [await client.create_carousel_item(image_url=url) for url in image_urls[:10]]
             creation_id = await client.create_carousel_container(
                 children_ids=child_ids,
                 caption=caption,
+                is_ai_generated=ai_generated,
             )
         # IG processes containers asynchronously — publishing before the
         # container reaches FINISHED fails with 9007 "Media ID is not

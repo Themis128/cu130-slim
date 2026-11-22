@@ -829,3 +829,37 @@ def test_x_media_client_scopes_and_signer(monkeypatch):
 def test_has_facebook_browser_session():
     assert P._has_facebook_browser_session(SimpleNamespace(meta_data={"browser_storage_state": {"x": 1}})) is True
     assert P._has_facebook_browser_session(SimpleNamespace(meta_data=None)) is False
+
+
+# ── Instagram is_ai_generated detection ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_post_has_ai_media_detects_ai_source():
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[uuid.uuid4()])
+    db = _DB(results=[[("upload",), ("ai-generated",)]])
+    assert await P._post_has_ai_media(post, db) is True
+
+
+@pytest.mark.asyncio
+async def test_post_has_ai_media_clean_sources():
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[uuid.uuid4()])
+    db = _DB(results=[[("upload",), ("url",)]])
+    assert await P._post_has_ai_media(post, db) is False
+
+
+@pytest.mark.asyncio
+async def test_post_has_ai_media_no_db_or_ids():
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[])
+    assert await P._post_has_ai_media(post, None) is False
+    assert await P._post_has_ai_media(post, _DB()) is False
+
+
+@pytest.mark.asyncio
+async def test_post_has_ai_media_db_error_is_advisory():
+    class _BadDB:
+        async def execute(self, stmt):
+            raise RuntimeError("db down")
+
+    post = SimpleNamespace(id=uuid.uuid4(), media_ids=[uuid.uuid4()])
+    assert await P._post_has_ai_media(post, _BadDB()) is False
