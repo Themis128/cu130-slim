@@ -4610,3 +4610,11 @@ Lessons:
   status check and daily digest ([tailnet-watch#5](https://github.com/Themis128/tailnet-watch/pull/5)).
 - [ ] After tailnet-watch#5 merges: `tw_status.sh deploy`, confirm next
   08:00 run sends exactly one digest.
+- [x] 2026-11-22 IG mass-expire incident: worker DNS blip flipped all 3
+  IG rows to expired at 11:01 UTC while business_login token was live.
+  Root cause = instagram_session_check probes treated transport errors
+  as session death. FIXED in PR #2505 (tri-state probes + _evaluate +
+  confirmation re-probe). business_login row manually restored to
+  active (live probe 200). FOLLOW-UP: same bool-only probe pattern in
+  linkedin_session_check.py / other session_check tasks — audit for
+  the same transport-vs-rejection flaw.
