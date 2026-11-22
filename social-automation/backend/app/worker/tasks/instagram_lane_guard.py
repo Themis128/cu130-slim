@@ -115,11 +115,7 @@ async def _sweep() -> dict:
             bl_verdicts = {a.id: await _token_alive(a) for a in bl_rows}
             healthy_bl = [a for a in bl_rows if a.status == "active" and bl_verdicts.get(a.id) is True]
             bl_ids = {a.id for a in accounts if (a.meta_data or {}).get("login_type") == "business_login"}
-            dead_bl = [
-                a.username or str(a.id)
-                for a in accounts
-                if a.id in bl_ids and a.status == "active" and bl_verdicts.get(a.id) is False
-            ]
+            dead_bl = [a.username or str(a.id) for a in accounts if a.id in bl_ids and a.status == "active" and bl_verdicts.get(a.id) is False]
             dead_tokens.extend(dead_bl)
             if not healthy_bl:
                 continue
