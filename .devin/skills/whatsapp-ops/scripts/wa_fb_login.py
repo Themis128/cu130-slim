@@ -58,14 +58,21 @@ def _totp(secret):
                % 1000000).zfill(6)
 
 
+def _host_is(url: str, domain: str) -> bool:
+    """Hostname-suffix match — 'facebook.com' in url is spoofable
+    (evil.com/?q=facebook.com); CodeQL py/incomplete-url-substring-sanitization."""
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host == domain or host.endswith("." + domain)
+
+
 def tabs():
     return json.loads(urllib.request.urlopen(CDP + "/json/list", timeout=15).read())
 
 
 def find_fb_tab():
     cands = [t for t in tabs() if t.get("type") == "page"
-             and ("facebook.com" in t.get("url", "")
-                  or "fb.com" in t.get("url", ""))]
+             and (_host_is(t.get("url", ""), "facebook.com")
+                  or _host_is(t.get("url", ""), "fb.com"))]
     # prefer a login page, else any fb tab
     for t in cands:
         if "login" in t.get("url", ""):
