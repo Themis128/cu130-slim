@@ -57,8 +57,8 @@ def cmd_preview(text: str) -> None:
 
 def cmd_show(post_id: str) -> None:
     row = _psql(
-        f"SELECT content_text || E'\\n---META---\\n' || meta_data::text "
-        f"FROM posts WHERE id='{post_id}'")
+        f"SELECT COALESCE(content_text, '<no caption>') || E'\\n---META---\\n' || "
+        f"COALESCE(meta_data::text, '{{}}') FROM posts WHERE id='{post_id}'")
     print(row or f"post {post_id} not found")
 
 
@@ -69,10 +69,12 @@ def cmd_set(post_id: str, deadline: str) -> None:
         raise SystemExit(f"bad ISO-8601 deadline: {deadline}")
     if dl.tzinfo is None:
         raise SystemExit("deadline must carry an offset (e.g. +02:00 EET)")
-    _psql(
+    out = _psql(
         f"UPDATE posts SET meta_data = COALESCE(meta_data,'{{}}'::jsonb) || "
         f"'{json.dumps({'offer_ends_at': deadline})}'::jsonb "
-        f"WHERE id='{post_id}'", tuples_only=False)
+        f"WHERE id='{post_id}' RETURNING id")
+    if not out:
+        raise SystemExit(f"post {post_id} not found")
     print(f"offer_ends_at={deadline} set on {post_id}")
 
 
