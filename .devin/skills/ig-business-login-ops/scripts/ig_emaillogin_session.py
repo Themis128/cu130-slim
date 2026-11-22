@@ -75,8 +75,8 @@ def _b64parts(payload: dict):
         yield from _b64parts(part)
 
 
-def fetch_link() -> str | None:
-    """Newest web_emaillogin URL from Meta recovery mail.
+def fetch_links() -> list[str]:
+    """All web_emaillogin URLs, newest first from Meta recovery mail.
 
     Gmail format=full body parts are base64url — the URL never appears in
     the raw JSON, so gmail_search()'s regex-on-JSON cannot see it. Decode
@@ -86,7 +86,7 @@ def fetch_link() -> str | None:
     import urllib.request
     at = _gmail_access_token()
     if not at:
-        return None
+        return []
     try:
         r = urllib.request.urlopen(urllib.request.Request(
             "https://gmail.googleapis.com/gmail/v1/users/me/messages"
@@ -95,7 +95,8 @@ def fetch_link() -> str | None:
         msgs = json.loads(r.read()).get("messages", [])
     except Exception as exc:
         print("gmail list err:", exc)
-        return None
+        return []
+    links: list[str] = []
     for m in msgs:
         try:
             r = urllib.request.urlopen(urllib.request.Request(
@@ -115,8 +116,19 @@ def fetch_link() -> str | None:
         blob = blob.replace("\\u0026", "&").replace("&amp;", "&")
         hit = EMAILLOGIN_RE.search(blob)
         if hit:
-            return hit.group(0)
-    return None
+            links.append(hit.group(0))
+    # dedupe preserving newest-first order
+    seen, out = set(), []
+    for u in links:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def fetch_link() -> str | None:
+    links = fetch_links()
+    return links[0] if links else None
 
 
 def logged_in(ctx) -> bool:
@@ -240,60 +252,74 @@ def main() -> int:
               file=sys.stderr)
         return 5
 
-    link = args.link or fetch_link()
-    if not link:
+    candidates = [args.link] if args.link else fetch_links()
+    if not candidates:
         print("no web_emaillogin link — pass --link or request a fresh "
               "Meta recovery mail", file=sys.stderr)
         return 2
-    link = link.replace("&amp;", "&")
+    candidates = [u.replace("&amp;", "&") for u in candidates]
 
     import ig_pw_reset  # for _pwlibs_env (already imported chrome_exe/gmail_search)
     pwenv = ig_pw_reset._pwlibs_env()
     from playwright.sync_api import sync_playwright
 
-    with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            args.profile,
-            executable_path=chrome_exe(),
-            headless=args.headless,
-            viewport={"width": 1280, "height": 900},
-            locale="en-US",
-            env=pwenv,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto(link, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(8000)
+    last_rc = 4
+    for link in candidates:
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(
+                args.profile,
+                executable_path=chrome_exe(),
+                headless=args.headless,
+                viewport={"width": 1280, "height": 900},
+                locale="en-US",
+                env=pwenv,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.goto(link, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(8000)
 
-        if not logged_in(ctx):
-            if "two_step_verification" not in page.url and \
-                    "two-factor" not in (_txt(page) or "").lower():
-                print(f"unexpected page: {page.url[:100]}")
-                print(_txt(page).replace("\n", " | ")[:300])
-                ctx.close()
-                return 4
-            rc = handle_2fa(page, ctx, secret)
-            if rc != "ok":
-                print(f"2fa lane result: {rc}")
-                print(_txt(page).replace("\n", " | ")[:300])
+            if not logged_in(ctx):
+                url = page.url
+                if "one_click_login_error" in url or "invalid_link" in url:
+                    print(f"link dead: {url[:90]} — trying next candidate")
+                    ctx.close()
+                    last_rc = 4
+                    continue
+                if "two_step_verification" not in url and \
+                        "two-factor" not in (_txt(page) or "").lower():
+                    print(f"unexpected page: {url[:100]}")
+                    print(_txt(page).replace("\n", " | ")[:300])
+                    ctx.close()
+                    return 4
+                rc = handle_2fa(page, ctx, secret)
+                if rc != "ok":
+                    print(f"2fa lane result: {rc}")
+                    print(_txt(page).replace("\n", " | ")[:300])
+                    ctx.close()
+                    return 3
+
+            cookies = ctx.cookies("https://www.instagram.com")
+            names = {c["name"] for c in cookies}
+            if "sessionid" not in names:
+                print("no sessionid cookie — login incomplete",
+                      file=sys.stderr)
                 ctx.close()
                 return 3
-
-        cookies = ctx.cookies("https://www.instagram.com")
-        names = {c["name"] for c in cookies}
-        if "sessionid" not in names:
-            print("no sessionid cookie — login incomplete", file=sys.stderr)
+            uid = next((c["value"] for c in cookies
+                        if c["name"] == "ds_user_id"), "")
+            print(f"OK cookies={len(cookies)} ds_user_id={uid}")
+            if args.dump:
+                with open(args.dump, "w") as f:
+                    json.dump(cookies, f)
+                os.chmod(args.dump, 0o600)
+                print(f"cookies dumped -> {args.dump}")
             ctx.close()
-            return 3
-        uid = next((c["value"] for c in cookies
-                    if c["name"] == "ds_user_id"), "")
-        print(f"OK cookies={len(cookies)} ds_user_id={uid}")
-        if args.dump:
-            with open(args.dump, "w") as f:
-                json.dump(cookies, f)
-            os.chmod(args.dump, 0o600)
-            print(f"cookies dumped -> {args.dump}")
-        ctx.close()
+            break
+    else:
+        print("all candidate links dead — request a fresh Meta recovery "
+              "mail (ig_pw_reset.py) and re-run", file=sys.stderr)
+        return last_rc
 
     if args.inject:
         inject_into_debug_chrome(cookies, cdp_url)
