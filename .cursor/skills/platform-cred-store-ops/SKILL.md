@@ -109,6 +109,22 @@ python3 .devin/skills/platform-cred-store-ops/scripts/cred_audit.py --fix-mirror
 #    - host scripts: read .env on each run — immediate
 ```
 
+## Verify tool
+
+`scripts/cred_verify.py` — live-probes whether the canonical credential
+actually works (the gap that let a converged-but-wrong Meta password sit
+undetected):
+
+- `facebook` → real `POST :9226/login` attempt on the sidecar (interval-
+  gated, default 6h min between probes — Meta login hammering triggers
+  checkpoints; `--force` overrides)
+- `instagram` → `ig_login.py --headless` via `--ig-login` (opt-in:
+  headless IG logins carry checkpoint risk)
+- `--status` prints last results; exit 1 on REJECTED/ERROR/UNCLEAR.
+
+Converged hashes ≠ working credential — run this after any Meta
+credential change before declaring the rotation done.
+
 ## Audit tool
 
 `scripts/cred_audit.py` — compares every platform-cred key across:

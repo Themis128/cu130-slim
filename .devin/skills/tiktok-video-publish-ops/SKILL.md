@@ -90,6 +90,35 @@ Check `posts.platform_specific.tiktok` after publish:
 - `v_inbox*` / `v_upload*` publish ids = inbox uploads; DIRECT_POST ids do
   not carry that prefix.
 
+## Finishing an inbox upload on the phone (proven 2026-11-22)
+
+`scripts/tiktok_inbox_finish.py` automates the safe parts (`--probe` maps
+the screen, `--watch` waits for a safe phone). Manual runbook when driving
+by hand — every step verified live:
+
+1. **Safety gate**: never tap while `com.facebook.katana`, WhatsApp,
+   Telegram, Instagram or Termux holds focus; abort on cover/lockscreen.
+2. Launch TikTok → **Inbox** → tap the "content from Cloudless is ready"
+   notification → **Next** (bottom-right of the editor).
+3. Post screen: caption field `id=hgl`, **Post** button `id=twl`.
+   - The Post bar is HIDDEN while the IME/hashtag-suggestion strip is up.
+     `mDismissImeOnBackKeyPressed=false` — **Back exits the composer**
+     (draft is saved, but you lose the screen). To dismiss: tap the
+     video-preview area (~860,430) instead.
+4. Typing the caption over ADB — hard-won rules:
+   - `input text` decodes `%s` as space; `%20`/`%23` stay **literal**.
+   - `#` must be sent as a single quoted shell arg:
+     `adb shell "input text '#Tag%s#Tag2'"` — unquoted `#…` returns
+     "Argument expected after text".
+   - Newlines: `input keyevent 66` between `input text` calls.
+   - Clearing a long field: `keyevent 123` (MOVE_END) then ~1.5×
+     char-count × `keyevent 67` (DEL) — DEL is ~3 chars/sec, budget it.
+   - ASCII only — em-dashes break `input text`.
+5. Verify via API, not the UI: `docker exec social-api python
+   scripts/tiktok_tool.py status '<publish_id>'` → `PUBLISH_COMPLETE` +
+   `publicaly_available_post_id` means live. The inbox notification
+   lingers after posting — it is NOT proof of failure.
+
 ## Quality gate
 
 The publish path runs a content quality gate (`overall` vs `min_score`,
