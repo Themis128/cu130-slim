@@ -84,7 +84,7 @@ def _cdp_alive(cdp: str) -> bool:
 
 def _open_tab(cdp: str, url: str) -> dict:
     req = urllib.request.Request(
-        cdp + "/json/new?" + urllib.parse.quote(url, safe=":/?&=%,.{}"), method="PUT"
+        cdp + "/json/new?" + urllib.parse.quote(url, safe=""), method="PUT"
     )
     return json.loads(urllib.request.urlopen(req, timeout=15).read())
 
