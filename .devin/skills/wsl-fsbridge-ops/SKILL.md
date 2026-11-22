@@ -126,6 +126,13 @@ ALIAS so `http://chroma:8000` still resolves:
         -v chroma-rescue-data:/chroma/chroma chromadb/chroma:1.5.9
     docker network connect --alias chroma cu130-backend chroma-rescue
 
+After an engine restart the rescue container can come back with
+`NetworkMode=cu130-backend` but **no** network endpoint, so `chroma` stops
+resolving (`Errno -5`). Check
+`docker inspect -f '{{json .NetworkSettings.Networks}}' chroma-rescue`; if
+it shows `{}`, re-run the `network connect --alias chroma` line above
+(seen 2026-11-22 16:20).
+
 Fresh DB — old embeddings stay trapped in the dead bind mount until the
 bridge heals (re-embeds on next writes). The same poison class still
 kills stack-ops / stack-watchers / compose-healer / dmr-watchdog /
