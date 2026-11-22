@@ -348,3 +348,12 @@ class TestCountdownToken:
         assert len(out) <= 280
         assert out.endswith("…")
         assert "{countdown" not in out
+
+    def test_truncation_keeps_literal_braces(self):
+        # A { that isn't a countdown token is ordinary content — an
+        # unclosed literal must not erase the body.
+        body = '{"key": "value' + "y" * 400
+        post = self._post(body)
+        out = render_post_text(post, "twitter", expand_countdown=False)
+        assert len(out) == 280
+        assert out.startswith('{"key"')
