@@ -4556,3 +4556,33 @@ assistant chat for the reply.
   until daily reset. slack-github-notify's cancels are the same documented
   pending-collapse — by design.
 - Queue at close: #2494 #2493 #2488 #2484 — all armed, zero failures.
+## 2026-11-22 leftovers sweep — resolutions
+
+- [x] INSTAGRAM2_* env: VERIFIED present in running social-api
+  (CLIENT_ID=1462851805249610 etc.) — earlier "missing env" note was
+  stale; container recreate picked up deploy/socialauto-standalone/.env.
+- [x] INSTAGRAM_BROWSER_CDP_URL: present in social-api env
+  (http://192.168.96.1:9229) — rescue-model env gap resolved by the
+  same recreate; config.py default patch remains harmless.
+- [x] Canonical IG lane: PR #2496 — business_login preferred in all
+  three remaining arbitrary pickers (monetization_executor._resolve_account,
+  api/ai.py draft publish, api/meta_growth.py which would have
+  DOUBLE-posted IG). content.py cross-post already preferred it.
+  instagram_lane_guard still heals pre-existing fb_onboarding targets.
+- [x] MCP fleet: 20/20 healthy (PRs #2479 merged, #2480 merged,
+  #2490 merged). mcp_fleet_doctor.py + socialauto_mcp_probe.py on master.
+- [x] stack-ops + airbyte-mcp fsbridge exits: recreated, forwards live.
+- [x] playwright MCP: .playwright-data files restored from a94ff269f.
+- [~] Phantom post DgBTeXijaAs: NO post_targets/posts rows remain —
+  cannot reconcile DB↔live; live post still on profile. Manual decision:
+  keep or delete on IG directly.
+- [ ] instagrapi session churn: publish ladder already tries
+  business_login Graph FIRST; churn only affects fb_onboarding rows,
+  now deprioritized by #2496. Monitor; no code change needed unless
+  churn recurs on the canonical lane.
+- [ ] Orphan Graph media container 18112822550227386 — expires
+  unpublished, harmless.
+- [ ] Meta-support/ticket watches (IG #10, WA WABA, WA templates):
+  unchanged — all blocked on Meta account lock; resume when Meta replies.
+- [ ] TikTok #789 profile-link: phone session dropped mid-drive;
+  resume when phone is free (do NOT drive while in active use).
