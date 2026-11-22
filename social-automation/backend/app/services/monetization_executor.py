@@ -118,6 +118,18 @@ async def _resolve_account(db: AsyncSession, team_id: uuid.UUID, platform: str, 
         personal = [a for a in accounts if a.account_type in ("person", "user")]
         pick = page if corporate else personal
         return (pick or accounts)[0]
+    if platform == "instagram":
+        # business_login (graph.instagram.com) is the canonical publish lane —
+        # fb_onboarding rows publish via a Page-linked token that dies with
+        # Graph #10 whenever the Page↔IG business link breaks (known Meta
+        # bug). Prefer it whenever present so autonomous posts never land on
+        # the broken lane; instagram_lane_guard remains the heal for rows
+        # already targeted at fb_onboarding.
+        business_login = [
+            a for a in accounts if (a.meta_data or {}).get("login_type") == "business_login"
+        ]
+        if business_login:
+            return business_login[0]
     return accounts[0]
 
 

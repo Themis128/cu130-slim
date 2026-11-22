@@ -147,7 +147,18 @@ async def create_organic_campaign(
     if request.target_account_ids:
         account_query = account_query.where(SocialAccount.id.in_(request.target_account_ids))
     result = await db.execute(account_query.order_by(SocialAccount.platform))
-    accounts = result.scalars().all()
+    accounts = list(result.scalars().all())
+    # Instagram has two live account rows for the same profile — only one may
+    # be targeted per post or the same content publishes twice. Prefer the
+    # business_login lane (graph.instagram.com): fb_onboarding dies on Graph
+    # #10 whenever the Page↔IG business link breaks.
+    ig = [a for a in accounts if a.platform == "instagram"]
+    if len(ig) > 1:
+        keep = next(
+            (a for a in ig if (a.meta_data or {}).get("login_type") == "business_login"),
+            ig[0],
+        )
+        accounts = [a for a in accounts if a.platform != "instagram" or a.id == keep.id]
     if not accounts:
         raise HTTPException(
             status_code=409,
