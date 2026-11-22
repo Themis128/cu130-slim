@@ -1,7 +1,15 @@
-"""Unit tests for the instagram publish-lane guard sweep."""
+"""Unit tests for the instagram publish-lane guard sweep.
 
+_token_alive is tri-state: a transport failure (DNS/timeout) or 5xx is
+inconclusive and must NOT read as a dead token, or every sweep would
+false-alert "business_login token dead" and could repoint targets off a
+healthy lane.
+"""
+
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.worker.tasks import instagram_lane_guard as G
@@ -95,27 +103,67 @@ def test_permission_markers_ignore_content_errors(err):
 # ── _token_alive ─────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_token_alive_200():
-    with (
-        patch.object(G, "decrypt_token", return_value="tok"),
-        patch.object(G.httpx, "AsyncClient", lambda **k: _Client(_Resp(200))),
-    ):
-        assert await G._token_alive(_acc())
+# ── _token_alive (tri-state) ──────────────────────────────────────
+
+
+def _account():
+    return SimpleNamespace(id="acc-1", access_token_enc=b"enc", username="cloudless.gr")
+
+
+def _resp(status: int) -> httpx.Response:
+    return httpx.Response(status, request=httpx.Request("GET", "https://graph.instagram.com/v26.0/me"))
 
 
 @pytest.mark.asyncio
-async def test_token_alive_non200_and_exception():
+async def test_alive_on_200():
     with (
         patch.object(G, "decrypt_token", return_value="tok"),
-        patch.object(G.httpx, "AsyncClient", lambda **k: _Client(_Resp(401))),
+        patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=_resp(200))),
     ):
-        assert not await G._token_alive(_acc())
+        assert await G._token_alive(_account()) is True
+
+
+@pytest.mark.asyncio
+async def test_dead_on_401():
     with (
         patch.object(G, "decrypt_token", return_value="tok"),
-        patch.object(G.httpx, "AsyncClient", lambda **k: _Client(exc=RuntimeError("boom"))),
+        patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=_resp(401))),
     ):
-        assert not await G._token_alive(_acc())
+        assert await G._token_alive(_account()) is False
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_on_transport_error():
+    with (
+        patch.object(G, "decrypt_token", return_value="tok"),
+        patch.object(
+            httpx.AsyncClient,
+            "get",
+            new=AsyncMock(side_effect=httpx.ConnectError("dns failure")),
+        ),
+    ):
+        assert await G._token_alive(_account()) is None
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_on_5xx():
+    with (
+        patch.object(G, "decrypt_token", return_value="tok"),
+        patch.object(httpx.AsyncClient, "get", new=AsyncMock(return_value=_resp(503))),
+    ):
+        assert await G._token_alive(_account()) is None
+
+
+@pytest.mark.asyncio
+async def test_empty_token_is_dead():
+    with patch.object(G, "decrypt_token", return_value=""):
+        assert await G._token_alive(_account()) is False
+
+
+@pytest.mark.asyncio
+async def test_undecryptable_credential_is_dead():
+    with patch.object(G, "decrypt_token", side_effect=ValueError("bad key")):
+        assert await G._token_alive(_account()) is False
 
 
 # ── _sweep ───────────────────────────────────────────────────────────

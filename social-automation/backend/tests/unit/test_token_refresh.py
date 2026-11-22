@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 import app.worker.tasks.token_refresh as TR
@@ -61,8 +62,53 @@ async def test_meta_self_refresh(monkeypatch):
 
     http, _ = _http(status=500, body={})
     monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
-    with pytest.raises(RuntimeError, match="th_refresh_token HTTP 500"):
+    with pytest.raises(TR.RefreshInconclusive, match="th_refresh_token HTTP 500"):
         await TR._refresh_threads_token("old")
+
+    # throttle / transient / non-JSON → inconclusive, never a rejection
+    for body in ({"error": {"code": 4, "message": "rate"}}, {"error": {"code": 190, "is_transient": True}}):
+        http, _ = _http(status=400, body=body)
+        monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+        with pytest.raises(TR.RefreshInconclusive):
+            await TR._refresh_instagram_business_token("old")
+
+    def _bad_json():
+        raise ValueError("html")
+
+    resp = SimpleNamespace(status_code=400, json=_bad_json)
+    http, _ = _http()
+    http.get = AsyncMock(return_value=resp)
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    with pytest.raises(TR.RefreshInconclusive, match="non-JSON"):
+        await TR._refresh_instagram_business_token("old")
+
+
+def test_is_inconclusive():
+    from httpx_oauth.oauth2 import RefreshTokenError
+
+    req = httpx.Request("POST", "https://x/token")
+    try:
+        try:
+            raise httpx.ConnectError("dns down", request=req)
+        except httpx.ConnectError as cause:
+            raise RefreshTokenError("x") from cause
+    except RefreshTokenError as exc:
+        assert TR._is_inconclusive(exc)
+
+    rejected = httpx.HTTPStatusError("400", request=req, response=httpx.Response(400, request=req))
+    try:
+        raise RefreshTokenError("invalid_grant", rejected.response) from rejected
+    except RefreshTokenError as exc:
+        assert not TR._is_inconclusive(exc)
+
+    upstream = httpx.HTTPStatusError("502", request=req, response=httpx.Response(502, request=req))
+    try:
+        raise RefreshTokenError("bad gateway", upstream.response) from upstream
+    except RefreshTokenError as exc:
+        assert TR._is_inconclusive(exc)
+
+    assert TR._is_inconclusive(TR.RefreshInconclusive("throttled"))
+    assert not TR._is_inconclusive(RuntimeError("invalid token"))
 
 
 def test_skip_for_recent_update():
@@ -186,6 +232,14 @@ async def test_refresh_async_paths(monkeypatch):
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     out = await TR._refresh_expiring_tokens_async()
     assert out["errors"] and acct.status == "expired"
+
+    # transport error → inconclusive: error recorded, status untouched
+    acct = _account()
+    fake_client.refresh_token = AsyncMock(side_effect=httpx.ConnectError("dns down"))
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["errors"] and "transport" in out["errors"][0]
+    assert acct.status == "active"
 
     # no access_token in response → expired
     acct = _account()

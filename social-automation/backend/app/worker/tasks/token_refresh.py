@@ -55,6 +55,51 @@ def _get_oauth_client(platform: str):
     return clients.get(platform)
 
 
+class RefreshInconclusive(Exception):
+    """The platform gave no definitive answer — never expire on this."""
+
+
+# Meta Graph throttling (4/17/32/613) and transient (1/2) error codes.
+_META_TRANSIENT_CODES = frozenset({1, 2, 4, 17, 32, 613})
+
+
+def _meta_refresh_result(resp: httpx.Response, grant: str) -> dict:
+    if resp.status_code >= 500:
+        raise RefreshInconclusive(f"{grant} HTTP {resp.status_code}")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise RefreshInconclusive(f"{grant} HTTP {resp.status_code}: non-JSON body") from exc
+    if resp.status_code != 200:
+        err = data.get("error") or {} if isinstance(data, dict) else {}
+        msg = err.get("message") or f"{grant} HTTP {resp.status_code}"
+        if err.get("is_transient") or err.get("code") in _META_TRANSIENT_CODES:
+            raise RefreshInconclusive(msg)
+        raise RuntimeError(msg)
+    return data
+
+
+def _is_inconclusive(exc: BaseException) -> bool:
+    """True when a refresh failure is transport/5xx/throttle, not a rejection.
+
+    httpx-oauth wraps every httpx error (DNS/timeout included) into
+    RefreshTokenError, so classify by the cause chain, not the type.
+    """
+    seen: BaseException | None = exc
+    while seen is not None:
+        if isinstance(seen, RefreshInconclusive):
+            return True
+        if isinstance(seen, httpx.HTTPStatusError):
+            return seen.response.status_code >= 500
+        if isinstance(seen, httpx.HTTPError):
+            return True
+        response = getattr(seen, "response", None)
+        if isinstance(response, httpx.Response) and response.status_code >= 500:
+            return True
+        seen = seen.__cause__
+    return False
+
+
 async def _refresh_instagram_business_token(access_token: str) -> dict:
     """Refresh an Instagram Business Login long-lived token.
 
@@ -67,11 +112,7 @@ async def _refresh_instagram_business_token(access_token: str) -> dict:
             "https://graph.instagram.com/refresh_access_token",
             params={"grant_type": "ig_refresh_token", "access_token": access_token},
         )
-    data = resp.json()
-    if resp.status_code != 200:
-        err = data.get("error", {})
-        raise RuntimeError(err.get("message") or f"ig_refresh_token HTTP {resp.status_code}")
-    return data
+    return _meta_refresh_result(resp, "ig_refresh_token")
 
 
 async def _refresh_threads_token(access_token: str) -> dict:
@@ -89,11 +130,7 @@ async def _refresh_threads_token(access_token: str) -> dict:
             "https://graph.threads.net/refresh_access_token",
             params={"grant_type": "th_refresh_token", "access_token": access_token},
         )
-    data = resp.json()
-    if resp.status_code != 200:
-        err = data.get("error", {})
-        raise RuntimeError(err.get("message") or f"th_refresh_token HTTP {resp.status_code}")
-    return data
+    return _meta_refresh_result(resp, "th_refresh_token")
 
 
 def _skip_for_recent_update(
@@ -192,9 +229,18 @@ async def _refresh_expiring_tokens_async() -> dict:
                     refresh_token = decrypt_token(account.refresh_token_enc)
                     token = await client.refresh_token(refresh_token)
             except Exception as exc:
+                if _is_inconclusive(exc):
+                    # Transport failure / 5xx / throttle — the platform never
+                    # rejected the token. Do NOT expire on a blip; the next
+                    # hourly sweep retries anyway.
+                    msg = f"{account_label}: refresh transport error: {exc}"
+                    logger.warning(msg)
+                    summary["errors"].append(msg)
+                    continue
                 logger.exception("Token refresh failed for %s: %s", account_label, exc)
                 summary["errors"].append(f"{account_label}: {exc}")
-                # Mark as expired if refresh fails
+                # Platform definitively rejected the refresh (invalid_grant,
+                # OAuth error) — mark expired so reconnect surfaces.
                 account.status = "expired"
                 await db.commit()
                 continue
