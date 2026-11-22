@@ -722,11 +722,30 @@ async function handleLogin(req, res) {
   }
   try {
     await ensureBrowser();
-    await page.goto("https://www.facebook.com/login", {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-    await page.waitForTimeout(3000);
+    // Resume lane: when a verification_code is supplied and the page is
+    // already sitting on a Meta auth surface (2FA/checkpoint), do NOT
+    // re-navigate — goto() wipes the pending challenge server-side and
+    // the retry can never reach the code input (observed 2026-11-22:
+    // every coded retry timed out waiting for input[name=pass]).
+    const onAuthSurface = async () => {
+      const u = page.url();
+      if (/two_factor|two_step_verification|checkpoint|\/approvals/.test(u))
+        return true;
+      return (
+        (await page
+          .locator('input#approvals_code, input[name="approvals_code"]')
+          .count()
+          .catch(() => 0)) > 0
+      );
+    };
+    const resume2fa = !!verification_code && (await onAuthSurface());
+    if (!resume2fa) {
+      await page.goto("https://www.facebook.com/login", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      await page.waitForTimeout(3000);
+    }
 
     // Meta A/B serves three login surfaces on /login:
     //  a) classic form — input[name=email] + input[name=pass]
@@ -737,7 +756,7 @@ async function handleLogin(req, res) {
       const loc = page.locator('input[name="email"]').first();
       return (await loc.count()) > 0 && (await loc.isVisible().catch(() => false));
     };
-    if (!(await hasEmail())) {
+    if (!resume2fa && !(await hasEmail())) {
       // (b) picker: real-mouse click on the profile card's Continue —
       // el.click() does not reach Meta's React handler reliably.
       const cont = page
@@ -749,7 +768,9 @@ async function handleLogin(req, res) {
         await page.waitForTimeout(3000);
       }
     }
-    if (await hasEmail()) {
+    if (resume2fa) {
+      // already on the auth surface — skip credential submit entirely
+    } else if (await hasEmail()) {
       await page.fill('input[name="email"]', username);
       await page.fill('input[name="pass"]', password);
       await page.press('input[name="pass"]', "Enter");
@@ -785,7 +806,11 @@ async function handleLogin(req, res) {
     ) {
       if (verification_code) {
         const codeInput = page
-          .locator('input#approvals_code, input[name="approvals_code"]')
+          .locator(
+            'input#approvals_code, input[name="approvals_code"], ' +
+              'input[name*="code" i], input[inputmode="numeric"], ' +
+              'input[autocomplete="one-time-code"]',
+          )
           .first();
         if ((await codeInput.count()) > 0) {
           await codeInput.fill(verification_code);
