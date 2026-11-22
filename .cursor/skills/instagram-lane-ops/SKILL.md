@@ -130,6 +130,9 @@ Ranked by prerequisites (use lowest that works):
    scope gmail.readonly; read `format=full`, decode `text/html` part —
    gmail-local's reader returns `body:""` for HTML-only mails). Open in
    the sidecar → IG session without password.
+   **Automated:** `.cursor/skills/ig-business-login-ops/scripts/ig_emaillogin_session.py`
+   does fetch → 2FA picker → TOTP → cookie dump + `--inject` into CDP
+   Chrome in one run (verified end-to-end 2026-11-22).
 2. **Saved-profile picker + SMS 2FA** — instagram.com picker →
    cloudless.gr → "Try another way" → "See more options" → **Text
    message** → code arrives on the Galaxy S22+ SMS inbox within ~10s;
@@ -137,9 +140,9 @@ Ranked by prerequisites (use lowest that works):
    (`instagram_reauth.py` does this automatically). Instagram reuses the
    same 6-digit code across resends for a while.
 3. **TOTP** — `META_TOTP_SECRET_IG` in `.env` (enrolled on @cloudless.gr,
-   verified working 2026-11-20) — **rejected 2026-11-22, likely rotated**
-   during the lock churn. Re-enroll via accountscenter → password_and_security
-   → two_factor, then update `.env`.
+   verified working 2026-11-20 AND 2026-11-22 via emaillogin+TOTP —
+   earlier "rotated" read was wrong). Re-enroll via accountscenter →
+   password_and_security → two_factor only if it ever truly fails.
 4. **WhatsApp 2FA — DEAD LANE** — the phone's WhatsApp is stuck at
    "Verifying your number"; no WA codes ever arrive. Always switch to
    Text message in the method picker.
