@@ -298,7 +298,9 @@ def main() -> int:
             snap(page, "no-identify-field")
             ctx.close()
             return 4
-        ident.click()
+        # Cookie-consent overlays intercept pointer events on this page —
+        # focus the field via JS and type instead of clicking.
+        ident.evaluate("el => el.focus()")
         ident.press_sequentially(IG_USER, delay=25)
         page.wait_for_timeout(400)
         clicked = _click_text(page, ["Continue"], timeout=3000)
