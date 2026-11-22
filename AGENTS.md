@@ -856,3 +856,22 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **facebook-browser-sidecar exited** mid-session (Exited 0); restart
   with `docker start facebook-browser-sidecar` — `/debug/navigate`,
   `/debug/eval`, `/debug/click {x,y}` are its endpoints (NOT /session/*).
+- **2026-11-23 Meta 2FA deep-dive (corrects earlier assumptions)**:
+  - Meta Account login offers WhatsApp/SMS/backup only — NO TOTP. But the
+    **Instagram login challenge DOES offer "Authentication app"** — IG has
+    its OWN 2FA enrollment separate from Meta Accounts Center.
+  - Fresh Meta Account recovery codes generated via Accounts Center
+    (email code self-read from Gmail + password re-entry — fully
+    unattended via `meta-support-ops/scripts/meta_recovery_codes.py`)
+    were **REJECTED by the IG challenge**, as were both stored TOTP
+    seeds (META_TOTP_SECRET, META_TOTP_SECRET_IG). Conclusion:
+    cloudless.gr IG 2FA is enrolled independently; only SMS/WhatsApp
+    delivery fix or Meta support unlocks it.
+  - FB desktop login on debug Chrome :9229 works with ZERO 2FA
+    (trusted device); session exported → `FB_COOKIES_JSON` in store +
+    `meta_cookies.json` via `meta_cookie_sync.py` (PR #2542).
+  - IG "authenticated" feed tab was a zombie — navigating to
+    /accounts/edit/ bounced to the login picker (ds_user_id without
+    sessionid). Profile picker now lists BOTH cloudless.gr + t_baltzakis.
+  - Meta Business Support wizard still stalls pre-submit; issue text
+    for missing WhatsApp/SMS codes archived under fb-escalations/.
