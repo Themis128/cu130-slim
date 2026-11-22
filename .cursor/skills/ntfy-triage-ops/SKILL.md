@@ -32,6 +32,22 @@ python3 .devin/skills/ntfy-triage-ops/scripts/ntfy_triage.py --json     # machin
 python3 .devin/skills/ntfy-triage-ops/scripts/ntfy_triage.py mint-token # mint + cache read token
 ```
 
+
+`scripts/ntfy_purge.py` — the write side: deletes cached messages matching
+regex(es) once the underlying issue is verified resolved. Dry-run by
+default; `--apply` deletes; 429-backoff built in; `--ids` for exact ids.
+
+```bash
+python3 .devin/skills/ntfy-triage-ops/scripts/ntfy_purge.py \
+    --match "database system is starting up"            # dry-run list
+python3 .devin/skills/ntfy-triage-ops/scripts/ntfy_purge.py \
+    --match "IG business_login token dead" --apply       # delete resolved
+```
+
+Rule: purge ONLY after live verification (workers online, token probe
+green, service healthy) — never delete an unresolved platform gate just
+to silence it.
+
 `probe` runs only read-only diagnostics (host_gates_check, dmr_doctor,
 docker_engine_guard, mail_pipeline_probe --no-alert, docker ps, curl
 status checks). It never restarts, heals, or pays anything.
