@@ -954,8 +954,13 @@ async def publish_to_platform(
     # music_asset_id wins; otherwise silent videos get a deterministic
     # mood-matched bed). Videos that already carry audio are left alone
     # unless an explicit bed was assigned — an auto-bed would fight a
-    # voiceover or a pre-mixed track (e.g. burned-in ad music).
+    # voiceover or a pre-mixed track (e.g. burned-in ad music). A lone
+    # still image on a video-native platform is first converted to a
+    # music-bed video — a silent image post is a broken asset there.
     if account.platform in _MUSIC_PLATFORMS:
+        media_paths, storage_paths = await _ensure_music_media(
+            post, db, account.platform, media_paths, storage_paths
+        )
         media_paths = await _apply_music_bed(post, db, media_paths)
 
     dispatch: dict[str, Any] = {
@@ -1454,6 +1459,151 @@ async def _apply_music_bed(post: Post, db: AsyncSession, media_paths: list[str])
         if mixed != vpath:
             out[i] = mixed
     return out
+
+
+# Platforms where video-with-sound is a first-class post surface, so a
+# still image bound for them is a broken asset (owner directive
+# 2026-11-22: every post on a music-capable platform must carry audio).
+# Text/document surfaces (LinkedIn feed, X, Bluesky, Telegram) are
+# excluded — converting would change the post format, not fix it.
+_STILL_TO_VIDEO_PLATFORMS = {"instagram", "facebook", "threads", "tiktok"}
+
+_STILL_VIDEO_ASPECT = {
+    "instagram": "9:16",
+    "tiktok": "9:16",
+    "facebook": "1:1",
+    "threads": "1:1",
+}
+_STILL_VIDEO_DIMENSIONS = {"9:16": (720, 1280), "1:1": (1080, 1080), "4:5": (864, 1080)}
+
+# Post-id → (local mp4 path, storage_path) so N platform targets on the
+# same post convert once. Bounded — workers are long-lived.
+_STILL_VIDEO_CACHE: dict[str, tuple[str, str]] = {}
+_STILL_VIDEO_CACHE_MAX = 32
+
+
+def _image_to_video_script() -> str | None:
+    """Locate scripts/image_to_video.py in container or repo layouts."""
+    candidates = [
+        "/app/scripts/image_to_video.py",
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "scripts",
+            "image_to_video.py",
+        ),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+async def _ensure_music_media(
+    post: Post,
+    db: AsyncSession,
+    platform: str,
+    media_paths: list[str],
+    storage_paths: list[str] | None,
+) -> tuple[list[str], list[str] | None]:
+    """Upgrade a lone still image to a music-bed video for platforms where
+    silent images are broken assets.
+
+    Only single-image posts convert — multi-image carousels cannot carry
+    per-slide audio on any platform, and posts that already contain video
+    are handled by ``_apply_music_bed``. The rendered mp4 is persisted as
+    a MediaAsset so URL-based platforms (Instagram Graph) can fetch it,
+    and ``post.media_ids`` is repointed so every later target reuses the
+    video instead of re-converting. On any failure the original image
+    paths are returned unchanged — publishing proceeds rather than
+    dropping the post.
+    """
+    if platform not in _STILL_TO_VIDEO_PLATFORMS:
+        return media_paths, storage_paths
+    if len(media_paths) != 1 or not media_paths[0].lower().endswith(_IMAGE_MEDIA_EXTS):
+        return media_paths, storage_paths
+
+    key = str(getattr(post, "id", ""))
+    cached = _STILL_VIDEO_CACHE.get(key)
+    if cached and os.path.exists(cached[0]):
+        return [cached[0]], [cached[1]]
+
+    music_path = await _resolve_music_path(post, db)
+    if not music_path:
+        logger.warning(
+            "[publishing] %s post %s is a silent image and no music bed resolved — publishing as-is",
+            platform,
+            key,
+        )
+        return media_paths, storage_paths
+
+    script = _image_to_video_script()
+    if not script:
+        logger.warning("[publishing] image_to_video.py not found — cannot add music to image post %s", key)
+        return media_paths, storage_paths
+
+    aspect = _STILL_VIDEO_ASPECT.get(platform, "1:1")
+    out_path = os.path.join("/tmp", f"auto-music-{key[:8]}-{platform}.mp4")
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        script,
+        media_paths[0],
+        "--out",
+        out_path,
+        "--audio",
+        music_path,
+        "--seconds",
+        "15",
+        "--aspect",
+        aspect,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0 or not os.path.exists(out_path):
+        logger.warning(
+            "[publishing] image→video conversion failed for post %s: %s",
+            key,
+            (stderr or b"").decode("utf-8", errors="replace")[-300:],
+        )
+        return media_paths, storage_paths
+
+    try:
+        from app.services.media_storage import save_uploaded_media
+
+        with open(out_path, "rb") as fh:
+            data = fh.read()
+        w, h = _STILL_VIDEO_DIMENSIONS.get(aspect, (1080, 1080))
+        asset = await save_uploaded_media(
+            db,
+            team_id=post.team_id,
+            user_id=post.user_id,
+            original_filename=f"auto-music-{key[:8]}.mp4",
+            content=data,
+            mime_type="video/mp4",
+            alt_text=(getattr(post, "content_text", "") or "")[:200] or None,
+            tags=["auto-music-bed"],
+            width=w,
+            height=h,
+        )
+    except Exception as exc:
+        logger.warning("[publishing] failed to persist converted video for post %s: %s", key, exc)
+        return media_paths, storage_paths
+
+    # Repoint the post at the video asset so subsequent targets (and any
+    # retry) publish the same file. ``post`` may be the _TaggedLinkPost
+    # read-through proxy — mutate the underlying ORM row.
+    try:
+        orm_post = getattr(post, "_post", post)
+        orm_post.media_ids = [asset.id]
+        await db.flush()
+    except Exception as exc:
+        logger.warning("[publishing] could not repoint media_ids for post %s: %s", key, exc)
+
+    if len(_STILL_VIDEO_CACHE) >= _STILL_VIDEO_CACHE_MAX:
+        _STILL_VIDEO_CACHE.clear()
+    _STILL_VIDEO_CACHE[key] = (out_path, asset.storage_path)
+    logger.info("[publishing] converted image post %s to music video for %s → %s", key, platform, asset.storage_path)
+    return [out_path], [asset.storage_path]
 
 
 class _TaggedLinkPost:
