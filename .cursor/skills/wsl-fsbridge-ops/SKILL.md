@@ -126,6 +126,13 @@ ALIAS so `http://chroma:8000` still resolves:
         -v chroma-rescue-data:/chroma/chroma chromadb/chroma:1.5.9
     docker network connect --alias chroma cu130-backend chroma-rescue
 
+After an engine restart the rescue container can come back with
+`NetworkMode=cu130-backend` but **no** network endpoint, so `chroma` stops
+resolving (`Errno -5`). Check
+`docker inspect -f '{{json .NetworkSettings.Networks}}' chroma-rescue`; if
+it shows `{}`, re-run the `network connect --alias chroma` line above
+(seen 2026-11-22 16:20).
+
 Fresh DB — old embeddings stay trapped in the dead bind mount until the
 bridge heals (re-embeds on next writes). The same poison class still
 kills stack-ops / stack-watchers / compose-healer / dmr-watchdog /
@@ -209,3 +216,39 @@ casualty (fix via recreate/rebind above), not garbage.
 - `docker-engine-ops` — docker.exe pinning, wrong-daemon class
 - DevOptimizer repo: `scripts/repair-wsl-docker-integration.ps1` (watchdog),
   `logs/nightly-wsl-vhdx-compact.ps1` (scheduled heal)
+
+## Auto-heal (automated, 2026-11-23)
+
+`scripts/fsbridge_rebind.py` runs every 10 min via user crontab
+(`flock -n /tmp/fsbridge-rebind.lock`, log `~/logs/fsbridge-rebind-cron.log`,
+state `~/.local/state/fsbridge-rebind/state.json`). It closes the loop that
+previously needed a manual rebind or `wsl --shutdown`:
+
+1. **Probe INSIDE the docker-desktop VM** — `docker run --rm --privileged
+   --pid=host --user root <backend-image> nsenter -t 1 -m -u -i -n sh`
+   reaches the VM's mount namespace with NO Windows interop (works even
+   when wsl.exe/cmd.exe return EINVAL during vsock flaps — the exact
+   conditions that cause poison). Lists empty dirs + zero-byte file hashes
+   under `/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04`.
+   (`--user root` is REQUIRED — the image default user has CapEff=0.)
+2. **Hash→source map**: `journalctl -u dd-user-distro-proxy` "mounting SRC
+   to .../<hash>" lines (authoritative) + sha256(source) cross-check +
+   persisted `state.json.hashmap`.
+3. **Classify**: referenced-by-container + non-empty-source → rebind plan;
+   empty source dir (e.g. `/var/lib/docker/containers`, chroma) → skip
+   (VM-side guard re-verifies as root); zero container refs → orphan
+   `umount -l`+`rmdir`; unmapped → TG alert, no guessing.
+4. **Rebind**: fresh `mount /dev/sdd /tmp/ubnt` (Ubuntu disk) then
+   `mount --bind /tmp/ubnt<src>` per hash; `/run/docker.sock` →
+   `/run/guest-services/docker.container-proxy.sock`; `/mnt/c` →
+   `/mnt/host/c`.
+5. **Restart** every `Exited(127)` container; TG alert on heal / unmapped /
+   failure (30-min dedup). Throttle: 10 min between REAL rebinds only —
+   skip/orphan-only passes don't delay the next wave.
+
+Verified live 2026-11-23: detected + correctly skipped the
+`/var/lib/docker/containers` empty-source false-positive, removed 2 orphan
+hashes, and rebound a real poisoned mount end-to-end with zero Windows
+interop. File-content writes through the Ubuntu-side 9p view DO propagate
+into containers (probe-tested) — but mounts do NOT; only the VM-side
+rebind fixes dir mounts.
