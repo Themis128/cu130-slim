@@ -67,6 +67,40 @@ _TERMINAL_PATTERNS: tuple[str, ...] = (
     "prompt leak",
 )
 
+# Credential/auth subset of TERMINAL — these specific failures become
+# retryable again once the account heals (status back to active). Content
+# rejections stay dead forever.
+_AUTH_TERMINAL_PATTERNS: tuple[str, ...] = (
+    "session has been invalidated",
+    "error validating access token",
+    "invalid_grant",
+    "invalid_token",
+    "invalid refresh token",
+    "token has been revoked",
+    "expiredtoken",
+    "expired",
+    "401",
+    "403",
+    "unauthorized",
+    "forbidden",
+    "permission denied",
+    "does not have permission",
+    "insufficient permission",
+    "account not connected",
+    "token decrypt failed",
+    "reauth",
+)
+
+
+def is_auth_terminal(error: str | None) -> bool:
+    """True when a TERMINAL-class error is credential-shaped, i.e. it can
+    recover by itself once the account's token/session heals."""
+    if not error:
+        return False
+    msg = error.lower()
+    return any(p in msg for p in _AUTH_TERMINAL_PATTERNS)
+
+
 _TRANSIENT_PATTERNS: tuple[str, ...] = (
     "429",
     "too many requests",

@@ -54,3 +54,36 @@ def test_transient_wins_over_terminal_overlap() -> None:
     # "rate limit" inside an auth-flavored message still retries — the
     # provider asked us to back off, not to reconnect.
     assert classify_publish_error("401 rate limit exceeded, retry later") == TRANSIENT
+
+
+def test_is_auth_terminal_matches_credential_failures() -> None:
+    from app.services.error_taxonomy import is_auth_terminal
+
+    for err in (
+        "session has been invalidated because the user changed their password",
+        "Error validating access token: Session expired",
+        "invalid_grant",
+        "HTTP 401 Unauthorized",
+        "HTTP 403 Forbidden",
+        "does not have permission to publish",
+        "insufficient permission for this action",
+        "account not connected",
+        "Token decrypt failed",
+        "reauth required",
+    ):
+        assert is_auth_terminal(err) is True, err
+
+
+def test_is_auth_terminal_rejects_content_and_empty() -> None:
+    from app.services.error_taxonomy import is_auth_terminal
+
+    for err in (
+        "Only photo or video can be accepted as media type",
+        "media_type must be CAROUSEL",
+        "identical content already published",
+        "url_ownership_unverified",
+        "something odd happened",
+        None,
+        "",
+    ):
+        assert is_auth_terminal(err) is False, err

@@ -37,6 +37,29 @@ def _log_secret_failure(message: str, _key: str | None, exc: BaseException) -> N
     logger.warning("%s (%s)", message, type(exc).__name__)
 
 
+def _dotenv_quote(value: str) -> str:
+    """Render a value as a valid dotenv RHS.
+
+    Single-quote (literal) whenever the value has no single quote or
+    newline; otherwise double-quote with escapes. Note python-dotenv still
+    interpolates `${...}` even inside single quotes — values containing
+    that sequence are pathological for secrets and degrade only on the
+    .env fallback read (Postgres/D1 stay canonical). The old
+    `f'KEY="{value}"'` form broke `docker compose` stack-wide whenever a
+    secret contained JSON with double quotes (X_WEB_COOKIES_JSON incident
+    2026-11-23).
+    """
+    if "'" not in value and "\n" not in value and "\r" not in value:
+        return f"'{value}'"
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
+
+
 def _encrypt_if_possible(value: str) -> str:
     """Encrypt a value for Postgres storage when ENCRYPTION_KEY is configured.
 
@@ -239,12 +262,12 @@ class SecretStore:
             new_lines: list[str] = []
             for line in lines:
                 if line.startswith(f"{key}="):
-                    new_lines.append(f'{key}="{value}"')
+                    new_lines.append(f"{key}={_dotenv_quote(value)}")
                     updated = True
                 else:
                     new_lines.append(line)
             if not updated:
-                new_lines.append(f'{key}="{value}"')
+                new_lines.append(f"{key}={_dotenv_quote(value)}")
             _ENV_FILE.write_text("\n".join(new_lines) + "\n")
             return True
         except Exception as exc:

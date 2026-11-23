@@ -331,6 +331,29 @@ def check_fsbridge():
     }
 
 
+REPO_DIR = "/home/tbaltzakis/cu130-slim"
+
+
+def check_compose_env():
+    """`.env` syntax gate (2026-11-23 incident).
+
+    A bad quote in `.env` (e.g. `KEY="{json}"`) makes EVERY `docker compose`
+    invocation fail at parse time — watchdogs, deploy-watch, ad-hoc ops all
+    dead with no container-level symptom. `docker compose config --quiet`
+    parses the full env+compose chain without side effects.
+    """
+    out = sh(f"cd {REPO_DIR} && docker compose config --quiet 2>&1 | "
+             "grep -m1 -E 'failed to read|error while interpolating'",
+             timeout=60)
+    bad = bool(out) and not out.startswith("ERR:")
+    return {
+        "ok": not bad,
+        "detail": (f".env/compose parse BROKEN: {out.strip()[:140]} — every "
+                   f"docker compose call fails; fix quoting in .env"
+                   if bad else "compose config parses clean"),
+    }
+
+
 def tg(text):
     try:
         subprocess.run(["python3", TG_ALERT, "ops", text], timeout=30)
@@ -348,6 +371,7 @@ def main():
         "dmr_tunnel": check_dmr_tunnel(),
         "cdp_lane": check_cdp_lane(),
         "fsbridge": check_fsbridge(),
+        "compose_env": check_compose_env(),
     }
     # IDE-authority loop is undetectable — always surface as a note.
     degraded = [k for k, v in checks.items() if v.get("ok") is False]

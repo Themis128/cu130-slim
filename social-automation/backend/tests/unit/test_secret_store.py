@@ -285,10 +285,10 @@ class TestEnvFileSync:
         monkeypatch.setattr(SS.os, "access", lambda p, m: True)
         s = SecretStore()
         assert await s._sync_env_file("K", "new") is True
-        assert 'K="new"' in envf.read_text()
+        assert "K='new'" in envf.read_text()
         # append new key
         assert await s._sync_env_file("Z", "z") is True
-        assert 'Z="z"' in envf.read_text()
+        assert "Z='z'" in envf.read_text()
 
     @pytest.mark.asyncio
     async def test_sync_error(self, monkeypatch, tmp_path):
@@ -356,3 +356,17 @@ class TestListKeys:
         monkeypatch.setattr(s, "get", AsyncMock(side_effect=lambda k, d=None: vals.get(k)))
         out = await s.get_profile_credentials()
         assert out == vals
+
+
+class TestDotenvQuote:
+    def test_simple_value_single_quoted(self):
+        assert SS._dotenv_quote("abc123") == "'abc123'"
+
+    def test_double_quote_inside_stays_single_quoted(self):
+        assert SS._dotenv_quote('has"quote') == "'has\"quote'"
+
+    def test_single_quote_forces_double_quoted(self):
+        assert SS._dotenv_quote("it's") == '"it\'s"'
+
+    def test_newline_and_backslash_escaped(self):
+        assert SS._dotenv_quote("a\\b\nc") == '"a\\\\b\\nc"'
