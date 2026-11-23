@@ -119,6 +119,38 @@ def collect() -> list[dict]:
                 )
     except Exception:
         pass
+    # windows scheduled tasks — one PowerShell sweep, same shape as
+    # service_inventory.scan_windows so names line up with the registry.
+    try:
+        ps = (
+            "Get-ScheduledTask | Where-Object {$_.TaskPath -notlike '\\Microsoft\\*' -and $_.State -ne 'Disabled'} | "
+            'ForEach-Object { "$($_.TaskName)|$($_.State)" }'
+        )
+        out = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        ).stdout
+        for line in out.splitlines():
+            line = line.strip().strip("\ufeff")
+            if "|" not in line:
+                continue
+            name, state = line.rsplit("|", 1)
+            name = name.strip().strip('"')
+            if not name:
+                continue
+            state = state.strip().lower()
+            reports.append(
+                {
+                    "name": "win-" + _slug(name),
+                    "status": state,
+                    "health": "ok" if state in ("ready", "running") else "degraded",
+                    "detail": f"task state: {state}",
+                }
+            )
+    except Exception as exc:
+        print(f"[service-agent] windows collect failed: {exc}", flush=True)
     return reports
 
 
