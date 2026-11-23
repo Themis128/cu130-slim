@@ -550,7 +550,7 @@ def _li(health, posts_payload):
         if req.url.path == "/health":
             return httpx.Response(200, json=health)
         body = json.loads(req.content or b"{}")
-        if req.url.path == "/debug/eval" and "feed-shared-update-v2" in body.get("expr", ""):
+        if req.url.path == "/debug/eval" and "updatesV2" in (body.get("script") or ""):
             return httpx.Response(200, json=posts_payload)
         return httpx.Response(200, json={"result": "ok"})
 
@@ -567,38 +567,51 @@ async def test_ingest_li_rate_limited_and_no_session(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ingest_li_feed(monkeypatch):
-    import asyncio
-
-    monkeypatch.setattr(asyncio, "sleep", _nosleep)
     posts = [
-        {"urn": "urn:li:activity:1", "actor": "Ana", "handle": "https://li/in/ana", "txt": "a" * 40, "age": "3h •"},
-        {"urn": "", "handle": "https://li/in/bo", "txt": "b" * 40, "age": "2w"},
-        {"txt": "c" * 80, "age": "Edited"},
-        {"urn": "urn:dup", "txt": "d"},
-        {},
+        # person post via profile nav — qualifies
+        {"urn": "urn:li:fs_updateV2:(urn:li:activity:7530,MAIN)", "share": "urn:li:share:7530",
+         "actor": "Ana", "who": "Ana • 2nd", "nav": "View Ana's profile",
+         "age": "3h •  ", "text": "a" * 40},
+        # person post inside a group — qualifies via the "Name • 2nd" signal
+        {"urn": "urn:li:fs_updateV2:(urn:li:activity:1,MAIN)", "share": "",
+         "actor": "Bo", "who": "Bo • 3rd", "nav": "View group: G",
+         "age": "1d •  ", "text": "b" * 40},
+        # sponsored — skip
+        {"urn": "urn:li:fs_updateV2:(urn:li:sponsoredContentV2:(urn:li:activity:9,MAIN),X)",
+         "share": "urn:li:share:9", "actor": "Ad Co", "who": "5,000 followers",
+         "nav": "View company: Ad Co", "age": "Promoted", "text": "c" * 80},
+        # company post — skip (no person author resolvable)
+        {"urn": "urn:li:fs_updateV2:(urn:li:activity:2,MAIN)", "share": "urn:li:share:2",
+         "actor": "BigCo", "who": "9,999 followers", "nav": "View company: BigCo",
+         "age": "2h •  ", "text": "d" * 60},
+        # own post — skip
+        {"urn": "urn:li:fs_updateV2:(urn:li:activity:3,MAIN)", "share": "urn:li:share:3",
+         "actor": "Themistoklis Baltzakis", "who": "Themistoklis Baltzakis • 1st",
+         "nav": "View Themistoklis Baltzakis's profile", "age": "1h •  ", "text": "e" * 50},
+        # no post id — skip
+        {"urn": "", "share": "", "actor": "", "who": "", "nav": "", "age": "", "text": "f" * 60},
     ]
     calls = _mock_http(monkeypatch, ING_LI, _li({"has_session": True}, {"value": json.dumps(posts)}))
-    db = _use_db(monkeypatch, _DB([[], [], [], [object()]]))
-    assert await ING_LI._run() == {"new_candidates": 3}
+    db = _use_db(monkeypatch, _DB([[], []]))
+    assert await ING_LI._run() == {"new_candidates": 2, "person": 2, "skipped": 4}
     after = dt.datetime.now(dt.UTC)
-    a, b, c = db.added
-    assert a.post_id == "urn:li:activity:1" and a.author_name == "Ana"
+    a, b = db.added
+    assert a.post_id == "urn:li:share:7530" and a.author_name == "Ana"
+    assert a.platform == "linkedin" and a.is_followed is True
     assert after - a.posted_at >= dt.timedelta(hours=3)
-    assert b.post_id == "https://li/in/bo"
-    assert after - b.posted_at >= dt.timedelta(weeks=2)
-    assert c.post_id == "c" * 60
-    assert sum(1 for r in calls if r.url.path == "/debug/eval") == 5
+    assert b.post_id == "urn:li:activity:1" and b.author_name == "Bo"
+    assert after - b.posted_at >= dt.timedelta(days=1)
+    assert sum(1 for r in calls if r.url.path == "/debug/eval") == 1
 
 
 @pytest.mark.asyncio
 async def test_ingest_li_result_list_payload(monkeypatch):
-    import asyncio
-
-    monkeypatch.setattr(asyncio, "sleep", _nosleep)
-    _mock_http(monkeypatch, ING_LI, _li({"has_session": True}, {"result": [{"urn": "u1", "txt": "x"}]}))
+    posts_payload = {"result": [{"share": "urn:li:share:9", "who": "Zed • 2nd",
+                                 "nav": "View Zed's profile", "age": "5m •  ", "text": "x" * 40}]}
+    _mock_http(monkeypatch, ING_LI, _li({"has_session": True}, posts_payload))
     db = _use_db(monkeypatch, _DB([[]]))
-    assert await ING_LI._run() == {"new_candidates": 1}
-    assert db.added[0].post_id == "u1"
+    assert await ING_LI._run() == {"new_candidates": 1, "person": 1, "skipped": 0}
+    assert db.added[0].post_id == "urn:li:share:9"
 
 
 # ── TikTok tag ingest ──────────────────────────────────────────────────
