@@ -31,8 +31,10 @@ EXTRACT_JS = """(() => {
     if (!m) return;
     const card = a.closest('div[class*=DivItemContainer], li') || a.parentElement;
     const txt = ((card && card.innerText) || '').replace(/\\s+/g, ' ').trim().slice(0, 800);
+    const viewsEl = card && card.querySelector('[data-e2e*="views"], [class*=Count], strong');
+    const views = ((viewsEl && viewsEl.innerText) || '').trim();
     if (!out.some(o => o.href === href))
-      out.push({href, author: m[1], pid: m[2], txt});
+      out.push({href, author: m[1], pid: m[2], txt, views});
   });
   return JSON.stringify(out.slice(0, 15));
 })()"""
@@ -89,6 +91,7 @@ async def _run():
                     pid = href
                     if (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == pid))).scalars().first():
                         continue
+                    views = _views(p.get("views", ""))
                     cand = EngagementCandidate(
                         platform="tiktok",
                         author_handle=(p.get("author") or "")[:120],
@@ -98,7 +101,7 @@ async def _run():
                         posted_at=dt.datetime.now(dt.UTC),
                         is_followed=False,
                         is_connection=False,
-                        meta_data={"views": 0, "viral": False, "source_tag": tag},
+                        meta_data={"views": views, "viral": views >= 5000, "source_tag": tag},
                     )
                     db.add(cand)
                     new += 1
