@@ -2,10 +2,12 @@
 
 Comments go through the Community Management API first (``w_member_social``
 grant on app 264925843) — the sanctioned lane that keeps working while
-browser-touching lanes are paused. Likes have no member API equivalent and
-still run through the logged-in browser session via voyager fetch().
+browser-touching lanes are paused. Likes/reposts have no member API
+equivalent and run through the logged-in browser session's post-permalink
+UI (the voyager reactions endpoint 400s — verified 2026-11-23).
 """
 
+import asyncio
 import json
 import logging
 
@@ -15,14 +17,49 @@ logger = logging.getLogger(__name__)
 
 SIDECAR = "http://linkedin-browser-sidecar:9225"
 
-LIKE_JS = """return await (async () => {
-  const res = await fetch('/voyager/api/voyagerSocialDashReactions?threadKey=urn%3Ali%3AugcPost%3A{PID}', {
-    method: 'POST', credentials: 'include',
-    headers: {'csrf-token': document.cookie.match(/JSESSIONID="?([^";]+)/)?.[1] || '',
-              'Content-Type': 'application/json'},
-    body: JSON.stringify({reactionType: 'LIKE'})
-  });
-  return res.status;
+# Likes/reposts run through the real post permalink UI — the voyager
+# socialDashReactions endpoint now 400s on every threadKey form (verified
+# live 2026-11-23), while the rendered Like/Repost buttons work and are
+# also the more human-looking path. Permalink format verified against
+# urn:li:activity / urn:li:share post ids.
+POST_URL = "https://www.linkedin.com/feed/update/{PID}/"
+
+LIKE_UI_JS = """return await (async () => {
+  const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+  const find=()=>[...document.querySelectorAll('button')]
+    .find(b=>(b.getAttribute('aria-label')||'').startsWith('Reaction button state'));
+  let b=null;
+  for(let i=0;i<30;i++){ b=find(); if(b) break; await sleep(1000); }
+  if(!b) return 'no-like-button';
+  const st=()=>{const n=find(); return n?n.getAttribute('aria-label'):''};
+  if(/Like/.test(st()) && !/no reaction/i.test(st())) return 'already-liked';
+  b.click();
+  for(let i=0;i<12;i++){ await sleep(700);
+    const s=st();
+    if(/Like/.test(s) && !/no reaction/i.test(s)) return 'liked';
+    if(/Celebrate|Support|Love|Insightful|Funny/.test(s)) return 'other-reaction:'+s;
+  }
+  return 'click-unverified';
+})()"""
+
+REPOST_UI_JS = """return await (async () => {
+  const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+  const repostBtn=()=>[...document.querySelectorAll('button')]
+    .find(b=>/^repost$/i.test((b.getAttribute('aria-label')||'').trim()));
+  let b=null;
+  for(let i=0;i<30;i++){ b=repostBtn(); if(b) break; await sleep(1000); }
+  if(!b) return 'no-repost-button';
+  b.click(); await sleep(1500);
+  const item=[...document.querySelectorAll('[role=menuitem],[role=option],[role=button],li *')]
+    .find(e=>/^repost instantly$/i.test((e.textContent||'').trim()) ||
+             /^repost$/i.test((e.getAttribute('aria-label')||'').trim()));
+  if(!item) { document.body.click(); return 'no-repost-menu-item'; }
+  item.click(); await sleep(2000);
+  // LinkedIn may show a confirm dialog — accept if present.
+  const ok=[...document.querySelectorAll('button')]
+    .find(x=>/^repost$|^confirm|^yes/i.test((x.textContent||x.getAttribute('aria-label')||'').trim()));
+  if(ok){ ok.click(); await sleep(1500); }
+  return 'reposted';
 })()"""
 
 COMMENT_JS = """return await (async () => {
@@ -105,16 +142,24 @@ async def act(action, db) -> dict:
         if not h.get("has_session"):
             return {"error": "no_session"}
 
-        if action.action == "like":
-            pid = action.target_post_id.split(":")[-1]
-            r = await c.post("/debug/eval", json={"expr": LIKE_JS.replace("{PID}", pid)})
+        if action.action in ("like", "repost"):
+            url = POST_URL.replace("{PID}", action.target_post_id)
+            await c.post("/debug/navigate", json={"url": url})
+            await asyncio.sleep(4)
+            expr = LIKE_UI_JS if action.action == "like" else REPOST_UI_JS
+            r = await c.post("/debug/eval", json={"expr": expr}, timeout=120)
+            res = r.json().get("result")
+            if res in ("liked", "already-liked", "reposted"):
+                return {"ok": True, "resp": {"ui": res, "url": url}}
+            logger.warning("[li-actor] %s ui failed: %s", action.action, res)
+            return {"error": f"ui_{action.action}: {res}"}
         elif action.action == "comment":
             if not action.comment_draft:
                 return {"error": "empty comment draft"}
             expr = COMMENT_JS.replace("{TEXT}", json.dumps(action.comment_draft)).replace("{URN}", action.target_post_id)
             r = await c.post("/debug/eval", json={"expr": expr})
-        else:  # repost — needs UI flow, defer
-            return {"error": "repost not implemented for linkedin", "skip": True}
+        else:
+            return {"error": f"{action.action} not implemented for linkedin", "skip": True}
 
         status = r.json().get("result")
         if str(status).startswith("2"):

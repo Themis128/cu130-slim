@@ -190,10 +190,20 @@ async def test_threads_create_and_publish_failures(monkeypatch):
 # ── LinkedIn sidecar ───────────────────────────────────────────────────
 
 
-def _li_handler(health, result=201):
+def _li_handler(health, result=201, ui_result=None):
+    """ui_result: canned return for permalink-UI evals (like/repost JS).
+
+    Comment JS goes through the voyager fetch path and keeps returning
+    ``result``; like/repost JS contains marker strings we match on.
+    """
+
     def h(req):
         if req.url.path == "/health":
             return httpx.Response(200, json=health)
+        body = json.loads(req.content or b"{}")
+        expr = body.get("expr") or ""
+        if ui_result is not None and ("Reaction button state" in expr or "repostBtn" in expr):
+            return httpx.Response(200, json={"result": ui_result})
         return httpx.Response(200, json={"result": result})
 
     return h
@@ -209,10 +219,14 @@ async def test_linkedin_rate_limited_and_no_session(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_linkedin_like_and_comment(monkeypatch):
-    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
-    out = await linkedin_actor.act(_action(target_post_id="urn:li:ugcPost:777"), None)
-    assert out == {"ok": True, "resp": {"voyager_status": 201}}
-    assert "777" in json.loads(calls[-1].content)["expr"]
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, ui_result="liked"))
+    out = await linkedin_actor.act(_action(target_post_id="urn:li:activity:777"), None)
+    assert out == {
+        "ok": True,
+        "resp": {"ui": "liked", "url": "https://www.linkedin.com/feed/update/urn:li:activity:777/"},
+    }
+    nav = [c for c in calls if c.url.path == "/debug/navigate"]
+    assert nav and "urn:li:activity:777" in json.loads(nav[0].content)["url"]
 
     out = await linkedin_actor.act(_action(action="comment", comment_draft='say "hi"', target_post_id="urn:li:ugcPost:5"), None)
     assert out["ok"] is True
@@ -223,11 +237,13 @@ async def test_linkedin_like_and_comment(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_linkedin_comment_empty_repost_and_failure(monkeypatch):
-    _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 403))
+    _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, ui_result="reposted"))
     assert await linkedin_actor.act(_action(action="comment"), None) == {"error": "empty comment draft"}
-    out = await linkedin_actor.act(_action(action="repost"), None)
-    assert out["skip"] is True
-    assert await linkedin_actor.act(_action(target_post_id="a:b:1"), None) == {"error": "voyager 403"}
+    out = await linkedin_actor.act(_action(action="repost", target_post_id="urn:li:activity:9"), None)
+    assert out["ok"] is True and out["resp"]["ui"] == "reposted"
+
+    _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, ui_result="no-like-button"))
+    assert await linkedin_actor.act(_action(target_post_id="urn:li:activity:1"), None) == {"error": "ui_like: no-like-button"}
 
 
 # ── LinkedIn official-API comment path ────────────────────────────────
@@ -341,9 +357,9 @@ async def test_linkedin_like_skips_api_path(monkeypatch):
     # Likes have no member API — must go straight to the sidecar even with an account
     seen: dict = {}
     _patch_li_api(monkeypatch, result=None, seen=seen)
-    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, 201))
+    calls = _mock_http(monkeypatch, linkedin_actor, _li_handler({"has_session": True}, ui_result="liked"))
     out = await linkedin_actor.act(_action(), _DB(_li_person_acc()))
-    assert out == {"ok": True, "resp": {"voyager_status": 201}}
+    assert out == {"ok": True, "resp": {"ui": "liked", "url": "https://www.linkedin.com/feed/update/123/"}}
     assert seen == {}
     assert calls  # like went to the sidecar
 
