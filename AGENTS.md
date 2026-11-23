@@ -876,3 +876,19 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
     sessionid). Profile picker now lists BOTH cloudless.gr + t_baltzakis.
   - Meta Business Support wizard still stalls pre-submit; issue text
     for missing WhatsApp/SMS codes archived under fb-escalations/.
+- **2026-11-23 Meta Account `baltzakis_t` + deletion directive**:
+  Meta mailed "We updated you to a Meta Account on Instagram" — a Meta
+  Account named **`baltzakis_t`** exists containing IG profile
+  **`baltzakis_t`** (sent to baltzakis.themis@gmail.com). This is a
+  SEPARATE Meta Account from the `baltzakis.themis@gmail.com` Accounts
+  Center on the phone, which lists only `t_baltzakis`, `cloudless.gr`
+  (IG+Threads each) and Themistoklis Baltzakis (FB). **DONE
+  2026-11-23: IG account `baltzakis_t` deleted** — password
+  `TH!123789th!` authenticated cleanly on instagram.com web login (no
+  2FA), then Accounts Center → Manage account → Deactivation or
+  deletion → Delete profile → reason → password re-entry → Delete.
+  Deletion is SCHEDULED: 30-day grace until **2026-12-23**, cancellable
+  by logging back in; the Meta Account `baltzakis_t` is deleted with it
+  (it was the only profile). Profile now returns "Profile isn't
+  available". Do NOT confuse with `t_baltzakis` — different account,
+  still live on the phone.
