@@ -19,7 +19,9 @@ dependencies = [
     "websockets>=13,<18",
     "redis>=7.0.0,<8.0.0",
     "celery>=5.4.0,<6.0.0",
-    "deltalake>=0.20",
+    # deltalake 1.7.0 is sdist-only on linux/py3.11 and fails the image build
+    # compiling Rust without libc linker files; 1.6.6 ships a manylinux wheel.
+    "deltalake>=0.20,<1.7",
     "duckdb>=1.1",
     "dbt-duckdb>=1.8",
     # dbt-core 1.12+ hard-requires dbt-core-experimental-parser, whose only
