@@ -3982,6 +3982,7 @@ async function handleNewsletterPublish(body) {
     seo_description,
     schedule_iso,
     post_description,
+    media,
     dry_run,
   } = body;
 
@@ -4251,6 +4252,136 @@ async function handleNewsletterPublish(body) {
   }
   await page.waitForTimeout(1500);
   step("body-filled");
+
+  // ── 4b. Inline media — toolbar "Add image or video" dialog ─────────────
+  // `media` is [{type:"image"|"video", base64?, url?, filename?}] appended
+  // at the end of the article body. Verified 2026-11-24: the toolbar's
+  // image icon opens an "Add image or video" dialog whose hidden
+  // input[type=file] accepts images AND video/* (mp4/webm/mov…). Items
+  // that fail are logged and skipped — media never blocks the publish.
+  if (Array.isArray(media) && media.length) {
+    for (const [i, m] of media.entries()) {
+      let mediaTmp = null;
+      try {
+        // Resolve bytes: base64 payload wins; otherwise fetch the URL here
+        // (the sidecar has network — backend passes public URLs only).
+        let buf = null;
+        let fname = m.filename || `media-${i + 1}`;
+        if (m.base64) {
+          buf = Buffer.from(m.base64, "base64");
+        } else if (m.url) {
+          const resp = await fetch(m.url, {
+            redirect: "follow",
+            signal: AbortSignal.timeout(60000),
+          });
+          if (!resp.ok) throw new Error(`media fetch ${resp.status}`);
+          buf = Buffer.from(await resp.arrayBuffer());
+          try {
+            fname = m.filename || path.basename(new URL(m.url).pathname) || fname;
+          } catch (_) {}
+        }
+        if (!buf || !buf.length) throw new Error("media item needs base64 or url");
+        mediaTmp = bufferToTempFile(buf, fname);
+
+        // Focus the end of the body so media appends after the text.
+        await bodyEditor.click().catch(() => {});
+        await page.keyboard.press("Control+End").catch(() => {});
+        await page.waitForTimeout(500);
+
+        const imgBtn = await findElement(
+          [
+            'button.scaffold-formatted-text-editor-icon-button:has(svg[data-test-icon="image-medium"])',
+            'button:has(svg[data-test-icon="image-medium"])',
+          ],
+          { timeout: 6000 },
+        );
+        if (!imgBtn) throw new Error("image/video insert button not found");
+        await imgBtn.click();
+        await page.waitForTimeout(1500);
+
+        // The dialog renders a hidden input[type=file] — set it directly
+        // (same fallback as the cover path), else drive the native chooser.
+        const fi = await findElement(
+          ['[role="dialog"] input[type="file"]', 'input[type="file"]'],
+          { timeout: 8000, visible: false },
+        );
+        if (fi) {
+          await fi.setInputFiles(mediaTmp);
+        } else {
+          const up = await findElement(
+            ['button:has-text("Upload from computer")'],
+            { timeout: 5000 },
+          );
+          if (!up) throw new Error("media upload control not found");
+          const [chooser] = await Promise.all([
+            page.waitForEvent("filechooser", { timeout: 8000 }),
+            up.click(),
+          ]);
+          await chooser.setFiles(mediaTmp);
+        }
+
+        // Wait for the upload: images are quick, video transcoding is slow.
+        // Done = a media node appears in ProseMirror and the dialog's
+        // Next/Apply/Done is enabled (or the dialog closed).
+        const isVideo = (m.type || "").toLowerCase() === "video";
+        const deadline = Date.now() + (isVideo ? 300000 : 60000);
+        let mediaReady = false;
+        while (Date.now() < deadline) {
+          mediaReady = await page
+            .evaluate(() => {
+              const node = document.querySelector(
+                ".ProseMirror figure, .ProseMirror video, .ProseMirror img, " +
+                  ".ProseMirror iframe, .ProseMirror [data-media], " +
+                  ".ProseMirror [class*='media']",
+              );
+              if (!node) return false;
+              const dlg = document.querySelector('[role="dialog"]');
+              if (!dlg) return true;
+              const btn = [...dlg.querySelectorAll("button")].find((b) =>
+                /^(next|apply|done)$/i.test((b.innerText || "").trim()),
+              );
+              return !btn || !btn.disabled;
+            })
+            .catch(() => false);
+          if (mediaReady) break;
+          await page.waitForTimeout(3000);
+        }
+        if (!mediaReady)
+          throw new Error(`${m.type || "media"} upload did not finish`);
+
+        // Confirm the dialog if it is still open.
+        const dlgBtn = await findElement(
+          [
+            '[role="dialog"] button:has-text("Next")',
+            '[role="dialog"] button:has-text("Apply")',
+            '[role="dialog"] button:has-text("Done")',
+            '[role="dialog"] button:has-text("Save")',
+          ],
+          { timeout: 2000 },
+        );
+        if (dlgBtn) {
+          await dlgBtn.click().catch(() => {});
+          await page.waitForTimeout(2000);
+          await confirmMediaEditorModal();
+        }
+        step(`media-${i + 1}-uploaded`);
+      } catch (err) {
+        agentLog(
+          "H-NL",
+          "newsletter/publish",
+          `media ${i + 1} failed: ${err.message}`,
+          {},
+        );
+        steps.push(`media-${i + 1}-failed`);
+        // Dismiss any half-open dialog so the next step starts clean.
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(500);
+      } finally {
+        cleanupTempFile(mediaTmp);
+      }
+    }
+    step("media-done");
+  }
 
   // ── 5. SEO fields — verified: Manage menu → Settings → seoTitle/seoDescription
   if (seo_title || seo_description) {

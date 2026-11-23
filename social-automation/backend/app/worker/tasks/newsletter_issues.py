@@ -30,7 +30,8 @@ async def _dispatch_one(issue) -> dict:
     from app.services import newsletter_publisher
 
     try:
-        result, via, _warnings = await newsletter_publisher.publish_stored_issue(issue)
+        async with task_session() as db:
+            result, via, _warnings = await newsletter_publisher.publish_stored_issue(issue, db)
     except Exception as exc:  # noqa: BLE001 — any publish failure → retry/failed
         async with task_session() as db:
             updated = await q.record_publish_failure(db, issue.id, f"{type(exc).__name__}: {exc}")

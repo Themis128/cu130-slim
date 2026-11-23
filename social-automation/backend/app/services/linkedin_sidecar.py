@@ -431,6 +431,7 @@ class LinkedInSidecarClient:
         seo_description: str | None = None,
         schedule_iso: str | None = None,
         post_description: str | None = None,
+        media: list[dict[str, Any]] | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Publish (or dry-run) a LinkedIn newsletter issue / article.
@@ -453,6 +454,7 @@ class LinkedInSidecarClient:
             ("seo_description", seo_description),
             ("schedule_iso", schedule_iso),
             ("post_description", post_description),
+            ("media", media),
         ):
             if value is not None:
                 payload[key] = value

@@ -42,6 +42,7 @@ async def publish_with_fallback(
     seo_description: str | None = None,
     schedule_iso: str | None = None,
     post_description: str | None = None,
+    media: list[dict[str, Any]] | None = None,
     dry_run: bool = False,
     browser: str = "auto",
 ) -> tuple[dict[str, Any], str, list[str]]:
@@ -67,6 +68,7 @@ async def publish_with_fallback(
                 seo_description=seo_description,
                 schedule_iso=schedule_iso,
                 post_description=post_description,
+                media=media,
                 dry_run=dry_run,
             )
         except LinkedInSidecarError as exc:
@@ -100,11 +102,52 @@ async def publish_with_fallback(
     return result, "sidecar", []
 
 
-async def publish_stored_issue(issue: Any) -> tuple[dict[str, Any], str, list[str]]:
+MEDIA_SPEC_KEY = "_media"
+
+
+async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Resolve a stored media spec into sidecar-ready items.
+
+    Spec entries: ``{type:"image"|"video", asset_id}`` (bytes are loaded
+    from the asset's storage backend and sent as base64 — R2 URLs are
+    private), ``{type, base64, filename?}``, or ``{type, url, filename?}``
+    (public URL the sidecar can fetch). Bad entries are dropped, never
+    fatal — media must not block a publish.
+    """
+    if not media:
+        return []
+    from sqlalchemy import select
+
+    from app.models.content import MediaAsset
+    from app.services.media_dedup import load_asset_bytes
+
+    out: list[dict[str, Any]] = []
+    for item in media:
+        if not isinstance(item, dict):
+            continue
+        mtype = "video" if item.get("type") == "video" else "image"
+        if item.get("base64") or item.get("url"):
+            out.append({"type": mtype, "base64": item.get("base64"), "url": item.get("url"), "filename": item.get("filename")})
+            continue
+        asset_id = item.get("asset_id")
+        if asset_id and db is not None:
+            try:
+                asset = (await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))).scalar_one_or_none()
+                if asset is None:
+                    continue
+                data = await load_asset_bytes(asset)
+                out.append({"type": mtype, "base64": base64.b64encode(data).decode(), "filename": item.get("filename") or asset.filename})
+            except Exception as exc:  # noqa: BLE001 — skip bad asset
+                logger.warning("newsletter media resolve failed for %s: %s", asset_id, exc)
+    return out
+
+
+async def publish_stored_issue(issue: Any, db: Any = None) -> tuple[dict[str, Any], str, list[str]]:
     """Publish a ``NewsletterIssue`` row (queued dispatch path).
 
     Cover: explicit ``cover_base64`` wins; otherwise the branded cover is
-    rendered at dispatch time so stored rows stay small.
+    rendered at dispatch time so stored rows stay small. Inline media spec
+    rides in ``result["_media"]`` (merge-preserved across publish results).
     """
     from app.services.newsletter_cover import render_newsletter_cover
 
@@ -118,6 +161,8 @@ async def publish_stored_issue(issue: Any) -> tuple[dict[str, Any], str, list[st
         )
         cover_b64 = base64.b64encode(png).decode()
 
+    media = await resolve_media_items(db, (issue.result or {}).get(MEDIA_SPEC_KEY))
+
     return await publish_with_fallback(
         title=issue.title,
         html_body=issue.html_body,
@@ -128,6 +173,7 @@ async def publish_stored_issue(issue: Any) -> tuple[dict[str, Any], str, list[st
         seo_description=(issue.seo_description or "")[:300] or None,
         schedule_iso=None,
         post_description=issue.post_description,
+        media=media or None,
         dry_run=issue.dry_run,
         browser="auto",
     )
