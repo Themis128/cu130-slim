@@ -67,6 +67,13 @@ def access_token():
     return r["access_token"]
 
 
+CHECKPOINT_LINK_RX = re.compile(
+    r"https://(?:auth\.meta\.com|www\.facebook\.com|facebook\.com|"
+    r"(?:www\.)?instagram\.com)/[^\s\"'<>]*?(?:checkpoint|checkpoints|"
+    r"recover|hacked|disabled)[^\s\"'<>]*", re.I)
+CDP_URL = os.environ.get("META_CDP_URL", "http://192.168.96.1:9229")
+
+
 def gmail_get(at, path):
     req = urllib.request.Request(
         "https://gmail.googleapis.com/gmail/v1/users/me/" + path,
@@ -107,6 +114,61 @@ def alert(sev, text):
                    capture_output=True, timeout=30)
 
 
+def _b64url(s):
+    import base64
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4)).decode(
+        "utf-8", "replace")
+
+
+def extract_checkpoint_links(at, msg_id):
+    """Fetch full message, return Meta checkpoint/recovery action links."""
+    try:
+        d = gmail_get(at, f"messages/{msg_id}?format=full")
+    except Exception:
+        return []
+    bodies = []
+
+    def walk(p):
+        data = p.get("body", {}).get("data")
+        if data and p.get("mimeType", "").startswith("text/"):
+            bodies.append(_b64url(data))
+        for c in p.get("parts", []) or []:
+            walk(c)
+    walk(d.get("payload", {}))
+    text = "\n".join(bodies).replace("&amp;", "&")
+    links = []
+    for m in re.finditer(r'href="([^"]+)"', text):
+        u = m.group(1)
+        if CHECKPOINT_LINK_RX.fullmatch(u) or CHECKPOINT_LINK_RX.search(u):
+            if u not in links:
+                links.append(u)
+    # also catch bare URLs in plain-text parts
+    for u in re.findall(r"https://[^\s\"'<>]+", text):
+        u = u.rstrip(".,);]")
+        if (CHECKPOINT_LINK_RX.search(u) and "help." not in u
+                and u not in links):
+            links.append(u)
+    return links[:5]
+
+
+def drive_link(url):
+    """Open a recovery/checkpoint link in debug Chrome via CDP /json/new."""
+    try:
+        req = urllib.request.Request(
+            f"{CDP_URL}/json/new?{urllib.parse.quote(url, safe='')}",
+            method="PUT")
+        urllib.request.urlopen(req, timeout=10).read()
+        return True
+    except Exception:
+        try:
+            req = urllib.request.Request(
+                f"{CDP_URL}/json/new?{urllib.parse.quote(url, safe='')}")
+            urllib.request.urlopen(req, timeout=10).read()
+            return True
+        except Exception:
+            return False
+
+
 def main():
     hours = HOURS
     once = "--once" in sys.argv
@@ -117,6 +179,7 @@ def main():
             hours = int(a.split("=", 1)[1])
     st = load_state()
     seen = set(st["seen"])
+    driven = set(st.get("driven", []))
     at = access_token()
     q = f"{META_FROM} newer_than:{hours}h"
     res = gmail_get(at, "messages?" + urllib.parse.urlencode(
@@ -156,6 +219,26 @@ def main():
         print(line)
         if not dry and not seed and n["cls"] != "other":
             alert(sev, f"Meta mail watchdog: {line[:350]}")
+        # Auto-drive fresh Meta checkpoint/recovery action links — these
+        # expire fast and nothing else opens them (suspension recovery,
+        # hacked-account disavow, account-disabled flows).
+        if not dry and not seed and n["cls"] in ("security", "recovery"):
+            try:
+                for u in extract_checkpoint_links(at, n["id"]):
+                    if u in driven:
+                        continue
+                    ok = drive_link(u)
+                    driven.add(u)
+                    st.setdefault("driven", []).append(u)
+                    st["driven"] = st["driven"][-200:]
+                    print(f"[drive] {'opened' if ok else 'FAILED'} {u[:100]}")
+                    if not dry:
+                        alert("ops", "Meta mail watchdog auto-opened "
+                              f"recovery link ({n['cls']}): {u[:140]}")
+            except Exception as e:
+                print(f"[drive] error {e}")
+    if not dry:
+        save_state(st)  # persist driven-link dedupe too
     print(f"scanned={len(msgs)} new={len(new)} "
           f"classes={counts} state_saved={not dry}")
     return 0
