@@ -56,6 +56,48 @@ lane is immune — prefer it as canonical for publishing.
    `add --post <uuid> --account <uuid>` adds an extra target (e.g. personal
    FB profile).
 
+
+## force_authentication wall + full credential re-login lane (verified 2026-11-23)
+
+`instagram.com/oauth/authorize` can bounce to
+`/accounts/login/?force_authentication&next=<oauth>` even with a live
+sessionid — the OAuth flow demands a FRESH credential login. The
+emaillogin session alone is not enough.
+
+End-to-end lane (all automated, `scripts/ig_oauth_2fa_drive.py`):
+
+1. `ig_emaillogin_session.py --dump /tmp/ig_cookies.json --inject` —
+   passwordless session into CDP Chrome :9229 (needs playwright venv:
+   `~/.venv-igreset`).
+2. Open the instagram2 authorize URL — if it lands on
+   `force_authentication`, fill `INSTAGRAM_USERNAME`/`INSTAGRAM_PASSWORD`
+   from social-api env, submit.
+3. 2FA: IG defaults to **WhatsApp** code. "Try another way" opens a Bloks
+   picker — select **Authentication app** or **Backup code**. CRITICAL:
+   only `label.click()` on the option's `<label>` flips the radio;
+   div clicks and `input.click()` do nothing (React-controlled Bloks).
+   The picker renders duplicate hidden option sets — use the LAST visible
+   label. The modal's Continue is the LOWEST visible 'Continue' on screen.
+4. Codes: TOTP via `META_TOTP_SECRET_IG` (container env; may be STALE
+   after Meta security resets — it was rejected 2026-11-23). Reliable
+   fallback: `META_BACKUP_CODES` in `social_secrets` (JSON array of
+   one-time 8-digit codes — consume one, write the rest back; the driver
+   does this via `consume_backup_code`).
+5. `/consent/?flow=ig_biz_login_oauth` → click **Allow** → tab hits
+   `/api/v1/auth/oauth/instagram2/callback?code=…` → social-api exchanges
+   → `business_login` row flips `active` → `ig_lane_doctor.py report`
+   shows `token-valid` / `publish lane: OK`.
+
+Gotchas:
+- CDP :9229 down → `Start-ScheduledTask ChromeDebug` on Windows (hidden
+  via winps). Fresh instance may lack `--remote-allow-origins` → all
+  websocket clients need `suppress_origin=True` (patched into
+  `ig_bl_session_drive.py`).
+- WhatsApp 2FA code does NOT surface as a phone notification reliably —
+  prefer backup-code/TOTP lanes over waiting for it.
+- Backup codes are single-use: the driver removes the consumed code from
+  `social_secrets` so the store stays truthful.
+
 ## Gotchas
 
 - **Two active instagram rows for the same account is a hazard** — the
