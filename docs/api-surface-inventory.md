@@ -482,8 +482,20 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ops/monetization-report` — POST
 - `/api/v1/ops/paddle-digest/preview` — GET
 - `/api/v1/ops/paddle-digest` — POST
+- `/api/v1/ops/services/actions` — GET
+- `/api/v1/ops/services/report` — POST
+- `/api/v1/ops/services/sync` — POST
+- `/api/v1/ops/services/{name}/action-result` — POST
+- `/api/v1/ops/services/{name}/action` — POST
+- `/api/v1/ops/services` — GET
 - `/api/v1/ops/session-heal` — POST
 - `/api/v1/ops/tiktok-audit` — PUT
+- `/api/v1/ops/watchers/due` — GET
+- `/api/v1/ops/watchers/sync` — POST
+- `/api/v1/ops/watchers/{name}/result` — POST
+- `/api/v1/ops/watchers/{name}/run` — POST
+- `/api/v1/ops/watchers/{name}/toggle` — POST
+- `/api/v1/ops/watchers` — GET
 
 ## `profile`
 
