@@ -92,7 +92,9 @@ def _open_tab(cdp: str, url: str) -> dict:
 def _tab_eval(tab: dict, expr: str):
     import websocket  # type: ignore
 
-    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=20)
+    ws = websocket.create_connection(
+        tab["webSocketDebuggerUrl"], timeout=20, suppress_origin=True
+    )
     ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
                         "params": {"expression": expr, "returnByValue": True}}))
     ws.settimeout(15)
