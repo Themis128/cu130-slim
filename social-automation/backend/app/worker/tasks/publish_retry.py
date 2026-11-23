@@ -62,13 +62,14 @@ async def _sweep() -> dict:
                 # requeue after credentials healed. Now: if the account is
                 # active again and the error was credential-shaped, revive
                 # ONCE per (post, account) — marker lives in post.meta_data.
-                post = tgt.post
+                post = getattr(tgt, "post", None)
                 meta = dict(post.meta_data or {}) if post else {}
                 done = list(meta.get("auth_resurrected") or [])
                 key = f"{tgt.post_id}:{tgt.social_account_id}"
+                account = getattr(tgt, "social_account", None)
                 if (
-                    tgt.social_account
-                    and tgt.social_account.status == "active"
+                    account
+                    and getattr(account, "status", None) == "active"
                     and is_auth_terminal(err)
                     and key not in done
                 ):

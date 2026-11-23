@@ -285,10 +285,10 @@ class TestEnvFileSync:
         monkeypatch.setattr(SS.os, "access", lambda p, m: True)
         s = SecretStore()
         assert await s._sync_env_file("K", "new") is True
-        assert 'K="new"' in envf.read_text()
+        assert "K='new'" in envf.read_text()
         # append new key
         assert await s._sync_env_file("Z", "z") is True
-        assert 'Z="z"' in envf.read_text()
+        assert "Z='z'" in envf.read_text()
 
     @pytest.mark.asyncio
     async def test_sync_error(self, monkeypatch, tmp_path):
