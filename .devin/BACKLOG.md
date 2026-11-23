@@ -4706,3 +4706,21 @@ Lessons:
   DEAD (190 password-change) — re-auth via ig-business-login-ops
   ig_emaillogin_session/ig2_oauth_drive; (c) reconcile which lane is
   canonical via account_truth.py. Phone left on @cloudless.gr active.
+- [ ] 2026-11-23 engagement engine live run (PR #2549) — leftovers:
+  - FB comment actor churns `no-comment-box`/`empty draft`/`eval failed`
+    on auto-approved comments (autoapprove gate approves score≥threshold;
+    actor selectors don't match current FB DOM or hit shared-session
+    contention). Needs fb_actor selector refresh or comments back to
+    strict human-gate.
+  - IG likes queue `pending`/`pending_actor` but IG has no engagement
+    write path — expect mass `failed`; consider gating IG actions off at
+    queue time until a write lane exists.
+  - TikTok 30 likes hit daily cap but actor path is phone/duet-flag
+    class — verify tiktok_actor actually acts vs silently skips.
+  - ~41 candidates were scored under the OLD floor-80 image during the
+    deploy churn — `scored=true` wasted; re-run
+    `UPDATE engagement_candidates SET scored=false WHERE scored=true AND post_id NOT IN (SELECT target_post_id FROM engagement_actions)` after the new image lands, then let beat re-queue.
+  - LI ingest: `posted_at` for some platforms lands in the future
+    (negative age clamps to 0 → fake +4 freshness). TikTok/FB ingesters
+    should validate timestamps before insert.
+  - X timeline still 402 (paid tier); Threads ingest = own posts only.
