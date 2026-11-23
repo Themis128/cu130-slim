@@ -58,7 +58,11 @@ def gate(task=None, **_kwargs) -> None:
     name = getattr(task, "name", None)
     if not name:
         return
-    enabled_map = _load_enabled()
+    try:
+        enabled_map = _load_enabled()
+    except Exception as exc:  # fail-open: a broken registry must never block tasks
+        logger.warning("watcher gate registry read failed (fail-open): %s", exc)
+        return
     if name in enabled_map and not enabled_map[name]:
         logger.info("watcher gate: skipping disabled task %s", name)
         raise Ignore(f"watcher '{name}' disabled via ops_watchers")

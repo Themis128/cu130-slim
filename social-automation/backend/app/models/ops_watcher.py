@@ -99,3 +99,11 @@ class OpsWatcher(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+    def __init__(self, **kwargs):
+        # Column ``default=`` only applies at INSERT flush; mirror the
+        # runtime-state defaults so freshly constructed rows read correctly.
+        kwargs.setdefault("enabled", True)
+        kwargs.setdefault("status", "unknown")
+        kwargs.setdefault("consecutive_failures", 0)
+        super().__init__(**kwargs)
