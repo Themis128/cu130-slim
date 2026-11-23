@@ -154,16 +154,29 @@ def js_click_role_button(page: Page, text: str) -> bool:
 
 
 def click_lowest_continue(page: Page):
-    """Click the lowest visible 'Continue' — the modal's button sits below
-    the underlying form's on IG's two-factor screens."""
+    """Click the lowest HIT-TESTABLE 'Continue'. IG renders decoy copies of
+    the form's Continue UNDER the method-picker panel — elementFromPoint
+    proves which one is actually on top (verified 2026-11-23: the lowest-y
+    candidate was covered by the picker overlay; the picker's own button
+    was the higher-y hitIsSelf one)."""
     raw = page.eval("""(()=>{
-      const els=[...document.querySelectorAll('div[role=button],button,div,span')]
-        .filter(e=>(e.innerText||'').trim()==='Continue'&&e.children.length<4);
-      const vis=els.map(e=>{const r=e.getBoundingClientRect();
-        return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width}})
-        .filter(q=>q.w>2&&q.y>0&&q.y<900);
-      if(!vis.length)return null;
-      vis.sort((a,b)=>b.y-a.y);return JSON.stringify(vis[0]);
+      const els=[...document.querySelectorAll('div[role=button],button')]
+        .filter(e=>(e.innerText||'').trim()==='Continue'&&e.offsetParent);
+      const cand=els.map(e=>{const r=e.getBoundingClientRect();
+        const cx=r.x+r.width/2,cy=r.y+r.height/2;
+        const hit=document.elementFromPoint(cx,cy);
+        const self=e.contains(hit)||hit===e;
+        return {x:cx,y:cy,self,y:r.y}})
+        .filter(q=>q.self&&q.y>0&&q.y<innerHeight);
+      if(!cand.length){
+        // fallback: any Continue with a real box (old behaviour)
+        const vis=els.map(e=>{const r=e.getBoundingClientRect();
+          return {x:r.x+r.width/2,y:r.y+r.height/2,w:r.width}})
+          .filter(q=>q.w>2&&q.y>0&&q.y<900);
+        if(!vis.length)return null;
+        vis.sort((a,b)=>b.y-a.y);return JSON.stringify(vis[0]);
+      }
+      cand.sort((a,b)=>b.y-a.y);return JSON.stringify(cand[0]);
     })()""")
     if raw:
         pt = json.loads(raw)
@@ -194,10 +207,20 @@ def open_method_picker(page: Page) -> bool:
     body = page.body()
     if "confirmation methods" in body or "Choose a way" in body:
         return True
-    if not js_click_role_button(page, "Try another way"):
-        return False
-    time.sleep(4)
-    page.reconnect()
+    # "Try another way" is flaky on hidden/background tabs — bring the tab
+    # forward first, then retry the click a few times.
+    for _ in range(3):
+        try:
+            page.cmd("Page.bringToFront", {})
+            page.cmd("Emulation.setFocusEmulationEnabled", {"enabled": True})
+        except Exception:
+            pass
+        if js_click_role_button(page, "Try another way"):
+            time.sleep(4)
+            page.reconnect()
+            if "Authentication app" in page.body() or "Backup code" in page.body():
+                return True
+        time.sleep(2)
     return "Authentication app" in page.body() or "Backup code" in page.body()
 
 
@@ -390,6 +413,7 @@ def do_consent(page: Page) -> None:
 
 
 def main() -> int:
+    global CDP
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-login", action="store_true",
                     help="also perform the credential login step")
@@ -398,7 +422,6 @@ def main() -> int:
     ap.add_argument("--cdp", default=CDP)
     args = ap.parse_args()
 
-    global CDP
     CDP = args.cdp
 
     tab = current_tab()
@@ -409,7 +432,11 @@ def main() -> int:
     page = Page(tab)
 
     url = tab["url"]
-    if "force_authentication" in url or "accounts/login" in url:
+    # /accounts/login/two_step_verification contains "accounts/login" —
+    # check the 2FA/challenge markers FIRST or the wall branch misfires.
+    at_login_wall = ("force_authentication" in url or "accounts/login" in url) \
+        and "two_step" not in url and "challenge" not in url
+    if at_login_wall:
         if not args.from_login:
             print("[*] at login wall — rerun with --from-login")
             return 4
