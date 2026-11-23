@@ -205,12 +205,36 @@ def _env_lookup(name: str) -> str | None:
     return None
 
 
+def _n8n_busy_via_db() -> int | None:
+    """Count in-flight executions straight from the n8n DB — the source of
+    truth the HTTP probe reads anyway. Removes the N8N_API_KEY dependency
+    from the token-rotation path: the key in .env had rotted (401), which
+    made the probe permanently return "unknown" and defer every n8n
+    recreate (seen 2026-11-24)."""
+    try:
+        r = subprocess.run(
+            ["docker", "exec", "-i", "social-postgres", "psql", "-U", "social_user",
+             "-d", "n8n", "-tAc",
+             "select count(*) from execution_entity "
+             "where status in ('running','new','waiting')"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            return int(r.stdout.strip())
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
 def _n8n_running_executions() -> int | None:
     """Count of currently-running n8n executions, or None on probe failure.
 
     None means "unknown", not "idle" — a rejected request (lost scope, bad
     key) or an unreachable API can happen while executions still run.
     """
+    n = _n8n_busy_via_db()
+    if n is not None:
+        return n
     key = _env_lookup("N8N_API_KEY")
     if not key:
         return None
