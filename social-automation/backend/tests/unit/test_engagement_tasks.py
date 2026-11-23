@@ -655,10 +655,34 @@ def test_tt_views_parser():
     assert ING_TT._views(None) == 0
 
 
+def _tt_sidecar(posts_result=None, has_session=True):
+    """Mock the dedicated tiktok-browser-sidecar API (/health + /browse + /evaluate)."""
+
+    def h(req):
+        if req.url.path == "/health":
+            return httpx.Response(200, json={"has_session": has_session})
+        if req.url.path == "/browse":
+            return httpx.Response(200, json={})
+        if req.url.path == "/evaluate":
+            return httpx.Response(200, json={"result": posts_result})
+        return httpx.Response(200, json={})
+
+    return h
+
+
 @pytest.mark.asyncio
-async def test_ingest_tt_busy(monkeypatch):
-    _mock_http(monkeypatch, ING_TT, _bridge("[]", start_fails=True))
-    assert await ING_TT._run() == {"skipped": "browser busy"}
+async def test_ingest_tt_no_session(monkeypatch):
+    _mock_http(monkeypatch, ING_TT, _tt_sidecar(has_session=False))
+    assert await ING_TT._run() == {"skipped": "no-session"}
+
+
+@pytest.mark.asyncio
+async def test_ingest_tt_sidecar_unreachable(monkeypatch):
+    def h(req):
+        raise httpx.ConnectError("refused", request=req)
+
+    _mock_http(monkeypatch, ING_TT, h)
+    assert await ING_TT._run() == {"skipped": "sidecar unreachable"}
 
 
 @pytest.mark.asyncio
@@ -671,25 +695,26 @@ async def test_ingest_tt_tags(monkeypatch):
         {"href": "/@c/photo/9"},
         {"href": "/@d/video/333"},
     ]
-    calls = _mock_http(monkeypatch, ING_TT, _bridge(json.dumps(posts)))
+    calls = _mock_http(monkeypatch, ING_TT, _tt_sidecar(json.dumps(posts)))
     # tag1: 111 new, 222 new, 333 dup; tag2: all dup
     db = _use_db(monkeypatch, _DB([[], [], [object()], [object()], [object()], [object()]]))
     assert await ING_TT._run() == {"new_candidates": 2}
     a, b = db.added
+    assert a.post_id == "/@a/video/111"
     assert a.meta_data == {"views": 12000, "viral": True, "source_tag": "serverless"}
     assert b.meta_data["viral"] is False
-    navs = [json.loads(c.content)["url"] for c in calls if c.url.path == "/session/navigate"]
-    assert navs == ["https://www.tiktok.com/tag/serverless", "https://www.tiktok.com/tag/ai"]
+    browses = [json.loads(c.content)["url"] for c in calls if c.url.path == "/browse"]
+    assert browses == ["https://www.tiktok.com/tag/serverless", "https://www.tiktok.com/tag/ai"]
 
 
 @pytest.mark.asyncio
 async def test_ingest_tt_default_tags_empty_eval(monkeypatch):
     monkeypatch.setattr(ING_TT.asyncio, "sleep", _nosleep)
     monkeypatch.delenv("TIKTOK_TARGET_TAGS", raising=False)
-    calls = _mock_http(monkeypatch, ING_TT, _bridge(None))
+    calls = _mock_http(monkeypatch, ING_TT, _tt_sidecar(None))
     _use_db(monkeypatch, _DB())
     assert await ING_TT._run() == {"new_candidates": 0}
-    assert sum(1 for c in calls if c.url.path == "/session/navigate") == 3  # capped
+    assert sum(1 for c in calls if c.url.path == "/browse") == 3  # capped
 
 
 # ── tiers + ledger ─────────────────────────────────────────────────────

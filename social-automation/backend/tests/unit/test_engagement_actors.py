@@ -472,21 +472,23 @@ async def test_tiktok_busy_like_comment(monkeypatch):
     _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("liked", session=False))
     assert await tiktok_actor.act(_action(), None) == {"error": "no-session", "skip": True}
 
+    tt_id = "/@someuser/video/42"
     calls = _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("liked"))
-    assert await tiktok_actor.act(_action(target_post_id="42"), None) == {"ok": True}
+    assert await tiktok_actor.act(_action(target_post_id=tt_id), None) == {"ok": True}
     browse = [c for c in calls if c.url.path == "/browse"]
-    assert browse and json.loads(browse[0].content) == {"url": "https://www.tiktok.com/video/42"}
+    assert browse and json.loads(browse[0].content) == {"url": "https://www.tiktok.com/@someuser/video/42"}
+    assert await tiktok_actor.act(_action(target_post_id="42"), None) == {"error": "legacy-id-no-author", "skip": True}
     _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("no-btn"))
-    assert await tiktok_actor.act(_action(), None) == {"error": "no-btn", "skip": True}
+    assert await tiktok_actor.act(_action(target_post_id=tt_id), None) == {"error": "no-btn", "skip": True}
 
     _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("commented"))
-    assert await tiktok_actor.act(_action(action="comment"), None) == {"error": "empty draft"}
-    assert await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None) == {"ok": True}
+    assert await tiktok_actor.act(_action(action="comment", target_post_id=tt_id), None) == {"error": "empty draft"}
+    assert await tiktok_actor.act(_action(action="comment", comment_draft="fire", target_post_id=tt_id), None) == {"ok": True}
     _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("no-comment-box"))
-    out = await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None)
+    out = await tiktok_actor.act(_action(action="comment", comment_draft="fire", target_post_id=tt_id), None)
     assert out == {"error": "no-comment-box", "skip": True}
     _mock_http(monkeypatch, tiktok_actor, _tt_sidecar(None, eval_fails=True))
-    out = await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None)
+    out = await tiktok_actor.act(_action(action="comment", comment_draft="fire", target_post_id=tt_id), None)
     assert out == {"error": "boom", "skip": False}
     out = await tiktok_actor.act(_action(action="save"), None)
     assert out == {"error": "tt: save unsupported", "skip": True}
