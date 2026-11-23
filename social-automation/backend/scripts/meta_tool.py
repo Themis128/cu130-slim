@@ -91,7 +91,7 @@ def cmd_debug_token(account_id: str) -> None:
     import requests
 
     resp = requests.get(
-        "https://graph.facebook.com/v21.0/debug_token",
+        "https://graph.facebook.com/v26.0/debug_token",
         params={
             "input_token": _token(account),
             "access_token": _app_token(),

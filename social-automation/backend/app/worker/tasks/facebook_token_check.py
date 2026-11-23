@@ -38,7 +38,7 @@ celery_app.set_current()
 
 logger = logging.getLogger(__name__)
 
-GRAPH = "https://graph.facebook.com/v21.0"
+GRAPH = "https://graph.facebook.com/v26.0"
 THREADS_GRAPH = "https://graph.threads.net/v1.0"
 WARN_DAYS = 7
 DEAD_TOKEN_CODES = (190, 102, 463, 467)

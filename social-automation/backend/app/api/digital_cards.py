@@ -243,7 +243,7 @@ async def _send_card_template(
     try:
         async with httpx.AsyncClient(timeout=30) as http:
             resp = await http.get(
-                f"https://graph.facebook.com/v21.0/{waba_id}/message_templates",
+                f"https://graph.facebook.com/v26.0/{waba_id}/message_templates",
                 params={
                     "fields": "name,status,language",
                     "name": _CARD_TEMPLATE_NAME,
@@ -576,7 +576,7 @@ async def send_card(
             except Exception:
                 pass  # Token might be stored in a different format
         # Send via Messenger Platform API
-        url = f"https://graph.facebook.com/v21.0/{page_id}/messages"
+        url = f"https://graph.facebook.com/v26.0/{page_id}/messages"
         payload = {
             "recipient": {"id": data.to_phone},
             "message": {"text": msg},

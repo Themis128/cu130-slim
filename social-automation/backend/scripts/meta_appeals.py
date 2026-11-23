@@ -23,7 +23,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-GRAPH = "https://graph.facebook.com/v21.0"
+GRAPH = "https://graph.facebook.com/v26.0"
 LOG = Path("/app/uploads/meta-appeals-log.jsonl")
 
 

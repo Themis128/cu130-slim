@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # post.platform_specific via PublishResult.platform_meta.
 VERIFY_PATHS = ("graph_reels", "sidecar_story")
 WINDOW_HOURS = 48
-GRAPH_VERSION = os.environ.get("FACEBOOK_GRAPH_VERSION", "v21.0")
+GRAPH_VERSION = os.environ.get("FACEBOOK_GRAPH_VERSION", "v26.0")
 
 
 async def _verify_reel(platform_post_id: str, access_token_enc, session) -> str:

@@ -50,13 +50,13 @@ async def _probe(platform: str, account_id: str, token: str, meta: dict | None) 
                 )
             elif platform == "instagram":
                 if meta.get("login_type") == "business_login":
-                    url = "https://graph.instagram.com/v21.0/me"
+                    url = "https://graph.instagram.com/v26.0/me"
                 else:
-                    url = f"https://graph.facebook.com/v21.0/{account_id}"
+                    url = f"https://graph.facebook.com/v26.0/{account_id}"
                 r = await c.get(url, params={"fields": "id", "access_token": token})
             elif platform == "facebook":
                 r = await c.get(
-                    f"https://graph.facebook.com/v21.0/{account_id}",
+                    f"https://graph.facebook.com/v26.0/{account_id}",
                     params={"fields": "id", "access_token": token},
                 )
             elif platform == "whatsapp":
@@ -64,7 +64,7 @@ async def _probe(platform: str, account_id: str, token: str, meta: dict | None) 
                 if not phone_id:
                     return "inconclusive"
                 r = await c.get(
-                    f"https://graph.facebook.com/v21.0/{phone_id}",
+                    f"https://graph.facebook.com/v26.0/{phone_id}",
                     params={"fields": "code_verification_status", "access_token": token},
                 )
                 if r.status_code == 200:

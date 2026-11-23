@@ -34,8 +34,8 @@ def test_init_validation():
         W.WhatsAppAPIClient(access_token="", phone_number_id="1")
     with pytest.raises(ValueError):
         W.WhatsAppAPIClient(access_token="t", phone_number_id="bad id!")
-    c = W.WhatsAppAPIClient("t", "123", api_version="/v21.0/")
-    assert c.api_version == "v21.0/" or c.api_version == "v21.0"
+    c = W.WhatsAppAPIClient("t", "123", api_version="/v26.0/")
+    assert c.api_version == "v26.0/" or c.api_version == "v26.0"
 
     with pytest.raises(Exception):
         W._validate_phone("not a phone ###")

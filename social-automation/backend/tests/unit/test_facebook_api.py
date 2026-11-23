@@ -600,9 +600,9 @@ class TestCtor:
             api.FacebookAPIClient("t", "bad id")
 
     def test_version_lstrip(self):
-        c = api.FacebookAPIClient("t", "123", api_version="/v21.0")
-        assert c.api_version == "v21.0"
-        assert c._url("/x").endswith("/v21.0/x")
+        c = api.FacebookAPIClient("t", "123", api_version="/v26.0")
+        assert c.api_version == "v26.0"
+        assert c._url("/x").endswith("/v26.0/x")
 
 
 class TestPageTokens:

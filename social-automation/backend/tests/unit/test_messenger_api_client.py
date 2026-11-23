@@ -66,8 +66,8 @@ def test_psid_and_init():
 
     with pytest.raises(ValueError, match="required"):
         M.MessengerAPIClient("", "123")
-    c = M.MessengerAPIClient("tok", "12345", api_version="/v21.0")
-    assert c.api_version == "v21.0" and "v21.0" in c._base_url
+    c = M.MessengerAPIClient("tok", "12345", api_version="/v26.0")
+    assert c.api_version == "v26.0" and "v26.0" in c._base_url
     with pytest.raises(ValueError):
         M.MessengerAPIClient("tok", "bad/id")
 

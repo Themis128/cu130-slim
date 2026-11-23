@@ -24,7 +24,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-GRAPH = "https://graph.facebook.com/v21.0"
+GRAPH = "https://graph.facebook.com/v26.0"
 BM = os.environ.get("META_BM_ID", "1558125105019725")
 APP = os.environ.get("META_APP_ID", "1936126137016578")
 WABA = os.environ.get("META_WABA_ID", "1717901383017723")
