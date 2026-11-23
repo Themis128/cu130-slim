@@ -75,3 +75,4 @@ async def act(action, db) -> dict:
             if res == "commented":
                 return {"ok": True}
             return {"error": str(res or "eval failed"), "skip": res == "no-comment-box"}
+    return {"error": "unreachable"}
