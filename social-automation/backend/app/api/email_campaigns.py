@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.email_campaign import (
     CampaignKind,
@@ -55,6 +56,10 @@ class CampaignCreate(BaseModel):
     html_body: str | None = None
     from_name: str = Field("Cloudless", max_length=120)
     reply_to: str | None = Field(None, max_length=320)
+    # Envelope sender override — must stay inside the SMTP_FROM domain
+    # (cloudless.gr). Defaults to the authenticated mailbox account so funnel
+    # mail goes out from the owner's domain address, not a generic relay.
+    from_email: str | None = Field(None, max_length=320)
     # External form URL (e.g. Nextcloud Forms public link). When omitted on a
     # survey campaign, SocialAuto hosts the form at a per-recipient token URL.
     survey_url: str | None = Field(None, max_length=500)
@@ -98,6 +103,15 @@ async def create_campaign(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
+    settings = get_settings()
+    smtp_from = (settings.SMTP_FROM or "").strip()
+    allowed_domain = smtp_from.rsplit("@", 1)[-1].strip().lower() if "@" in smtp_from else ""
+    smtp_user = (settings.SMTP_USER or "").strip()
+    default_from = smtp_user if "@" in smtp_user else None
+    from_email = (body.from_email or "").strip() or default_from
+    if from_email and allowed_domain and from_email.rsplit("@", 1)[-1].strip().lower() != allowed_domain:
+        raise HTTPException(status_code=422, detail=f"from_email must be inside the {allowed_domain} domain")
+
     html_body = body.html_body
     if not (html_body or "").strip():
         from app.services.email_brand import render_branded_html
@@ -122,6 +136,7 @@ async def create_campaign(
         meta_data={
             "questions": [q.model_dump() for q in body.questions],
             **({"hero_url": body.hero_url} if body.hero_url else {}),
+            **({"from_email": from_email} if from_email else {}),
         },
     )
     db.add(campaign)

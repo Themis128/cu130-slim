@@ -137,6 +137,7 @@ async def send_playbook_email(to_addr: str, name: str | None = None) -> None:
         },
         reply_to="tbaltzakis@cloudless.gr",
         from_name="Cloudless",
+        from_addr="tbaltzakis@cloudless.gr",
     )
     logger.info("playbook email sent")
 

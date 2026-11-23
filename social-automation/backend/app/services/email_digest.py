@@ -183,6 +183,24 @@ def _recipients(settings) -> list[str]:
     return [a.strip() for a in (settings.DIGEST_EMAIL_TO or "").split(",") if a.strip()]
 
 
+def _resolve_from_addr(settings, from_addr: str | None) -> str:
+    """Effective From address — SMTP_FROM by default.
+
+    A per-message override is allowed only inside the SMTP_FROM domain so a
+    campaign can send as the owner mailbox (e.g. tbaltzakis@cloudless.gr)
+    without opening the relay to arbitrary sender domains.
+    """
+    default = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    override = (from_addr or "").strip()
+    if not override:
+        return default
+    default_domain = default.rsplit("@", 1)[-1].strip().lower() if "@" in default else ""
+    override_domain = override.rsplit("@", 1)[-1].strip().lower()
+    if default_domain and override_domain != default_domain:
+        raise ValueError(f"from_addr domain must match SMTP_FROM domain ({default_domain})")
+    return override
+
+
 def _filter_suppressed(addrs: list[str], settings) -> list[str]:
     """Drop recipients matching EMAIL_SUPPRESS_ADDR_PATTERNS (fnmatch, case-insensitive)."""
     raw = getattr(settings, "EMAIL_SUPPRESS_ADDR_PATTERNS", "") or ""
@@ -226,6 +244,7 @@ def send_email_smtp(
     extra_headers: dict[str, str] | None = None,
     reply_to: str | None = None,
     from_name: str | None = None,
+    from_addr: str | None = None,
 ) -> None:
     """Send via local/host SMTP (free Postfix on :25)."""
     settings = get_settings()
@@ -233,7 +252,7 @@ def send_email_smtp(
     port = int(settings.SMTP_PORT or 25)
     user = (settings.SMTP_USER or "").strip()
     password = (settings.SMTP_PASSWORD or "").strip()
-    from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    from_addr = _resolve_from_addr(settings, from_addr)
     recipients = to_addrs or _recipients(settings)
 
     if not host or not from_addr or not recipients:
@@ -289,11 +308,12 @@ def send_email_cloudflare_smtp(
     extra_headers: dict[str, str] | None = None,
     reply_to: str | None = None,
     from_name: str | None = None,
+    from_addr: str | None = None,
 ) -> None:
     """CF Email Sending over authenticated SMTP (smtp.mx.cloudflare.net:465)."""
     settings = get_settings()
     token = _email_api_token(settings)
-    from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    from_addr = _resolve_from_addr(settings, from_addr)
     recipients = to_addrs or _recipients(settings)
     if not token or not from_addr or not recipients:
         raise RuntimeError("Cloudflare SMTP needs CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), SMTP_FROM, and DIGEST_EMAIL_TO")
@@ -328,12 +348,13 @@ async def send_email_cloudflare_verified(
     extra_headers: dict[str, str] | None = None,
     reply_to: str | None = None,
     from_name: str | None = None,
+    from_addr: str | None = None,
 ) -> None:
     """Free Cloudflare Email Sending to verified Email Routing destinations only."""
     settings = get_settings()
     account_id = (getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "") or "").strip()
     token = _email_api_token(settings)
-    from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    from_addr = _resolve_from_addr(settings, from_addr)
     recipients = to_addrs or _recipients(settings)
     if not account_id or not token or not recipients:
         raise RuntimeError("Cloudflare send needs CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), and DIGEST_EMAIL_TO")
@@ -400,6 +421,7 @@ async def send_email_mail_outbound(
     category: str,
     reply_to: str | None = None,
     from_name: str | None = None,
+    from_addr: str | None = None,
 ) -> None:
     """POST to the mail-outbound CF worker (send_email binding).
 
@@ -410,7 +432,7 @@ async def send_email_mail_outbound(
     settings = get_settings()
     url = (getattr(settings, "MAIL_OUTBOUND_URL", "") or "").strip()
     token = (getattr(settings, "MAIL_OUTBOUND_TOKEN", "") or "").strip()
-    from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    from_addr = _resolve_from_addr(settings, from_addr)
     if not url or not token:
         raise RuntimeError("mail-outbound needs MAIL_OUTBOUND_URL + MAIL_OUTBOUND_TOKEN")
 
@@ -444,6 +466,7 @@ async def send_email(
     extra_headers: dict[str, str] | None = None,
     reply_to: str | None = None,
     from_name: str | None = None,
+    from_addr: str | None = None,
     category: str = "ops-alert",
 ) -> None:
     settings = get_settings()
@@ -471,6 +494,7 @@ async def send_email(
                 category=category,
                 reply_to=reply_to,
                 from_name=from_name,
+                from_addr=from_addr,
             )
             return
         except Exception as exc:  # noqa: BLE001
@@ -490,6 +514,7 @@ async def send_email(
                 extra_headers=extra_headers,
                 reply_to=reply_to,
                 from_name=from_name,
+                from_addr=from_addr,
             )
             return
         await send_email_cloudflare_verified(
@@ -500,6 +525,7 @@ async def send_email(
             extra_headers=extra_headers,
             reply_to=reply_to,
             from_name=from_name,
+            from_addr=from_addr,
         )
         return
 
@@ -513,6 +539,7 @@ async def send_email(
         extra_headers=extra_headers,
         reply_to=reply_to,
         from_name=from_name,
+        from_addr=from_addr,
     )
 
 

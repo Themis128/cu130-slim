@@ -160,6 +160,7 @@ async def proposal_followup_sweep(*, session_factory=None) -> dict[str, Any]:
                 to_addrs=[proposal.recipient_email],
                 reply_to=REPLY_TO,
                 from_name=FROM_NAME,
+                from_addr=REPLY_TO,
             )
             history = list(md.get("followup_history", []))
             history.append({"key": due["key"], "day": int(due["day"]), "sent_at": now.isoformat()})

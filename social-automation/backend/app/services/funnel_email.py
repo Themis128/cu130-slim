@@ -33,6 +33,13 @@ BRAND = "Cloudless"
 SITE_URL = "https://cloudless.gr"
 CONSULTATION_URL = "https://cloudless.gr/en/consultation"
 
+# Canonical funnel sender — the owner's cloudless.gr mailbox (the omv-ha
+# submission account / SMTP_USER). Every customer-facing funnel lane passes
+# this as send_email(from_addr=); the transport domain-locks overrides to
+# the SMTP_FROM domain, so funnel mail can never leave from a foreign
+# sender. Ops digests/alerts keep the SMTP_FROM default instead.
+FUNNEL_FROM_ADDR = "tbaltzakis@cloudless.gr"
+
 _BG = "#f4f6f8"
 _CARD = "#ffffff"
 _EDGE = "#e5e7eb"
