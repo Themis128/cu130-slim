@@ -445,27 +445,49 @@ async def test_tiktok_manual_actions_skip(kind):
     assert "manual" in out["error"]
 
 
+def _tt_sidecar(result, session=True, health_fails=False, eval_fails=False):
+    """Mock the dedicated tiktok-browser-sidecar API (/health + /browse + /evaluate)."""
+
+    def h(req):
+        if req.url.path == "/health":
+            if health_fails:
+                raise httpx.ConnectError("down", request=req)
+            return httpx.Response(200, json={"status": "ok", "has_session": session})
+        if req.url.path == "/browse":
+            return httpx.Response(200, json={"status": "ok"})
+        if req.url.path == "/evaluate":
+            if eval_fails:
+                return httpx.Response(200, json={"error": "boom"})
+            return httpx.Response(200, json={"status": "ok", "result": result})
+        return httpx.Response(200, json={})
+
+    return h
+
+
 @pytest.mark.asyncio
 async def test_tiktok_busy_like_comment(monkeypatch):
     monkeypatch.setattr(tiktok_actor.asyncio, "sleep", _nosleep)
-    _mock_http(monkeypatch, tiktok_actor, _bridge("liked", start_fails=True))
-    assert await tiktok_actor.act(_action(), None) == {"error": "browser busy", "skip": True}
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("liked", health_fails=True))
+    assert await tiktok_actor.act(_action(), None) == {"error": "sidecar unreachable", "skip": True}
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("liked", session=False))
+    assert await tiktok_actor.act(_action(), None) == {"error": "no-session", "skip": True}
 
-    calls = _mock_http(monkeypatch, tiktok_actor, _bridge("liked"))
+    calls = _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("liked"))
     assert await tiktok_actor.act(_action(target_post_id="42"), None) == {"ok": True}
-    assert json.loads(calls[1].content) == {"url": "https://www.tiktok.com/video/42"}
-    _mock_http(monkeypatch, tiktok_actor, _bridge("no-btn"))
+    browse = [c for c in calls if c.url.path == "/browse"]
+    assert browse and json.loads(browse[0].content) == {"url": "https://www.tiktok.com/video/42"}
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("no-btn"))
     assert await tiktok_actor.act(_action(), None) == {"error": "no-btn", "skip": True}
 
-    _mock_http(monkeypatch, tiktok_actor, _bridge("commented"))
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("commented"))
     assert await tiktok_actor.act(_action(action="comment"), None) == {"error": "empty draft"}
     assert await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None) == {"ok": True}
-    _mock_http(monkeypatch, tiktok_actor, _bridge("no-comment-box"))
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar("no-comment-box"))
     out = await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None)
     assert out == {"error": "no-comment-box", "skip": True}
-    _mock_http(monkeypatch, tiktok_actor, _bridge(None))
+    _mock_http(monkeypatch, tiktok_actor, _tt_sidecar(None, eval_fails=True))
     out = await tiktok_actor.act(_action(action="comment", comment_draft="fire"), None)
-    assert out == {"error": "eval failed", "skip": False}
+    assert out == {"error": "boom", "skip": False}
     out = await tiktok_actor.act(_action(action="save"), None)
     assert out == {"error": "tt: save unsupported", "skip": True}
 
