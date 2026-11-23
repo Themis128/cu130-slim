@@ -51,12 +51,7 @@ def _dotenv_quote(value: str) -> str:
     """
     if "'" not in value and "\n" not in value and "\r" not in value:
         return f"'{value}'"
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
     return f'"{escaped}"'
 
 

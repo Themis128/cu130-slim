@@ -293,9 +293,7 @@ async def test_watcher_result_paths(monkeypatch):
     assert w.last_output_tail == "hb"
     assert w.consecutive_failures == 3  # observed heartbeat doesn't reset
 
-    out = await w_api.watcher_result(
-        w.name, w_api.ResultBody(exit_code=0), _req(), db=db
-    )
+    out = await w_api.watcher_result(w.name, w_api.ResultBody(exit_code=0), _req(), db=db)
     assert out["status"] == "ok" and w.consecutive_failures == 0
 
 
@@ -351,16 +349,19 @@ async def test_sync_services_upsert_and_meta_merge(monkeypatch):
     db = FakeDB(services=[existing])
 
     with pytest.raises(HTTPException) as e:
-        await svc_api.sync_services(
-            svc_api.SyncBody(services=[]), _req(token=None), db=db
-        )
+        await svc_api.sync_services(svc_api.SyncBody(services=[]), _req(token=None), db=db)
     assert e.value.status_code == 401
 
     body = svc_api.SyncBody(
         services=[
             svc_api.SyncItem(
-                name="svc-1", title="renamed", tier="systemd", executor="systemctl",
-                managed_by="platform", target="h1", meta={"new": 2},
+                name="svc-1",
+                title="renamed",
+                tier="systemd",
+                executor="systemctl",
+                managed_by="platform",
+                target="h1",
+                meta={"new": 2},
             ),
             svc_api.SyncItem(name="svc-2", tier="docker", executor="docker-cli"),
         ]
@@ -415,9 +416,7 @@ async def test_action_result_paths(monkeypatch):
         await svc_api.action_result("missing", svc_api.ActionResultBody(ok=True), _req(), db=db)
     assert e.value.status_code == 404
 
-    out = await svc_api.action_result(
-        s.name, svc_api.ActionResultBody(ok=False, output_tail="err"), _req(), db=db
-    )
+    out = await svc_api.action_result(s.name, svc_api.ActionResultBody(ok=False, output_tail="err"), _req(), db=db)
     assert out == {"ok": True}
     assert s.pending_action == "" and s.pending_action_at is None
     assert s.consecutive_failures == 2

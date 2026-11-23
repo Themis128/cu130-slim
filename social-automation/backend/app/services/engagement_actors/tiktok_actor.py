@@ -54,8 +54,7 @@ async def act(action, db) -> dict:
         if action.action == "like":
             res = await _eval(
                 c,
-                "(() => {const b=document.querySelector('[data-e2e=like-icon],[data-e2e*=like] button');"
-                "if(!b)return 'no-btn';b.click();return 'liked'})()",
+                "(() => {const b=document.querySelector('[data-e2e=like-icon],[data-e2e*=like] button');if(!b)return 'no-btn';b.click();return 'liked'})()",
             )
             return {"ok": True} if res == "liked" else {"error": str(res), "skip": True}
         if action.action == "comment":
