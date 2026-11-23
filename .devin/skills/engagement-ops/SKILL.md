@@ -51,6 +51,7 @@ Files: `services/engagement.py`, `models/engagement.py`,
 ## Ops scripts
 
 - `scripts/engagement-status.sh` — pending/dispatched/acted/failed counts + cooldown state
+- `scripts/engagement_sweep.py` — one-shot full engagement pass: fires every platform ingestor (X/LI/IG/TT/FB) + `dispatch_engagements` through Celery on `social-worker-default`, then prints the candidate/action ledger. `--wait N` polls the ledger; `--ingest-only` skips dispatch. Sidecar/browser failures surface as failed/skipped actions — never retried blindly.
 - comment-draft approval goes through the content API (`action=approve` on the draft endpoint) — no dedicated script
 
 ## Common fixes
