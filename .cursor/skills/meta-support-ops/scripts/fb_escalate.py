@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Escalate each Meta issue through the contact-support wizard + AI chat on CDP :9330.
 Usage: python fb-escalate.py <issue_key>  -> drives one issue, dumps transcript."""
-import json, time, re, sys
+import json, time, re, sys, os
 from playwright.sync_api import sync_playwright
 
-CDP = "http://localhost:9330"
-OUT = r"C:\Users\tbaltzakis\devin-scripts\fb-escalations"
+# :9330 = headless sidecar (needs its own FB session); :9229 = user's debug
+# Chrome which currently holds the live FB session — override via env.
+CDP = os.environ.get("CDP_URL", "http://localhost:9330")
+OUT = os.environ.get("ESCALATE_OUT",
+                     r"C:\Users\tbaltzakis\devin-scripts\fb-escalations")
 import os; os.makedirs(OUT, exist_ok=True)
 
 ISSUES = {
@@ -47,20 +50,27 @@ ISSUES = {
         "asset": "Instagram account cloudless.gr — profile URL "
                  "https://www.instagram.com/cloudless.gr/ (personal Meta "
                  "account baltzakis.themis@gmail.com)",
-        "text": ("Instagram account cloudless.gr (profile URL "
-                 "https://www.instagram.com/cloudless.gr/) cannot complete "
-                 "login two-factor "
-                 "authentication: the password is accepted and Meta offers "
-                 "confirmation codes via WhatsApp and SMS to the phone number "
-                 "ending 38, but NO code ever arrives on either channel "
-                 "(verified over repeated attempts across multiple days). "
-                 "Authentication-app TOTP codes from the stored seed are rejected, "
-                 "previously generated backup codes no longer work, and "
-                 "trusted-device approval succeeded for Facebook but the "
-                 "Instagram challenge persists. Requesting: (1) investigation of "
-                 "why WhatsApp/SMS 2FA codes are not delivered to this number, "
-                 "and (2) an account-recovery path that does not depend on "
-                 "receiving those codes.")},
+        "text": ("Multiple compounding account-security failures on my Meta "
+                 "Account (baltzakis.themis@gmail.com), all started after a "
+                 "'Suspicious activity on your Meta Account — suspended for "
+                 "your protection' alert: (1) Instagram account cloudless.gr "
+                 "(https://www.instagram.com/cloudless.gr/) cannot complete "
+                 "login 2FA — password accepted, but WhatsApp AND SMS codes "
+                 "to the phone ending 38 never arrive over repeated attempts "
+                 "across multiple days; five freshly generated Meta Account "
+                 "recovery codes were all rejected (Instagram 2FA is a "
+                 "separate enrollment), both stored TOTP seeds rejected, and "
+                 "the emailed checkpoint link "
+                 "auth.meta.com/checkpoints/429819665900096/ returns 404. "
+                 "(2) Instagram password reset shows 'Something went wrong' "
+                 "on every lane; the email login link does arrive but lands "
+                 "on the same 2FA wall. (3) Facebook login works via "
+                 "trusted-device approval, confirming the number itself is "
+                 "reachable. Requesting: investigation of why Meta Account "
+                 "codes are not delivered to this number, review/lift of "
+                 "the protection suspension, and an account-recovery path "
+                 "for Instagram cloudless.gr that does not depend on "
+                 "receiving SMS/WhatsApp codes.")},
 }
 
 def snap_text(page):
@@ -174,10 +184,16 @@ def main(key):
     with sync_playwright() as pw:
         b = pw.chromium.connect_over_cdp(CDP)
         ctx = b.contexts[0]
-        d = json.load(open(r"C:\Users\tbaltzakis\devin-scripts\fb-cookies.json"))
-        ctx.add_cookies([{"name": k, "value": v, "domain": ".facebook.com", "path": "/",
-                          "secure": True, "httpOnly": True, "sameSite": "Lax"}
-                         for k, v in d["cookies"].items()])
+        # Cookie seeding is for the bare :9330 sidecar. On :9229 the live
+        # session already exists — skip injection (stale jar would clobber it).
+        ck = r"C:\Users\tbaltzakis\devin-scripts\fb-cookies.json"
+        if "9229" not in CDP and os.path.exists(ck) and \
+                "SKIP_COOKIES" not in os.environ:
+            d = json.load(open(ck))
+            ctx.add_cookies([{"name": k, "value": v, "domain": ".facebook.com",
+                              "path": "/", "secure": True, "httpOnly": True,
+                              "sameSite": "Lax"}
+                             for k, v in d["cookies"].items()])
         page = ctx.new_page()
         ts = drive(key, page)
         outp = os.path.join(OUT, f"{key}.log")
