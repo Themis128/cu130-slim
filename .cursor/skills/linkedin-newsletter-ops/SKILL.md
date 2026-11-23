@@ -43,6 +43,34 @@ schedule). `browser="sidecar"` forces it; default falls back to
 verified for Issue #2 on 2026-10-14, but its LinkedIn session can be
 logged out independently of the sidecar's).
 
+### Inline media + links (2026-11-24)
+
+- **`media[]` payload field** — `[{type:"image"|"video", base64|url,
+  filename}]` appended at the end of the article body via the editor's
+  **"Add image or video"** toolbar dialog (hidden
+  `input.media-editor-file-selector__upload-media-input`, accepts
+  `image/*` + `video/*`). Flow: set file → dialog shows preview →
+  **click `Next` → only then the media node lands in ProseMirror**.
+  Waiting for the node before confirming deadlocks (the Nov-24 bug).
+  Per-item budget 90s image / 5min video; failure reasons surface in
+  `result.steps` as `media-N-failed:<reason>`; leftovers close via the
+  dialog's **Dismiss** button (Escape does not close it).
+- **Queued issues carry the spec in `result["_media"]`**
+  (`{type, asset_id}` | `{type, base64|url, filename}`) — merge-preserved
+  across publish results. `asset_id` resolves through
+  `media_dedup.load_asset_bytes` at dispatch (private R2 403s anonymous
+  fetches — never hand `public_url` to the sidecar).
+- **`/article/new/` can redirect to the newsletter admin page** for
+  members who own a newsletter — sometimes mid-edit, which used to kill
+  the title-field lookup. The handler detects `/newsletters/` and clicks
+  **"Create new edition"** → stable `?author=…` editor URL.
+- **Anchors survive the paste path** — `<a href>` in `html_body` lands
+  as `article-editor-link` with href intact; no toolbar link-drive needed.
+- `scripts/newsletter_media_dryrun.py ISSUE_ID_OR_SLUG` — host-side
+  dry-run of a queued issue incl. media (builds payload inside
+  social-api, fires at `:9225` from host — survives api restarts;
+  `--publish` for real).
+
 ### Direct-sidecar bypass (engine-bounce survival)
 
 `scripts/newsletter_publish_direct.sh` assembles the payload inside
