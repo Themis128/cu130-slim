@@ -446,6 +446,7 @@ class Settings(BaseSettings):
     SLACK_PUBLISHING_WEBHOOK_URL: str = ""
     SLACK_PUBLISHING_CHANNEL_ID: str = ""  # bot-token fallback channel; default: SLACK_CHANNEL_ID
     NEWSLETTER_SERVICE_TOKEN: str = ""  # shared secret: cloudless.gr newsletter cron → cover endpoint
+    OPS_WATCHER_AGENT_TOKEN: str = ""  # shared secret: host watcher-agent → /ops/watchers/due|result
     # IntraVox intranet feed widgets → GET /api/v1/service-feed/* (read-only).
     # INTRANET_FEED_TEAM_ID pins the exposed team; empty = team with the most
     # active connected accounts.

@@ -37,6 +37,8 @@ from app.api import (
     meta_growth,
     newsletter,
     ops,
+    ops_services,
+    ops_watchers,
     profile,
     publishing,
     reports,
@@ -111,6 +113,8 @@ router.include_router(ai_providers.router, prefix="/ai-providers", tags=["ai-pro
 router.include_router(brand.router, prefix="/brand", tags=["brand"])
 
 router.include_router(ops.router, prefix="/ops", tags=["ops"])
+router.include_router(ops_watchers.router, prefix="/ops", tags=["ops-watchers"])
+router.include_router(ops_services.router, prefix="/ops", tags=["ops-services"])
 
 router.include_router(support.router, prefix="/support", tags=["support"])
 

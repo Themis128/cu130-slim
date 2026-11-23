@@ -28,6 +28,20 @@ from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
 from app.models.newsletter_issue import NewsletterIssue, NewsletterIssueStatus
 from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsIncident
+from app.models.ops_service import (
+    OpsService,
+    ServiceExecutor,
+    ServiceKind,
+    ServiceManagedBy,
+    ServiceTier,
+)
+from app.models.ops_watcher import (
+    OpsWatcher,
+    WatcherExecutor,
+    WatcherKind,
+    WatcherManagedBy,
+    WatcherTier,
+)
 from app.models.queue import PublishQueue
 from app.models.site_traffic import SiteTrafficDaily  # noqa: F401
 from app.models.social_account import SocialAccount
@@ -100,6 +114,16 @@ __all__ = [
     "OpsIncident",
     "IncidentStatus",
     "IncidentSeverity",
+    "OpsService",
+    "OpsWatcher",
+    "WatcherExecutor",
+    "WatcherKind",
+    "WatcherManagedBy",
+    "ServiceExecutor",
+    "ServiceKind",
+    "ServiceManagedBy",
+    "ServiceTier",
+    "WatcherTier",
     "NewsletterIssue",
     "NewsletterIssueStatus",
 ]
