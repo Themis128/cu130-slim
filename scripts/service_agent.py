@@ -23,8 +23,17 @@ import urllib.request
 
 API = os.environ.get("SOCIAL_API_URL", "http://127.0.0.1:8083").rstrip("/")
 TOKEN = os.environ.get("OPS_WATCHER_AGENT_TOKEN", "")
-POLL = int(os.environ.get("SERVICE_POLL_SECONDS", "30"))
 REPO = os.path.expanduser("~/cu130-slim")
+if not TOKEN:
+    # cron-friendly fallback: pull the shared secret from the repo .env
+    try:
+        for _line in open(os.path.join(REPO, ".env")):
+            if _line.startswith("OPS_WATCHER_AGENT_TOKEN="):
+                TOKEN = _line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+    except OSError:
+        pass
+POLL = int(os.environ.get("SERVICE_POLL_SECONDS", "30"))
 TIMEOUT = 120
 
 
