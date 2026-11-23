@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.lead import Lead
-from app.services.funnel_email import render_funnel_html
+from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +359,9 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
                 text_body=body,
                 html_body=render_funnel_html(body, subject=subject, cta_label=step.get("cta")),
                 to_addrs=[lead.email],
+                reply_to=FUNNEL_FROM_ADDR,
+                from_name="Cloudless",
+                from_addr=FUNNEL_FROM_ADDR,
             )
             stamp = "quiet_step" if quiet else "nurture_step"
             lead.meta_data = {

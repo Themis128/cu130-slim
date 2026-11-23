@@ -19,6 +19,14 @@ description: >-
 - Sends are **per-recipient** messages — never BCC. Each carries
   `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) and a unique
   unsubscribe token URL.
+- **Sender identity (mandatory)** — funnel mail goes out From a
+  `cloudless.gr` domain account, canonical owner mailbox
+  `tbaltzakis@cloudless.gr` (the omv-ha submission account = `SMTP_USER`).
+  `CampaignCreate.from_email` sets `meta_data.from_email`; when omitted it
+  defaults to the `SMTP_USER` mailbox. `send_email(from_addr=)` is
+  domain-locked to the `SMTP_FROM` domain — cross-domain senders are
+  rejected. Ops digests/alerts may keep the `SMTP_FROM` default
+  (`noreply@cloudless.gr`); customer-facing funnel lanes must not.
 - **CRM personalization**: `send_campaign` pulls `espocrm_client.campaign_profiles()`
   once per send (Contact wins over Lead on the same email) and exposes every
   scalar CRM field as a `{{crm_<snake>}}` merge tag — `accountName` →

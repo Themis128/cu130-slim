@@ -27,7 +27,9 @@ IntraVox hub: page `kakkava-visibility-era` under nav `nav_social`.
   service-level fix (retry or dedicated sidecar) is in the backlog.
 - **Session seeding** — first run needs ONE manual Skool login inside
   browser-novnc (session persists via the bridge). `status` reports
-  `logged_in: false` until then.
+  `logged_in: false` until then. Afterwards the hourly `session_healer`
+  sweep auto-recovers expiry via `SKOOL_EMAIL`/`SKOOL_PASSWORD` in the
+  secret store (bridge `/session/login`) — no manual re-login needed.
 
 ## Commands — `scripts/skool_ops.py`
 

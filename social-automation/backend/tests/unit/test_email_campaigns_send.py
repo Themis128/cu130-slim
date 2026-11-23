@@ -118,6 +118,22 @@ class TestSendCampaign:
         assert camp.status == CampaignStatus.sent
 
     @pytest.mark.asyncio
+    async def test_from_email_and_reply_to_meta_override(self, send_env):
+        camp = _campaign(
+            reply_to=None,
+            meta_data={"from_email": "tbaltzakis@cloudless.gr", "reply_to": "reply@cloudless.gr"},
+        )
+        r1 = _recipient(email="a@x.com")
+        db = _DB([_Res([camp]), _Res([]), _Res([0]), _Res([r1]), _Res([]), _Res([0])])
+        send_env["use_db"](db)
+        out = await S.send_campaign(camp.id)
+        assert out["sent"] == 1
+        (mail,) = send_env["mails"]
+        assert mail["from_addr"] == "tbaltzakis@cloudless.gr"
+        assert mail["reply_to"] == "reply@cloudless.gr"
+        assert mail["from_name"] == "Cloudless"
+
+    @pytest.mark.asyncio
     async def test_budget_exhausted_keeps_rows_pending(self, send_env):
         camp = _campaign()
         r1 = _recipient(email="a@x.com")

@@ -634,7 +634,7 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
             "Payment kicks off the 14-day clock — the kickoff mail lands\n"
             "automatically."
         )
-    from app.services.funnel_email import Cta, render_funnel_html
+    from app.services.funnel_email import FUNNEL_FROM_ADDR, Cta, render_funnel_html
 
     ctas = [Cta("Open the secure payment link", pay_url)] if pay_url else [Cta("Book a free 30-minute call", AUDIT_CTA_URL)]
     await send_email(
@@ -642,8 +642,9 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
         text_body=body,
         html_body=render_funnel_html(body, subject=proposal.subject, ctas=ctas),
         to_addrs=[proposal.recipient_email],
-        reply_to="tbaltzakis@cloudless.gr",
+        reply_to=FUNNEL_FROM_ADDR,
         from_name="Themistoklis — Cloudless",
+        from_addr=FUNNEL_FROM_ADDR,
     )
     proposal.status = AgencyProposalStatus.sent
     proposal.sent_at = datetime.now(UTC)
@@ -745,7 +746,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             md = dict(project.meta_data or {})
             if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
                 from app.services.email_digest import send_email
-                from app.services.funnel_email import render_funnel_html
+                from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
                 subject = f"Quick one — access for {project.name}"
@@ -765,8 +766,9 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     text_body=body,
                     html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
-                    reply_to="tbaltzakis@cloudless.gr",
+                    reply_to=FUNNEL_FROM_ADDR,
                     from_name="Themistoklis — Cloudless",
+                    from_addr=FUNNEL_FROM_ADDR,
                 )
                 md["intake_nudged"] = now.isoformat()
                 project.meta_data = md
@@ -812,7 +814,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 if now < due_at:
                     continue
                 from app.services.email_digest import send_email
-                from app.services.funnel_email import render_funnel_html
+                from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
                 subject = f"How did the {DELIVERY_DAYS} days go? — {project.name}"
@@ -832,8 +834,9 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     text_body=body,
                     html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
-                    reply_to="tbaltzakis@cloudless.gr",
+                    reply_to=FUNNEL_FROM_ADDR,
                     from_name="Themistoklis — Cloudless",
+                    from_addr=FUNNEL_FROM_ADDR,
                 )
                 md["testimonial_asked"] = now.isoformat()
                 project.meta_data = md
@@ -856,7 +859,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 if now < asked_at + timedelta(days=step_day):
                     continue
                 from app.services.email_digest import send_email
-                from app.services.funnel_email import render_funnel_html
+                from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
                 subject = step_subj.format(name=project.name, client=client)
@@ -866,8 +869,9 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     text_body=body,
                     html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
-                    reply_to="tbaltzakis@cloudless.gr",
+                    reply_to=FUNNEL_FROM_ADDR,
                     from_name="Themistoklis — Cloudless",
+                    from_addr=FUNNEL_FROM_ADDR,
                 )
                 md[stamp] = now.isoformat()
                 project.meta_data = md
@@ -1200,7 +1204,7 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
 
             if email:
                 from app.services.email_digest import send_email
-                from app.services.funnel_email import render_funnel_html
+                from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
                 subject, body = _kickoff_email(client_name, project.name, (project.meta_data or {}).get("loa_md"))
                 await send_email(
@@ -1208,8 +1212,9 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
                     text_body=body,
                     html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[email],
-                    reply_to="tbaltzakis@cloudless.gr",
+                    reply_to=FUNNEL_FROM_ADDR,
                     from_name="Themistoklis — Cloudless",
+                    from_addr=FUNNEL_FROM_ADDR,
                 )
             await espo.add_lead_note(
                 oid,
@@ -1293,7 +1298,7 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
                 stats["skipped"] += 1
                 continue
             from app.services.email_digest import send_email
-            from app.services.funnel_email import render_funnel_html
+            from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
             subject, body = _post_consult_email(client_name, str(opp.get("name") or ""))
             await send_email(
@@ -1301,8 +1306,9 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
                 text_body=body,
                 html_body=render_funnel_html(body, subject=subject),
                 to_addrs=[email],
-                reply_to="tbaltzakis@cloudless.gr",
+                reply_to=FUNNEL_FROM_ADDR,
                 from_name="Themistoklis — Cloudless",
+                from_addr=FUNNEL_FROM_ADDR,
             )
             await espo.add_lead_note(
                 oid,

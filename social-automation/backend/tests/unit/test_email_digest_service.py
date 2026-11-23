@@ -74,6 +74,13 @@ class TestHelpers:
     def test_html_escape(self):
         assert ED._html_escape('<a b="c">&') == "&lt;a b=&quot;c&quot;&gt;&amp;"
 
+    def test_resolve_from_addr_default_and_domain_guard(self):
+        s = _settings(SMTP_FROM="noreply@cloudless.gr")
+        assert ED._resolve_from_addr(s, None) == "noreply@cloudless.gr"
+        assert ED._resolve_from_addr(s, " tbaltzakis@cloudless.gr ") == "tbaltzakis@cloudless.gr"
+        with pytest.raises(ValueError, match="domain"):
+            ED._resolve_from_addr(s, "x@gmail.com")
+
     def test_subject(self):
         r = _report(issues=[_issue("error"), _issue("error"), _issue("warning")])
         assert "2 things to fix" in ED.digest_email_subject(r)
