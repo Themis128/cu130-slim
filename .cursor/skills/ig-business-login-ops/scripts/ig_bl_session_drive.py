@@ -141,7 +141,7 @@ asyncio.run(main())
 
 def cdp_eval(ws_url: str, expr: str):
     import websocket  # type: ignore
-    ws = websocket.create_connection(ws_url, timeout=20)
+    ws = websocket.create_connection(ws_url, timeout=20, suppress_origin=True)
     ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
                         "params": {"expression": expr, "returnByValue": True}}))
     ws.settimeout(15)
@@ -172,7 +172,7 @@ def inject_cookies_and_drive(cdp: str, auth_url: str, cookies: dict, wait_s: int
     # Seed cookies on instagram.com first
     seed = open_tab(cdp, "https://www.instagram.com/")
     time.sleep(4)
-    ws = websocket.create_connection(seed["webSocketDebuggerUrl"], timeout=20)
+    ws = websocket.create_connection(seed["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)
     mid = [0]
 
     def cmd(method, params=None):
