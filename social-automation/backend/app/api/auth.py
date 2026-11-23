@@ -2222,7 +2222,7 @@ async def instagram2_callback(
         ll_data: dict = {}
         for attempt in (
             lambda: http.post(
-                "https://graph.instagram.com/v21.0/access_token",
+                "https://graph.instagram.com/v26.0/access_token",
                 data={
                     "grant_type": "ig_exchange_token",
                     "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,

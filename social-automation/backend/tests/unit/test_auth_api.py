@@ -1934,7 +1934,7 @@ class TestInstagram2Callback:
         """Route token exchange + LL exchange + profile fetch."""
         routes_post = {
             "https://api.instagram.com/oauth/access_token": _FakeResp(200, {"user_id": "ig-42", "access_token": "short_ig"}),
-            "https://graph.instagram.com/v21.0/access_token": (ll_post or _FakeResp(200, {"access_token": "ll_ig", "expires_in": 5184000})),
+            "https://graph.instagram.com/v26.0/access_token": (ll_post or _FakeResp(200, {"access_token": "ll_ig", "expires_in": 5184000})),
         }
         routes_get = {
             "https://graph.instagram.com/access_token": (ll_get or _FakeResp(200, {"access_token": "ll_ig", "expires_in": 5184000})),
@@ -2840,7 +2840,7 @@ class TestCallbackTails:
         http = _FakeAsyncHTTPClient(
             {
                 "https://api.instagram.com/oauth/access_token": _FakeResp(200, {"user_id": "ig1", "access_token": "at"}),
-                "https://graph.instagram.com/v21.0/access_token": _RaisingResp(),
+                "https://graph.instagram.com/v26.0/access_token": _RaisingResp(),
                 "https://graph.instagram.com/access_token": _RaisingResp(),
             }
         )

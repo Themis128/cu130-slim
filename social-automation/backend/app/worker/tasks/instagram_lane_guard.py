@@ -10,7 +10,7 @@ link and published the same post cleanly.
 This sweep (every 15 min) closes the gap automatically:
 
 1. Probe each team's ``business_login`` IG row token live
-   (``graph.instagram.com/v21.0/me``).
+   (``graph.instagram.com/v26.0/me``).
 2. Find ``post_targets`` on OTHER instagram rows (typically
    ``fb_onboarding``) failed within the window whose error matches the
    permission-denied signature (#10 / instagram_content_publish /
@@ -45,7 +45,7 @@ from app.worker._probe_verdict import verdict_from_response
 logger = logging.getLogger(__name__)
 
 _FAIL_WINDOW = timedelta(days=7)
-_GRAPH_ME = "https://graph.instagram.com/v21.0/me"
+_GRAPH_ME = "https://graph.instagram.com/v26.0/me"
 
 # Meta permission-denied signatures seen on the broken Page-link lane.
 _PERMISSION_MARKERS = (

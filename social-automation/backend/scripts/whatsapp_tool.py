@@ -51,7 +51,7 @@ def _graph_get(path: str, **params) -> dict:
     import requests
 
     resp = requests.get(
-        f"https://graph.facebook.com/v21.0/{path.lstrip('/')}",
+        f"https://graph.facebook.com/v26.0/{path.lstrip('/')}",
         params=params,
         headers={"Authorization": f"Bearer {_need('WHATSAPP_ACCESS_TOKEN')}"},
         timeout=15,
@@ -66,7 +66,7 @@ def _graph_post(path: str, **params) -> dict:
     import requests
 
     resp = requests.post(
-        f"https://graph.facebook.com/v21.0/{path.lstrip('/')}",
+        f"https://graph.facebook.com/v26.0/{path.lstrip('/')}",
         data=params,
         headers={"Authorization": f"Bearer {_need('WHATSAPP_ACCESS_TOKEN')}"},
         timeout=15,

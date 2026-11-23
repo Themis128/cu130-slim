@@ -166,7 +166,7 @@ async def _whatsapp() -> str:
     if not (cid and tok):
         return "skip"
     async with httpx.AsyncClient(timeout=15) as c:
-        r = await c.get(f"https://graph.facebook.com/v21.0/{cid}", params={"fields": "code_verification_status", "access_token": tok})
+        r = await c.get(f"https://graph.facebook.com/v26.0/{cid}", params={"fields": "code_verification_status", "access_token": tok})
     if r.status_code != 200:
         return "probe-fail"
     cvs = (r.json() or {}).get("code_verification_status")

@@ -61,8 +61,8 @@ def test_init_validation():
         S.WhatsAppFlowsClient(access_token="", waba_id="111")
     with pytest.raises(ValueError):
         S.WhatsAppFlowsClient(access_token="t", waba_id="bad id!")
-    c = S.WhatsAppFlowsClient("t", "111", api_version="v21.0")
-    assert c._base_url.endswith("/v21.0")
+    c = S.WhatsAppFlowsClient("t", "111", api_version="v26.0")
+    assert c._base_url.endswith("/v26.0")
     assert c._url("/abc") == c._base_url + "/abc"
     assert c._params({"x": 1})["x"] == 1
     assert c._params()["access_token"] == "t"
