@@ -65,6 +65,14 @@ All commands accept `--json` where it matters; scripts load
 `SOCIAL_API_URL` / `OPS_WATCHER_AGENT_TOKEN` / admin creds from env or
 `~/cu130-slim/.env` automatically (skill_http).
 
+**MCP:** the same surface is exposed as the `ops-plane` MCP server
+(`scripts/ops-plane-mcp-server.py`, registered in `.devin/mcp_config.json`)
+— 15 tools: `ops_status`, `ops_watchers_list/show/toggle/run`,
+`ops_services_list/show/action`, and the agent lane
+(`ops_watchers_due`, `ops_watcher_result`, `ops_watchers_sync`,
+`ops_services_pending`, `ops_services_report`, `ops_service_action_result`,
+`ops_services_sync`).
+
 ## How the loop works
 
 1. **Inventory** (`scripts/*_inventory.py --apply`, cron 6h) scans the

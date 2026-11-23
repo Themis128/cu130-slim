@@ -96,6 +96,13 @@
         "CU130_ROOT": "/home/tbaltzakis/cu130-slim"
       }
     },
+    "ops-plane": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/ops-control-plane-ops/scripts/ops-plane-mcp-server.py"
+      ],
+      "cwd": "/home/tbaltzakis/cu130-slim"
+    },
     "linkedin": {
       "url": "http://127.0.0.1:9227/mcp"
     },
