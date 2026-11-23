@@ -384,6 +384,11 @@ services:
       - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_USER_MANAGEMENT_JWT_SECRET}
       - N8N_PUBLIC_API_DISABLED=false
       - N8N_PUBLIC_API_SWAGGERUI_DISABLED=false
+      # n8n 2.x defaults this to blocked — every workflow using $env in Code
+      # nodes/expressions died with "access to env vars denied" (349 failed
+      # executions in 3d incl. the daily digest + nextcloud-drop-to-draft).
+      # Single-user self-hosted instance; restore 1.x behavior.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_USER}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
