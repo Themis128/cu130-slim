@@ -48,6 +48,14 @@ Files: `services/engagement.py`, `models/engagement.py`,
 - Sentiment kill-switch (job loss, health, grief) — auto-skip, no override.
 - Sidecar `rate_limited` — tasks skip cleanly; never force.
 
+## Beat schedule (already automated on master)
+
+- `engagement-dispatch` */10min — drains approved/pending actions via actors
+- ingestors hourly staggered: x :45, ig :35, tt :15/:45, fb :0/:30, li :20
+- `engagement-autoapprove` */10min (AUTONOMY_LEVEL gate), `engagement-tiers` daily 07:30, `engagement-archive` daily 04:10
+- `LINKEDIN_SCRAPE_PAUSED=true` still pauses LI *write-ish* lanes (messenger, invites, newsletter, session checks) but NOT the read-only voyager ingest (unpaused 2026-11-23)
+- `engagement_sweep.py` = manual/on-demand full pass; use it to force a run now
+
 ## Ops scripts
 
 - `scripts/engagement-status.sh` — pending/dispatched/acted/failed counts + cooldown state
