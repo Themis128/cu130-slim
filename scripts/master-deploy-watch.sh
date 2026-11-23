@@ -73,7 +73,24 @@ fi
 git fetch origin master --quiet 2>/dev/null || { log "git fetch failed — skipping"; exit 0; }
 new=$(git rev-parse origin/master)
 last=$(cat "$DW_STATE_DIR/last_sha" 2>/dev/null || echo "")
-[ "$new" = "$last" ] && exit 0
+
+image_drift=0
+if [ "$new" = "$last" ]; then
+  # docker-ci image builds lag the merge by ~10-20min: master can be marked
+  # "deployed" while :latest still carries the previous commit's code
+  # (2026-11-23 — the funnel-sender merge sat undeployed because last_sha was
+  # already written). Probe the two backend tags; if a pull moves the local
+  # image id, fall through and recreate on the fresh image.
+  for img in social-backend-latest social-backend-api-latest; do
+    ref="ghcr.io/themis128/cu130-slim:$img"
+    before=$(docker image inspect "$ref" --format '{{.Id}}' 2>/dev/null || echo none)
+    docker pull -q "$ref" >/dev/null 2>&1 || continue
+    after=$(docker image inspect "$ref" --format '{{.Id}}' 2>/dev/null || echo none)
+    [ "$before" != "$after" ] && image_drift=1
+  done
+  [ "$image_drift" = 0 ] && exit 0
+  log "master unchanged ($new) but backend :latest image drifted — redeploying"
+fi
 
 # agents leave the checkout on topic branches — always deploy from master
 if [ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]; then
@@ -157,6 +174,7 @@ find . -maxdepth 6 -name '*.dw-held' 2>/dev/null | while read -r h; do
 done
 
 app_code=0; compose_change=0
+[ "$image_drift" = 1 ] && app_code=1
 case "$changed" in
   *social-automation/backend/app/*|*social-automation/backend/alembic/*|*social-automation/backend/scripts/*) app_code=1 ;;
 esac
