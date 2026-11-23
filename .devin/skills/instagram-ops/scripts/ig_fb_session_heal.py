@@ -553,6 +553,39 @@ def mobile_login(env: dict[str, str], state: dict,
     return "failed:mobile-approval-timeout"
 
 
+def picker_drive(env: dict[str, str]) -> str:
+    """Deep 2FA lane: the sidecar /login endpoint reports "no code input
+    found" while Meta's method picker ("Notification on another device")
+    is up — no input exists until a method is chosen. sidecar_fb_login.py
+    drives the picker labels directly: Try another way -> Authentication
+    app -> TOTP -> Continue, then Backup-code fallback. Fully unattended
+    when META_TOTP_SECRET/META_BACKUP_CODES are in .env."""
+    drv = REPO / ".cursor/skills/meta-oauth-ops/scripts/sidecar_fb_login.py"
+    if not drv.exists():
+        drv = REPO / ".devin/skills/meta-oauth-ops/scripts/sidecar_fb_login.py"
+    if not drv.exists():
+        return "no-driver"
+    backups = env.get("META_BACKUP_CODES", "")
+    denv = dict(os.environ)
+    denv["FACEBOOK_SIDECAR"] = SIDECAR_URL
+    denv["FB_LOGIN_EMAIL"] = env.get("FACEBOOK_USERNAME", "")
+    denv["FB_LOGIN_PASSWORD"] = env.get("FACEBOOK_PASSWORD", "")
+    denv["META_TOTP_SECRET"] = env.get("META_TOTP_SECRET", "")
+    denv["FB_BACKUP_CODE"] = (
+        re.split(r"[,\s]+", backups.strip())[0] if backups.strip() else "")
+    try:
+        r = subprocess.run([sys.executable, str(drv)], env=denv,
+                           capture_output=True, text=True, timeout=480)
+        tail = (r.stdout or "").strip().splitlines()
+        log(f"picker-drive rc={r.returncode} :: {tail[-1][:160] if tail else 'no-output'}")
+        if r.returncode == 0:
+            time.sleep(5)
+            return "ok" if validate().get("logged_in") else "claimed-ok"
+        return f"picker-failed:{r.returncode}"
+    except Exception as exc:
+        return f"picker-error:{str(exc)[:120]}"
+
+
 def attempt_login(env: dict[str, str], state: dict) -> str:
     """One full login attempt. Returns ok|2fa-failed|login-failed|throttled."""
     username = env.get("FACEBOOK_USERNAME", "")
@@ -596,6 +629,26 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
     r = sidecar("/login", {"username": username, "password": password}, timeout=180)
     log(f"login attempt -> {json.dumps(r)[:300]}")
 
+    # Stale-credential class (Meta password change): the form rejects the
+    # stored password outright — no token lane can help. Drive the
+    # forgot-password chain (identify -> gmail/SMS code -> same password
+    # re-set keeps every lane in sync) then let the next cycle retry.
+    pt = sidecar("/debug/page-text", timeout=30)
+    if "password is incorrect" in str(pt.get("text", "")).lower():
+        drv = REPO / ".devin/skills/credential-reset-ops/scripts/fb_pw_reset.py"
+        log("stored password rejected — driving forgot-password lane")
+        try:
+            rs = subprocess.run(
+                [sys.executable, str(drv), password],
+                env=dict(os.environ, FB_RESET_IDENT=username),
+                capture_output=True, text=True, timeout=420)
+            tail = (rs.stdout or "").strip().splitlines()
+            log(f"pw-reset rc={rs.returncode} :: "
+                f"{tail[-1][:160] if tail else 'no-output'}")
+            return "pw-reset-run"
+        except Exception as exc:
+            log(f"pw-reset error: {str(exc)[:120]}")
+
     was_2fa = False
     if r.get("two_factor_required"):
         was_2fa = True
@@ -614,6 +667,14 @@ def attempt_login(env: dict[str, str], state: dict) -> str:
                 timeout=180,
             )
             log(f"login retry w/ 2FA -> {json.dumps(r)[:300]}")
+            if r.get("two_factor_required") and not r.get("logged_in"):
+                # /login can't see the code input while the method
+                # picker is up — drive the picker itself (auth-app
+                # TOTP -> backup code -> device-approval wait).
+                pd = picker_drive(env)
+                log(f"picker-drive -> {pd}")
+                if pd == "ok":
+                    return "ok"
         else:
             log("2FA required but no SMS code retrieved from phone")
             # force=True: this account's 2FA page is code-entry shaped but
