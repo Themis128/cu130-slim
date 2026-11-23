@@ -4724,3 +4724,37 @@ Lessons:
     (negative age clamps to 0 → fake +4 freshness). TikTok/FB ingesters
     should validate timestamps before insert.
   - X timeline still 402 (paid tier); Threads ingest = own posts only.
+
+
+## 2026-11-24 — ops-registry restore + BF launch-night recovery (Devin)
+
+- [x] **ops_services restore PR #2583** — re-lands #2581 content dropped by
+  the master-history rewrite + adds `ow1r2g3e4s5t` parent migration,
+  `OPS_WATCHER_AGENT_TOKEN` Settings field (was #2580-only), and full
+  endpoint/token/error-path tests (module 100% line+branch). Auto-merge
+  armed; CI rerunning.
+- [x] **Registries re-seeded live** — `ops_services` 193 rows via
+  `scripts/service_inventory.py --apply` → `/api/v1/ops/services/sync`;
+  `ops_watchers` 221 rows via direct SQL from `watcher_inventory.py`'s
+  scan (watchers `/sync` endpoint isn't deployed until #2580 lands).
+- [x] **Redis divergence resolved** — standalone project is intentionally
+  no-password (127.0.0.1-bound, all consumers inline-override). Root
+  compose redis is passworded and shares container name + host port —
+  must NOT be co-run. Documented in standalone .env; poisoned
+  `REDIS_URL=redis://:redis_password@…` literal fixed.
+- [x] **BF campaign verified live** — `932221876` ACTIVE/RUNNABLE,
+  €9.91/€22 spent, 1,154 impressions; report lane returns real
+  adAnalytics data (r_ads_reporting granted); guard/control env =
+  932221876; paused variant `932037146` still paused; card-safe
+  (credit ~€17.06 > remaining cap headroom ~€12.09).
+- [x] **IG publish lane healthy** — `ig_lane_doctor`: business_login
+  `38ddbd44` token-valid / publish OK (weekly refresh beat healed it);
+  all 4 pending targets already on the canonical lane. fb_onboarding
+  rows `d2215106`/`9eded1e5` expired (non-canonical, no pending targets).
+- [x] **Threads lane recovered via refresh beat** — `t_baltzakis` row
+  `c0c6bf77` back `active`, token verified live (graph.threads.net/me →
+  200). `cloudless.gr` row `1071dcd5` stays `retired_at` 2026-11-15 —
+  intentionally skipped by `threads_reauth.py`. Remaining gap: stale
+  `INSTAGRAM_PASSWORD` (store + .env same value, REJECTED live) — password
+  login paths stay blocked until a real reset lands; emaillogin/reset
+  requests are being silently throttled by Meta.
