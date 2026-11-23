@@ -114,11 +114,17 @@ the heal:
    `C:\` mounts are unaffected by this failure class.
 
 
-## chroma rescue instance (2026-11-22)
+## chroma — compose-managed since 2026-11-23
 
-`chroma` (CHROMA_URL dep of social-api/workers) was fsbridge-dead; rescued
-as `chroma-rescue` on named volume `chroma-rescue-data` with a network
-ALIAS so `http://chroma:8000` still resolves:
+The compose `chroma` service previously bind-mounted `./.env` (file) +
+`./chroma` (dir) — both fsbridge-poison-prone, which is why it kept dying
+`Exited(127)`. It now uses the named volume `chroma_data` (no bind mounts)
+and is the canonical instance; `chroma-rescue` was retired. `CHROMA_URL=
+http://chroma:8000` resolves via the service name as before, host port stays
+`127.0.0.1:8001`. Data is fresh (re-embeds on next writes).
+
+Historical rescue recipe (kept for reference — do NOT run while compose
+`chroma` is healthy, the `chroma` alias would split-brain two instances):
 
     docker rename chroma chroma-dead-fsbridge   # free the name claim
     docker run -d --name chroma-rescue --network cu130-backend \
@@ -126,18 +132,20 @@ ALIAS so `http://chroma:8000` still resolves:
         -v chroma-rescue-data:/chroma/chroma chromadb/chroma:1.5.9
     docker network connect --alias chroma cu130-backend chroma-rescue
 
-After an engine restart the rescue container can come back with
-`NetworkMode=cu130-backend` but **no** network endpoint, so `chroma` stops
-resolving (`Errno -5`). Check
-`docker inspect -f '{{json .NetworkSettings.Networks}}' chroma-rescue`; if
-it shows `{}`, re-run the `network connect --alias chroma` line above
-(seen 2026-11-22 16:20).
-
 Fresh DB — old embeddings stay trapped in the dead bind mount until the
 bridge heals (re-embeds on next writes). The same poison class still
 kills stack-ops / stack-watchers / compose-healer / dmr-watchdog /
 autoheal — including `/var/run/docker.sock` mounts; no container-side
-fix exists, only `wsl --shutdown` or the 9p/exec workarounds above.
+fix exists, only `wsl --shutdown`, the 9p/exec workarounds above, or the
+`fsbridge_rebind.py` auto-heal (cron every 10 min).
+
+## .env poisoning breaks ALL compose commands (2026-11-23)
+
+`X_WEB_COOKIES_JSON="{...nested quotes...}"` in `.env` made every
+`docker compose` invocation fail at parse time (`unexpected character "\""
+in variable name`). Cookie-sync writers must single-quote JSON values:
+`KEY='{"a":1}'`. Symptom: `docker compose config` fails before doing
+anything — check `.env` first when compose mysteriously dies.
 
 ## Working while the exec channel is dead
 
