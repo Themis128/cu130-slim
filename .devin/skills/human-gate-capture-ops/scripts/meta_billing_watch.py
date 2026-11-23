@@ -97,14 +97,31 @@ def probe():
     base, tabs = _cdp_base()
     if not base:
         return {"status": "no-session", "detail": "no CDP endpoint reachable"}
-    tab = next((t for t in tabs
-                if t.get("type") == "page"
-                and ("facebook.com" in t.get("url", "")
-                     or "business.facebook" in t.get("url", ""))), None)
-    if not tab:
+    fbs = [t for t in tabs
+           if t.get("type") == "page"
+           and ("facebook.com" in t.get("url", "")
+                or "business.facebook" in t.get("url", ""))]
+    if not fbs:
         return {"status": "no-meta-tab",
                 "detail": f"CDP up at {base} but no facebook tab",
                 "tabs": [t.get("url", "")[:80] for t in tabs[:5]]}
+    last_err = None
+    for tab in fbs:
+        try:
+            return _probe_tab(base, tab)
+        except _TabDead as e:
+            last_err = e
+            continue
+    return {"status": "error",
+            "detail": f"all {len(fbs)} facebook tabs wedged: {last_err}"}
+
+
+class _TabDead(Exception):
+    pass
+
+
+def _probe_tab(base, tab):
+    "-> dict; raises _TabDead when the tab's websocket is wedged."""
     try:
         import websocket
         ws = websocket.create_connection(
@@ -112,7 +129,12 @@ def probe():
         ws.send(json.dumps({"id": 1, "method": "Page.navigate",
                             "params": {"url": BILLING_URL}}))
         ws.recv()
+        ws.close()
         time.sleep(9)
+        # Reconnect — Meta navigations can swap renderer processes and
+        # kill the devtools socket mid-flight ("remote host was lost").
+        ws = websocket.create_connection(
+            tab["webSocketDebuggerUrl"], timeout=20)
         ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate",
                             "params": {"expression": PROBE_JS,
                                        "returnByValue": True}}))
@@ -131,6 +153,13 @@ def probe():
         data["via"] = base
         return data
     except Exception as e:
+        # Connection-level failures mean the tab's devtools socket is
+        # wedged — try the next FB tab. Eval/protocol errors are real
+        # results and stay as error dicts.
+        msg = str(e).lower()
+        if any(k in msg for k in ("remote host", "connection", "timeout",
+                                  "refused", "closed", "1006")):
+            raise _TabDead(str(e)[:120])
         return {"status": "error", "detail": str(e)[:200]}
 
 
