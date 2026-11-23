@@ -1434,7 +1434,10 @@ celery_app.conf.update(
 # and the publish queue are untouched.
 if settings.LINKEDIN_SCRAPE_PAUSED:
     for _paused_key in (
-        "engagement-ingest-li-feed",
+        # engagement-ingest-li-feed intentionally NOT paused: the voyager
+        # feed ingest is read-only and the engagement write lanes
+        # (dispatch/actors) already run ungated — pausing the read starves
+        # the pipeline while writes continue anyway.
         "poll-linkedin-messenger",
         "send-linkedin-invites",
         "newsletter-subs-sync",
