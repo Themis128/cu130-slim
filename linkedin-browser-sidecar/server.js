@@ -4317,13 +4317,26 @@ async function handleNewsletterPublish(body) {
         );
         if (!imgBtn) throw new Error("image/video insert button not found");
         await imgBtn.click();
-        await page.waitForTimeout(1500);
+        // The "Add image or video" dialog can take a few seconds to mount —
+        // poll rather than fixed-sleep.
+        let dlgOpen = false;
+        for (let t = 0; t < 20 && !dlgOpen; t++) {
+          dlgOpen = await page
+            .evaluate(
+              () =>
+                !!document.querySelector(
+                  '[role="dialog"] input[type="file"]',
+                ),
+            )
+            .catch(() => false);
+          if (!dlgOpen) await page.waitForTimeout(500);
+        }
+        if (!dlgOpen) throw new Error("media dialog did not open");
 
-        // The dialog renders a hidden input[type=file] — set it directly
-        // (same fallback as the cover path), else drive the native chooser.
+        // The dialog renders a hidden input[type=file] — set it directly.
         const fi = await findElement(
-          ['[role="dialog"] input[type="file"]', 'input[type="file"]'],
-          { timeout: 8000, visible: false },
+          ['[role="dialog"] input[type="file"]'],
+          { timeout: 3000, visible: false },
         );
         if (fi) {
           await fi.setInputFiles(mediaTmp);
@@ -4340,50 +4353,53 @@ async function handleNewsletterPublish(body) {
           await chooser.setFiles(mediaTmp);
         }
 
-        // Wait for the upload: images are quick, video transcoding is slow.
-        // Done = a media node appears in ProseMirror and the dialog's
-        // Next/Apply/Done is enabled (or the dialog closed).
+        // Verified 2026-11-24 live: after the file is set the dialog shows
+        // the preview with Next enabled — the media node only lands in
+        // ProseMirror AFTER clicking Next (upload-first-then-confirm, like
+        // the cover flow). Video can sit in a processing step longer.
         const isVideo = (m.type || "").toLowerCase() === "video";
-        const deadline = Date.now() + (isVideo ? 300000 : 60000);
-        let mediaReady = false;
+        const deadline = Date.now() + (isVideo ? 300000 : 90000);
+        let confirmed = false;
         while (Date.now() < deadline) {
-          mediaReady = await page
+          const state = await page
             .evaluate(() => {
               const node = document.querySelector(
                 ".ProseMirror figure, .ProseMirror video, .ProseMirror img, " +
                   ".ProseMirror iframe, .ProseMirror [data-media], " +
                   ".ProseMirror [class*='media']",
               );
-              if (!node) return false;
               const dlg = document.querySelector('[role="dialog"]');
-              if (!dlg) return true;
-              const btn = [...dlg.querySelectorAll("button")].find((b) =>
-                /^(next|apply|done)$/i.test((b.innerText || "").trim()),
-              );
-              return !btn || !btn.disabled;
+              const btn = dlg
+                ? [...dlg.querySelectorAll("button")].find((b) =>
+                    /^(next|apply|done|save)$/i.test(
+                      (b.innerText || "").trim(),
+                    ),
+                  )
+                : null;
+              return {
+                inDoc: !!node,
+                dlgOpen: !!dlg,
+                canConfirm: !!(btn && !btn.disabled),
+              };
             })
-            .catch(() => false);
-          if (mediaReady) break;
-          await page.waitForTimeout(3000);
+            .catch(() => ({ inDoc: false, dlgOpen: false, canConfirm: false }));
+          if (state.inDoc) { confirmed = true; break; }
+          if (state.dlgOpen && state.canConfirm) {
+            const btn = await findElement(
+              [
+                '[role="dialog"] button:has-text("Next")',
+                '[role="dialog"] button:has-text("Apply")',
+                '[role="dialog"] button:has-text("Done")',
+                '[role="dialog"] button:has-text("Save")',
+              ],
+              { timeout: 1500 },
+            );
+            if (btn) await btn.click().catch(() => {});
+          }
+          await page.waitForTimeout(2500);
         }
-        if (!mediaReady)
-          throw new Error(`${m.type || "media"} upload did not finish`);
-
-        // Confirm the dialog if it is still open.
-        const dlgBtn = await findElement(
-          [
-            '[role="dialog"] button:has-text("Next")',
-            '[role="dialog"] button:has-text("Apply")',
-            '[role="dialog"] button:has-text("Done")',
-            '[role="dialog"] button:has-text("Save")',
-          ],
-          { timeout: 2000 },
-        );
-        if (dlgBtn) {
-          await dlgBtn.click().catch(() => {});
-          await page.waitForTimeout(2000);
-          await confirmMediaEditorModal();
-        }
+        if (!confirmed)
+          throw new Error(`${m.type || "media"} did not land in the article`);
         step(`media-${i + 1}-uploaded`);
       } catch (err) {
         agentLog(
@@ -4392,8 +4408,20 @@ async function handleNewsletterPublish(body) {
           `media ${i + 1} failed: ${err.message}`,
           {},
         );
-        steps.push(`media-${i + 1}-failed`);
-        // Dismiss any half-open dialog so the next step starts clean.
+        // Surface the reason in steps — agentLog is a stub here.
+        steps.push(
+          `media-${i + 1}-failed:${String(err.message || err).slice(0, 80)}`,
+        );
+        // Dismiss any half-open dialog so the next step starts clean —
+        // Escape does not close this dialog; its "Dismiss" button does.
+        const dismiss = await findElement(
+          [
+            '[role="dialog"] button:has-text("Dismiss")',
+            '[role="dialog"] button[aria-label*="Dismiss"]',
+          ],
+          { timeout: 2000 },
+        );
+        if (dismiss) await dismiss.click().catch(() => {});
         await page.keyboard.press("Escape").catch(() => {});
         await page.waitForTimeout(500);
       } finally {
