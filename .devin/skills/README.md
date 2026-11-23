@@ -9,6 +9,7 @@ Agent skills live under `.devin/skills/`. Each skill may include `scripts/` tool
 | `social-stack-ops` | Compose health / restarts | `stack-status.py` |
 | `linkedin-ads-ops` | LinkedIn Campaign Manager ads, promo credit, sponsored posts | `scripts/linkedin_cm.py` |
 | `monitoring-ops` | Prometheus metrics, Grafana dashboards, k3s EspoCRM exporter | `deploy/monitoring/*/apply.sh` |
+| `ops-control-plane-ops` | ops_watchers/ops_services registries — watcher/service status, toggle, run, action queue | `scripts/ops_ctl.py` |
 
 Rules (auto context): `.cursor/rules/cloudless-social-stack.mdc` (+ file-scoped rules).
 
