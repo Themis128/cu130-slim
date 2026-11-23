@@ -329,6 +329,12 @@ services:
     container_name: social-media-comfyui-gpu
     ports:
       - "127.0.0.1:8000:8000"
+    networks:
+      default:
+        aliases:
+          # workers resolve COMFYUI_URL=http://comfyui:8000 from .env —
+          # without this alias every generate_video call dies on DNS
+          - comfyui
     deploy:
       resources:
         reservations:
