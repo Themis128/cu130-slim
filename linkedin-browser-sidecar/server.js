@@ -4018,6 +4018,26 @@ async function handleNewsletterPublish(body) {
     })
     .catch(() => {});
   step("editor-nav");
+  await page.waitForTimeout(4000).catch(() => {});
+
+  // 2026-11-24: for members who own a newsletter, bare /article/new/ can
+  // redirect (sometimes mid-edit) to the newsletter admin page. The stable
+  // entry is that page's "Create new edition" button, which lands on an
+  // /article/new/?author=… URL that does not bounce.
+  if (newsletter_name !== "individual" && page.url().includes("/newsletters/")) {
+    const cne = await findElement(
+      [
+        'button:has-text("Create new edition")',
+        'a:has-text("Create new edition")',
+      ],
+      { timeout: 10000 },
+    );
+    if (cne) {
+      await cne.click();
+      step("create-new-edition");
+      await page.waitForTimeout(3000);
+    }
+  }
 
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
