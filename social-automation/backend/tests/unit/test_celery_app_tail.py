@@ -82,10 +82,7 @@ def test_linkedin_scrape_paused_prunes_beat(paused, expected_present):
     sidecar lanes from beat_schedule at import time."""
     env = dict(os.environ)
     env["LINKEDIN_SCRAPE_PAUSED"] = paused
-    code = (
-        "import app.worker.celery_app as m;ks=m.celery_app.conf.beat_schedule.keys();"
-        "print('send-linkedin-invites' in ks, 'engagement-ingest-li-feed' in ks)"
-    )
+    code = "import app.worker.celery_app as m;ks=m.celery_app.conf.beat_schedule.keys();print('send-linkedin-invites' in ks, 'engagement-ingest-li-feed' in ks)"
     out = subprocess.run(
         [sys.executable, "-c", code],
         env=env,
