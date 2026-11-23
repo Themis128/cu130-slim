@@ -42,7 +42,10 @@ async def act(action, db) -> dict:
                 return {"error": "no-session", "skip": True}
         except Exception:
             return {"error": "sidecar unreachable", "skip": True}
-        url = f"https://www.tiktok.com/video/{action.target_post_id}"
+        path = action.target_post_id or ""
+        if not path.startswith("/"):
+            return {"error": "legacy-id-no-author", "skip": True}
+        url = f"https://www.tiktok.com{path}"
         try:
             await c.post("/browse", json={"url": url})
         except Exception:
