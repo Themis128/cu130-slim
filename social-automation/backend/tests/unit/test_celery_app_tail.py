@@ -82,7 +82,10 @@ def test_linkedin_scrape_paused_prunes_beat(paused, expected_present):
     sidecar lanes from beat_schedule at import time."""
     env = dict(os.environ)
     env["LINKEDIN_SCRAPE_PAUSED"] = paused
-    code = "import app.worker.celery_app as m;ks=m.celery_app.conf.beat_schedule.keys();print('engagement-ingest-li-feed' in ks)"
+    code = (
+        "import app.worker.celery_app as m;ks=m.celery_app.conf.beat_schedule.keys();"
+        "print('send-linkedin-invites' in ks, 'engagement-ingest-li-feed' in ks)"
+    )
     out = subprocess.run(
         [sys.executable, "-c", code],
         env=env,
@@ -92,4 +95,7 @@ def test_linkedin_scrape_paused_prunes_beat(paused, expected_present):
         cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     )
     assert out.returncode == 0, out.stderr[-2000:]
-    assert (out.stdout.strip() == "True") is expected_present
+    invites_present, li_ingest_present = out.stdout.strip().split()
+    # Write-ish lanes prune under pause; the read-only voyager ingest stays.
+    assert (invites_present == "True") is expected_present
+    assert li_ingest_present == "True"
