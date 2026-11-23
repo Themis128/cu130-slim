@@ -102,8 +102,16 @@ class OpsWatcher(Base):
 
     def __init__(self, **kwargs):
         # Column ``default=`` only applies at INSERT flush; mirror the
-        # runtime-state defaults so freshly constructed rows read correctly.
+        # defaults so freshly constructed rows read correctly.
+        kwargs.setdefault("kind", WatcherKind.WATCH)
+        kwargs.setdefault("managed_by", WatcherManagedBy.EXTERNAL)
+        kwargs.setdefault("command", "")
+        kwargs.setdefault("schedule_cron", "")
+        kwargs.setdefault("interval_seconds", 300)
         kwargs.setdefault("enabled", True)
+        kwargs.setdefault("timeout_seconds", 300)
+        kwargs.setdefault("meta", {})
         kwargs.setdefault("status", "unknown")
+        kwargs.setdefault("last_output_tail", "")
         kwargs.setdefault("consecutive_failures", 0)
         super().__init__(**kwargs)
