@@ -892,3 +892,59 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
   (it was the only profile). Profile now returns "Profile isn't
   available". Do NOT confuse with `t_baltzakis` — different account,
   still live on the phone.
+- **2026-11-23 night — IG business_login RESTORED + lanes map**:
+  - **Canonical IG publish lane is LIVE again**: `social_accounts` row
+    `38ddbd44` (`login_type=business_login`, IGSID 28747382798219804)
+    flipped `expired → active` with a fresh ~60-day token
+    (`token_expires_at` ≈ +60d). `ig_lane_doctor report` → "publish lane:
+    OK". The weekly `refresh_instagram_tokens` beat maintains it with NO
+    password — this was the whole point of the business_login lane.
+  - **How it was unblocked (repeatable)**: the FB Business Extension
+    "Connect to Instagram" onboarding was a dead end, but the PURE
+    Instagram Business Login OAuth (`/api/v1/auth/oauth/instagram2/
+    authorize` → `instagram.com/oauth/authorize`, app
+    `INSTAGRAM2_CLIENT_ID` 1462851805249610) only needs a live IG web
+    session — NO Facebook login required. Steps that worked in debug
+    Chrome :9330/:9229 (same instance, two binds):
+    1. IG profile-picker tile `cloudless.gr` click → session resumes
+       (stored IG passwords are STALE — both `INSTAGRAM_PASSWORD` and
+       `INSTAGRAM_PASSWORD_T_BALTZAKIS` return "login information
+       incorrect"; do NOT bother re-trying them).
+    2. 2FA challenge offered WhatsApp/SMS/backup only → chose "Text
+       message" → **the code arrives as a NOTIFICATION ~1min before it
+       lands in `content://sms/inbox`** — read
+       `adb shell dumpsys notification --noredact | grep -i instagram`
+       for "NNNNNN is your Instagram code" (SMS inbox poll alone lags).
+    3. After 2FA → `instagram.com/accounts/onetap/` interstitial →
+       "Not now" → IG home = live session.
+    4. Mint `instagram2` authorize URL (docker exec -i social-api python
+       heredoc — mint_authorize.sh lacks `docker exec -i` so its stdin
+       heredoc never arrives; call the endpoint directly) → navigate
+       tab → consent "Allow" → callback JSON
+       `instagram account connected successfully`.
+  - **threads.com login wall (unsolved, human gate)**: the OAuth
+    authorize redirects to `threads.com/login` which in this headless
+    Chrome serves the credential form — "Log in with Instagram" is the
+    page TITLE, not a button; the real control is a username/password
+    form (browser autofill exposes saved creds in DOM — do not echo).
+    Form POST → "Not all who wander are lost" 404; synthetic +
+    Playwright clicks don't navigate; tabs die under repeated attempts
+    (TargetClosed — likely Meta killing flagged sessions, same class as
+    the FB blank-2FA page). `threads_reauth.py` (scheduled beat) drives
+    the shared bridge browser-novnc:9223 instead — currently 409-busy /
+    threads.net logged out → **needs ONE manual threads.net login on the
+    bridge** (noVNC), then the beat automates OAuth forever. Threads
+    rows `1071dcd5` (cloudless.gr) + `c0c6bf77` (t_baltzakis) remain
+    `revoked` until then.
+  - **FB picker clicks**: plain `el.click()` and single
+    `Input.dispatchMouseEvent` do nothing on the facebook.com profile
+    picker; the working sequence is dispatching
+    pointerover→pointerdown→mousedown→pointerup→mouseup→click via JS
+    (or real CDP mouse after `Target.activateTarget`). Password submit
+    then hits the same broken `two_step_verification` page — but the
+    phone `phone-fb-approve` watcher + SMS lanes cover it; FB user/page
+    rows are already `active` so this is cosmetic for API purposes.
+  - **IG SMS-2FA is the durable recovery lane**: IG challenges offer
+    SMS to the phone even when Meta Account TOTP/backup codes fail —
+    ADB `dumpsys notification` reads the code unattended. Prefer this
+    over password resets (stored IG passwords are stale anyway).
