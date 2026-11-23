@@ -1490,3 +1490,10 @@ def _notify_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
             asyncio.run(post_alert_to_slack(msg))
     except Exception:  # noqa: BLE001 — never let the notifier crash the worker
         pass
+
+
+# Central watcher gate — ops_watchers.enabled=False skips registered
+# celery-executor watchers before they run (see app/worker/watchdog_gate.py).
+from app.worker.watchdog_gate import register as _register_watchdog_gate  # noqa: E402
+
+_register_watchdog_gate(celery_app)
