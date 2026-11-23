@@ -22,9 +22,20 @@ PASSWORD = os.environ.get("FB_PASS", "")
 _id = 0
 
 
-def tabs(port=9330):
+def tabs(port=None):
+    """List page tabs from the CDP /json endpoint. Defaults to the
+    host:port in the CDP global so a --cdp relay URL is honored —
+    the WSL->Windows relay at http://<gw>:9229 returns tabs AND
+    already-WSL-reachable ws:// debugger URLs."""
+    global CDP
+    if port is None:
+        from urllib.parse import urlparse
+        u = urlparse(CDP)
+        endpoint = f"{u.scheme or 'http'}://{u.hostname}:{u.port or 80}"
+    else:
+        endpoint = f"http://localhost:{port}"
     try:
-        with urllib.request.urlopen(f"http://localhost:{port}/json", timeout=5) as f:
+        with urllib.request.urlopen(f"{endpoint}/json", timeout=5) as f:
             return [t for t in json.loads(f.read()) if t.get("type") == "page"]
     except Exception:
         return []
@@ -34,6 +45,11 @@ def ensure_cdp():
     global CDP
     if tabs():
         return
+    # Spawning chrome only works on the Windows host — under WSL the
+    # CDP must come from the relay; fail clearly instead of spawning
+    # a nonsense C:\ path.
+    if not os.path.exists(CHROME):
+        raise SystemExit(f"no tabs on {CDP} and chrome spawn unavailable here")
     import subprocess
     subprocess.Popen([CHROME, "--remote-debugging-port=9330",
                       f"--user-data-dir={DEBUG_PROFILE}",
@@ -170,9 +186,13 @@ def login_fb(p):
 
 
 def main():
+    global CDP
     url = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
     if not url:
         return "usage: meta_oauth_drive.py <authorize_url>"
+    for i, a in enumerate(sys.argv):
+        if a == "--cdp" and i + 1 < len(sys.argv):
+            CDP = sys.argv[i + 1]
     ensure_cdp()
     p = Page()
     p.goto(url, settle=5)
