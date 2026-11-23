@@ -40,11 +40,56 @@ Issue keys (edit `ISSUES` in the script to add more):
 `snap_text()` retries through ExecutionContext-destroyed navigations so
 transcripts survive mid-poll navigations.
 
+## Case chat lane — `scripts/meta_case_chat.py`
+
+Stdlib + `websocket-client` only — runs from WSL against the debug Chrome
+(`:9229`, auto-resolved via the WSL gateway) or any CDP endpoint
+(`CDP_URL` override; `:9330` sidecar fallback). Real mouse clicks via
+`Input.dispatchMouseEvent` — Meta auth surfaces ignore `el.click()`.
+
+```
+python3 meta_case_chat.py login       # FB Meta Account re-auth end-to-end
+python3 meta_case_chat.py login2fa    # 2FA page -> TOTP (META_TOTP_SECRET_AC)
+python3 meta_case_chat.py cases       # "Your support cases" list + status
+python3 meta_case_chat.py threads     # maiba chat-thread list
+python3 meta_case_chat.py read [substr]   # dump case-chat transcript tail
+python3 meta_case_chat.py send "msg" [--wait 120]  # reply + poll for response
+python3 meta_case_chat.py watch [substr] [--interval 300]  # TG-alert on new msgs
+```
+
+`login`/`login2fa` encode the full 2026-11-23 recovery chain:
+
+1. Cookie banner → "Allow all cookies" (blocks LS-NONCE otherwise).
+2. Logged-out profile picker → real-click **Continue** → lands on
+   `recover/initiate` "Choose a way to log in".
+3. `[role=radiogroup]` = the "Continue with password" option → click it,
+   then **Continue**.
+4. Password field is `input[type=password]` with NO name attr; the working
+   credential is the **secret-store `FACEBOOK_PASSWORD`** (16 chars) —
+   `.env`'s 20-char value is stale and gets "password incorrect".
+   `_fb_password()` prefers the store for exactly this reason.
+5. Log-in button must be clicked INSIDE the password field's `<form>` —
+   the footer "Log In" link matches the same regex and silently no-ops.
+6. 2FA page (`two_step_verification`): push "Was this you?" may auto-clear
+   on a trusted device; otherwise `login2fa` → "Try another way" →
+   "Authentication app" → TOTP. Backup codes (`META_BACKUP_CODES`) and
+   WhatsApp/SMS (+**38) are the other lanes.
+7. "Invalid request / could not validate" on `two_step_verification` =
+   expired `encrypted_context` — restart the flow from step 1, don't reload.
+
+Case-chat reality: the specialist thread opened by "Go to chat"
+(`account_quality_hub_support_case_item_button_open`) has **no**
+`maiba:thread_list_item` — that surface belongs to the Meta AI assistant
+pane. `read`/`send` auto-open the case pane and use the "Write a message"
+box when no thread items exist.
+
 ## Case-ID reality
 
-Meta's wizard/AI lanes **do not mint a case number** unless a human specialist
-queue picks it up (live chat). The "Your support cases" list stays empty on
-AI-only reviews — the artifact of record is the transcript, archived in
+Case numbers DO surface in Business Support Home → "Your support cases"
+once a specialist chat exists (e.g. `2037307673624450`, opened 2026-11-23).
+`meta_case_chat.py cases` lists them; the numeric ID also appears in the
+case item's `data-surface`. AI-assistant-only reviews may still leave the
+list empty — the artifact of record is then the transcript, archived in
 `escalations/<key>.log` + `<key>.png`. If a numbered case is required, drive
 until the specialist-transfer offer appears or use the manual wizard path.
 
