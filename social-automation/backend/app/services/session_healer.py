@@ -514,8 +514,10 @@ async def _bridge_poll_done(platform: str, seconds: int = 45) -> bool:
     """Wait for the bridge detection loop to flip the session to done."""
     for _ in range(seconds // 3):
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if status.get("platform") == platform and status.get("status") in ("active", "done") and (
-            status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS
+        if (
+            status.get("platform") == platform
+            and status.get("status") in ("active", "done")
+            and (status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS)
         ):
             return True
         await asyncio.sleep(3)
@@ -677,8 +679,10 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
     try:
         # Current session already belongs to this platform and is done.
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if status.get("platform") == platform and status.get("status") in ("active", "done") and (
-            status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS
+        if (
+            status.get("platform") == platform
+            and status.get("status") in ("active", "done")
+            and (status.get("cookies_found") or platform in _SESSION_ONLY_PLATFORMS)
         ):
             slot["status"] = "healthy"
             await _clear_dead_marker(platform)

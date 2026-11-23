@@ -569,25 +569,55 @@ async def test_ingest_li_rate_limited_and_no_session(monkeypatch):
 async def test_ingest_li_feed(monkeypatch):
     posts = [
         # person post via profile nav — qualifies
-        {"urn": "urn:li:fs_updateV2:(urn:li:activity:7530,MAIN)", "share": "urn:li:share:7530",
-         "actor": "Ana", "who": "Ana • 2nd", "nav": "View Ana's profile",
-         "age": "3h •  ", "text": "a" * 40},
+        {
+            "urn": "urn:li:fs_updateV2:(urn:li:activity:7530,MAIN)",
+            "share": "urn:li:share:7530",
+            "actor": "Ana",
+            "who": "Ana • 2nd",
+            "nav": "View Ana's profile",
+            "age": "3h •  ",
+            "text": "a" * 40,
+        },
         # person post inside a group — qualifies via the "Name • 2nd" signal
-        {"urn": "urn:li:fs_updateV2:(urn:li:activity:1,MAIN)", "share": "",
-         "actor": "Bo", "who": "Bo • 3rd", "nav": "View group: G",
-         "age": "1d •  ", "text": "b" * 40},
+        {
+            "urn": "urn:li:fs_updateV2:(urn:li:activity:1,MAIN)",
+            "share": "",
+            "actor": "Bo",
+            "who": "Bo • 3rd",
+            "nav": "View group: G",
+            "age": "1d •  ",
+            "text": "b" * 40,
+        },
         # sponsored — skip
-        {"urn": "urn:li:fs_updateV2:(urn:li:sponsoredContentV2:(urn:li:activity:9,MAIN),X)",
-         "share": "urn:li:share:9", "actor": "Ad Co", "who": "5,000 followers",
-         "nav": "View company: Ad Co", "age": "Promoted", "text": "c" * 80},
+        {
+            "urn": "urn:li:fs_updateV2:(urn:li:sponsoredContentV2:(urn:li:activity:9,MAIN),X)",
+            "share": "urn:li:share:9",
+            "actor": "Ad Co",
+            "who": "5,000 followers",
+            "nav": "View company: Ad Co",
+            "age": "Promoted",
+            "text": "c" * 80,
+        },
         # company post — skip (no person author resolvable)
-        {"urn": "urn:li:fs_updateV2:(urn:li:activity:2,MAIN)", "share": "urn:li:share:2",
-         "actor": "BigCo", "who": "9,999 followers", "nav": "View company: BigCo",
-         "age": "2h •  ", "text": "d" * 60},
+        {
+            "urn": "urn:li:fs_updateV2:(urn:li:activity:2,MAIN)",
+            "share": "urn:li:share:2",
+            "actor": "BigCo",
+            "who": "9,999 followers",
+            "nav": "View company: BigCo",
+            "age": "2h •  ",
+            "text": "d" * 60,
+        },
         # own post — skip
-        {"urn": "urn:li:fs_updateV2:(urn:li:activity:3,MAIN)", "share": "urn:li:share:3",
-         "actor": "Themistoklis Baltzakis", "who": "Themistoklis Baltzakis • 1st",
-         "nav": "View Themistoklis Baltzakis's profile", "age": "1h •  ", "text": "e" * 50},
+        {
+            "urn": "urn:li:fs_updateV2:(urn:li:activity:3,MAIN)",
+            "share": "urn:li:share:3",
+            "actor": "Themistoklis Baltzakis",
+            "who": "Themistoklis Baltzakis • 1st",
+            "nav": "View Themistoklis Baltzakis's profile",
+            "age": "1h •  ",
+            "text": "e" * 50,
+        },
         # no post id — skip
         {"urn": "", "share": "", "actor": "", "who": "", "nav": "", "age": "", "text": "f" * 60},
     ]
@@ -606,8 +636,7 @@ async def test_ingest_li_feed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ingest_li_result_list_payload(monkeypatch):
-    posts_payload = {"result": [{"share": "urn:li:share:9", "who": "Zed • 2nd",
-                                 "nav": "View Zed's profile", "age": "5m •  ", "text": "x" * 40}]}
+    posts_payload = {"result": [{"share": "urn:li:share:9", "who": "Zed • 2nd", "nav": "View Zed's profile", "age": "5m •  ", "text": "x" * 40}]}
     _mock_http(monkeypatch, ING_LI, _li({"has_session": True}, posts_payload))
     db = _use_db(monkeypatch, _DB([[]]))
     assert await ING_LI._run() == {"new_candidates": 1, "person": 1, "skipped": 0}
