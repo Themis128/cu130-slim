@@ -299,12 +299,17 @@ app/api/
 ├── whatsapp.py      (36) — WhatsApp Cloud API, setup, profile, register, bot
 ├── whatsapp_flows.py (14) — WhatsApp Flows CRUD, validate, publish, send
 ├── telegram.py      (38) — Telegram bot, channel posting, group watch, chatbot
-├── newsletter.py     (2) — POST /api/v1/newsletter/cover: branded issue-cover PNG
+├── newsletter.py     (9) — POST /api/v1/newsletter/cover: branded issue-cover PNG
 │                           (1200x675 PIL render), and
 │                           POST /api/v1/newsletter/linkedin/issue: publishes a
 │                           LinkedIn newsletter issue via the personal-profile
 │                           article editor. Both require X-Service-Token ==
-│                           NEWSLETTER_SERVICE_TOKEN.
+│                           NEWSLETTER_SERVICE_TOKEN. Plus the platform-owned
+│                           issue queue: GET/POST /newsletter/issues +
+│                           {issue_id}/dispatch|retry|cancel|verify — stored
+│                           issues dispatch via Celery (newsletter-issue-dispatch
+│                           beat, 5min) and re-verify the live article_url
+│                           (newsletter-issue-verify, 15min).
 
 Integration flow (newsletter covers): cloudless.gr's weekly cron
 (`/api/cron/newsletter-auto`, Mondays 09:00 Athens) POSTs the issue title to
@@ -325,6 +330,25 @@ LinkedIn's anti-bot; the bridge's persistent profile hydrates the editor).
 cell + timepicker selection — display-only inputs don't commit); `dry_run`
 stops at the publish dialog. Personal-profile-bound = documented exception
 to the business-accounts rule.
+
+Inline media + links (added 2026-11-24): `media[]` on the issue payload —
+`{type:"image"|"video", asset_id|base64|url, filename?}` — appends each
+item at the end of the article body through the editor's "Add image or
+video" dialog (hidden `input.media-editor-file-selector__upload-media-input`;
+accept `image/*`+`video/*`; confirm via the dialog's `Next` button BEFORE
+the media node lands in ProseMirror — waiting for the node first deadlocks).
+`asset_id` entries resolve at dispatch through
+`media_dedup.load_asset_bytes` (private R2 403s anonymous fetches — never
+hand `public_url` to the sidecar) and ship as base64. Queued issues carry
+the spec in `result["_media"]` — merge-preserved across publish results,
+no dedicated column. `/article/new/` can redirect newsletter owners to the
+newsletter admin page mid-edit; the sidecar detects `/newsletters/` and
+clicks "Create new edition" → stable `?author=` editor URL. Dialog
+leftovers close via the visible "Dismiss" button (Escape does not work).
+Failure reasons surface in `result.steps` as `media-N-failed:<reason>`.
+`<a href>` anchors in `html_body` survive the paste path as
+`article-editor-link`. Runbook + dry-run tool:
+`.devin/skills/linkedin-newsletter-ops/`.
 ├── workflows.py     (18) — templates, generate, deploy, executions
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store

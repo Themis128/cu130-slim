@@ -281,7 +281,13 @@ hydrates the editor where the sidecar loops on anti-bot). `schedule_iso`
 drives LinkedIn's own Schedule-post picker (real calendar-cell + timepicker
 pointer clicks — text inputs are display-only); `dry_run` stops at the publish
 dialog. Bridge upload takes `file_base64` (no docker cp needed). Weekly cadence
-via n8n `linkedin-newsletter-weekly` (Mon 11:00 Athens). Runbook:
+via n8n `linkedin-newsletter-weekly` (Mon 11:00 Athens). `media[]` (2026-11-24)
+appends inline image/video at the end of the body — `{type, asset_id|base64|url}`;
+`asset_id` resolves through `media_dedup.load_asset_bytes` (private R2), queued
+issues carry the spec in `result["_media"]`. Editor quirks: `/article/new/` can
+redirect newsletter owners to the admin page (sidecar clicks "Create new
+edition"), and the media dialog inserts into ProseMirror only after `Next` —
+confirm first, then wait. Runbook + media dry-run tool:
 `.devin/skills/linkedin-newsletter-ops/`.
 
 ## Publish quality gate (added 2026-10-15)

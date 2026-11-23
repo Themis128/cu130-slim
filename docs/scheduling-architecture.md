@@ -187,7 +187,32 @@ personal LinkedIn profile and have no API, so they don't flow through
   account's local zone (Europe/Athens). Scheduled issues land under
   LinkedIn Manage → Scheduled; verified with Issue #3 (Wed Oct 21, 2026
   10:00 EEST).
-- **dry_run** — fills title/body/cover/SEO/announcement and stops at the
-  publish dialog, for validating the flow without shipping.
+- **dry_run** — fills title/body/cover/SEO/announcement (and `media[]`,
+  below) and stops at the publish dialog, for validating the flow
+  without shipping.
+- **Platform-owned queue** — `POST /api/v1/newsletter/issues` stores an
+  issue row (`scheduled_for`, dedup by slug) without hitting LinkedIn;
+  the `newsletter-issue-dispatch` beat (5min) claims due rows and runs
+  the same publish path, `newsletter-issue-verify` (15min) re-checks the
+  live `article_url`. `/issues/{id}/dispatch|retry|cancel` are the manual
+  overrides.
+- **Inline media** (2026-11-24) — `media[]` payload field,
+  `[{type:"image"|"video", asset_id|base64|url, filename?}]`, appended at
+  the end of the article body via the editor's "Add image or video"
+  dialog. `asset_id` resolves at dispatch through
+  `media_dedup.load_asset_bytes` (private R2 — never hand `public_url` to
+  the sidecar). Queued issues store the spec in `result["_media"]` — no
+  column needed, it survives publish-result merges. Dialog contract:
+  set the hidden `input.media-editor-file-selector__upload-media-input`,
+  click `Next` BEFORE the media node lands in ProseMirror (waiting for
+  the node first deadlocks), Dismiss — not Escape — closes leftovers.
+  Budgets: 90s image / 5min video; failures surface in `result.steps` as
+  `media-N-failed:<reason>`. `<a href>` anchors in `html_body` survive
+  the paste path (`article-editor-link`).
+- **Editor entry quirk** — `/article/new/` can redirect newsletter
+  owners to the newsletter admin page mid-edit; the sidecar detects
+  `/newsletters/` and clicks "Create new edition" → stable `?author=`
+  editor URL.
 - See `.devin/skills/linkedin-newsletter-ops/SKILL.md` for the full runbook
-  (selectors, failure signatures, encoding pitfalls).
+  (selectors, failure signatures, encoding pitfalls,
+  `scripts/newsletter_media_dryrun.py` for a host-side media dry-run).
