@@ -74,11 +74,47 @@ def click_last_continue():
 
 def dismiss_cookie_consent():
     """Meta's cookie-consent dialog poisons the login flow — left up it
-    surfaces as 'Invalid request' on two_step_verification (2026-11-15)."""
+    surfaces as 'Invalid request' on two_step_verification (2026-11-15).
+
+    Two variants observed (2026-11-24):
+    - dialog with "Allow all cookies" / "Decline optional cookies" buttons
+      — a synthetic JS .click() dismisses it fine.
+    - bottom-bar "Allow the use of cookies from Facebook on this
+      browser?" — synthetic clicks report clicked but consent does NOT
+      persist (banner re-mounts per navigation and keeps poisoning
+      two_step_verification). Needs a TRUSTED click via /debug/click —
+      the bar is topmost so Playwright's hit-test lands on it. Its
+      subtree also wedges every locator.click on the picker behind it
+      ('subtree intercepts pointer events'), so this must run before
+      ANY trusted click lane.
+    """
     for label in ("allow all cookies", "decline optional cookies"):
         if click_label(label) == "clicked":
-            return label
-    return "none"
+            time.sleep(1)
+    # trusted-click the bottom-bar variant (no-op when absent)
+    try:
+        r = post("/debug/click", {"text": "Allow the use of cookies"}, 15)
+        if r.get("status") == "ok":
+            time.sleep(2)
+    except Exception:
+        pass
+    # surgical fallback for the overlay class: strip pointer-events on
+    # the banner root so it can't intercept anything downstream.
+    ev("(function(){var roots=[...document.querySelectorAll('div')]"
+       ".filter(function(d){return /xzkaem6/.test(d.className)});"
+       "roots.forEach(function(d){d.style.pointerEvents='none'});"
+       "return roots.length})()")
+    return "done"
+
+
+def trusted_click(text, timeout=20):
+    """Playwright trusted click for controls that ignore synthetic
+    JS .click() (profile-picker cards, consent bar)."""
+    try:
+        r = post("/debug/click", {"text": text}, timeout)
+        return "ok" if r.get("status") == "ok" else "fail"
+    except Exception:
+        return "fail"
 
 
 def set_input(sel, val):
@@ -120,7 +156,11 @@ def main():
         print("logged in after navigate"); return 0
 
     # 2. profile picker → "Use another profile" → email/pass form
-    click_label("use another profile")
+    #    The picker card ignores synthetic clicks (needs trusted input)
+    #    and may sit under the consent overlay — defang first.
+    dismiss_cookie_consent()
+    if click_label("use another profile") != "clicked":
+        trusted_click("Use another profile")
     time.sleep(5)
     r = set_input("input[name=email],input[type=email],input#email", EMAIL)
     if r != "TYPED":
@@ -131,12 +171,35 @@ def main():
         time.sleep(8)
     else:
         set_input("input[name=pass],input[type=password],input#pass", PASSWORD)
+        # the consent bar re-mounts between the form and submit —
+        # kill it again or two_step_verification 400s "Invalid request".
+        dismiss_cookie_consent()
         click_label("log in")
         time.sleep(10)
 
     url, text = page_text()
     if logged_in(text):
         print("logged in w/o 2fa"); return 0
+
+    # Consent-poison signature: two_step_verification renders
+    # "Invalid request ... start the flow from beginning". Clear the
+    # banner properly, reload the 2FA context, and re-submit once.
+    if "Invalid request" in text and "two_step_verification" in url:
+        print("consent-poisoned 2FA — clearing + resubmitting once")
+        dismiss_cookie_consent()
+        trusted_click("Allow the use of cookies")
+        time.sleep(2)
+        trusted_click("Reload page")
+        time.sleep(6)
+        click_label("use another profile")
+        time.sleep(5)
+        set_input("input[name=email],input[type=email],input#email", EMAIL)
+        set_input("input[name=pass],input[type=password],input#pass", PASSWORD)
+        click_label("log in")
+        time.sleep(12)
+        url, text = page_text()
+        if logged_in(text):
+            print("logged in after consent clear"); return 0
 
     # 3. password step on meta-account gate (if it appears now)
     if "password" in text.lower() and "log in" in text.lower():
