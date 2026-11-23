@@ -118,6 +118,23 @@ def _parse_env(path: Path) -> dict[str, str]:
     return out
 
 
+def _dotenv_quote(value: str) -> str:
+    """Valid dotenv RHS — same contract as secret_store._dotenv_quote.
+
+    Naive `KEY="{value}"` breaks `docker compose` stack-wide when the value
+    contains JSON double quotes (X_WEB_COOKIES_JSON incident 2026-11-23).
+    """
+    if "'" not in value and "\n" not in value and "\r" not in value:
+        return f"'{value}'"
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
+
+
 def _h(v: str | None) -> str:
     return "-" if not v else hashlib.sha256(v.encode()).hexdigest()[:12]
 
@@ -215,11 +232,11 @@ def main() -> int:
                 done = False
                 for i, l in enumerate(lines):
                     if l.startswith(f"{key}="):
-                        lines[i] = f'{key}="{val}"'
+                        lines[i] = f"{key}={_dotenv_quote(val)}"
                         done = True
                         break
                 if not done:
-                    lines.append(f'{key}="{val}"')
+                    lines.append(f"{key}={_dotenv_quote(val)}")
                 p.write_text("\n".join(lines) + "\n")
                 fixed += 1
         print(f"\n--fix-mirror: rewrote {fixed} .env slots to store values")

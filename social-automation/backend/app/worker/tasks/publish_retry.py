@@ -20,10 +20,12 @@ from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.content import PostTarget
 from app.models.queue import PublishQueue
-from app.services.error_taxonomy import TERMINAL, classify_publish_error
+from app.services.error_taxonomy import TERMINAL, classify_publish_error, is_auth_terminal
 from app.worker._async import run_async, task_session
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,14 @@ async def _sweep() -> dict:
     retried = skipped = 0
     async with task_session() as db:
         targets = (
-            (await db.execute(select(PostTarget).where(PostTarget.status == "failed").where(PostTarget.updated_at > now - timedelta(hours=_MAX_RETRY_AGE_H))))
+            (
+                await db.execute(
+                    select(PostTarget)
+                    .where(PostTarget.status == "failed")
+                    .where(PostTarget.updated_at > now - timedelta(hours=_MAX_RETRY_AGE_H))
+                    .options(selectinload(PostTarget.post), selectinload(PostTarget.social_account))
+                )
+            )
             .scalars()
             .all()
         )
@@ -47,9 +56,26 @@ async def _sweep() -> dict:
             eclass = tgt.error_class or classify_publish_error(err)
             if not tgt.error_class:
                 tgt.error_class = eclass
+            auth_revive = False
             if eclass == TERMINAL:
-                skipped += 1
-                continue
+                # Auth-terminal failures parked forever used to need a human
+                # requeue after credentials healed. Now: if the account is
+                # active again and the error was credential-shaped, revive
+                # ONCE per (post, account) — marker lives in post.meta_data.
+                post = tgt.post
+                meta = dict(post.meta_data or {}) if post else {}
+                done = list(meta.get("auth_resurrected") or [])
+                key = f"{tgt.post_id}:{tgt.social_account_id}"
+                if (
+                    tgt.social_account
+                    and tgt.social_account.status == "active"
+                    and is_auth_terminal(err)
+                    and key not in done
+                ):
+                    auth_revive = True
+                else:
+                    skipped += 1
+                    continue
             if tgt.updated_at and tgt.updated_at > now - timedelta(minutes=_BACKOFF_MIN):
                 skipped += 1
                 continue
@@ -85,6 +111,15 @@ async def _sweep() -> dict:
             if not qr:
                 skipped += 1
                 continue
+            if auth_revive:
+                post = tgt.post
+                if post is not None:
+                    meta = dict(post.meta_data or {})
+                    done = list(meta.get("auth_resurrected") or [])
+                    done.append(f"{tgt.post_id}:{tgt.social_account_id}")
+                    meta["auth_resurrected"] = done
+                    post.meta_data = meta
+                    flag_modified(post, "meta_data")
             qr.status = "pending"
             qr.attempts = 0
             qr.locked_at = None
