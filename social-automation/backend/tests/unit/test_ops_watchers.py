@@ -69,6 +69,51 @@ def test_gate_fails_open_on_db_error(monkeypatch):
     WG.gate(task=SimpleNamespace(name="anything"))  # must not raise
 
 
+def test_gate_early_returns():
+    WG.gate(task=None)
+    WG.gate(task=SimpleNamespace(name=None))
+    WG.gate(task=SimpleNamespace(name=""))
+
+
+def test_load_enabled_db_path_and_cache(monkeypatch):
+    import time
+
+    import app.db.session as sess
+
+    class _Sess:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, stmt):
+            return SimpleNamespace(all=lambda: [("task.a", True), ("task.b", False)])
+
+    monkeypatch.setattr(sess, "async_session_maker", lambda: _Sess())
+    monkeypatch.setattr(WG, "_cache", {})
+    monkeypatch.setattr(WG, "_cache_at", 0.0)
+
+    assert WG._load_enabled() == {"task.a": True, "task.b": False}
+    assert WG._cache_at > 0
+    # within TTL → cache hit, session factory not consulted again
+    monkeypatch.setattr(sess, "async_session_maker", lambda: (_ for _ in ()).throw(AssertionError("db hit")))
+    assert WG._load_enabled() == {"task.a": True, "task.b": False}
+    assert time.monotonic() - WG._cache_at < WG._CACHE_TTL
+
+
+def test_load_enabled_fail_open_on_db_error(monkeypatch):
+    import app.db.session as sess
+
+    def _boom():
+        raise RuntimeError("no db")
+
+    monkeypatch.setattr(sess, "async_session_maker", _boom)
+    monkeypatch.setattr(WG, "_cache", {})
+    monkeypatch.setattr(WG, "_cache_at", 0.0)
+    assert WG._load_enabled() == {}
+
+
 # ── API status projection ────────────────────────────────────────────────
 
 

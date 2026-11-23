@@ -284,9 +284,13 @@ async def test_watcher_result_paths(monkeypatch):
     assert w.next_due_at is not None  # platform → rescheduled
 
     out = await w_api.watcher_result(
-        w.name, w_api.ResultBody(observed=True, exit_code=0), _req(), db=db
+        w.name,
+        w_api.ResultBody(observed=True, exit_code=0, output_tail="hb"),
+        _req(),
+        db=db,
     )
     assert out["status"] == "ok"
+    assert w.last_output_tail == "hb"
     assert w.consecutive_failures == 3  # observed heartbeat doesn't reset
 
     out = await w_api.watcher_result(
@@ -368,6 +372,14 @@ async def test_sync_services_upsert_and_meta_merge(monkeypatch):
     assert existing.meta == {"allowed_actions": ["status"], "keep": 1, "new": 2}
     created = [o for o in db.added if isinstance(o, OpsService)][0]
     assert created.name == "svc-2"
+
+
+@pytest.mark.asyncio
+async def test_agent_token_unconfigured_503(monkeypatch):
+    monkeypatch.setattr(svc_api, "get_settings", lambda: _settings(None))
+    with pytest.raises(HTTPException) as e:
+        await svc_api.pending_actions(_req(), db=FakeDB())
+    assert e.value.status_code == 503
 
 
 @pytest.mark.asyncio
