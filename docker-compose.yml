@@ -702,8 +702,9 @@ services:
     ports:
       - 127.0.0.1:8001:8000
     volumes:
-      - ./.env:/app/.env:ro
-      - ./chroma:/chroma/chroma
+      # Named volume only — bind mounts (./.env file, ./chroma dir) die on
+      # fsbridge poison waves; chroma-rescue was the manual version of this.
+      - chroma_data:/chroma/chroma
     command:
       - run
       - --host
@@ -2774,6 +2775,7 @@ services:
 
 volumes:
   ollama_models:
+  chroma_data: null
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
