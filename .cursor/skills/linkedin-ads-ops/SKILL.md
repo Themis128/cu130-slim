@@ -126,6 +126,9 @@ through `/debug/eval` fetch — cookie auth is enough for reads and writes.
 ## Promotional-credit safety (from LinkedIn docs)
 
 Standing rule: **never spend money, never enter payment details.**
+Owner directive 2026-11-23: **never let ad spend exceed the promotional
+credit ("bonus")** — the lifetime cap must always stay ≤ `credit/1.2`,
+and no campaign may be activated if combined active caps would breach it.
 
 1. Credit is **account-wide** and deducts before the payment method — but
    every ACTIVE campaign draws from it. Check all campaigns, not just yours.
