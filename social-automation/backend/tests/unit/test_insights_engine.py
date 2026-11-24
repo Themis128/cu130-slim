@@ -769,3 +769,87 @@ async def test_build_team_insights_delegates_to_compute():
     assert db.calls == 4
     assert "linkedin" in out["platforms"]
     assert out["platforms"]["linkedin"]["posts"] == 1
+
+
+def test_clean_follower_series_drops_spike_and_revert():
+    from app.services.insights_engine import _clean_follower_series
+
+    t0 = NOW - timedelta(days=10)
+    series = [
+        (t0, 500),
+        (t0 + timedelta(days=2), 40000),  # metric mix-up: network-size scrape
+        (t0 + timedelta(days=4), 510),  # revert — valid vs 500, not 40000
+        (t0 + timedelta(days=6), 520),
+    ]
+    cleaned = _clean_follower_series(series)
+    assert [n for _, n in cleaned] == [500, 510, 520]
+
+
+def test_compute_follower_cleaned_series_no_fake_anomaly():
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("linkedin", 500, NOW - timedelta(days=10), acct),
+        _follower_row("linkedin", 952000, NOW - timedelta(days=8), acct),  # sidebar counter
+        _follower_row("linkedin", 505, NOW - timedelta(days=6), acct),
+        _follower_row("linkedin", 510, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights([_post_row("linkedin")], [], followers, [], now=NOW)
+    fg = out["platforms"]["linkedin"]["follower_growth"]
+    assert fg["net"] == 10
+    assert fg["current"] == 510
+    assert fg["cleaned_readings"] == 1
+    assert fg["anomaly"] is None  # the bogus 952k step is gone, not flagged
+    assert out["platforms"]["linkedin"]["data_quality"]["follower_readings_dropped"] == 1
+
+
+def test_compute_follower_slope_gated_on_span():
+    acct = uuid.uuid4()
+    # 3 points but only 2 days of span — no honest trend
+    followers = [
+        _follower_row("tiktok", 500, NOW - timedelta(days=2), acct),
+        _follower_row("tiktok", 560, NOW - timedelta(days=1), acct),
+        _follower_row("tiktok", 620, NOW, acct),
+    ]
+    out = compute_insights([_post_row("tiktok")], [], followers, [], now=NOW)
+    fg = out["platforms"]["tiktok"]["follower_growth"]
+    assert fg["slope_per_day"] is None
+    assert fg["slope_span_days"] == 2.0
+
+
+def test_compute_timing_buckets_ignore_zero_impression_posts():
+    # Posts without an impressions denominator carry no timing evidence —
+    # they must not satisfy min_n with unverifiable ERs.
+    pub = NOW - timedelta(days=3)
+    rows = [
+        _post_row(published_at=pub, impressions=0, engagement=50, er=50.0),
+        _post_row(published_at=pub, impressions=0, engagement=60, er=60.0),
+        _post_row(published_at=pub, impressions=0, engagement=70, er=70.0),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["best_hour_athens"] is None
+    assert li["best_weekday_athens"] is None
+
+
+def test_compute_timing_bucket_weights_by_impressions():
+    # A 10-impression post at 20% ER must not beat a 1000-impression
+    # bucket at 6%: pooled rates, not mean-of-ERs.
+    day_a = NOW - timedelta(days=3)   # Wed
+    day_b = NOW - timedelta(days=4)   # Tue
+    rows = [
+        # Wed bucket: 3 posts × 1000 imp, 6% ER
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        # Tue bucket: 3 posts × 10 imp, 20% ER (tiny-sample spike)
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    # Old unweighted mean-of-ER would pick Tuesday (20% >> 6% shrunk).
+    # Pooled: Wed 180/3000=6%, Tue 6/30=20% — still wins shrunk? margin gate:
+    # platform mean = 186/3030 ≈ 6.14%; Tue shrunk = (6+0.0614*~2020)/(30+2020)
+    # ≈ 6.35% < 6.14*1.15 — so NO honest winner (both collapse to mean).
+    assert li["best_weekday_athens"] is None

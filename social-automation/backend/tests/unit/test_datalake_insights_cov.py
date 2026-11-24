@@ -172,7 +172,7 @@ def test_survey_signals_full_answers():
     ]
     out = D.compute_survey_signals(responses)
     assert out["audit_yes"] == ["a@b.c"]
-    assert out["price_anchor_median"] == 1200.0
+    assert out["price_anchor_median"] == 1000.0  # true median of [800, 1200]
     assert ("too expensive", 1) in out["top_objections"]
     assert any(w == "vendors" or w == "hidden" for w, _ in out["pain_topics"])
 

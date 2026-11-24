@@ -145,3 +145,95 @@ def test_render_slack_lines():
     assert any("datalake signals" in ln for ln in lines)
     assert any("best funnel" in ln for ln in lines)
     assert len(lines) >= 6
+
+
+def test_engagement_signals_dedups_snapshot_rows():
+    # The same post captured 3x must weigh once (latest capture), not 3x.
+    t0 = datetime(2026, 11, 1, tzinfo=UTC)
+    rows = [
+        {"platform": "linkedin", "engagement_rate": 0.10, "post_id": "i1", "platform_post_id": "p1", "captured_at": t0},
+        {"platform": "linkedin", "engagement_rate": 0.20, "post_id": "i1", "platform_post_id": "p1", "captured_at": t0 + timedelta(days=1)},
+        {"platform": "linkedin", "engagement_rate": 0.30, "post_id": "i1", "platform_post_id": "p1", "captured_at": t0 + timedelta(days=2)},
+        {"platform": "linkedin", "engagement_rate": 0.10, "post_id": "i2", "platform_post_id": "p2", "captured_at": t0},
+        # same internal post_id published to threads — its own row, not a dup
+        {"platform": "threads", "engagement_rate": 0.40, "post_id": "i1", "platform_post_id": "tp1", "captured_at": t0},
+        # orphan snapshot: no internal post link, deduped on platform_post_id
+        {"platform": "linkedin", "engagement_rate": 0.05, "post_id": "", "platform_post_id": "p3", "captured_at": t0},
+        {"platform": "linkedin", "engagement_rate": 0.50, "post_id": "", "platform_post_id": "p3", "captured_at": t0 + timedelta(days=3)},
+    ]
+    out = D.compute_engagement_signals(rows)
+    # linkedin: latest p1=0.30, p2=0.10, p3=0.50 → mean 0.3
+    assert out["platform_engagement"]["linkedin"] == 0.3
+    assert out["platform_posts"]["linkedin"] == 3
+    assert out["platform_posts"]["threads"] == 1
+    assert out["top_post"]["platform"] == "linkedin"
+
+
+def test_growth_signals_drops_bogus_spike_and_marks_stalled():
+    now = datetime.now(UTC)
+    snaps = [
+        {"platform": "instagram", "followers": 1000, "captured_at": now - timedelta(days=20)},
+        {"platform": "instagram", "followers": 40000, "captured_at": now - timedelta(days=15)},  # metric mix-up
+        {"platform": "instagram", "followers": 1010, "captured_at": now - timedelta(days=10)},
+        {"platform": "instagram", "followers": 1015, "captured_at": now - timedelta(days=5)},
+        {"platform": "instagram", "followers": 1015, "captured_at": now},
+    ]
+    out = D.compute_growth_signals(snaps)
+    g = out["growth"]["instagram"]
+    assert g["cleaned_readings"] == 1  # the 40k spike dropped
+    assert g["followers"] == 1015
+    # cleaned series grows 1000→1015 over 20d ≈ 5/wk — real modest
+    # velocity, not the ~2800/wk the spike would have faked
+    assert g["per_week"] is not None and 0 < g["per_week"] < 10
+
+
+def test_growth_signals_short_span_no_fake_velocity():
+    now = datetime.now(UTC)
+    snaps = [
+        {"platform": "x", "followers": 100, "captured_at": now - timedelta(days=1)},
+        {"platform": "x", "followers": 150, "captured_at": now},
+    ]
+    out = D.compute_growth_signals(snaps)
+    g = out["growth"]["x"]
+    # 1-day span ×7 = fake 350/wk — must be suppressed
+    assert g["per_week"] is None
+    assert g["followers"] == 150
+
+
+def test_survey_price_anchor_filters_years():
+    responses = [
+        {"email": "a@x.com", "answers": {"worth_per_month": "maybe 500 since 2026"}},
+        {"email": "b@y.com", "answers": {"worth_per_month": "900"}},
+    ]
+    out = D.compute_survey_signals(responses)
+    assert out["price_anchor_median"] == 700.0  # median(500, 900), 2026 excluded
+
+
+def test_email_signals_click_and_response_rates():
+    rows = [
+        {"kind": "survey", "status": "sent", "n": 10},
+        {"kind": "survey", "status": "opened", "n": 4},
+        {"kind": "survey", "status": "clicked", "n": 2},
+        {"kind": "survey", "status": "responded", "n": 1},
+    ]
+    # opened/clicked rows are also sends in this funnel model: sent = 10+4+2 = 16
+    d = D.compute_email_signals(rows)["email_funnel"]["survey"]
+    assert d["sent"] == 16
+    assert d["open_rate"] == 0.25
+    assert d["click_rate"] == 0.125
+    assert d["response_rate"] == 0.062
+
+
+def test_ad_signals_ctr_cpc():
+    daily = [
+        {"campaign": "c1", "spend_eur": 100.0, "leads": 4, "impressions": 1000, "clicks": 20},
+    ]
+    c = D.compute_ad_signals(daily)["ad_campaigns"]["c1"]
+    assert c["ctr_pct"] == 2.0
+    assert c["cpc"] == 5.0
+    assert c["cpl"] == 25.0
+
+
+def test_pick_actions_stalled_growth():
+    acts = D.pick_actions({"growth": {"threads": {"per_week": -1.0, "stalled": True, "gate": {"threshold": 500, "gap": 50, "eta_days": None}}}})
+    assert any(a["type"] == "growth_stalled" and a["platform"] == "threads" for a in acts)

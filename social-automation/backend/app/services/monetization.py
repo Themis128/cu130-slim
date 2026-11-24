@@ -227,7 +227,9 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
         )
         .order_by(FollowerSnapshot.captured_at)
     )
-    snaps = [(r[0], r[1]) for r in rows.all()]
+    from app.services.insights_engine import _clean_follower_series, _theil_sen_slope
+
+    snaps = _clean_follower_series([(r[0], r[1]) for r in rows.all() if r[1] > 0])
 
     live: int | None = None
     try:
@@ -263,17 +265,19 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
 
     followers = live if live is not None else (snaps[-1][1] if snaps else None)
 
-    recent = [s for s in snaps if s[0] >= datetime.now(UTC) - timedelta(days=14) and s[1] > 0]
+    # snaps are already >0-filtered and sequentially plausibility-cleaned
+    # (same rule as the write-path guard in analytics_sync), so both the
+    # followers fallback and the slope see a metric-consistent series.
+    recent = [s for s in snaps if s[0] >= datetime.now(UTC) - timedelta(days=14)]
     # Theil-Sen slope — a single bad scrape or purge at either endpoint
     # corrupts a first→last delta but barely moves the pairwise-slope median.
-    # Falls back to the endpoint delta under 3 points.
-    from app.services.insights_engine import _theil_sen_slope
-
+    # The 2-point fallback requires >=3d of span — a sub-3-day delta is
+    # noise, not a daily gain.
     slope = _theil_sen_slope(recent)
     if slope is not None:
         gain = slope
-    elif len(recent) >= 2:
-        span = max((recent[-1][0] - recent[0][0]).total_seconds() / 86400.0, 1.0)
+    elif len(recent) >= 2 and (recent[-1][0] - recent[0][0]).total_seconds() >= 3 * 86400:
+        span = (recent[-1][0] - recent[0][0]).total_seconds() / 86400.0
         gain = (recent[-1][1] - recent[0][1]) / span
     else:
         gain = 0.0
