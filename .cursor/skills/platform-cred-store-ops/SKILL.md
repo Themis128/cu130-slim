@@ -15,6 +15,10 @@ files.** `.env` files are read-only mirrors produced by the store.
 > 2026-11-24): the Meta Account password is owner-set — never rotate,
 > regenerate, reset, or "fix" it through the store or otherwise. It is
 > only ever *stored/mirrored*, never produced by us.
+> **Canonical value (owner-confirmed 2026-11-24): `qw12as34`** — this is
+> the password for `FACEBOOK_PASSWORD`, `INSTAGRAM_PASSWORD`, and
+> `INSTAGRAM_PASSWORD_T_BALTZAKIS`. If the store ever diverges from this
+> value, restore it; never "update" it to anything else.
 
 2026-11-22: Meta password changed on the phone. Two `.env` files carried
 *different* `FACEBOOK_PASSWORD`/`INSTAGRAM_PASSWORD` values — neither
