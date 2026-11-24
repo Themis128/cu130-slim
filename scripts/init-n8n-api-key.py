@@ -14,6 +14,7 @@ printed.
 """
 
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -35,8 +36,11 @@ for line in env_file.read_text().splitlines():
         k, v = line.split("=", 1)
         env[k.strip()] = v.strip()
 
-USER = env.get("N8N_USER", "")
-PASSWORD = env.get("N8N_PASSWORD", "")
+# n8n 2.x /rest/login validates email format — N8N_USER (basic-auth
+# username) is not necessarily an email, so prefer the owner mailbox.
+USER = (os.environ.get("N8N_EMAIL") or env.get("N8N_EMAIL")
+        or os.environ.get("N8N_USER") or env.get("N8N_USER", ""))
+PASSWORD = os.environ.get("N8N_PASSWORD") or env.get("N8N_PASSWORD", "")
 if not USER or not PASSWORD:
     print("Error: N8N_USER / N8N_PASSWORD not set in .env", file=sys.stderr)
     sys.exit(1)
