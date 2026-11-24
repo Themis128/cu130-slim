@@ -296,7 +296,28 @@ async def _ig_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     return out
 
 
-async def _li_messages(account: SocialAccount, thread_id: str, contact_name: str = "") -> list[dict]:
+_LI_SELF_CACHE_TTL = 900  # profile scrape is expensive; own name rarely changes
+_li_self: dict = {"name": None, "at": 0.0}
+
+
+async def _li_self_name(sidecar) -> str:
+    """Own LinkedIn display name (cached) — the only reliable `ours` marker
+    the message scrape can be compared against; sender-name-vs-contact
+    heuristics mislabel other participants in group chats."""
+    import time
+
+    if _li_self["name"] is not None and time.time() - _li_self["at"] < _LI_SELF_CACHE_TTL:
+        return _li_self["name"]
+    try:
+        prof = await sidecar.get_profile()
+        _li_self["name"] = ((prof or {}).get("name") or "").strip()
+    except Exception:
+        _li_self["name"] = ""
+    _li_self["at"] = time.time()
+    return _li_self["name"]
+
+
+async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     from app.services.linkedin_sidecar import LinkedInSidecarClient
 
     sidecar = LinkedInSidecarClient()
@@ -304,7 +325,7 @@ async def _li_messages(account: SocialAccount, thread_id: str, contact_name: str
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
-    contact = (contact_name or "").split("\n")[0].strip().lower()
+    self_name = (await _li_self_name(sidecar)).lower()
 
     def to_msg(m):
         if not isinstance(m, dict):
@@ -312,9 +333,7 @@ async def _li_messages(account: SocialAccount, thread_id: str, contact_name: str
         sender = m.get("sender") or m.get("author") or ""
         ours = m.get("is_own") if "is_own" in m else m.get("ours")
         if ours is None:
-            # 2-party DM: a named sender that isn't the contact is us. An
-            # empty/"unknown" sender stays not-ours to avoid mislabeling.
-            ours = bool(sender) and sender != "unknown" and bool(contact) and sender.strip().lower() != contact
+            ours = bool(sender) and bool(self_name) and sender.strip().lower() == self_name
         return _norm(
             str(m.get("ts") or m.get("created_at") or m.get("id") or ""),
             str(m.get("id") or ""),
@@ -339,7 +358,7 @@ async def _fetch_messages(account: SocialAccount | None, room: TalkRoom) -> list
         if room.platform == "instagram":
             return await _ig_messages(account, room.thread_id)
         if room.platform == "linkedin":
-            return await _li_messages(account, room.thread_id, room.contact_name)
+            return await _li_messages(account, room.thread_id)
     except Exception:
         logger.exception("talk-bridge inbound fetch failed: %s %s", room.platform, room.thread_id)
     return []

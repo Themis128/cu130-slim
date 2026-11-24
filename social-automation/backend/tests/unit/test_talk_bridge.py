@@ -595,15 +595,20 @@ async def test_li_messages_wraps_keyless():
         async def get_thread_messages(self, tid):
             return {"messages": [
                 {"ts": "1", "sender": "Ann", "text": "theirs"},
-                {"ts": "2", "sender": "Me", "text": "mine"},
-                {"ts": "3", "sender": "unknown", "text": "anon"},
+                {"ts": "2", "sender": "Me Myself", "text": "mine"},
+                {"ts": "3", "sender": "Third Person", "text": "group"},
             ]}
+
+        async def get_profile(self):
+            return {"name": "Me Myself"}
 
     from app.services import linkedin_sidecar
 
+    TB._li_self["name"] = None  # reset cache
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
-        out = await TB._li_messages(acct, "t-1", "Ann")
-    assert [m["text"] for m in out] == ["anon", "mine", "theirs"]
+        out = await TB._li_messages(acct, "t-1")
+    assert [m["text"] for m in out] == ["group", "mine", "theirs"]
+    # only the exact own-name match is ours — group members stay not-ours
     assert [m["ours"] for m in out] == [False, True, False]
 
 
