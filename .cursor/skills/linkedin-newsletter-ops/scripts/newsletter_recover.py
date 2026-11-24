@@ -42,8 +42,6 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 PSQL = [
     "docker", "exec", "social-postgres",
@@ -66,26 +64,40 @@ def sql(q: str) -> str:
     return sh(PSQL + ["-c", q])
 
 
+SIDECAR = "linkedin-browser-sidecar"
+
+
 def sidecar_url() -> str:
-    ip = sh(["docker", "inspect", "linkedin-browser-sidecar",
-             "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"])
-    if not ip:
-        sys.exit("sidecar container not found")
-    return f"http://{ip}:9225"
+    """The container IP is NOT routable from the WSL host (Docker Desktop
+    doesn't bridge container networks into WSL), so sidecar calls go
+    through `docker exec` + curl against 127.0.0.1 inside the container.
+    This stub returns the in-container base for clarity in messages."""
+    if not sh(["docker", "inspect", SIDECAR,
+               "--format", "{{.State.Running}}"]).startswith("true"):
+        sys.exit("sidecar container not running")
+    return "http://127.0.0.1:9225 (in-container)"
 
 
 def http(method: str, url: str, timeout: int = 20, body: dict | None = None) -> dict:
-    data = json.dumps(body).encode() if body is not None else None
-    req = Request(url, data=data, method=method,
-                  headers={"Content-Type": "application/json"})
+    # `url` may be a full URL or a bare path — only the path is used.
+    path = "/" + url.split("/", 3)[3] if url.count("/") >= 3 else url
+    cmd = ["docker", "exec", SIDECAR, "curl", "-s", "-m", str(timeout),
+           "-w", "\\n%{http_code}", "-X", method,
+           f"http://127.0.0.1:9225{path}"]
+    if body is not None:
+        cmd += ["-H", "Content-Type: application/json",
+                "-d", json.dumps(body)]
     try:
-        with urlopen(req, timeout=timeout) as r:
-            return {"ok": True, "status": r.status,
-                    "json": json.loads(r.read() or b"{}")}
-    except HTTPError as e:
-        return {"ok": False, "status": e.code,
-                "json": _try_json(e.read())}
-    except (URLError, TimeoutError) as e:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout + 15)
+        raw = out.stdout.strip()
+        status_text, _, payload = raw.rpartition("\n")
+        code = int(status_text.strip() or 0)
+        return {"ok": 200 <= code < 300, "status": code,
+                "json": _try_json(payload.encode())}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "status": 0, "json": {"error": "timed out"}}
+    except (ValueError, OSError) as e:
         return {"ok": False, "status": 0, "json": {"error": str(e)}}
 
 

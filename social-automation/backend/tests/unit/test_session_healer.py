@@ -265,12 +265,25 @@ async def test_li_rate_limit_paths(monkeypatch):
     assert stats["linkedin"]["rate_limit_cleared"] is True
     assert stats["linkedin"]["status"] == "healthy"
 
-    # fresh 429 → bail as rate_limited
-    fresh = time.time() * 1000 - 1000
+    # fresh 429 (until still in the future) → bail as rate_limited
+    fresh = time.time() * 1000 + 3600 * 1000
     _Http.routes = {("GET", "/health"): (200, {"status": "ok", "rate_limited": True, "rate_limit_until": fresh})}
     stats = _stats()
     await H._heal_linkedin(stats)
     assert stats["linkedin"]["status"] == "rate_limited"
+
+    # session_dead circuit → skip the session probe, go to the login ladder
+    _Http.routes = {
+        ("GET", "/health"): (200, {"status": "ok", "rate_limited": True,
+                                   "rate_limit_until": fresh,
+                                   "rate_limit_reason": "redirect_loop_session_dead"}),
+    }
+    monkeypatch.setattr(H, "_env", lambda n: "")
+    monkeypatch.setattr(H, "_secret", AsyncMock(return_value=""))
+    monkeypatch.setattr(H, "_alert", AsyncMock())
+    stats = _stats()
+    await H._heal_linkedin(stats)
+    assert stats["linkedin"]["status"] == "needs_manual_login"
 
 
 @pytest.mark.asyncio
