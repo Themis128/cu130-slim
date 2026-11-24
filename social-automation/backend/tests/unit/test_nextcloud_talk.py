@@ -817,9 +817,9 @@ async def test_bridge_reply_mute_unmute_help_and_error():
         patch.object(BOT, "async_session_maker", _sf2(db)),
     ):
         out = await BOT._bridge_reply("mute", "room-x")
-        assert "muted" in out and room_obj.enabled is False
+        assert "muted" in out and room_obj.enabled is False and db.commits == 1
         out = await BOT._bridge_reply("unmute", "room-x")
-        assert "unmuted" in out and room_obj.enabled is True
+        assert "unmuted" in out and room_obj.enabled is True and db.commits == 2
         out = await BOT._bridge_reply("help", "room-x")
         assert "Commands" in out
 
@@ -871,4 +871,4 @@ async def test_webhook_bridge_reply_string_posts_to_room():
     ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
-    assert replies and "muted" in replies[0][1]
+    assert replies and replies[0][0] == "room-bridge-1" and "muted" in replies[0][1]
