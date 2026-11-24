@@ -97,9 +97,7 @@ async def send_to_thread(
     Scoped to the caller's team — a room token only routes outbound when a
     TalkRoom row for this team maps it.
     """
-    res = await db.execute(
-        select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.room_token == room_token)
-    )
+    res = await db.execute(select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.room_token == room_token))
     if res.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Room not found")
     ok, detail = await outbound(room_token, body.text)
@@ -115,9 +113,7 @@ async def toggle_room(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    res = await db.execute(
-        select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.room_token == room_token)
-    )
+    res = await db.execute(select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.room_token == room_token))
     room = res.scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=404, detail="Room not found")

@@ -235,9 +235,7 @@ class TestGenerateVideo:
     def test_redelivery_returns_finished_asset(self, monkeypatch):
         """Worker death after _persist: redelivery returns the asset, no re-render."""
         gen, segs, asset = _wire_video(monkeypatch)
-        monkeypatch.setattr(
-            M.comfyui_video, "resume_get", AsyncMock(return_value={"asset_id": "done-1", "done": True})
-        )
+        monkeypatch.setattr(M.comfyui_video, "resume_get", AsyncMock(return_value={"asset_id": "done-1", "done": True}))
         res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-1")
         assert res.result == "done-1"
         gen.assert_not_awaited()
@@ -254,10 +252,12 @@ class TestGenerateVideo:
 
     def test_qa_mismatch_retry_threads_resume_key(self, monkeypatch):
         """QA-retry render must clear the first prompt_id, then re-checkpoint."""
-        qa = AsyncMock(side_effect=[
-            {"match": False, "reason": "wrong subject", "vision": "v"},
-            {"match": True, "caption": "c", "reason": "ok"},
-        ])
+        qa = AsyncMock(
+            side_effect=[
+                {"match": False, "reason": "wrong subject", "vision": "v"},
+                {"match": True, "caption": "c", "reason": "ok"},
+            ]
+        )
         gen, segs, asset = _wire_video(monkeypatch, qa=qa)
         put = AsyncMock()
         monkeypatch.setattr(M.comfyui_video, "resume_get", AsyncMock(return_value=None))

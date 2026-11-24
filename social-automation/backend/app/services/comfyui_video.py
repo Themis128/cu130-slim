@@ -554,12 +554,7 @@ async def _prompt_state(client: httpx.AsyncClient, prompt_id: str) -> str:
             return "finished"
     q = await client.get("/queue", timeout=10)
     qj = q.json() or {}
-    queued = {
-        item[1]
-        for bucket in ("queue_running", "queue_pending")
-        for item in qj.get(bucket, [])
-        if len(item) > 1
-    }
+    queued = {item[1] for bucket in ("queue_running", "queue_pending") for item in qj.get(bucket, []) if len(item) > 1}
     return "active" if prompt_id in queued else "lost"
 
 

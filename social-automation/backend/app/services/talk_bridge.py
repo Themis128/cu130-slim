@@ -48,11 +48,7 @@ INBOUND_LIMIT = 20
 def bridge_enabled() -> bool:
     s = get_settings()
     secret = getattr(s, "NEXTCLOUD_TALK_BOT_SECRET", "") or os.getenv("NEXTCLOUD_TALK_BOT_SECRET", "")
-    return bool(
-        getattr(s, "TALK_BRIDGE_ENABLED", False)
-        and getattr(s, "NEXTCLOUD_TALK_NOTIFY", False)
-        and secret
-    )
+    return bool(getattr(s, "TALK_BRIDGE_ENABLED", False) and getattr(s, "NEXTCLOUD_TALK_NOTIFY", False) and secret)
 
 
 def _room_name(platform: str, contact: str) -> str:
@@ -207,9 +203,7 @@ async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict
 async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool) -> list[dict]:
     from app.services.browser_bridge import BrowserBridgeClient
 
-    bridge = BrowserBridgeClient(
-        os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook"
-    )
+    bridge = BrowserBridgeClient(os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook")
     session = await bridge.ensure_session("facebook")
     if session.get("status") != "active":
         return []
@@ -407,31 +401,35 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 parts = c.get("participants") or {}
                 plist = parts.get("data") if isinstance(parts, dict) else parts or []
                 other = next((p for p in plist if str(p.get("id")) != str(account.account_id)), {})
-                out.append({
-                    "thread_id": c.get("id", ""),
-                    "contact_name": other.get("name", ""),
-                    "recipient_id": other.get("id", ""),
-                    "is_e2ee": False,
-                    "platform": "messenger",
-                })
+                out.append(
+                    {
+                        "thread_id": c.get("id", ""),
+                        "contact_name": other.get("name", ""),
+                        "recipient_id": other.get("id", ""),
+                        "is_e2ee": False,
+                        "platform": "messenger",
+                    }
+                )
             return out
         if platform == "facebook" and account_type == "user":
             from app.services.browser_bridge import BrowserBridgeClient
 
-            bridge = BrowserBridgeClient(
-                os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook"
-            )
+            bridge = BrowserBridgeClient(os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook")
             data = await bridge.get_personal_messenger_conversations()
             raw = data.get("conversations") if isinstance(data, dict) else data
             if not isinstance(raw, list):
                 return []
-            return [{
-                "thread_id": str(c.get("thread_id") or c.get("id") or ""),
-                "contact_name": c.get("name") or c.get("sender") or "",
-                "recipient_id": str(c.get("thread_id") or c.get("id") or ""),
-                "is_e2ee": bool(c.get("e2ee") or c.get("is_e2ee")),
-                "platform": "personal_messenger",
-            } for c in raw if isinstance(c, dict)]
+            return [
+                {
+                    "thread_id": str(c.get("thread_id") or c.get("id") or ""),
+                    "contact_name": c.get("name") or c.get("sender") or "",
+                    "recipient_id": str(c.get("thread_id") or c.get("id") or ""),
+                    "is_e2ee": bool(c.get("e2ee") or c.get("is_e2ee")),
+                    "platform": "personal_messenger",
+                }
+                for c in raw
+                if isinstance(c, dict)
+            ]
         if platform == "instagram":
             meta = account.meta_data or {}
             ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
@@ -444,13 +442,15 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
             for c in raw:
                 parts = (c.get("participants") or {}).get("data") or []
                 other = next((p for p in parts if str(p.get("id")) != str(ig_user_id)), {})
-                out.append({
-                    "thread_id": c.get("id", ""),
-                    "contact_name": other.get("username") or other.get("name", ""),
-                    "recipient_id": str(other.get("id", "")),
-                    "is_e2ee": False,
-                    "platform": "instagram",
-                })
+                out.append(
+                    {
+                        "thread_id": c.get("id", ""),
+                        "contact_name": other.get("username") or other.get("name", ""),
+                        "recipient_id": str(other.get("id", "")),
+                        "is_e2ee": False,
+                        "platform": "instagram",
+                    }
+                )
             return out
         if platform == "linkedin":
             import re
@@ -471,13 +471,17 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                     return m.group(1)
                 return raw_id.rstrip("/").split("/")[-1] or raw_id
 
-            return [{
-                "thread_id": _tid(c),
-                "contact_name": c.get("name") or c.get("participant") or "",
-                "recipient_id": _tid(c),
-                "is_e2ee": False,
-                "platform": "linkedin",
-            } for c in raw if isinstance(c, dict)]
+            return [
+                {
+                    "thread_id": _tid(c),
+                    "contact_name": c.get("name") or c.get("participant") or "",
+                    "recipient_id": _tid(c),
+                    "is_e2ee": False,
+                    "platform": "linkedin",
+                }
+                for c in raw
+                if isinstance(c, dict)
+            ]
     except Exception:
         logger.exception("talk-bridge conversation list failed: %s %s", platform, account.id)
     return []
@@ -540,13 +544,9 @@ async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) 
     """Post new platform messages into their mapped Talk rooms."""
     posted = 0
     async with session_factory() as db:
-        res = await db.execute(
-            select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.enabled.is_(True))
-        )
+        res = await db.execute(select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.enabled.is_(True)))
         rooms = res.scalars().all()
-        acct_res = await db.execute(
-            select(SocialAccount).where(SocialAccount.team_id == team_id)
-        )
+        acct_res = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team_id))
         accounts = {str(a.id): a for a in acct_res.scalars().all()}
 
         for room in rooms:
@@ -592,9 +592,7 @@ async def outbound(room_token: str, text: str, session_factory=async_session_mak
         return False, "bridge muted for this room"
 
     async with session_factory() as db:
-        res = await db.execute(
-            select(SocialAccount).where(SocialAccount.id == uuid.UUID(room.account_id))
-        )
+        res = await db.execute(select(SocialAccount).where(SocialAccount.id == uuid.UUID(room.account_id)))
         account = res.scalar_one_or_none()
     if account is None:
         return False, "account row missing"
@@ -617,9 +615,7 @@ async def outbound(room_token: str, text: str, session_factory=async_session_mak
         elif room.platform == "personal_messenger":
             from app.services.browser_bridge import BrowserBridgeClient
 
-            bridge = BrowserBridgeClient(
-                os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook"
-            )
+            bridge = BrowserBridgeClient(os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook")
             session = await bridge.ensure_session("facebook")
             if session.get("status") != "active":
                 return False, session.get("message", "bridge session inactive")

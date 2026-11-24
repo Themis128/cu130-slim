@@ -453,16 +453,19 @@ async def test_resolve_media_items_none_and_passthrough(monkeypatch):
     assert await pub.resolve_media_items(None, None) == []
     assert await pub.resolve_media_items(None, []) == []
 
-    out = await pub.resolve_media_items(None, [
-        42,  # non-dict entries are dropped, never fatal
-        {"type": "video", "url": "https://media.test/v.mp4", "filename": "v.mp4"},
-        {"type": "image", "base64": "QUJD", "filename": "a.png"},
-        {"base64": "QUJD"},  # no type -> image
-        {"type": "image", "url": "https://evil.example/x.png"},  # SSRF guard drop
-        {"type": "image", "url": "ftp://media.test/x.png"},  # bad scheme
-        {"type": "image", "url": "notaurl"},  # no hostname
-        {"type": "image", "url": "https://media.test/x.png", "base64": "QUJD"},  # base64 wins, url unchecked
-    ])
+    out = await pub.resolve_media_items(
+        None,
+        [
+            42,  # non-dict entries are dropped, never fatal
+            {"type": "video", "url": "https://media.test/v.mp4", "filename": "v.mp4"},
+            {"type": "image", "base64": "QUJD", "filename": "a.png"},
+            {"base64": "QUJD"},  # no type -> image
+            {"type": "image", "url": "https://evil.example/x.png"},  # SSRF guard drop
+            {"type": "image", "url": "ftp://media.test/x.png"},  # bad scheme
+            {"type": "image", "url": "notaurl"},  # no hostname
+            {"type": "image", "url": "https://media.test/x.png", "base64": "QUJD"},  # base64 wins, url unchecked
+        ],
+    )
     assert out == [
         {"type": "video", "base64": None, "url": "https://media.test/v.mp4", "filename": "v.mp4"},
         {"type": "image", "base64": "QUJD", "url": None, "filename": "a.png"},
@@ -499,6 +502,7 @@ async def test_resolve_media_items_asset_paths(monkeypatch):
 
     asset = SimpleNamespace(filename="a.png")
     db = _FakeDB(results=[_FakeResult(obj=asset)])
+
     async def fake_load(a):
         return b"PNG"
 
@@ -512,9 +516,7 @@ async def test_resolve_media_items_asset_paths(monkeypatch):
     assert out[0]["filename"] == "custom.png"
 
     # asset lookup miss -> dropped
-    assert await pub.resolve_media_items(
-        _FakeDB(results=[_FakeResult(obj=None)]), [{"asset_id": "x"}]
-    ) == []
+    assert await pub.resolve_media_items(_FakeDB(results=[_FakeResult(obj=None)]), [{"asset_id": "x"}]) == []
     # no db session -> asset_id items cannot resolve
     assert await pub.resolve_media_items(None, [{"asset_id": "x"}]) == []
 
@@ -522,9 +524,7 @@ async def test_resolve_media_items_asset_paths(monkeypatch):
         raise RuntimeError("io")
 
     monkeypatch.setattr(dedup, "load_asset_bytes", boom)
-    assert await pub.resolve_media_items(
-        _FakeDB(results=[_FakeResult(obj=asset)]), [{"asset_id": "x"}]
-    ) == []
+    assert await pub.resolve_media_items(_FakeDB(results=[_FakeResult(obj=asset)]), [{"asset_id": "x"}]) == []
 
 
 @pytest.mark.asyncio
@@ -546,9 +546,7 @@ async def test_publish_stored_issue_forwards_media(monkeypatch):
     issue.render_cover = False
     issue.result = {pub.MEDIA_SPEC_KEY: [{"type": "image", "base64": "QUJD"}]}
     await pub.publish_stored_issue(issue, None)
-    assert seen["media"] == [
-        {"type": "image", "base64": "QUJD", "url": None, "filename": None}
-    ]
+    assert seen["media"] == [{"type": "image", "base64": "QUJD", "url": None, "filename": None}]
 
     issue2 = _issue(title="NoMedia")
     issue2.cover_base64 = "QUJD"

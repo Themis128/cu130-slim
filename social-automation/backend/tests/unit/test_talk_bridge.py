@@ -221,6 +221,7 @@ async def test_post_prefers_bot_reply_then_fallback():
         patch.object(TB, "bot_reply", return_value=None) as _br,
         patch.object(TB, "post_to_room", return_value=None) as _pr,
     ):
+
         async def bot_ok(*a, **kw):
             return True
 
@@ -595,11 +596,13 @@ async def test_li_messages_wraps_keyless():
 
     class _Sidecar:
         async def get_thread_messages(self, tid):
-            return {"messages": [
-                {"ts": "1", "sender": "Ann", "text": "theirs"},
-                {"ts": "2", "sender": "Me Myself", "text": "mine"},
-                {"ts": "3", "sender": "Third Person", "text": "group"},
-            ]}
+            return {
+                "messages": [
+                    {"ts": "1", "sender": "Ann", "text": "theirs"},
+                    {"ts": "2", "sender": "Me Myself", "text": "mine"},
+                    {"ts": "3", "sender": "Third Person", "text": "group"},
+                ]
+            }
 
         async def get_profile(self):
             return {"name": "Me Myself"}
@@ -704,11 +707,13 @@ async def test_conversation_list_linkedin():
 
     class _Sidecar:
         async def get_conversations(self):
-            return {"conversations": [
-                {"id": "li-1", "name": "Ann"},
-                # sidecar falls back to the raw thread URL when regex misses
-                {"thread_id": "https://linkedin.com/messaging/thread/2y77x/", "name": "Bob"},
-            ]}
+            return {
+                "conversations": [
+                    {"id": "li-1", "name": "Ann"},
+                    # sidecar falls back to the raw thread URL when regex misses
+                    {"thread_id": "https://linkedin.com/messaging/thread/2y77x/", "name": "Bob"},
+                ]
+            }
 
     from app.services import linkedin_sidecar
 
@@ -838,6 +843,7 @@ async def test_fb_page_messages_marks_ours():
 
 # ── coverage batch 2 ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_log_event_bad_account_id_uuid():
     db = _FakeDB([])
@@ -858,22 +864,27 @@ async def test_fb_personal_inactive_and_nonlist():
     class _B:
         def __init__(self, *a, **kw):
             pass
+
         async def ensure_session(self, platform):
             return {"status": "inactive"}
+
     with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
         assert await TB._fb_personal_messages(acct, "t1", False) == []
 
     class _B2(_B):
         async def ensure_session(self, platform):
             return {"status": "active"}
+
         async def get_personal_messenger_messages(self, tid, is_e2ee=False):
             return {"messages": "not-a-list"}
+
     with patch("app.services.browser_bridge.BrowserBridgeClient", _B2):
         assert await TB._fb_personal_messages(acct, "t1", False) == []
 
     class _B3(_B2):
         async def get_personal_messenger_messages(self, tid, is_e2ee=False):
             return {"messages": ["junk", {"id": "m1", "sender": "Bob", "text": "hi"}]}
+
     with patch("app.services.browser_bridge.BrowserBridgeClient", _B3):
         out = await TB._fb_personal_messages(acct, "t1", False)
     assert len(out) == 1 and out[0]["sender"] == "Bob"
@@ -886,13 +897,19 @@ async def test_ig_messages_nonlist_and_ours():
     class _C:
         async def get_dm_messages(self, tid, limit=0):
             return {"data": "nope"}
+
     with patch.object(TB, "_ig_client", lambda a: _C()):
         assert await TB._ig_messages(acct, "t1") == []
 
     class _C2:
         async def get_dm_messages(self, tid, limit=0):
-            return {"data": [{"id": "m1", "from": {"id": "999", "username": "me"}, "message": "yo"},
-                             {"id": "m2", "from": {"id": "5", "name": "them"}, "message": "hi"}]}
+            return {
+                "data": [
+                    {"id": "m1", "from": {"id": "999", "username": "me"}, "message": "yo"},
+                    {"id": "m2", "from": {"id": "5", "name": "them"}, "message": "hi"},
+                ]
+            }
+
     with patch.object(TB, "_ig_client", lambda a: _C2()):
         out = await TB._ig_messages(acct, "t1")
     assert out[0]["ours"] is True and out[1]["ours"] is False
@@ -906,6 +923,7 @@ async def test_li_self_name_cache_hit_and_error():
         async def get_profile(self):
             calls.append(1)
             return {"name": "Me"}
+
     TB._li_self["name"] = None
     TB._li_self["at"] = 0.0
     try:
@@ -917,6 +935,7 @@ async def test_li_self_name_cache_hit_and_error():
         class _SBad:
             async def get_profile(self):
                 raise RuntimeError("boom")
+
         assert await TB._li_self_name(_SBad()) == ""
     finally:
         TB._li_self["name"] = None
@@ -930,15 +949,19 @@ async def test_li_messages_nonlist_and_is_own_flag():
     class _S:
         async def get_thread_messages(self, tid):
             return {"messages": "nope"}
+
     from app.services import linkedin_sidecar
+
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
         assert await TB._li_messages(acct, "t1") == []
 
     class _S2:
         async def get_thread_messages(self, tid):
             return {"messages": ["junk", {"ts": "1", "sender": "X", "text": "hi", "is_own": True}]}
+
         async def get_profile(self):
             return {"name": "Me"}
+
     TB._li_self["name"] = None
     try:
         with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S2()):
@@ -960,23 +983,29 @@ async def test_fetch_messages_exception_returns_empty():
 @pytest.mark.asyncio
 async def test_conversation_list_ig_and_li_nonlist():
     acct = _acct(platform="instagram", meta={})
+
     class _C:
         async def get_conversations(self, limit=0):
             return {"data": "nope"}
+
     with patch.object(TB, "_ig_client", lambda a: _C()):
         assert await TB._conversation_list(acct) == []
 
     acct2 = _acct(platform="linkedin")
+
     class _S:
         async def get_conversations(self):
             return {"conversations": "nope"}
+
     from app.services import linkedin_sidecar
+
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
         assert await TB._conversation_list(acct2) == []
 
     class _S3:
         async def get_conversations(self):
             return {"conversations": [{"name": "Ann", "id": "https://x/y/123/"}]}
+
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S3()):
         out = await TB._conversation_list(acct2)
     assert out[0]["thread_id"] == "123"
@@ -1007,13 +1036,17 @@ async def test_outbound_personal_send_rejected_and_linkedin():
         patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
         patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
     ):
+
         class _B:
             def __init__(self, *a, **kw):
                 pass
+
             async def ensure_session(self, p):
                 return {"status": "active"}
+
             async def send_personal_messenger_message(self, tid, text, is_e2ee=False):
                 return {"status": "nope"}
+
         with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
             ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(db))
     assert ok is False and "send failed" in msg
@@ -1026,10 +1059,13 @@ async def test_outbound_personal_send_rejected_and_linkedin():
         patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
         patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
     ):
+
         class _S:
             async def send_message(self, tid, text):
                 raise RuntimeError("li down")
+
         from app.services import linkedin_sidecar
+
         with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
             ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db2))
     assert ok2 is False and "li down" in msg2
@@ -1050,6 +1086,7 @@ async def test_outbound_account_missing():
 @pytest.mark.asyncio
 async def test_worker_run_disabled_and_per_team():
     from app.worker.tasks import talk_bridge as task_mod
+
     with patch.object(task_mod, "bridge_enabled", return_value=False):
         assert await task_mod._run() == {"skipped": "talk bridge disabled"}
 
@@ -1068,6 +1105,7 @@ async def test_worker_run_disabled_and_per_team():
 
 # ── coverage batch 3 ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_fb_page_messages_decrypts_non_ea_token():
     acct = _acct(meta_data={"page_token": "enc:secret"})
@@ -1075,9 +1113,12 @@ async def test_fb_page_messages_decrypts_non_ea_token():
     class _C:
         def __init__(self, access_token, page_id):
             self.access_token = access_token
+
         async def get_conversation_messages(self, tid, limit=0):
             return [{"id": "m1", "from": {"id": "page-1", "name": "Page"}, "message": "hi"}]
+
     from app.services import messenger_api
+
     with (
         patch.object(messenger_api, "MessengerAPIClient", _C),
         patch("app.core.security.decrypt_token", return_value="EAtoken"),
@@ -1111,8 +1152,7 @@ async def test_ig_client_decrypt_and_fallback_paths():
         client = TB._ig_client(acct)
     assert client.access_token == ""  # decrypt failed, no meta token
 
-    acct2 = _acct(platform="instagram", access_token_enc=None,
-                  meta_data={"access_token": "opaque"})
+    acct2 = _acct(platform="instagram", access_token_enc=None, meta_data={"access_token": "opaque"})
     with (
         patch.object(instagram_api, "InstagramAPIClient", _C),
         patch("app.core.security.decrypt_token", return_value="IGAtok"),
@@ -1129,9 +1169,12 @@ async def test_li_messages_no_self_name_marks_none_ours():
     class _S:
         async def get_thread_messages(self, tid):
             return {"messages": [{"ts": "1", "sender": "Me", "text": "hi"}]}
+
         async def get_profile(self):
             raise RuntimeError("scrape down")
+
     from app.services import linkedin_sidecar
+
     TB._li_self["name"] = None
     TB._li_self["at"] = 0.0
     try:
@@ -1164,9 +1207,12 @@ async def test_conversation_list_page_decrypt_and_personal_filter():
     class _C:
         def __init__(self, *a, **kw):
             pass
+
         async def get_conversations(self, platform=None, limit=0):
             return [{"id": "c1", "participants": {"data": [{"id": "page-1"}, {"id": "u2", "name": "Ann"}]}}]
+
     from app.services import messenger_api
+
     with (
         patch.object(messenger_api, "MessengerAPIClient", _C),
         patch("app.core.security.decrypt_token", return_value="EA"),
@@ -1179,20 +1225,23 @@ async def test_conversation_list_page_decrypt_and_personal_filter():
     class _B:
         def __init__(self, *a, **kw):
             pass
+
         async def get_personal_messenger_conversations(self):
             return {"conversations": ["junk", {"thread_id": "t9", "name": "Bob"}]}
+
     with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
         out2 = await TB._conversation_list(acct2)
-    assert out2 == [{"thread_id": "t9", "contact_name": "Bob", "recipient_id": "t9",
-                     "is_e2ee": False, "platform": "personal_messenger"}]
+    assert out2 == [{"thread_id": "t9", "contact_name": "Bob", "recipient_id": "t9", "is_e2ee": False, "platform": "personal_messenger"}]
 
 
 @pytest.mark.asyncio
 async def test_sync_rooms_skips_empty_thread_and_failed_create():
     acct = _acct()
     db = _FakeDB([[acct]])
-    convs = [{"thread_id": "", "contact_name": "X", "recipient_id": "", "is_e2ee": False, "platform": "messenger"},
-             {"thread_id": "t2", "contact_name": "Y", "recipient_id": "u", "is_e2ee": False, "platform": "messenger"}]
+    convs = [
+        {"thread_id": "", "contact_name": "X", "recipient_id": "", "is_e2ee": False, "platform": "messenger"},
+        {"thread_id": "t2", "contact_name": "Y", "recipient_id": "u", "is_e2ee": False, "platform": "messenger"},
+    ]
     with (
         patch.object(TB, "_conversation_list", AsyncMock(return_value=convs)),
         patch.object(TB, "create_room", AsyncMock(return_value="")),
@@ -1206,8 +1255,7 @@ async def test_sync_rooms_rebind_updates_contact_and_recipient():
     acct = _acct()
     room = _room(account_id="other", contact_name="Old", recipient_id="", last_inbound_key=None)
     db = _FakeDB([[acct], [room]])  # hmm: _room_for queries inside — fake returns room
-    convs = [{"thread_id": "t-1", "contact_name": "New", "recipient_id": "psid-9",
-              "is_e2ee": False, "platform": "messenger"}]
+    convs = [{"thread_id": "t-1", "contact_name": "New", "recipient_id": "psid-9", "is_e2ee": False, "platform": "messenger"}]
     with (
         patch.object(TB, "_conversation_list", AsyncMock(return_value=convs)),
         patch.object(TB, "_room_for", AsyncMock(return_value=room)),
@@ -1237,9 +1285,12 @@ async def test_outbound_muted_and_success_analytics_failure():
     class _C:
         def __init__(self, *a, **kw):
             pass
+
         async def send_text(self, recipient, text):
             sent.append(text)
+
     from app.services import messenger_api
+
     with (
         patch.object(TB, "get_settings", return_value=_settings()),
         patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
@@ -1254,19 +1305,14 @@ async def test_outbound_muted_and_success_analytics_failure():
 # ── coverage batch 4: API endpoints + last service branches ────────
 
 
-
-
 @pytest.mark.asyncio
 async def test_api_status_and_rooms_list():
-    rooms = [_room(platform="messenger", enabled=True),
-             _room(platform="instagram", enabled=True),
-             _room(platform="instagram", enabled=False)]
+    rooms = [_room(platform="messenger", enabled=True), _room(platform="instagram", enabled=True), _room(platform="instagram", enabled=False)]
     db = _FakeDB([rooms])
     team = uuid.uuid4()
     with patch.object(API, "bridge_enabled", return_value=True):
         out = await API.talk_bridge_status(team_id=team, db=db, _user=None)
-    assert out == {"enabled": True, "rooms": 3, "active_rooms": 2,
-                   "by_platform": {"messenger": 1, "instagram": 1}}
+    assert out == {"enabled": True, "rooms": 3, "active_rooms": 2, "by_platform": {"messenger": 1, "instagram": 1}}
 
     db2 = _FakeDB([rooms])
     lst = await API.list_rooms(team_id=team, db=db2, _user=None)
@@ -1328,9 +1374,12 @@ async def test_fb_page_messages_nonlist_and_fetch_unknown():
     class _C:
         def __init__(self, *a, **kw):
             pass
+
         async def get_conversation_messages(self, tid, limit=0):
             return {"unexpected": True}
+
     from app.services import messenger_api
+
     with patch.object(messenger_api, "MessengerAPIClient", _C):
         assert await TB._fb_page_messages(acct, "t1") == []
 
@@ -1345,9 +1394,12 @@ async def test_conversation_list_page_and_ig_nonlist():
     class _C:
         def __init__(self, *a, **kw):
             pass
+
         async def get_conversations(self, platform=None, limit=0):
             return {"conversations": {"not": "a list"}}
+
     from app.services import instagram_api, messenger_api
+
     with patch.object(messenger_api, "MessengerAPIClient", _C):
         assert await TB._conversation_list(acct) == []
 
@@ -1356,8 +1408,10 @@ async def test_conversation_list_page_and_ig_nonlist():
     class _IC:
         def __init__(self, *a, **kw):
             pass
+
         async def get_conversations(self, limit=0):
             return {"weird": 1}
+
     with patch.object(instagram_api, "InstagramAPIClient", _IC):
         assert await TB._conversation_list(acct_ig) == []
 
@@ -1365,17 +1419,19 @@ async def test_conversation_list_page_and_ig_nonlist():
 @pytest.mark.asyncio
 async def test_outbound_ig_and_linkedin_success():
     room = _room(platform="instagram", recipient_id="igsid-1")
-    acct = _acct(platform="instagram", id=uuid.UUID(room.account_id),
-                 meta_data={"access_token": "IGA"})
+    acct = _acct(platform="instagram", id=uuid.UUID(room.account_id), meta_data={"access_token": "IGA"})
     db = _FakeDB([[acct]])
     sent = []
 
     class _IC:
         def __init__(self, *a, **kw):
             pass
+
         async def send_dm(self, rid, text):
             sent.append((rid, text))
+
     from app.services import instagram_api, linkedin_sidecar
+
     with (
         patch.object(TB, "get_settings", return_value=_settings()),
         patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
@@ -1394,6 +1450,7 @@ async def test_outbound_ig_and_linkedin_success():
     class _LS:
         async def send_message(self, tid, text):
             li_sent.append((tid, text))
+
     with (
         patch.object(TB, "get_settings", return_value=_settings()),
         patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
@@ -1410,14 +1467,17 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
     team = uuid.uuid4()
     room = _room(last_inbound_key="k2")
     db = _FakeDB([[room], [_acct(id=uuid.UUID(room.account_id))]])
-    msgs = [{"key": "k3", "id": "", "ours": False, "sender": "A", "text": "new", "attachments": []},
-            {"key": "k2", "id": "", "ours": False, "sender": "A", "text": "old", "attachments": []},
-            {"key": "k1", "id": "", "ours": False, "sender": "A", "text": "older", "attachments": []}]
+    msgs = [
+        {"key": "k3", "id": "", "ours": False, "sender": "A", "text": "new", "attachments": []},
+        {"key": "k2", "id": "", "ours": False, "sender": "A", "text": "old", "attachments": []},
+        {"key": "k1", "id": "", "ours": False, "sender": "A", "text": "older", "attachments": []},
+    ]
     posted = []
 
     async def _ok(r, body, db=None):
         posted.append(body)
         return True
+
     with (
         patch.object(TB, "_fetch_messages", AsyncMock(return_value=msgs)),
         patch.object(TB, "_post", AsyncMock(side_effect=_ok)),
@@ -1433,11 +1493,18 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
     async def _flaky(r, body, db=None):
         calls["n"] += 1
         return calls["n"] < 2
+
     with (
-        patch.object(TB, "_fetch_messages", AsyncMock(return_value=[
-            {"key": "a", "id": "", "ours": False, "sender": "A", "text": "1", "attachments": []},
-            {"key": "b", "id": "", "ours": False, "sender": "A", "text": "2", "attachments": []},
-        ])),
+        patch.object(
+            TB,
+            "_fetch_messages",
+            AsyncMock(
+                return_value=[
+                    {"key": "a", "id": "", "ours": False, "sender": "A", "text": "1", "attachments": []},
+                    {"key": "b", "id": "", "ours": False, "sender": "A", "text": "2", "attachments": []},
+                ]
+            ),
+        ),
         patch.object(TB, "_post", AsyncMock(side_effect=_flaky)),
     ):
         out2 = await TB.inbound_sync(team, session_factory=_sf(db2))
@@ -1460,10 +1527,13 @@ async def test_fb_personal_messages_accepts_matching_thread_id():
             return {"status": "active"}
 
         async def get_personal_messenger_messages(self, tid, is_e2ee=False):
-            return {"thread_id": tid, "messages": [
-                {"id": "m1", "ts": "1", "sender": "Jane", "text": "hi"},
-                {"id": "m2", "ts": "2", "sender": "Me", "text": "yo", "is_own": True},
-            ]}
+            return {
+                "thread_id": tid,
+                "messages": [
+                    {"id": "m1", "ts": "1", "sender": "Jane", "text": "hi"},
+                    {"id": "m2", "ts": "2", "sender": "Me", "text": "yo", "is_own": True},
+                ],
+            }
 
     from app.services import browser_bridge
 
@@ -1498,9 +1568,7 @@ async def test_fb_personal_messages_accepts_bare_list_payload():
 
 def test_ig_client_meta_token_decrypt_failure_keeps_raw_token():
     """Encrypted meta token that fails to decrypt is passed through as-is."""
-    acct = _acct(platform="instagram", access_token_enc=None,
-                 meta_data={"access_token": "opaque-enc", "ig_user_id": "ig-7",
-                            "login_type": "business_login"})
+    acct = _acct(platform="instagram", access_token_enc=None, meta_data={"access_token": "opaque-enc", "ig_user_id": "ig-7", "login_type": "business_login"})
     from app.services import instagram_api
 
     class _C:
@@ -1540,8 +1608,7 @@ async def test_conversation_list_page_decrypt_failure_uses_raw_token():
     ):
         out = await TB._conversation_list(acct)
     assert seen["token"] == "enc:t"
-    assert out == [{"thread_id": "c1", "contact_name": "Cy", "recipient_id": "u3",
-                    "is_e2ee": False, "platform": "messenger"}]
+    assert out == [{"thread_id": "c1", "contact_name": "Cy", "recipient_id": "u3", "is_e2ee": False, "platform": "messenger"}]
 
 
 @pytest.mark.asyncio
@@ -1569,8 +1636,7 @@ async def test_conversation_list_linkedin_urn_thread_id():
 
     class _Sidecar:
         async def get_conversations(self):
-            return [{"id": "li-plain", "name": "Dee"},
-                    {"id": "urn:li:fs_conversation:thread:987654", "participant": "Eve"}]
+            return [{"id": "li-plain", "name": "Dee"}, {"id": "urn:li:fs_conversation:thread:987654", "participant": "Eve"}]
 
     from app.services import linkedin_sidecar
 
@@ -1588,10 +1654,8 @@ async def test_sync_rooms_existing_room_unchanged_when_already_current():
     acct = _acct()
     room = _room(account_id=str(acct.id), contact_name="Jane", recipient_id="psid-1")
     convs = [
-        {"thread_id": room.thread_id, "contact_name": "", "recipient_id": "psid-other",
-         "is_e2ee": False, "platform": "messenger"},
-        {"thread_id": room.thread_id, "contact_name": "Jane", "recipient_id": "",
-         "is_e2ee": False, "platform": "messenger"},
+        {"thread_id": room.thread_id, "contact_name": "", "recipient_id": "psid-other", "is_e2ee": False, "platform": "messenger"},
+        {"thread_id": room.thread_id, "contact_name": "Jane", "recipient_id": "", "is_e2ee": False, "platform": "messenger"},
     ]
     db = _FakeDB([[acct], [room], [room]])
     create = AsyncMock(return_value="new-token")
@@ -1613,8 +1677,10 @@ async def test_inbound_sync_first_post_fails_leaves_watermark_and_no_commit():
     acct = _acct()
     room = _room(account_id=str(acct.id), last_inbound_key="old")
     db = _FakeDB([[room], [acct]])
-    msgs = [{"key": "n1", "id": "n1", "sender": "Jane", "text": "new", "ours": False, "attachments": []},
-            {"key": "old", "id": "old", "sender": "Jane", "text": "seen", "ours": False, "attachments": []}]
+    msgs = [
+        {"key": "n1", "id": "n1", "sender": "Jane", "text": "new", "ours": False, "attachments": []},
+        {"key": "old", "id": "old", "sender": "Jane", "text": "seen", "ours": False, "attachments": []},
+    ]
     log = AsyncMock()
     with (
         patch.object(TB, "_fetch_messages", AsyncMock(return_value=msgs)),
