@@ -356,6 +356,7 @@ async def test_create_comment_success(monkeypatch, client):
     assert result.success is True
     assert result.platform_post_id == "urn:li:comment:456"
     assert fake.calls[0]["json"]["actor"] == "urn:li:person:789"
+    assert fake.calls[0]["json"]["object"] == "urn:li:share:123"
     assert fake.calls[0]["json"]["message"]["text"] == "Great post!"
 
 
