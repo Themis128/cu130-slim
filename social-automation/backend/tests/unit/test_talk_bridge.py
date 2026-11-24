@@ -1442,3 +1442,293 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
     ):
         out2 = await TB.inbound_sync(team, session_factory=_sf(db2))
     assert out2["posted"] == 1 and room2.last_inbound_key == "b"
+
+
+# ── coverage batch 4: decrypt fallbacks, no-op rebinds, send success ──
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_messages_accepts_matching_thread_id():
+    """A browser payload that echoes the requested thread is kept, not dropped."""
+    acct = _acct(account_type="user")
+
+    class _Bridge:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def ensure_session(self, p):
+            return {"status": "active"}
+
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return {"thread_id": tid, "messages": [
+                {"id": "m1", "ts": "1", "sender": "Jane", "text": "hi"},
+                {"id": "m2", "ts": "2", "sender": "Me", "text": "yo", "is_own": True},
+            ]}
+
+    from app.services import browser_bridge
+
+    with patch.object(browser_bridge, "BrowserBridgeClient", _Bridge):
+        out = await TB._fb_personal_messages(acct, "t-1", False)
+    assert [m["id"] for m in out] == ["m2", "m1"]  # flipped newest-first
+    assert out[0]["ours"] is True and out[1]["ours"] is False
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_messages_accepts_bare_list_payload():
+    """Older bridge builds return the message list directly (no thread echo)."""
+    acct = _acct(account_type="user")
+
+    class _Bridge:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def ensure_session(self, p):
+            return {"status": "active"}
+
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return ["junk", {"id": "m1", "author": "Jane", "body": "hello"}]
+
+    from app.services import browser_bridge
+
+    with patch.object(browser_bridge, "BrowserBridgeClient", _Bridge):
+        out = await TB._fb_personal_messages(acct, "t-1", False)
+    assert len(out) == 1
+    assert out[0]["sender"] == "Jane" and out[0]["text"] == "hello" and out[0]["key"] == "m1"
+
+
+def test_ig_client_meta_token_decrypt_failure_keeps_raw_token():
+    """Encrypted meta token that fails to decrypt is passed through as-is."""
+    acct = _acct(platform="instagram", access_token_enc=None,
+                 meta_data={"access_token": "opaque-enc", "ig_user_id": "ig-7",
+                            "login_type": "business_login"})
+    from app.services import instagram_api
+
+    class _C:
+        def __init__(self, access_token, ig_user_id, use_business_login_api):
+            self.access_token = access_token
+            self.ig_user_id = ig_user_id
+            self.business = use_business_login_api
+
+    with (
+        patch.object(instagram_api, "InstagramAPIClient", _C),
+        patch("app.core.security.decrypt_token", side_effect=RuntimeError("bad key")) as dec,
+    ):
+        client = TB._ig_client(acct)
+    dec.assert_called_once()
+    assert client.access_token == "opaque-enc"
+    assert client.ig_user_id == "ig-7"
+    assert client.business is True
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_page_decrypt_failure_uses_raw_token():
+    acct = _acct(meta_data={"page_token": "enc:t"})
+    seen = {}
+
+    class _C:
+        def __init__(self, access_token, page_id):
+            seen["token"] = access_token
+
+        async def get_conversations(self, platform=None, limit=0):
+            return [{"id": "c1", "participants": [{"id": "page-1"}, {"id": "u3", "name": "Cy"}]}]
+
+    from app.services import messenger_api
+
+    with (
+        patch.object(messenger_api, "MessengerAPIClient", _C),
+        patch("app.core.security.decrypt_token", side_effect=RuntimeError("bad")),
+    ):
+        out = await TB._conversation_list(acct)
+    assert seen["token"] == "enc:t"
+    assert out == [{"thread_id": "c1", "contact_name": "Cy", "recipient_id": "u3",
+                    "is_e2ee": False, "platform": "messenger"}]
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_personal_nonlist_and_unsupported_platform():
+    acct = _acct(account_type="user")
+
+    class _B:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def get_personal_messenger_conversations(self):
+            return {"conversations": {"error": "not logged in"}}
+
+    with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
+        assert await TB._conversation_list(acct) == []
+
+    # platform with no bridge lane → empty, no client constructed
+    assert await TB._conversation_list(_acct(platform="twitter", account_type="user")) == []
+    assert await TB._conversation_list(_acct(platform=None, account_type=None)) == []
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_linkedin_urn_thread_id():
+    acct = _acct(platform="linkedin")
+
+    class _Sidecar:
+        async def get_conversations(self):
+            return [{"id": "li-plain", "name": "Dee"},
+                    {"id": "urn:li:fs_conversation:thread:987654", "participant": "Eve"}]
+
+    from app.services import linkedin_sidecar
+
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
+        out = await TB._conversation_list(acct)
+    assert out[1]["thread_id"] == "987654"
+    assert out[1]["recipient_id"] == "987654"
+    assert out[1]["contact_name"] == "Eve"
+    assert out[0]["thread_id"] == "li-plain" and out[0]["contact_name"] == "Dee"
+
+
+@pytest.mark.asyncio
+async def test_sync_rooms_existing_room_unchanged_when_already_current():
+    """Existing room with same account, no new name, recipient already set → untouched."""
+    acct = _acct()
+    room = _room(account_id=str(acct.id), contact_name="Jane", recipient_id="psid-1")
+    convs = [
+        {"thread_id": room.thread_id, "contact_name": "", "recipient_id": "psid-other",
+         "is_e2ee": False, "platform": "messenger"},
+        {"thread_id": room.thread_id, "contact_name": "Jane", "recipient_id": "",
+         "is_e2ee": False, "platform": "messenger"},
+    ]
+    db = _FakeDB([[acct], [room], [room]])
+    create = AsyncMock(return_value="new-token")
+    with (
+        patch.object(TB, "_conversation_list", AsyncMock(return_value=convs)),
+        patch.object(TB, "create_room", create),
+    ):
+        out = await TB.sync_rooms(uuid.uuid4(), session_factory=_sf(db))
+    assert out == {"created": 0, "mapped": 2}
+    create.assert_not_called()
+    assert room.account_id == str(acct.id)
+    assert room.contact_name == "Jane"
+    assert room.recipient_id == "psid-1"  # never overwritten once mapped
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_inbound_sync_first_post_fails_leaves_watermark_and_no_commit():
+    acct = _acct()
+    room = _room(account_id=str(acct.id), last_inbound_key="old")
+    db = _FakeDB([[room], [acct]])
+    msgs = [{"key": "n1", "id": "n1", "sender": "Jane", "text": "new", "ours": False, "attachments": []},
+            {"key": "old", "id": "old", "sender": "Jane", "text": "seen", "ours": False, "attachments": []}]
+    log = AsyncMock()
+    with (
+        patch.object(TB, "_fetch_messages", AsyncMock(return_value=msgs)),
+        patch.object(TB, "_post", AsyncMock(return_value=False)) as post,
+        patch.object(TB, "_log_event", log),
+    ):
+        out = await TB.inbound_sync(uuid.uuid4(), session_factory=_sf(db))
+    assert out == {"posted": 0}
+    post.assert_awaited_once()
+    log.assert_not_called()
+    assert room.last_inbound_key == "old"
+    assert db.commits == 0
+
+
+async def _outbound_messenger_with_token(page_token, decrypt):
+    room = _room()
+    acct = _acct(id=uuid.UUID(room.account_id), meta_data={"page_token": page_token})
+    dbs = iter([_FakeDB([[room]]), _FakeDB([])])
+
+    class _Next:
+        def __call__(self):
+            return _sf(next(dbs))()
+
+    seen = {}
+
+    class _Client:
+        def __init__(self, access_token, page_id):
+            seen["token"] = access_token
+            seen["page_id"] = page_id
+
+        async def send_text(self, recipient, text):
+            seen["sent"] = (recipient, text)
+
+    from app.services import messenger_api
+
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "async_session_maker", _Next()),
+        patch.object(messenger_api, "MessengerAPIClient", _Client),
+        patch("app.core.security.decrypt_token", **decrypt),
+    ):
+        result = await TB.outbound("room-1", "hello", session_factory=_sf(_FakeDB([[acct]])))
+    return result, seen
+
+
+@pytest.mark.asyncio
+async def test_outbound_messenger_decrypts_encrypted_page_token():
+    (ok, detail), seen = await _outbound_messenger_with_token("enc:abc", {"return_value": "EAdecrypted"})
+    assert (ok, detail) == (True, "sent")
+    assert seen["token"] == "EAdecrypted"
+    assert seen["page_id"] == "page-1"
+    assert seen["sent"] == ("psid-1", "hello")
+
+
+@pytest.mark.asyncio
+async def test_outbound_messenger_decrypt_failure_falls_back_to_raw_token():
+    (ok, detail), seen = await _outbound_messenger_with_token("enc:abc", {"side_effect": RuntimeError("bad")})
+    assert (ok, detail) == (True, "sent")
+    assert seen["token"] == "enc:abc"
+
+
+@pytest.mark.asyncio
+async def test_outbound_personal_messenger_success_logs_event():
+    room = _room(platform="personal_messenger", thread_id="pt-1", is_e2ee=True)
+    acct = _acct(id=uuid.UUID(room.account_id), account_type="user")
+    events_db = _FakeDB([])
+    dbs = iter([_FakeDB([[room]]), events_db])
+
+    class _Next:
+        def __call__(self):
+            return _sf(next(dbs))()
+
+    sent = []
+
+    class _Bridge:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def ensure_session(self, p):
+            return {"status": "active"}
+
+        async def send_personal_messenger_message(self, tid, text, is_e2ee=False):
+            sent.append((tid, text, is_e2ee))
+            return {"status": "sent"}
+
+    from app.services import browser_bridge
+
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "async_session_maker", _Next()),
+        patch.object(browser_bridge, "BrowserBridgeClient", _Bridge),
+    ):
+        ok, detail = await TB.outbound("room-1", "hey", session_factory=_sf(_FakeDB([[acct]])))
+    assert (ok, detail) == (True, "sent")
+    assert sent == [("pt-1", "hey", True)]
+    assert events_db.commits == 1
+    ev = [e for e in events_db.added if getattr(e, "event_type", "") == "talk_bridge_outbound"]
+    assert ev and ev[0].platform == "personal_messenger"
+
+
+def test_worker_task_entrypoint_runs_sweep_via_run_async():
+    import asyncio
+
+    from app.worker.tasks import talk_bridge as task_mod
+
+    submitted = []
+
+    def _run_async(coro):
+        submitted.append(coro)
+        return asyncio.run(coro)
+
+    with (
+        patch.object(task_mod, "run_async", _run_async),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+    assert len(submitted) == 1
