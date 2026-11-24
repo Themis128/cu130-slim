@@ -612,6 +612,26 @@ async def test_li_messages_wraps_keyless():
     assert [m["ours"] for m in out] == [False, True, False]
 
 
+@pytest.mark.asyncio
+async def test_li_messages_mismatched_self_name_disables_attribution():
+    """Scraped 'Alex Chen Jr.' for account 'Alex Chen' must NOT count as ours."""
+    acct = _acct(platform="linkedin", display_name="Alex Chen")
+
+    class _Sidecar:
+        async def get_thread_messages(self, tid):
+            return {"messages": [{"ts": "1", "sender": "Alex Chen Jr.", "text": "hi"}]}
+
+        async def get_profile(self):
+            return {"name": "Alex Chen Jr."}
+
+    from app.services import linkedin_sidecar
+
+    TB._li_self["name"] = None
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
+        out = await TB._li_messages(acct, "t-1")
+    assert out[0]["ours"] is False
+
+
 # ── _conversation_list ──────────────────────────────────────────────
 
 
