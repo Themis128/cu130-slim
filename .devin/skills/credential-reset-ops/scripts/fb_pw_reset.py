@@ -156,7 +156,10 @@ def gmail_code(since_epoch=0):
                 "refresh_token": tok["refresh_token"],
                 "grant_type": "refresh_token"}).encode()))
         at = json.loads(r.read())["access_token"]
-        q = "from:security@facebookmail.com"
+        # trusted-session resets dispatch from "Meta Account Security"
+        # (security@account*.com) — broader than the classic facebookmail
+        q = "from:(facebookmail.com OR account.meta.com OR meta.com) " \
+            "subject:(code OR \"log in\" OR \"get back\")"
         if since_epoch:
             q += " after:" + datetime.datetime.fromtimestamp(
                 since_epoch).strftime("%Y/%m/%d")
@@ -214,75 +217,109 @@ def save_pw(pw):
         print(f"password keys written to {path}")
 
 
+def classify(text):
+    tl = text.lower()
+    if "invalid request" in tl:
+        return "invalid-request"
+    if "choose a way to log in" in tl:
+        return "choose-method"
+    if "find your account" in tl:
+        return "identify"
+    if "create a new password" in tl:
+        return "password-entry"
+    if "enter the code" in tl or "security code" in tl or "login code" in tl \
+            or "enter the 8-digit code" in tl:
+        return "code-entry"
+    if "what's on your mind" in tl or "news feed" in tl:
+        return "logged-in"
+    if "email or mobile number" in tl and "forgot" in tl:
+        return "login-form"
+    if "use another profile" in tl:
+        return "picker"
+    return "other"
+
+
 def reset(new_pw, dry=False):
-    """Navigate forgot-password -> identify -> code -> new password."""
-    print("[1] navigate to recovery")
-    if not dry:
-        # /login/identify/ redirects to the profile picker when a saved-
-        # profile cookie exists — the "Forgot password?" link only lives
-        # on the email/pass form behind "Use another profile".
-        req("POST", "/debug/navigate",
-            {"url": "https://www.facebook.com/login"})
-        time.sleep(8)
-        dismiss_consent()
-        click("use another profile")
-        time.sleep(5)
-        r = click("forgot password?") or click("forgotten password")
-        print("  forgot-link:", r)
-        time.sleep(8)
-    print("  page:", page()[:100] if not dry else "(dry)")
+    """State-machine drive: Meta skips steps it remembers (a remembered
+    identify jumps straight to choose-method) and can WITHDRAW the email
+    option entirely when the web flow is rate-limited — so each iteration
+    reclassifies the page and takes the matching action. Proven live
+    2026-11-24: the email row needs a trusted click on its text, and the
+    code dispatches from security@account*.com as well as facebookmail."""
+    ident = os.environ.get("FB_RESET_IDENT", "baltzakis.themis@gmail.com")
+    code, req_ts, code_sent, stale = None, 0, False, 0
 
-    print("[2] identify account — tap Search/Continue after entering id")
-    if not dry:
+    req("POST", "/debug/navigate", {"url": "https://www.facebook.com/login"})
+    time.sleep(8)
+
+    for i in range(16):
         dismiss_consent()
-        ident = os.environ.get("FB_RESET_IDENT", "baltzakis.themis@gmail.com")
-        r = fill(ident)  # email — the identify page takes email/phone/username
-        print("  ident fill:", r)
-        if click("Search") == "not-found" and click("Continue") == "not-found":
+        st = classify(page())
+        print(f"[{i}] state={st}")
+
+        if st == "logged-in":
+            break
+        if st == "picker":
+            click("use another profile") or tclick("Use another profile")
+        elif st == "login-form":
+            click("forgot password?") or click("forgotten password") \
+                or tclick("Forgot password?")
+        elif st == "identify":
+            print("   ident fill:", fill(ident))
             tclick("Search") or tclick("Continue")
+        elif st == "choose-method":
+            # Email row is a <label>, already-radio-checked — the ACTION
+            # is a trusted Continue (verified live). If the email option
+            # was withdrawn (rate limit), bail to the in-app lane.
+            if "email" not in page().lower():
+                print("   email option withdrawn — use the in-app reset lane")
+                return "no-email-option"
+            if not code_sent:
+                req_ts = time.time()
+            code_sent = True
+            tclick("Continue") or tclick("Send code") or tclick("Get code")
+        elif st == "code-entry":
+            if not code_sent:
+                req_ts = time.time()
+            code_sent = True
+            for _ in range(9):
+                code = any_code(req_ts)
+                if code:
+                    break
+                time.sleep(10)
+            print("   code:", code or "NONE")
+            if not code:
+                print("no code — drive manually from the recovery page")
+                return "no-code"
+            fill(code)
+            tclick("Continue") or tclick("Submit") or tclick("Verify")
+        elif st == "password-entry":
+            fill(new_pw,
+                 "input[type=password],input[name=password],input[type=text]")
+            tclick("Continue") or tclick("Submit") or tclick("Save") \
+                or tclick("Next")
+            time.sleep(4)
+            save_pw(new_pw)
+            print("done — FB password reset to new value + stored")
+            return "ok"
+        elif st == "invalid-request":
+            dismiss_consent()
+            tclick("Allow the use of cookies")
+            tclick("Reload page") or tclick("OK")
         else:
-            tclick("Continue")  # synthetic 'clicked' is a lie on this surface
-        time.sleep(6)
-        print("  post-ident:", page()[:90])
+            click("continue") or tclick("Continue")
 
-    print("[3] request the code")
-    req_ts = time.time()
-    if not dry:
-        # "Choose a way to log in" — pick the email code option first
-        # (it is a row/label, not a button); then Continue.
-        ev("(()=>{const b=[...document.querySelectorAll('label,div[role=button],div[role=radio],span')]"
-           ".find(e=>/get code via email|send code via email|email/i.test(e.innerText||'')&&(e.innerText||'').length<80);"
-           "if(b){b.click();return 'clicked'}return 'none'})()")
-        time.sleep(3)
-        if not (click("Send code") or click("Continue") or click("Get code")):
-            pass
-        tclick("Send code") or tclick("Continue") or tclick("Get code")
-        time.sleep(8)
-        print("  code-requested state:", page()[:100])
+        # no-progress guard — same state N times means the action isn't
+        # landing (rate-limit bounce, withdrawn option, dead click path)
+        stale = stale + 1 if st == getattr(reset, "_last", None) else 0
+        reset._last = st
+        if stale >= 5:
+            print(f"   no progress after {stale + 1} x {st} — bail to in-app lane")
+            return "stalled"
+        time.sleep(8 if st != "code-entry" else 4)
 
-    print("[4] poll the code off the phone / gmail (90s)")
-    code = None
-    if not dry:
-        for _ in range(9):
-            code = any_code(req_ts)
-            if code:
-                break
-            time.sleep(10)
-        print("  code:", code or "NONE — enter manually")
-
-    print("[5] enter code + new password")
-    if not dry and code:
-        fill(code)
-        tclick("Continue")
-        time.sleep(6)
-        fill(new_pw)
-        tclick("Continue")
-        time.sleep(6)
-        print("  post-reset page:", page()[:100])
-        save_pw(new_pw)
-        print("done — FB password reset to new value + stored")
-    elif not dry:
-        print("no code — drive manually from the recovery page")
+    print("  final:", classify(page()), "::", page()[:90])
+    return "iterations-exhausted"
 
 
 if __name__ == "__main__":
