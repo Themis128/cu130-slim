@@ -10,6 +10,13 @@ description: >
 
 # Credential Reset Ops — automate "Forgot password"
 
+> **HARD RULE — NEVER CHANGE META CREDENTIALS** (owner directive
+> 2026-11-24): the Meta Account password is owner-set — never rotate,
+> regenerate, reset, or "fix" it, and never run `fb_pw_reset.py` against
+> it. If a Meta token/session dies, recover via OAuth / backup codes /
+> emaillogin — never via password change. See `~/AGENTS.md` "Platform
+> login credentials".
+
 Lost login credentials (not tokens) drive the legitimate recovery flow —
 identify -> verify contact -> code self-reads -> new password -> stored.
 

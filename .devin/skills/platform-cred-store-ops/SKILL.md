@@ -11,6 +11,11 @@ files.** `.env` files are read-only mirrors produced by the store.
 
 ## Why (the incident that created this)
 
+> **HARD RULE — NEVER CHANGE META CREDENTIALS** (owner directive
+> 2026-11-24): the Meta Account password is owner-set — never rotate,
+> regenerate, reset, or "fix" it through the store or otherwise. It is
+> only ever *stored/mirrored*, never produced by us.
+
 2026-11-22: Meta password changed on the phone. Two `.env` files carried
 *different* `FACEBOOK_PASSWORD`/`INSTAGRAM_PASSWORD` values — neither
 matched the new password. Agents hand-editing `.env` produced silent

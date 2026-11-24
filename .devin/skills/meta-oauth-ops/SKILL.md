@@ -5,6 +5,11 @@ description: Re-authenticate Meta-platform SocialAuto accounts (facebook, instag
 
 # Meta OAuth ops — reconnecting facebook / instagram / threads / whatsapp
 
+> **HARD RULE — NEVER CHANGE META CREDENTIALS** (owner directive
+> 2026-11-24): the Meta Account password is owner-set — never rotate,
+> regenerate, reset, or "fix" it. Recover dead tokens/sessions via OAuth
+> / backup codes / emaillogin only — never via password change.
+
 Source of truth for how each `social_accounts` row heals. Verified live
 2026-11-13/14 after a Meta password change revoked all four rows.
 
