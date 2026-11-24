@@ -7,13 +7,19 @@ EMPTY inside containers -> mass Exited(127). The dd-user-distro-proxy
 journal records every "mounting <src> to .../<hash>" translation, which is
 the authoritative hash->source map; sha256(source) cross-checks it.
 
-Action: for every empty hash that a live/dead container references, rebind
+Action: for every suspect hash that a live/dead container references, rebind
 it inside the docker-desktop VM to a FRESH /dev/sdd mount of the Ubuntu
-disk (verified procedure 2026-11-20/23), then recover the Exited(127)
-casualties — compose-managed ones via `up -d --force-recreate --no-deps`
-(restart preserves the poisoned mount table; recreate re-materializes it —
-verified 2026-11-24), non-compose via `docker start`. Orphan empty hashes
-(no container refs) are lazily unmounted and removed.
+disk (verified procedure 2026-11-20/23/24). Suspect = empty dir, zero-byte
+file, WRONG SHAPE (dir where the source is a file/sock — "mount a directory
+onto a file" on start, the 2026-11-24 wave the empty/zero-only probe
+missed), file where a dir is expected, or missing node. Outer double-hash
+mount dirs (source recorded as another bind-mounts VM path — clickhouse)
+are learned and rebound via their inner-hash chain. Then recover the
+Exited(127)/created casualties — compose-managed ones via
+`up -d --force-recreate --no-deps` (restart preserves the poisoned mount
+table; recreate re-materializes it — verified 2026-11-24), non-compose via
+`docker start`. Orphan empty hashes (no container refs) are lazily
+unmounted and removed.
 
 Probe + rebind both run INSIDE the docker-desktop VM via a privileged
 container + `nsenter -t 1` (pure docker CLI — no Windows interop needed,
@@ -106,19 +112,30 @@ BM=/mnt/host/wsl/docker-desktop-bind-mounts/Ubuntu-24.04
 [ -d "$BM" ] || exit 0
 for h in "$BM"/*; do
   n=${h##*/}
+  echo "$n" | grep -qE '^[0-9a-f]{64}$' || continue
   if [ -d "$h" ]; then
+    echo "SHAPE $n d"
     [ -z "$(ls -A "$h" 2>/dev/null)" ] && echo "EMPTY $n"
-  elif [ -f "$h" ] && [ ! -s "$h" ]; then
-    echo "ZERO $n"
+  elif [ -f "$h" ]; then
+    echo "SHAPE $n f"
+    [ ! -s "$h" ] && echo "ZERO $n"
+  else
+    echo "SHAPE $n o"
   fi
 done
+exit 0
 """
 
 
-def vm_probe() -> tuple[set[str], set[str]] | None:
-    """Authoritative empty/zero-byte hash probe INSIDE the docker-desktop VM
-    (root sees everything the Ubuntu-side 9p view hides behind perms).
-    Returns (empty_dirs, zero_files) or None if the VM path is unreachable."""
+def vm_probe() -> tuple[set[str], set[str], dict[str, str]] | None:
+    """Authoritative hash probe INSIDE the docker-desktop VM (root sees
+    everything the Ubuntu-side 9p view hides behind perms).
+    Returns (empty_dirs, zero_files, shapes) where shapes maps
+    hash -> 'd'|'f'|'o' (dir/file/other) for EVERY hash — needed to catch
+    the wrong-shape poison class (a directory materializing where the
+    source is a file/sock, which produces 'mount a directory onto a file'
+    on container start and was invisible to the empty/zero probe —
+    2026-11-24 wave). Returns None if the VM path is unreachable."""
     import base64
 
     b64 = base64.b64encode(VM_PROBE.encode()).decode()
@@ -139,38 +156,56 @@ def vm_probe() -> tuple[set[str], set[str]] | None:
     if r.returncode != 0:
         log(f"vm probe rc={r.returncode}: {(r.stderr or r.stdout)[-200:]}")
         return None
-    empty, zero = set(), set()
+    empty, zero, shapes = set(), set(), {}
     for line in r.stdout.splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[0] == "EMPTY":
             empty.add(parts[1])
         elif len(parts) == 2 and parts[0] == "ZERO":
             zero.add(parts[1])
-    return empty, zero
+        elif len(parts) == 3 and parts[0] == "SHAPE":
+            shapes[parts[1]] = parts[2]
+    return empty, zero, shapes
 
 
-def empty_hashes() -> tuple[set[str], set[str]]:
-    """Ubuntu-side fallback probe (used only if the VM probe is unreachable)."""
+def empty_hashes() -> tuple[set[str], set[str], dict[str, str]]:
+    """Ubuntu-side fallback probe (used only if the VM probe is unreachable).
+    Returns (empty_dirs, zero_files, shapes) like vm_probe()."""
     empty: set[str] = set()
     zero_files: set[str] = set()
+    shapes: dict[str, str] = {}
     if not BM.is_dir():
-        return empty, zero_files
+        return empty, zero_files, shapes
     for h in BM.iterdir():
+        if not re.fullmatch(r"[0-9a-f]{64}", h.name):
+            continue
         try:
             if h.is_dir():
+                shapes[h.name] = "d"
                 if not any(h.iterdir()):
                     empty.add(h.name)
-            elif h.is_file() and h.stat().st_size == 0:
-                zero_files.add(h.name)
+            elif h.is_file():
+                shapes[h.name] = "f"
+                if h.stat().st_size == 0:
+                    zero_files.add(h.name)
+            else:
+                shapes[h.name] = "o"
         except PermissionError:
             continue
-    return empty, zero_files
+    return empty, zero_files, shapes
 
 
-def container_bind_sources() -> dict[str, str]:
-    """hash-or-source -> set of referencing container names (approx via mounts)."""
+def container_bind_sources() -> tuple[dict[str, set[str]], dict[str, tuple[str, str]]]:
+    """Returns (refs, vm_outers):
+    refs: mount-dir hash -> set of referencing container names.
+    vm_outers: outer double-hash -> (inner hash, recorded VM-path source),
+    for mounts whose recorded source is itself a docker-desktop-bind-mounts
+    VM path (the engine hashes THAT path a second time — clickhouse xml
+    mounts 2026-11-24); the outer hash is the mount dir the container
+    actually needs, rebound by binding the inner-hash VM path."""
     ids = docker("ps", "-aq").split()
     refs: dict[str, set[str]] = {}
+    vm_outers: dict[str, tuple[str, str]] = {}
     for cid in ids:
         name = docker("inspect", "-f", "{{.Name}}", cid).strip().lstrip("/")
         mounts = docker("inspect", "-f", "{{json .Mounts}}", cid)
@@ -179,16 +214,18 @@ def container_bind_sources() -> dict[str, str]:
                 if m.get("Type") != "bind":
                     continue
                 src = m.get("Source", "")
-                # hashed engine-side source -> inner hash is the mount dir
                 if f"docker-desktop-bind-mounts/{DISTRO}/" in src:
                     inner = src.rstrip("/").rsplit("/", 1)[-1]
+                    outer = hashlib.sha256(src.encode()).hexdigest()
                     refs.setdefault(inner, set()).add(name)
+                    refs.setdefault(outer, set()).add(name)
+                    vm_outers[outer] = (inner, src)
                 else:
                     h = hashlib.sha256(src.encode()).hexdigest()
                     refs.setdefault(h, set()).add(name)
         except Exception:  # noqa: BLE001
             continue
-    return refs
+    return refs, vm_outers
 
 
 def journal_hash_map() -> dict[str, str]:
@@ -231,14 +268,17 @@ def sha_map() -> dict[str, str]:
 
 def vm_source(src: str) -> str | None:
     """Map a WSL/Windows source path to its path inside the docker-desktop VM."""
-    if src == "/run/docker.sock":
+    if src.rstrip("/").endswith("/docker.sock"):
         return "/run/guest-services/docker.container-proxy.sock"
+    if src.startswith("/run/desktop/mnt/host/wsl/"):
+        # already a VM-side path (outer double-hash rebinds bind this path
+        # itself — its inner-hash mount resolves the real content)
+        return src
     if src.startswith("/mnt/c/") or src.startswith("C:\\") or src.startswith("C:/"):
         # windows path -> /mnt/host/c/...
-        p = src.replace("C:\\", "/mnt/host/c/").replace("C:/", "/mnt/host/c/")
         if src.startswith("/mnt/c/"):
-            p = "/mnt/host/c/" + src[len("/mnt/c/"):]
-        return p
+            return "/mnt/host/c/" + src[len("/mnt/c/"):]
+        return _win_src(src).replace("/mnt/c/", "/mnt/host/c/", 1)
     # ubuntu disk content lives under the fresh /dev/sdd mount
     return "/tmp/ubnt" + src
 
@@ -261,6 +301,8 @@ def build_vm_script(
         if kind == "dir":
             body = [
                 f'umount -l "{target}" 2>/dev/null',
+                f'if [ -f "{target}" ]; then rm -f "{target}"; fi',
+                f'mkdir -p "{target}"',
                 f'mount --bind "{src}" "{target}" && echo "OK {tag} {h[:12]}" || echo "FAIL {tag} {h[:12]}"',
             ]
             # authoritative empty-source guard: /tmp/ubnt sees root-only
@@ -309,16 +351,23 @@ def run_in_vm(script: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _win_src(src: str) -> str:
+    """Normalize a Windows-style source (C:\\x, C:/x, or mixed C:\\x/y — the
+    engine records whichever separator the compose file used) to /mnt/c/x/y."""
+    return src.replace("C:\\", "/mnt/c/").replace("C:/", "/mnt/c/").replace("\\", "/")
+
+
 def source_kind(src: str) -> str:
-    if src == "/run/docker.sock":
+    # /run/docker.sock and its /var/run alias (symlink on Ubuntu) both map
+    # to the VM's docker.container-proxy.sock
+    if src.rstrip("/").endswith("/docker.sock") or src == "docker.sock":
         return "sock"
     # /mnt/c sources: check on the windows side via /mnt/c
     check = src
     if src.startswith("/mnt/c/"):
         check = src  # visible directly in WSL
     elif src.startswith("C:\\") or src.startswith("C:/"):
-        p = src.replace("C:\\", "/mnt/c/").replace("C:/", "/mnt/c/")
-        check = p
+        check = _win_src(src)
     else:
         check = src
     try:
@@ -401,23 +450,12 @@ def main() -> int:
 
     probed = vm_probe()
     if probed is None:
-        empty_dirs, zero_files = empty_hashes()
+        empty_dirs, zero_files, shapes = empty_hashes()
     else:
-        empty_dirs, zero_files = probed
-    suspects = set(empty_dirs) | set(zero_files)
-    if not suspects:
-        return 0  # healthy — cheap exit
+        empty_dirs, zero_files, shapes = probed
 
     state = _load_state()
-    now = time.time()
-    last = state.get("last_rebind", 0)
-    if now - last < MIN_INTERVAL:
-        # still poisoned right after a heal attempt -> alert once, don't loop
-        still = sorted(suspects)
-        alert("rebind-stuck", f"fsbridge still poisoned {int(now-last)}s after rebind — {len(still)} suspect mounts: {', '.join(h[:8] for h in still)}")
-        return 0
-
-    refs = container_bind_sources()
+    refs, vm_outers = container_bind_sources()
     journal = journal_hash_map()
     shas = sha_map()
 
@@ -427,6 +465,51 @@ def main() -> int:
         learned[h] = s
     for h, s in shas.items():
         learned.setdefault(h, s)
+
+    # outer double-hashes bind from their recorded VM-path source; their
+    # expected node kind is the INNER hash's real-source kind
+    kind_override: dict[str, str] = {}
+    for outer, (inner, vsrc) in vm_outers.items():
+        learned.setdefault(outer, vsrc)
+        inner_src = learned.get(inner)
+        if inner_src:
+            kind_override[outer] = source_kind(inner_src)
+
+    def kind_for(h: str, src: str) -> str:
+        return kind_override.get(h) or source_kind(src)
+
+    suspects = set(empty_dirs) | set(zero_files)
+    # wrong-shape + missing poison: a hash dir materializing where the
+    # source is a file/sock (docker start: "mount a directory onto a
+    # file"), a file where a dir is expected, or the node gone entirely.
+    # Invisible to the empty/zero probe — 2026-11-24 wave signature.
+    shape_bad: set[str] = set()
+    for h in refs:
+        src = learned.get(h)
+        if not src:
+            continue
+        want = kind_for(h, src)
+        got = shapes.get(h)  # 'd'|'f'|'o'|None(missing)
+        if got is None:
+            shape_bad.add(h)
+        elif want == "dir" and got != "d":
+            shape_bad.add(h)
+        elif want in ("file", "sock") and got == "d":
+            shape_bad.add(h)
+    suspects |= shape_bad
+    if shape_bad:
+        log(f"shape-suspect mounts (wrong/missing node): {[h[:12] for h in sorted(shape_bad)]}")
+
+    if not suspects:
+        return 0  # healthy — cheap exit
+
+    now = time.time()
+    last = state.get("last_rebind", 0)
+    if now - last < MIN_INTERVAL:
+        # still poisoned right after a heal attempt -> alert once, don't loop
+        still = sorted(suspects)
+        alert("rebind-stuck", f"fsbridge still poisoned {int(now-last)}s after rebind — {len(still)} suspect mounts: {', '.join(h[:8] for h in still)}")
+        return 0
 
     plan: list[tuple[str, str, str]] = []
     unmapped: list[str] = []
@@ -443,7 +526,7 @@ def main() -> int:
             orphans.append(h)
             continue
         # source dir that is itself empty -> hash being empty is NOT poison
-        if source_kind(src) == "dir":
+        if kind_for(h, src) == "dir":
             try:
                 if os.path.isdir(src) and not os.listdir(src):
                     skipped_empty_src.append(h)
@@ -454,7 +537,7 @@ def main() -> int:
         if vm_src is None:
             unmapped.append(h)
             continue
-        plan.append((h, vm_src, source_kind(src)))
+        plan.append((h, vm_src, kind_for(h, src)))
 
     if unmapped:
         log(f"unmapped empty hashes: {[h[:12] for h in unmapped]} — cannot rebind safely")
@@ -497,10 +580,23 @@ def main() -> int:
     # docker start.
     casualties: list[str] = []
     for cid in docker(
-        "ps", "-aq", "--filter", "status=exited", "--filter", "status=restarting"
+        "ps", "-aq",
+        "--filter", "status=exited",
+        "--filter", "status=restarting",
+        "--filter", "status=created",
     ).split():
-        if docker("inspect", "-f", "{{.State.ExitCode}}", cid).strip() == "127":
+        st = docker("inspect", "-f", "{{.State.Status}}|{{.State.ExitCode}}", cid).strip()
+        status, _, code = st.partition("|")
+        if code == "127":
             casualties.append(cid)
+        elif status == "created":
+            # created-but-never-started during the poison wave (2026-11-24:
+            # instagram-private-api) — only compose-managed ones, where
+            # "created" unambiguously means "should be running"
+            if docker("inspect", "-f",
+                      '{{index .Config.Labels "com.docker.compose.project"}}',
+                      cid).strip():
+                casualties.append(cid)
     recreated = 0
     if casualties:
         recreated, still_dead = recreate_casualties(casualties)
