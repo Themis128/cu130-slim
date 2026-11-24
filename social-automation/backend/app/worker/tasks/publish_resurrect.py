@@ -31,7 +31,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.queue import PublishQueue, QueueStatus
@@ -207,16 +207,66 @@ async def _sweep() -> dict:
         for post in orphaned:
             posts_revived += _revive_video_post(post, now)
 
+        # --- Part 4: pending targets orphaned on dead posts ----------------
+        # The publish sweep only claims SCHEDULED posts, so a target left
+        # 'pending' on a terminally-dead post is never consumed (observed
+        # 2026-11-24: bf87a26f's IG target sat pending while its post was
+        # FAILED). FAILED posts younger than the resurrect window keep
+        # their targets — Part 2 may still revive them.
+        dead_post_ids = (
+            (
+                await db.execute(
+                    select(Post.id).where(
+                        or_(
+                            Post.status == PostStatus.ARCHIVED,
+                            and_(
+                                Post.status == PostStatus.FAILED,
+                                Post.created_at < now - _POST_MAX_AGE,
+                            ),
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        targets_skipped = 0
+        if dead_post_ids:
+            orphan_targets = (
+                (
+                    await db.execute(
+                        select(PostTarget).where(
+                            PostTarget.status == "pending",
+                            PostTarget.post_id.in_(dead_post_ids),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for tgt in orphan_targets:
+                tgt.status = "skipped"
+                tgt.error_class = "orphaned_target"
+                tgt.error_message = (
+                    "post terminally dead — orphaned target swept"
+                )
+            targets_skipped = len(orphan_targets)
+
         await db.commit()
 
-    out = {"targets_revived": targets_revived, "posts_revived": posts_revived}
-    if targets_revived or posts_revived:
+    out = {
+        "targets_revived": targets_revived,
+        "posts_revived": posts_revived,
+        "targets_skipped": targets_skipped,
+    }
+    if targets_revived or posts_revived or targets_skipped:
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
             await post_alert_to_slack(
                 ":recycle: publish-resurrect: re-armed "
-                f"{targets_revived} failed target(s), {posts_revived} failed video post(s) "
+                f"{targets_revived} failed target(s), {posts_revived} failed video post(s), "
+                f"skipped {targets_skipped} orphaned target(s) "
                 "(infra-class failures only — content-terminal stays dead)"
             )
         except Exception as exc:  # noqa: BLE001

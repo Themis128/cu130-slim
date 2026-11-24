@@ -376,7 +376,7 @@ def test_sweep_empty(monkeypatch):
     db = _DB([_Result([]), _Result([])])
     _wire(monkeypatch, db)
     out = R.run_publish_resurrect_sweep()
-    assert out == {"targets_revived": 0, "posts_revived": 0}
+    assert out == {"targets_revived": 0, "posts_revived": 0, "targets_skipped": 0}
     assert db.commits == 1
 
 
@@ -493,3 +493,55 @@ def test_sweep_orphan_dispatch_failure_continues(monkeypatch):
 
     assert out["posts_revived"] == 0
     assert post.status == PostStatus.SUPPRESSED
+
+
+# ── sweep: orphaned pending targets on dead posts ───────────────────────
+
+
+def test_sweep_skips_pending_target_on_dead_post(monkeypatch):
+    pid = uuid.uuid4()
+    tgt = SimpleNamespace(
+        post_id=pid,
+        status="pending",
+        error_message=None,
+        error_class=None,
+    )
+    db = _DB(
+        [
+            _Result([]),          # failed_targets
+            _Result([]),          # failed_posts
+            _Result([]),          # orphaned video posts
+            _Result([pid]),       # dead_post_ids
+            _Result([tgt]),       # orphan_targets
+        ]
+    )
+    _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["targets_skipped"] == 1
+    assert tgt.status == "skipped"
+    assert tgt.error_class == "orphaned_target"
+
+
+def test_sweep_no_dead_posts_leaves_targets(monkeypatch):
+    tgt = SimpleNamespace(
+        post_id=uuid.uuid4(),
+        status="pending",
+        error_message=None,
+        error_class=None,
+    )
+    db = _DB(
+        [
+            _Result([]),
+            _Result([]),
+            _Result([]),
+            _Result([]),          # dead_post_ids empty → no target query
+        ]
+    )
+    _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["targets_skipped"] == 0
+    assert tgt.status == "pending"

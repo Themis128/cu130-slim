@@ -62,7 +62,7 @@ from skill_http import social_api, request_status  # noqa: E402
 # scope; they belong to Infisical.
 PLATFORM_CRED_KEYS = [
     # Meta family
-    "FACEBOOK_PASSWORD", "INSTAGRAM_PASSWORD",
+    "FACEBOOK_PASSWORD", "FB_PASSWORD", "INSTAGRAM_PASSWORD",
     "META_TOTP_SECRET", "META_TOTP_SECRET_IG", "META_TOTP_SECRET_AC",
     "FACEBOOK_USERNAME", "INSTAGRAM_USERNAME",
     "FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET",
@@ -91,6 +91,7 @@ PLATFORM_CRED_KEYS = [
 # unknown store-only keys, and so a future .env appearance gets audited).
 KNOWN_STORE_ONLY_KEYS = {
     "FB_USER_TOKEN",
+    "INSTAGRAM_PASSWORD_T_BALTZAKIS",
     "LINKEDIN_MEMBER_DP_TOKEN",
     "MESSENGER_VERIFY_TOKEN",
     "SKOOL_PASSWORD",
