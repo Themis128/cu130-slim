@@ -350,7 +350,7 @@ async def test_webhook_bridge_dm_never_dispatches_ops_command():
     import app.worker.celery_app as CA
 
     req = _signed_request("heal", room="room-bridge-1")
-    sent, replies = [], []
+    sent, replies, forwarded = [], [], []
 
     class _Celery:
         def send_task(self, name, kwargs=None):
@@ -363,6 +363,7 @@ async def test_webhook_bridge_dm_never_dispatches_ops_command():
         return SimpleNamespace(id=1, enabled=True)
 
     async def _sent_ok(room, text):
+        forwarded.append((room, text))
         return True, "ok"
 
     with (
@@ -374,6 +375,7 @@ async def test_webhook_bridge_dm_never_dispatches_ops_command():
     ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
+    assert forwarded == [("room-bridge-1", "heal")]
     assert sent == []
     assert replies == []
 

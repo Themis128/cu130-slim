@@ -174,7 +174,7 @@ def test_norm_synthesizes_hash_key_when_no_ids():
 def test_keyless_newest_first_reverses_and_suffixes_dupes():
     raw = [
         {"ts": "1", "sender": "a", "text": "same"},
-        {"ts": "2", "sender": "a", "text": "same"},
+        {"ts": "1", "sender": "a", "text": "same"},  # identical key → deduped
         {"ts": "3", "sender": "a", "text": "new"},
         "not-a-dict",
     ]
@@ -186,7 +186,7 @@ def test_keyless_newest_first_reverses_and_suffixes_dupes():
 
     out = TB._keyless_newest_first(raw, to_msg)
     assert [m["text"] for m in out] == ["new", "same", "same"]
-    assert out[1]["key"] == "2#2"
+    assert out[1]["key"] == "1#2"
     assert out[2]["key"] == "1"
 
 
