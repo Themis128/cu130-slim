@@ -32,11 +32,23 @@ def code() -> str | None:
     s = secret()
     if not s:
         return None
+    # .env values may be quoted; Meta secrets are 80-bit base32 — under
+    # pyotp's 112-bit floor, so compute with stdlib hmac (any length).
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+    s = s.strip().strip("'\"").replace(" ", "")
     try:
-        import pyotp
-        return pyotp.TOTP(s).now()
-    except ImportError:
-        return "PYOTP_MISSING"
+        key = base64.b32decode(s.upper())
+    except Exception:
+        return "BAD_SECRET_ENCODING"
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    off = digest[-1] & 0x0F
+    return str((struct.unpack(">I", digest[off:off + 4])[0] & 0x7FFFFFFF)
+               % 1000000).zfill(6)
 
 
 def capture() -> str:
