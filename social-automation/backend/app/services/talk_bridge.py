@@ -193,6 +193,8 @@ async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict
             pass
     client = MessengerAPIClient(access_token=token, page_id=account.account_id)
     raw = await client.get_conversation_messages(thread_id, limit=INBOUND_LIMIT)
+    if not isinstance(raw, list):
+        return []
     out = []
     for m in raw:
         frm = m.get("from") or {}
