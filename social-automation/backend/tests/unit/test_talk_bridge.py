@@ -1410,13 +1410,17 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
     team = uuid.uuid4()
     room = _room(last_inbound_key="k2")
     db = _FakeDB([[room], [_acct(id=uuid.UUID(room.account_id))]])
-    msgs = [{"key": "k3", "ours": False, "sender": "A", "text": "new", "attachments": []},
-            {"key": "k2", "ours": False, "sender": "A", "text": "old", "attachments": []},
-            {"key": "k1", "ours": False, "sender": "A", "text": "older", "attachments": []}]
+    msgs = [{"key": "k3", "id": "", "ours": False, "sender": "A", "text": "new", "attachments": []},
+            {"key": "k2", "id": "", "ours": False, "sender": "A", "text": "old", "attachments": []},
+            {"key": "k1", "id": "", "ours": False, "sender": "A", "text": "older", "attachments": []}]
     posted = []
+
+    async def _ok(r, body, db=None):
+        posted.append(body)
+        return True
     with (
         patch.object(TB, "_fetch_messages", AsyncMock(return_value=msgs)),
-        patch.object(TB, "_post", AsyncMock(side_effect=lambda db_, r, body: posted.append(body) or True)),
+        patch.object(TB, "_post", AsyncMock(side_effect=_ok)),
     ):
         out = await TB.inbound_sync(team, session_factory=_sf(db))
     assert out["posted"] == 1 and room.last_inbound_key == "k3"
@@ -1426,13 +1430,13 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
     db2 = _FakeDB([[room2], [_acct(id=uuid.UUID(room2.account_id))]])
     calls = {"n": 0}
 
-    async def _flaky(db_, r, body):
+    async def _flaky(r, body, db=None):
         calls["n"] += 1
         return calls["n"] < 2
     with (
         patch.object(TB, "_fetch_messages", AsyncMock(return_value=[
-            {"key": "a", "ours": False, "sender": "A", "text": "1", "attachments": []},
-            {"key": "b", "ours": False, "sender": "A", "text": "2", "attachments": []},
+            {"key": "a", "id": "", "ours": False, "sender": "A", "text": "1", "attachments": []},
+            {"key": "b", "id": "", "ours": False, "sender": "A", "text": "2", "attachments": []},
         ])),
         patch.object(TB, "_post", AsyncMock(side_effect=_flaky)),
     ):
