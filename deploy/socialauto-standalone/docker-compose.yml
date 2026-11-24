@@ -528,6 +528,10 @@ services:
     container_name: instagram-private-api
     ports:
       - "127.0.0.1:8011:8000"
+    environment:
+      - AIOGRAPI_REST_DB_PATH=/data/db.json
+    volumes:
+      - instagram_sessions:/data
     restart: unless-stopped
 
   # Gateways
@@ -570,3 +574,6 @@ volumes:
   facebook-browser-data:
   messenger-browser-data:
   tiktok-browser-data:
+  instagram_sessions:
+    external: true
+    name: cu130-slim_instagram_sessions

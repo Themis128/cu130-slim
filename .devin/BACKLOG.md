@@ -4758,3 +4758,39 @@ Lessons:
   `INSTAGRAM_PASSWORD` (store + .env same value, REJECTED live) — password
   login paths stay blocked until a real reset lands; emaillogin/reset
   requests are being silently throttled by Meta.
+
+## 2026-11-24 — engine-flap storm retro (merged #2601, leftovers below)
+
+Docker Desktop flapped 3x (02:00 engine-down + ~02:35 guest-services
+re-register + redeploy waves from #2594/#2596/#2597/#2598 merges) →
+fsbridge re-poisoned twice → mass exit-127 casualties → orphaned
+publish-queue claims and ghosted celery renders. Probable trigger:
+`docker_data.vhdx` auto-compact fired 01:03 UTC on C: critical (32GB free)
+— stack-down 5-15min window overlaps the first engine-down. Correlate
+next flap against the compact scheduler before touching .wslconfig.
+
+Landed: #2601 — fsbridge_rebind force-recreates exit-127 casualties per
+compose project (docker start preserves poisoned mount tables);
+publish_resurrect Part 3 revives PUBLISHING/SUPPRESSED posts with
+`media_ids={}` + `last_render_error` + no `pending_video_task` (the
+2026-11-23/24 orphan class — manual recovery no longer needed).
+
+- [ ] **Render resumability** — persist ComfyUI `prompt_id` in
+  `post.meta_data`; `generate_video_asset_task` redelivery currently
+  re-renders from scratch (~40min GPU wasted per kill). Skill draft:
+  `video-render-recovery` already reattaches finished-but-uncommitted
+  renders; resumability closes the mid-flight case.
+- [ ] **Drain-aware deploys** — master-deploy-watch recreates ALL workers
+  per merge, orphaning PROCESSING claims + in-flight renders (25min
+  stale-lock reclaim + 1h redis visibility timeout recover them, slowly).
+  Options: defer worker recreate while `gpu:media_busy`/`media` queue
+  is non-empty, or rolling recreate (media worker last).
+- [ ] **watch: engine flaps ↔ vhdx compact correlation** — if flaps
+  recur without a compact event, root-cause elsewhere (WSL 8.9GB total,
+  host free hit 0.6GB tonight — check Docker Desktop crash logs).
+- [x] Manual recovery of 6 orphaned video posts — re-dispatched via
+  `generate_video_asset_task` + `pending_video_task` arming (DRAFT lane),
+  NOT publish re-queue (publish path only re-arms, doesn't regenerate
+  media — `ecf2a5ec` proved it by suppressing "no media").
+- [x] 3 stale posts self-healed into the same lane (`bf87a26f`,
+  `61d47bda`, `f10294e1`) — resurrect sweep caught them on its own.
