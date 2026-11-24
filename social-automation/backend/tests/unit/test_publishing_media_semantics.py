@@ -150,6 +150,64 @@ async def test_cached_pass_skips_vision_call(monkeypatch, tmp_path):
     qa.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_total_budget_bounds_multi_image_qa(monkeypatch, tmp_path):
+    # 2026-11-24 incident: N images × 90s per-image timeout exceeded the
+    # 120s item deadline → outer wait_for killed publish_to_platform
+    # mid-QA. The total budget must cap cumulative QA wall time.
+    calls = []
+
+    async def _slow(image_bytes, intent, *, media_type="image"):
+        calls.append(1)
+        await asyncio.sleep(30)
+        return {"match": True, "caption": "ok", "reason": "YES", "vision": "dmr"}
+
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", _slow)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TOTAL_BUDGET_S", 1.5)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TIMEOUT_S", 30.0)
+    post = _post(media_ids=["m1", "m2", "m3"])
+    paths = [_img(tmp_path, f"{n}.jpg") for n in "abc"]
+    res = await P._enforce_media_semantics(post, paths, "t")
+    # First check is capped at the remaining ~1.5s budget (per-image 30s
+    # never reached), times out as vision-unavailable, and the loop breaks
+    # — later images never reach vision. Open policy → pass.
+    assert res is None
+    assert len(calls) == 1
+    assert "media_semantic_gate" not in post.platform_specific  # vision-down never caches
+
+
+@pytest.mark.asyncio
+async def test_total_budget_exhausted_closed_policy_skips(monkeypatch, tmp_path):
+    # Budget exhausted mid-loop with on_vision_down=closed: remaining
+    # images degrade to vision-unavailable and the publish is skipped.
+    async def _slow(image_bytes, intent, *, media_type="image"):
+        await asyncio.sleep(30)
+        return {"match": True, "caption": "ok", "reason": "YES", "vision": "dmr"}
+
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", _slow)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TOTAL_BUDGET_S", 1.5)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TIMEOUT_S", 30.0)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_ON_VISION_DOWN", "closed")
+    post = _post(media_ids=["m1", "m2"])
+    paths = [_img(tmp_path, "a.jpg"), _img(tmp_path, "b.jpg")]
+    res = await P._enforce_media_semantics(post, paths, "t")
+    assert res is not None and res.skipped
+    assert "vision unavailable" in res.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_total_budget_disabled_allows_full_per_image(monkeypatch, tmp_path):
+    # <=0 disables the total cap — per-image timeout governs alone.
+    qa = AsyncMock(return_value={"match": True, "caption": "ok", "reason": "YES", "vision": "dmr"})
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", qa)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TOTAL_BUDGET_S", 0)
+    post = _post(media_ids=["m1", "m2"])
+    paths = [_img(tmp_path, "a.jpg"), _img(tmp_path, "b.jpg")]
+    res = await P._enforce_media_semantics(post, paths, "t")
+    assert res is None
+    assert qa.await_count == 2
+
+
 def test_vision_safe_image_bytes_reencodes_non_jpeg(tmp_path):
     """Non-JPEG / oversized sources go through the PIL downscale path and
     come back as JPEG bytes for the vision model."""

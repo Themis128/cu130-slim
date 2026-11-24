@@ -231,8 +231,15 @@ services:
       - default
       - cu130-backend
 
-  # Browser Sidecars (local build images — not published to GHCR)
+  # Browser Sidecars (local build images — not published to GHCR).
+  # On the primary host these run under the ROOT compose project
+  # (docker-compose.yml, project `cu130-slim`) — same container_name here
+  # would collide on every full `compose up -d` (deploy-watch included)
+  # and abort the whole converge. Gated behind the `browser-sidecars`
+  # profile: enable with `--profile browser-sidecars` only on hosts where
+  # the root project does NOT already run them.
   linkedin-browser-sidecar:
+    profiles: ["browser-sidecars"]
     image: cu130-slim-linkedin-browser-sidecar:latest
     pull_policy: never
     container_name: linkedin-browser-sidecar
@@ -252,6 +259,7 @@ services:
     restart: unless-stopped
 
   facebook-browser-sidecar:
+    profiles: ["browser-sidecars"]
     image: cu130-slim-facebook-browser-sidecar:latest
     pull_policy: never
     container_name: facebook-browser-sidecar
