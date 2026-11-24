@@ -343,6 +343,42 @@ async def test_webhook_ignores_foreign_room():
 
 
 @pytest.mark.asyncio
+async def test_webhook_bridge_dm_never_dispatches_ops_command():
+    """A command-like DM in a bridge-mapped room forwards to the platform
+    and must NOT reach the ops-command path or post a bot reply."""
+    import app.services.talk_bridge as TB
+    import app.worker.celery_app as CA
+
+    req = _signed_request("heal", room="room-bridge-1")
+    sent, replies = [], []
+
+    class _Celery:
+        def send_task(self, name, kwargs=None):
+            sent.append(name)
+
+    async def _reply(*a, **kw):
+        replies.append(a)
+
+    async def _mapped(room):
+        return SimpleNamespace(id=1, enabled=True)
+
+    async def _sent_ok(room, text):
+        return True, "ok"
+
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(TB, "room_for_token", _mapped),
+        patch.object(TB, "outbound", _sent_ok),
+        patch.object(CA, "celery_app", _Celery()),
+    ):
+        out = await BOT.talk_bot_webhook(req)
+    assert out == {"ok": True}
+    assert sent == []
+    assert replies == []
+
+
+@pytest.mark.asyncio
 async def test_webhook_heal_dispatches_task():
     req = _signed_request("heal")
     sent = []
