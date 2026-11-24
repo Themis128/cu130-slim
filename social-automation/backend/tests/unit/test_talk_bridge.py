@@ -597,7 +597,7 @@ async def test_li_messages_wraps_keyless():
 
     from app.services import linkedin_sidecar
 
-    with patch.object(linkedin_sidecar, "LinkedInSidecar", lambda: _Sidecar()):
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
         out = await TB._li_messages(acct, "t-1")
     assert out[0]["text"] == "hi"
     assert out[0]["key"] == "1"
@@ -673,7 +673,7 @@ async def test_conversation_list_linkedin():
 
     from app.services import linkedin_sidecar
 
-    with patch.object(linkedin_sidecar, "LinkedInSidecar", lambda: _Sidecar()):
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
         out = await TB._conversation_list(acct)
     assert out[0]["thread_id"] == "li-1"
     assert out[0]["platform"] == "linkedin"
@@ -725,7 +725,7 @@ def test_ig_client_prefers_access_token_enc():
             captured.update(token=access_token, uid=ig_user_id, biz=use_business_login_api)
 
     with (
-        patch.object(security, "decrypt_token", lambda t: "dec-" + t),
+        patch.object(security, "decrypt_token", lambda t: "dec-" + (t.decode() if isinstance(t, bytes) else t)),
         patch.object(instagram_api, "InstagramAPIClient", _Client),
     ):
         TB._ig_client(acct)

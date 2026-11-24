@@ -181,14 +181,14 @@ def _keyless_newest_first(raw: list, to_msg) -> list[dict]:
 
 
 async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict]:
-    from app.services.crypto import decrypt_token
+    from app.core.security import decrypt_token
     from app.services.messenger_api import MessengerAPIClient
 
     meta = account.meta_data or {}
     token = meta.get("page_token") or ""
     if token and not str(token).startswith("EA"):
         try:
-            token = decrypt_token(token)
+            token = decrypt_token(token.encode() if isinstance(token, str) else token)
         except Exception:
             pass
     client = MessengerAPIClient(access_token=token, page_id=account.account_id)
@@ -251,14 +251,15 @@ def _ig_client(account: SocialAccount):
     token = ""
     if account.access_token_enc:
         try:
-            token = decrypt_token(account.access_token_enc)
+            enc = account.access_token_enc
+            token = decrypt_token(enc.encode() if isinstance(enc, str) else enc)
         except Exception:
             token = ""
     if not token:
         token = meta.get("access_token") or meta.get("page_token") or ""
         if token and not str(token).startswith(("EA", "IGA")):
             try:
-                token = decrypt_token(token)
+                token = decrypt_token(token.encode() if isinstance(token, str) else token)
             except Exception:
                 pass
     ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
@@ -296,9 +297,9 @@ async def _ig_messages(account: SocialAccount, thread_id: str) -> list[dict]:
 
 
 async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
-    from app.services.linkedin_sidecar import LinkedInSidecar
+    from app.services.linkedin_sidecar import LinkedInSidecarClient
 
-    sidecar = LinkedInSidecar()
+    sidecar = LinkedInSidecarClient()
     data = await sidecar.get_thread_messages(thread_id)
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
@@ -350,14 +351,14 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
     account_type = (account.account_type or "").lower()
     try:
         if platform == "facebook" and account_type == "page":
-            from app.services.crypto import decrypt_token
+            from app.core.security import decrypt_token
             from app.services.messenger_api import MessengerAPIClient
 
             meta = account.meta_data or {}
             token = meta.get("page_token") or ""
             if token and not str(token).startswith("EA"):
                 try:
-                    token = decrypt_token(token)
+                    token = decrypt_token(token.encode() if isinstance(token, str) else token)
                 except Exception:
                     pass
             client = MessengerAPIClient(access_token=token, page_id=account.account_id)
@@ -413,9 +414,9 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 })
             return out
         if platform == "linkedin":
-            from app.services.linkedin_sidecar import LinkedInSidecar
+            from app.services.linkedin_sidecar import LinkedInSidecarClient
 
-            data = await LinkedInSidecar().get_conversations()
+            data = await LinkedInSidecarClient().get_conversations()
             raw = data.get("conversations") if isinstance(data, dict) else data
             if not isinstance(raw, list):
                 return []
@@ -549,14 +550,14 @@ async def outbound(room_token: str, text: str, session_factory=async_session_mak
 
     try:
         if room.platform == "messenger":
-            from app.services.crypto import decrypt_token
+            from app.core.security import decrypt_token
             from app.services.messenger_api import MessengerAPIClient
 
             meta = account.meta_data or {}
             token = meta.get("page_token") or ""
             if token and not str(token).startswith("EA"):
                 try:
-                    token = decrypt_token(token)
+                    token = decrypt_token(token.encode() if isinstance(token, str) else token)
                 except Exception:
                     pass
             client = MessengerAPIClient(access_token=token, page_id=account.account_id)
@@ -581,9 +582,9 @@ async def outbound(room_token: str, text: str, session_factory=async_session_mak
                 return False, "no recipient id mapped — reply once in the native IG app first"
             await client.send_dm(recipient, text)
         elif room.platform == "linkedin":
-            from app.services.linkedin_sidecar import LinkedInSidecar
+            from app.services.linkedin_sidecar import LinkedInSidecarClient
 
-            await LinkedInSidecar().send_message(room.thread_id, text)
+            await LinkedInSidecarClient().send_message(room.thread_id, text)
         else:
             return False, f"platform {room.platform} not bridged for sending"
     except Exception as e:  # platform errors are the message the user needs
