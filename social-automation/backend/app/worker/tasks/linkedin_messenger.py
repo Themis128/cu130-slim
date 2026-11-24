@@ -167,12 +167,12 @@ async def _capture_contact(account, convo_name: str, text: str) -> str | None:
     email = email_m.group(0).lower() if email_m else None
     phone = " ".join(phone_m.group(0).split()) if phone_m else None
     try:
-        from app.db.session import async_session_maker
         from app.models.lead import LeadSource
         from app.services.leads import create_lead
+        from app.worker._async import task_session
 
         if email:
-            async with async_session_maker() as db:
+            async with task_session() as db:
                 await create_lead(
                     db,
                     team_id=account.team_id,

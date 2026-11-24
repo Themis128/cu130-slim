@@ -25,11 +25,11 @@ def run_inbox_snapshot() -> dict[str, Any]:
 async def _run() -> dict[str, Any]:
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.user import Team
     from app.services.inbox_snapshot import capture
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         teams = (await db.execute(select(Team.id))).scalars().all()
         results = []
         for team_id in teams:

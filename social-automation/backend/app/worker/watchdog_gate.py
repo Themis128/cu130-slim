@@ -34,11 +34,11 @@ def _load_enabled() -> dict[str, bool]:
 
         from sqlalchemy import select
 
-        from app.db.session import async_session_maker
         from app.models.ops_watcher import OpsWatcher, WatcherExecutor
+        from app.worker._async import task_session
 
         async def _q():
-            async with async_session_maker() as db:
+            async with task_session() as db:
                 rows = (await db.execute(select(OpsWatcher.command, OpsWatcher.enabled).where(OpsWatcher.executor == WatcherExecutor.CELERY))).all()
                 return {cmd: en for cmd, en in rows}
 

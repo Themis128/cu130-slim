@@ -77,15 +77,15 @@ def _tiktok_signals() -> list[dict]:
 
 
 async def _run() -> dict:
-    from app.db.session import async_session_maker
     from app.models.trends import TrendSignal
+    from app.worker._async import task_session
 
     today = datetime.date.today().isoformat()
     signals = _google_signals(today) + _tiktok_signals()
     if not signals:
         return {"inserted": 0, "skipped": "no signals"}
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         stmt = pg_insert(TrendSignal).values(signals)
         stmt = stmt.on_conflict_do_nothing(constraint="uq_trend_signal")
         res = await db.execute(stmt)

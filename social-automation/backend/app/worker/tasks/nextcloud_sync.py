@@ -62,11 +62,11 @@ def sync_nextcloud_media(self, folder: str | None = None) -> dict[str, Any]:
 
 async def _sync(folder: str | None) -> dict[str, Any]:
     from app.core.config import get_settings
-    from app.db.session import async_session_maker
     from app.models.content import MediaAsset
     from app.models.user import TeamMember, User
     from app.services.media_sources import MediaSourceError, nextcloud_download, nextcloud_list
     from app.services.media_storage import save_uploaded_media
+    from app.worker._async import task_session
 
     s = get_settings()
     if not getattr(s, "NEXTCLOUD_SYNC_ENABLED", True):
@@ -79,7 +79,7 @@ async def _sync(folder: str | None) -> dict[str, Any]:
         logger.warning("[nc-sync] list failed: %s", e)
         return {"error": str(e)[:200]}
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         u = (await db.execute(select(User))).scalars().first()
         if u is None:
             return {"skipped": "no user"}

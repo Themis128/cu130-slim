@@ -22,10 +22,10 @@ async def _run() -> dict | None:
     if not team_raw:
         return {"skipped": "no public-lead team configured"}
 
-    from app.db.session import async_session_maker
     from app.services.nurture_sequence import nurture_sweep
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         return await nurture_sweep(db, uuid.UUID(team_raw))
 
 

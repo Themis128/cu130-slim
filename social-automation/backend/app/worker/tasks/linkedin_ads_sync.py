@@ -15,10 +15,10 @@ def sync_linkedin_ads(self):
 
 
 async def _run():
-    from app.db.session import async_session_maker
     from app.services import linkedin_ads
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         snap = await linkedin_ads.snapshot(db)
         await db.commit()
     logger.info("[li-ads] %s", snap)

@@ -17,13 +17,13 @@ def sync_linkedin_leads(self):
 async def _run():
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.lead import Lead, LeadSource
     from app.models.social_account import SocialAccount
     from app.services import linkedin_ads
+    from app.worker._async import task_session
 
     new = 0
-    async with async_session_maker() as db:
+    async with task_session() as db:
         acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().first()
         accs = await linkedin_ads.ad_accounts(db)
         for a in accs:

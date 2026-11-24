@@ -23,11 +23,11 @@ def compact_ledger(self, days: int = 30):
 async def _run(days: int):
     import datetime as dt
 
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementAction, EngagementCandidate
+    from app.worker._async import task_session
 
     cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=days)
-    async with async_session_maker() as db:
+    async with task_session() as db:
         a = await db.execute(update(EngagementAction).where(EngagementAction.created_at < cutoff).values(comment_draft=None))
         c = await db.execute(update(EngagementCandidate).where(EngagementCandidate.ingested_at < cutoff).values(post_text=""))
         await db.commit()

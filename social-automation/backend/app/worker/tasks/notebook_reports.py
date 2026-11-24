@@ -58,10 +58,10 @@ async def _fallback_strategy(parameters: dict[str, Any], *, send: bool) -> Any:
 
 
 async def _fallback_monetization(parameters: dict[str, Any], *, send: bool) -> Any:
-    from app.db.session import async_session_maker
     from app.services.monetization_report import run_monetization_report_for_all_teams
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         return await run_monetization_report_for_all_teams(
             db,
             insight_days=parameters.get("insight_days", 30),

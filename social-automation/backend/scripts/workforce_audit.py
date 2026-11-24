@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text  # noqa: E402
 
-from app.db.session import async_session_maker  # noqa: E402
+from app.worker._async import task_session  # noqa: E402
 
 
 @dataclass
@@ -1105,7 +1105,7 @@ async def audit(persist: bool = True) -> dict:
         "inspect_ok": inspect_ok,
         "workers": [],
     }
-    async with async_session_maker() as db:
+    async with task_session() as db:
         for w in WORKFORCE:
             governed = bool(w.goal and w.guardrails and w.fallback)
             entry: dict[str, Any] = {
