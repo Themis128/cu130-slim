@@ -83,6 +83,7 @@ class _ACM:
 
 def _use_db(monkeypatch, db):
     monkeypatch.setattr(SESSION, "async_session_maker", lambda: _ACM(db))
+    monkeypatch.setattr(WA, "task_session", lambda: _ACM(db))
     return db
 
 
