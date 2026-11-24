@@ -82,6 +82,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_engagement_score",
         "app.worker.tasks.linkedin_lead_boost",
         "app.worker.tasks.linkedin_portability_sync",
+        "app.worker.tasks.linkedin_demographics",
         "app.worker.tasks.token_expiry",
         "app.worker.tasks.tiktok_reauth",
         "app.worker.tasks.threads_reauth",
@@ -409,6 +410,7 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
         "app.worker.tasks.linkedin_portability_sync.sync_linkedin_portability": {"queue": "default"},
+        "app.worker.tasks.linkedin_demographics.sync_linkedin_demographics": {"queue": "default"},
         "app.worker.tasks.linkedin_conversion_audit.audit_linkedin_conversions": {"queue": "default"},
         "app.worker.tasks.linkedin_dmp_sync.sync_linkedin_dmp_audiences": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement.engage_linkedin_watchlist": {"queue": "default"},
@@ -1262,6 +1264,13 @@ celery_app.conf.update(
         "linkedin-portability-sync": {
             "task": "app.worker.tasks.linkedin_portability_sync.sync_linkedin_portability",
             "schedule": crontab(hour=9, minute=30),
+        },
+        # Org follower demographics + page stats via the Community
+        # Management token (r_organization_followers / r_organization_social)
+        # — the free sanctioned lane that replaces Windsor.ai's paid pull.
+        "linkedin-demographics": {
+            "task": "app.worker.tasks.linkedin_demographics.sync_linkedin_demographics",
+            "schedule": crontab(hour=9, minute=45),
         },
         "media-backfill": {
             "task": "app.worker.tasks.consent_healers.media_backfill",
