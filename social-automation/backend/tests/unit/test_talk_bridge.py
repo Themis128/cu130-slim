@@ -1062,3 +1062,188 @@ async def test_worker_run_disabled_and_per_team():
     assert out["teams"] == 2
     assert out["results"][0]["posted"] == 2
     assert "db down" in out["results"][1]["error"]
+
+
+# ── coverage batch 3 ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fb_page_messages_decrypts_non_ea_token():
+    acct = _acct(meta_data={"page_token": "enc:secret"})
+
+    class _C:
+        def __init__(self, access_token, page_id):
+            self.access_token = access_token
+        async def get_conversation_messages(self, tid, limit=0):
+            return [{"id": "m1", "from": {"id": "page-1", "name": "Page"}, "message": "hi"}]
+    from app.services import messenger_api
+    with (
+        patch.object(messenger_api, "MessengerAPIClient", _C),
+        patch("app.core.security.decrypt_token", return_value="EAtoken"),
+    ):
+        out = await TB._fb_page_messages(acct, "t1")
+    assert out[0]["ours"] is True
+
+    # decrypt raises → raw token still used
+    with (
+        patch.object(messenger_api, "MessengerAPIClient", _C),
+        patch("app.core.security.decrypt_token", side_effect=RuntimeError("bad")),
+    ):
+        out = await TB._fb_page_messages(acct, "t1")
+    assert out[0]["ours"] is True
+
+
+@pytest.mark.asyncio
+async def test_ig_client_decrypt_and_fallback_paths():
+    acct = _acct(platform="instagram", access_token_enc=b"enc", meta_data={})
+    from app.services import instagram_api
+
+    class _C:
+        def __init__(self, access_token, ig_user_id, use_business_login_api):
+            self.access_token = access_token
+
+    with (
+        patch.object(instagram_api, "InstagramAPIClient", _C),
+        patch("app.core.security.decrypt_token", side_effect=RuntimeError("bad")),
+        patch.dict("os.environ", {"INSTAGRAM_USE_BUSINESS_LOGIN_API": "true"}),
+    ):
+        client = TB._ig_client(acct)
+    assert client.access_token == ""  # decrypt failed, no meta token
+
+    acct2 = _acct(platform="instagram", access_token_enc=None,
+                  meta_data={"access_token": "opaque"})
+    with (
+        patch.object(instagram_api, "InstagramAPIClient", _C),
+        patch("app.core.security.decrypt_token", return_value="IGAtok"),
+        patch.dict("os.environ", {"INSTAGRAM_USE_BUSINESS_LOGIN_API": "true"}),
+    ):
+        client2 = TB._ig_client(acct2)
+    assert client2.access_token == "IGAtok"
+
+
+@pytest.mark.asyncio
+async def test_li_messages_no_self_name_marks_none_ours():
+    acct = _acct(platform="linkedin", display_name="Me")
+
+    class _S:
+        async def get_thread_messages(self, tid):
+            return {"messages": [{"ts": "1", "sender": "Me", "text": "hi"}]}
+        async def get_profile(self):
+            raise RuntimeError("scrape down")
+    from app.services import linkedin_sidecar
+    TB._li_self["name"] = None
+    TB._li_self["at"] = 0.0
+    try:
+        with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
+            out = await TB._li_messages(acct, "t1")
+    finally:
+        TB._li_self["name"] = None
+        TB._li_self["at"] = 0.0
+    assert out[0]["ours"] is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_messages_dispatches_all_platforms():
+    acct = _acct()
+    with (
+        patch.object(TB, "_fb_personal_messages", AsyncMock(return_value=[{"id": "x"}])) as pm,
+        patch.object(TB, "_ig_messages", AsyncMock(return_value=[{"id": "x"}])) as ig,
+        patch.object(TB, "_li_messages", AsyncMock(return_value=[{"id": "x"}])) as li,
+    ):
+        assert await TB._fetch_messages(acct, _room(platform="personal_messenger")) == [{"id": "x"}]
+        assert await TB._fetch_messages(acct, _room(platform="instagram")) == [{"id": "x"}]
+        assert await TB._fetch_messages(acct, _room(platform="linkedin")) == [{"id": "x"}]
+    assert pm.called and ig.called and li.called
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_page_decrypt_and_personal_filter():
+    acct = _acct(meta_data={"page_token": "enc:t"})
+
+    class _C:
+        def __init__(self, *a, **kw):
+            pass
+        async def get_conversations(self, platform=None, limit=0):
+            return [{"id": "c1", "participants": {"data": [{"id": "page-1"}, {"id": "u2", "name": "Ann"}]}}]
+    from app.services import messenger_api
+    with (
+        patch.object(messenger_api, "MessengerAPIClient", _C),
+        patch("app.core.security.decrypt_token", return_value="EA"),
+    ):
+        out = await TB._conversation_list(acct)
+    assert out[0]["recipient_id"] == "u2"
+
+    acct2 = _acct(account_type="user")
+
+    class _B:
+        def __init__(self, *a, **kw):
+            pass
+        async def get_personal_messenger_conversations(self):
+            return {"conversations": ["junk", {"thread_id": "t9", "name": "Bob"}]}
+    with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
+        out2 = await TB._conversation_list(acct2)
+    assert out2 == [{"thread_id": "t9", "contact_name": "Bob", "recipient_id": "t9",
+                     "is_e2ee": False, "platform": "personal_messenger"}]
+
+
+@pytest.mark.asyncio
+async def test_sync_rooms_skips_empty_thread_and_failed_create():
+    acct = _acct()
+    db = _FakeDB([[acct]])
+    convs = [{"thread_id": "", "contact_name": "X", "recipient_id": "", "is_e2ee": False, "platform": "messenger"},
+             {"thread_id": "t2", "contact_name": "Y", "recipient_id": "u", "is_e2ee": False, "platform": "messenger"}]
+    with (
+        patch.object(TB, "_conversation_list", AsyncMock(return_value=convs)),
+        patch.object(TB, "create_room", AsyncMock(return_value="")),
+    ):
+        out = await TB.sync_rooms(uuid.uuid4(), session_factory=_sf(db))
+    assert out == {"created": 0, "mapped": 0}
+
+
+@pytest.mark.asyncio
+async def test_sync_rooms_rebind_updates_contact_and_recipient():
+    acct = _acct()
+    room = _room(account_id="other", contact_name="Old", recipient_id="", last_inbound_key=None)
+    db = _FakeDB([[acct], [room]])  # hmm: _room_for queries inside — fake returns room
+    convs = [{"thread_id": "t-1", "contact_name": "New", "recipient_id": "psid-9",
+              "is_e2ee": False, "platform": "messenger"}]
+    with (
+        patch.object(TB, "_conversation_list", AsyncMock(return_value=convs)),
+        patch.object(TB, "_room_for", AsyncMock(return_value=room)),
+    ):
+        out = await TB.sync_rooms(uuid.uuid4(), session_factory=_sf(db))
+    assert out == {"created": 0, "mapped": 1}
+    assert room.contact_name == "New" and room.recipient_id == "psid-9"
+    assert room.account_id == str(acct.id)
+
+
+@pytest.mark.asyncio
+async def test_outbound_muted_and_success_analytics_failure():
+    room = _room(enabled=False)
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
+    ):
+        ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(_FakeDB([])))
+    assert ok is False and msg == "bridge muted for this room"
+
+    # success path tolerates analytics write failure
+    room2 = _room()
+    acct = _acct(id=uuid.UUID(room2.account_id))
+    db = _FakeDB([[acct]])
+    sent = []
+
+    class _C:
+        def __init__(self, *a, **kw):
+            pass
+        async def send_text(self, recipient, text):
+            sent.append(text)
+    from app.services import messenger_api
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
+        patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
+        patch.object(messenger_api, "MessengerAPIClient", _C),
+        patch.object(TB, "_log_event", AsyncMock(side_effect=RuntimeError("db gone"))),
+    ):
+        ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db))
+    assert ok2 is True and msg2 == "sent" and sent == ["hi"]
