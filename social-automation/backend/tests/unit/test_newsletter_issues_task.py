@@ -38,7 +38,7 @@ async def test_dispatch_one_success(monkeypatch):
     issue = _issue(title="Pub", status=NewsletterIssueStatus.PUBLISHING)
     updated = _issue(status=NewsletterIssueStatus.PUBLISHED)
 
-    async def fake_publish(i):
+    async def fake_publish(i, db=None):
         return {"published": True, "article_url": "https://x/pulse/a/"}, "sidecar", []
 
     async def fake_record(db, iid, result, via):
@@ -56,7 +56,7 @@ async def test_dispatch_one_failure_and_missing(monkeypatch):
     _patch_session(monkeypatch)
     issue = _issue(title="Fail", status=NewsletterIssueStatus.PUBLISHING)
 
-    async def boom(i):
+    async def boom(i, db=None):
         raise RuntimeError("sidecar exploded")
 
     failed = _issue(status=NewsletterIssueStatus.QUEUED)
@@ -73,7 +73,7 @@ async def test_dispatch_one_failure_and_missing(monkeypatch):
     async def none_record(db, iid, result, via):
         return None
 
-    async def ok_publish(i):
+    async def ok_publish(i, db=None):
         return {"published": True}, "bridge", []
 
     monkeypatch.setattr(pub, "publish_stored_issue", ok_publish)

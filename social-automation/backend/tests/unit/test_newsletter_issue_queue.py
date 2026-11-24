@@ -437,3 +437,122 @@ async def test_publish_stored_issue_rendered_and_explicit_cover(monkeypatch):
     issue2.render_cover = False
     await pub.publish_stored_issue(issue2)
     assert seen["cover_base64"] == "QUJD"
+
+
+# ── publisher: resolve_media_items ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_items_none_and_passthrough(monkeypatch):
+    import app.services.newsletter_publisher as pub
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MEDIA_PUBLIC_BASE_URL", "https://media.test")
+    monkeypatch.setattr(settings, "R2_PUBLIC_URL", "")
+
+    assert await pub.resolve_media_items(None, None) == []
+    assert await pub.resolve_media_items(None, []) == []
+
+    out = await pub.resolve_media_items(None, [
+        42,  # non-dict entries are dropped, never fatal
+        {"type": "video", "url": "https://media.test/v.mp4", "filename": "v.mp4"},
+        {"type": "image", "base64": "QUJD", "filename": "a.png"},
+        {"base64": "QUJD"},  # no type -> image
+        {"type": "image", "url": "https://evil.example/x.png"},  # SSRF guard drop
+        {"type": "image", "url": "ftp://media.test/x.png"},  # bad scheme
+        {"type": "image", "url": "notaurl"},  # no hostname
+        {"type": "image", "url": "https://media.test/x.png", "base64": "QUJD"},  # base64 wins, url unchecked
+    ])
+    assert out == [
+        {"type": "video", "base64": None, "url": "https://media.test/v.mp4", "filename": "v.mp4"},
+        {"type": "image", "base64": "QUJD", "url": None, "filename": "a.png"},
+        {"type": "image", "base64": "QUJD", "url": None, "filename": None},
+        {"type": "image", "base64": "QUJD", "url": "https://media.test/x.png", "filename": None},
+    ]
+
+
+def test_media_url_allowed_branches(monkeypatch):
+    import app.services.newsletter_publisher as pub
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MEDIA_PUBLIC_BASE_URL", "media.test")  # no scheme -> https assumed
+    monkeypatch.setattr(settings, "R2_PUBLIC_URL", "https://r2.test/")
+
+    assert pub._media_url_allowed("https://media.test/x.png") is True
+    assert pub._media_url_allowed("https://r2.test/x.png") is True
+    assert pub._media_url_allowed("https://other.test/x.png") is False
+
+    monkeypatch.setattr(settings, "MEDIA_PUBLIC_BASE_URL", "")
+    monkeypatch.setattr(settings, "R2_PUBLIC_URL", "")
+    assert pub._media_url_allowed("https://media.test/x.png") is False
+
+    monkeypatch.setattr(settings, "R2_PUBLIC_URL", "https://[bad")  # unparseable base skipped
+    assert pub._media_url_allowed("https://r2.test/x.png") is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_items_asset_paths(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.services.media_dedup as dedup
+    import app.services.newsletter_publisher as pub
+
+    asset = SimpleNamespace(filename="a.png")
+    db = _FakeDB(results=[_FakeResult(obj=asset)])
+    async def fake_load(a):
+        return b"PNG"
+
+    monkeypatch.setattr(dedup, "load_asset_bytes", fake_load)
+
+    out = await pub.resolve_media_items(db, [{"type": "image", "asset_id": "x"}])
+    assert out == [{"type": "image", "base64": "UE5H", "filename": "a.png"}]
+
+    db3 = _FakeDB(results=[_FakeResult(obj=asset)])
+    out = await pub.resolve_media_items(db3, [{"asset_id": "x", "filename": "custom.png"}])
+    assert out[0]["filename"] == "custom.png"
+
+    # asset lookup miss -> dropped
+    assert await pub.resolve_media_items(
+        _FakeDB(results=[_FakeResult(obj=None)]), [{"asset_id": "x"}]
+    ) == []
+    # no db session -> asset_id items cannot resolve
+    assert await pub.resolve_media_items(None, [{"asset_id": "x"}]) == []
+
+    async def boom(a):
+        raise RuntimeError("io")
+
+    monkeypatch.setattr(dedup, "load_asset_bytes", boom)
+    assert await pub.resolve_media_items(
+        _FakeDB(results=[_FakeResult(obj=asset)]), [{"asset_id": "x"}]
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_publish_stored_issue_forwards_media(monkeypatch):
+    import app.services.newsletter_cover as cover
+    import app.services.newsletter_publisher as pub
+
+    seen = {}
+
+    async def fake_fallback(**kw):
+        seen.update(kw)
+        return {"published": True}, "sidecar", []
+
+    monkeypatch.setattr(pub, "publish_with_fallback", fake_fallback)
+    monkeypatch.setattr(cover, "render_newsletter_cover", lambda *a, **k: b"PNG")
+
+    issue = _issue(title="Media")
+    issue.cover_base64 = "QUJD"
+    issue.render_cover = False
+    issue.result = {pub.MEDIA_SPEC_KEY: [{"type": "image", "base64": "QUJD"}]}
+    await pub.publish_stored_issue(issue, None)
+    assert seen["media"] == [
+        {"type": "image", "base64": "QUJD", "url": None, "filename": None}
+    ]
+
+    issue2 = _issue(title="NoMedia")
+    issue2.cover_base64 = "QUJD"
+    issue2.render_cover = False
+    issue2.result = {}
+    await pub.publish_stored_issue(issue2, None)
+    assert seen["media"] is None

@@ -151,6 +151,11 @@ class LinkedInIssueRequest(BaseModel):
     issue_number: int | None = Field(default=None, ge=1)
     category: str | None = Field(default=None, max_length=64)
     min_words: int = Field(default=0, ge=0, le=20000)
+    # Inline media appended at the end of the article body (sidecar's
+    # "Add image or video" dialog): [{type:"image"|"video", asset_id?}|
+    # {type, base64, filename?}|{type, url, filename?}]. Queued issues keep
+    # the spec in result["_media"]; asset_id entries resolve at dispatch.
+    media: list[dict] | None = None
     dry_run: bool = False
     # Browser path: the dedicated sidecar is primary; on failure "auto"
     # falls back to the shared browser-novnc bridge session (which holds a
@@ -293,6 +298,7 @@ async def linkedin_issue(
             seo_description=(resolved.seo_description or "")[:300] or None,
             schedule_iso=body.schedule_iso,
             post_description=resolved.post_description,
+            media=await newsletter_publisher.resolve_media_items(db, body.media),
             dry_run=body.dry_run,
             browser=body.browser,
         )
@@ -416,6 +422,10 @@ async def enqueue_newsletter_issue(
         cover_base64=body.cover_base64,
         render_cover=body.render_cover,
     )
+
+    if body.media:
+        issue.result = {**(issue.result or {}), newsletter_publisher.MEDIA_SPEC_KEY: body.media}
+        await db.commit()
 
     due = body.dispatch_now or (scheduled_for is None) or (scheduled_for is not None and scheduled_for <= datetime.now(UTC))
     if created and issue.status.value == "queued" and due:

@@ -49,6 +49,8 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { chromium } from "patchright";
+import dns from "node:dns/promises";
+import net from "node:net";
 import fs from "fs";
 import path from "path";
 import {
@@ -558,6 +560,93 @@ function saveDebugScreenshot(shot, prefix = "debug") {
   const p = path.join(dir, "shot.png");
   fs.writeFileSync(p, shot, { mode: 0o600 });
   return p;
+}
+
+// ── SSRF guard for caller-supplied media URLs ────────────────────────────
+// Media items may carry {url} instead of base64 (large video). The sidecar
+// fetches those server-side, so the URL must be proven public: http(s)
+// only, no loopback/private/link-local/metadata hosts or IPs — checked on
+// the literal AND every DNS answer (rebinding-safe at fetch time is out of
+// scope; this kills the obvious internal-target class).
+
+const PRIVATE_HOSTNAMES = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "instance-data",
+]);
+const PRIVATE_HOST_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".internal",
+  ".lan",
+  ".home",
+  ".corp",
+  ".home.arpa",
+];
+
+function isPrivateIPv4(ip) {
+  const p = ip.split(".").map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return true; // unparseable → treat as private
+  }
+  const [a, b] = p;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) || // link-local + cloud metadata
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) || // CGNAT
+    (a === 198 && (b === 18 || b === 19)) || // benchmark
+    a >= 224 // multicast + reserved
+  );
+}
+
+function isPrivateIPv6(ip) {
+  const s = ip.toLowerCase();
+  if (s === "::1" || s === "::") return true;
+  if (s.startsWith("fc") || s.startsWith("fd")) return true; // ULA fc00::/7
+  if (/^fe[89ab]/.test(s)) return true; // link-local fe80::/10
+  // IPv4-mapped ::ffff:a.b.c.d
+  const m = s.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) return isPrivateIPv4(m[1]);
+  return false;
+}
+
+function isPrivateIp(ip) {
+  const v = net.isIP(ip);
+  if (v === 4) return isPrivateIPv4(ip);
+  if (v === 6) return isPrivateIPv6(ip);
+  return true;
+}
+
+async function assertPublicMediaUrl(rawUrl) {
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    throw new Error("media url is not a valid URL");
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    throw new Error(`media url scheme not allowed: ${u.protocol}`);
+  }
+  const host = u.hostname.toLowerCase();
+  if (
+    PRIVATE_HOSTNAMES.has(host) ||
+    PRIVATE_HOST_SUFFIXES.some((s) => host.endsWith(s))
+  ) {
+    throw new Error(`media url host not allowed: ${host}`);
+  }
+  // IP literal → check directly; hostname → resolve and check every answer.
+  const literal = net.isIP(host) ? host : null;
+  const addresses = literal
+    ? [literal]
+    : (await dns.lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+  if (!addresses.length || addresses.some(isPrivateIp)) {
+    throw new Error(`media url resolves to a non-public address: ${host}`);
+  }
+  return u.toString();
 }
 
 /** Save a Buffer to a private temp file under /data (mkdtemp + mode 0o600). */
@@ -3982,6 +4071,7 @@ async function handleNewsletterPublish(body) {
     seo_description,
     schedule_iso,
     post_description,
+    media,
     dry_run,
   } = body;
 
@@ -4017,6 +4107,26 @@ async function handleNewsletterPublish(body) {
     })
     .catch(() => {});
   step("editor-nav");
+  await page.waitForTimeout(4000).catch(() => {});
+
+  // 2026-11-24: for members who own a newsletter, bare /article/new/ can
+  // redirect (sometimes mid-edit) to the newsletter admin page. The stable
+  // entry is that page's "Create new edition" button, which lands on an
+  // /article/new/?author=… URL that does not bounce.
+  if (newsletter_name !== "individual" && page.url().includes("/newsletters/")) {
+    const cne = await findElement(
+      [
+        'button:has-text("Create new edition")',
+        'a:has-text("Create new edition")',
+      ],
+      { timeout: 10000 },
+    );
+    if (cne) {
+      await cne.click();
+      step("create-new-edition");
+      await page.waitForTimeout(3000);
+    }
+  }
 
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
@@ -4251,6 +4361,175 @@ async function handleNewsletterPublish(body) {
   }
   await page.waitForTimeout(1500);
   step("body-filled");
+
+  // ── 4b. Inline media — toolbar "Add image or video" dialog ─────────────
+  // `media` is [{type:"image"|"video", base64?, url?, filename?}] appended
+  // at the end of the article body. Verified 2026-11-24: the toolbar's
+  // image icon opens an "Add image or video" dialog whose hidden
+  // input[type=file] accepts images AND video/* (mp4/webm/mov…). Items
+  // that fail are logged and skipped — media never blocks the publish.
+  if (Array.isArray(media) && media.length) {
+    for (const [i, m] of media.entries()) {
+      let mediaTmp = null;
+      try {
+        // Resolve bytes: base64 payload wins; otherwise fetch the URL here
+        // (the sidecar has network — backend passes public URLs only).
+        let buf = null;
+        let fname = m.filename || `media-${i + 1}`;
+        if (m.base64) {
+          buf = Buffer.from(m.base64, "base64");
+        } else if (m.url) {
+          // Manual redirect following — every hop is re-validated so a
+          // public URL can't bounce the fetch to an internal target.
+          let fetchUrl = await assertPublicMediaUrl(String(m.url));
+          let resp = null;
+          for (let hop = 0; hop < 6; hop++) {
+            resp = await fetch(fetchUrl, {
+              redirect: "manual",
+              signal: AbortSignal.timeout(60000),
+            });
+            if (resp.status < 300 || resp.status >= 400) break;
+            const loc = resp.headers.get("location");
+            if (!loc) break;
+            fetchUrl = await assertPublicMediaUrl(new URL(loc, fetchUrl).toString());
+          }
+          if (!resp) throw new Error("media fetch failed");
+          if (!resp.ok) throw new Error(`media fetch ${resp.status}`);
+          buf = Buffer.from(await resp.arrayBuffer());
+          try {
+            fname = m.filename || path.basename(new URL(m.url).pathname) || fname;
+          } catch (_) {}
+        }
+        if (!buf || !buf.length) throw new Error("media item needs base64 or url");
+        mediaTmp = bufferToTempFile(buf, fname);
+
+        // Focus the end of the body so media appends after the text.
+        await bodyEditor.click().catch(() => {});
+        await page.keyboard.press("Control+End").catch(() => {});
+        await page.waitForTimeout(500);
+
+        const imgBtn = await findElement(
+          [
+            'button.scaffold-formatted-text-editor-icon-button:has(svg[data-test-icon="image-medium"])',
+            'button:has(svg[data-test-icon="image-medium"])',
+          ],
+          { timeout: 6000 },
+        );
+        if (!imgBtn) throw new Error("image/video insert button not found");
+        await imgBtn.click();
+        // The "Add image or video" dialog can take a few seconds to mount —
+        // poll rather than fixed-sleep.
+        let dlgOpen = false;
+        for (let t = 0; t < 20 && !dlgOpen; t++) {
+          dlgOpen = await page
+            .evaluate(
+              () =>
+                !!document.querySelector(
+                  '[role="dialog"] input[type="file"]',
+                ),
+            )
+            .catch(() => false);
+          if (!dlgOpen) await page.waitForTimeout(500);
+        }
+        if (!dlgOpen) throw new Error("media dialog did not open");
+
+        // The dialog renders a hidden input[type=file] — set it directly.
+        const fi = await findElement(
+          ['[role="dialog"] input[type="file"]'],
+          { timeout: 3000, visible: false },
+        );
+        if (fi) {
+          await fi.setInputFiles(mediaTmp);
+        } else {
+          const up = await findElement(
+            ['button:has-text("Upload from computer")'],
+            { timeout: 5000 },
+          );
+          if (!up) throw new Error("media upload control not found");
+          const [chooser] = await Promise.all([
+            page.waitForEvent("filechooser", { timeout: 8000 }),
+            up.click(),
+          ]);
+          await chooser.setFiles(mediaTmp);
+        }
+
+        // Verified 2026-11-24 live: after the file is set the dialog shows
+        // the preview with Next enabled — the media node only lands in
+        // ProseMirror AFTER clicking Next (upload-first-then-confirm, like
+        // the cover flow). Video can sit in a processing step longer.
+        const isVideo = (m.type || "").toLowerCase() === "video";
+        const deadline = Date.now() + (isVideo ? 300000 : 90000);
+        let confirmed = false;
+        while (Date.now() < deadline) {
+          const state = await page
+            .evaluate(() => {
+              const node = document.querySelector(
+                ".ProseMirror figure, .ProseMirror video, .ProseMirror img, " +
+                  ".ProseMirror iframe, .ProseMirror [data-media], " +
+                  ".ProseMirror [class*='media']",
+              );
+              const dlg = document.querySelector('[role="dialog"]');
+              const btn = dlg
+                ? [...dlg.querySelectorAll("button")].find((b) =>
+                    /^(next|apply|done|save)$/i.test(
+                      (b.innerText || "").trim(),
+                    ),
+                  )
+                : null;
+              return {
+                inDoc: !!node,
+                dlgOpen: !!dlg,
+                canConfirm: !!(btn && !btn.disabled),
+              };
+            })
+            .catch(() => ({ inDoc: false, dlgOpen: false, canConfirm: false }));
+          if (state.inDoc) { confirmed = true; break; }
+          if (state.dlgOpen && state.canConfirm) {
+            const btn = await findElement(
+              [
+                '[role="dialog"] button:has-text("Next")',
+                '[role="dialog"] button:has-text("Apply")',
+                '[role="dialog"] button:has-text("Done")',
+                '[role="dialog"] button:has-text("Save")',
+              ],
+              { timeout: 1500 },
+            );
+            if (btn) await btn.click().catch(() => {});
+          }
+          await page.waitForTimeout(2500);
+        }
+        if (!confirmed)
+          throw new Error(`${m.type || "media"} did not land in the article`);
+        step(`media-${i + 1}-uploaded`);
+      } catch (err) {
+        agentLog(
+          "H-NL",
+          "newsletter/publish",
+          `media ${i + 1} failed: ${err.message}`,
+          {},
+        );
+        // Surface the reason in steps — agentLog is a stub here.
+        steps.push(
+          `media-${i + 1}-failed:${String(err.message || err).slice(0, 80)}`,
+        );
+        // Dismiss any half-open dialog so the next step starts clean —
+        // Escape does not close this dialog; its "Dismiss" button does.
+        const dismiss = await findElement(
+          [
+            '[role="dialog"] button:has-text("Dismiss")',
+            '[role="dialog"] button[aria-label*="Dismiss"]',
+          ],
+          { timeout: 2000 },
+        );
+        if (dismiss) await dismiss.click().catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(500);
+      } finally {
+        cleanupTempFile(mediaTmp);
+      }
+    }
+    step("media-done");
+  }
 
   // ── 5. SEO fields — verified: Manage menu → Settings → seoTitle/seoDescription
   if (seo_title || seo_description) {

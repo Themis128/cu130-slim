@@ -109,6 +109,8 @@ rm -f .deploy.lock                                                 # release
 - If `.deploy.lock` exists and is fresh and you didn't create it, another agent is deploying: **wait, don't deploy on top of it**.
 - `.deploy.lock` is git-ignored.
 
+**Ops control plane (2026-11-24)** — `ops_watchers` + `ops_services` registries are the source of truth for every watchdog/healer/service across celery, host cron, heal_supervisor, compose, Windows tasks, OMV, and n8n (~432 rows). `enabled`/`managed_by` drive a real kill-switch for celery beats (`watchdog_gate`) and host-agent commands; host-side `watcher_agent.py`/`service_agent.py` execute only registry-approved actions (`meta.allowed_actions` — critical infra is observe-only). The healers in the table above still run; the registry observes them until rows flip `managed_by=platform`. Architecture: `docs/ops/ops-control-plane.md`; operator CLI: `.devin/skills/ops-control-plane-ops/scripts/ops_ctl.py`.
+
 **Watchdog limits** (env-overridable): max 3 restarts per container per hour with 1/5/15-min backoff, then one Slack alert and hands off; `docker desktop restart` max 2/day; a crash loop whose logs show alembic / `Can't locate revision` / migration errors is **not** restarted — the watchdog runs `docker update --restart=no` and alerts once. After fixing, `rm ~/.local/state/compose-watchdog/migration-<container>` and `docker update --restart=unless-stopped <container>`. State: `~/.local/state/compose-watchdog/`; log: `logs/watchdog.log`.
 
 ## Notification archive → incident resolution (2026-11-19)
