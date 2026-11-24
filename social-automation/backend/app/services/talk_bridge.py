@@ -496,7 +496,7 @@ async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) 
             # retried, delivered ones never repost.
             if last_posted_key:
                 room.last_inbound_key = last_posted_key
-        await db.commit()
+                await db.commit()  # per-room: a crash must not replay delivered messages
     return {"posted": posted}
 
 
