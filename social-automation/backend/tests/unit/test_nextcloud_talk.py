@@ -250,7 +250,7 @@ class _Req:
 def _signed_request(text: str, room: str = "room-ops"):
     payload = {
         "type": "Create",
-        "actor": {"id": "u@cloudless.gr"},
+        "actor": {"id": "operator@cloudless.gr", "type": "users"},
         "object": {"content": json.dumps({"message": text}), "id": 42},
         "target": {"id": room},
     }
