@@ -1027,9 +1027,10 @@ async def _process_publish_queue_async(
                     await _maybe_send_publish_summary(db, post)
 
             except Exception:
+                _item_id = item.id
                 logger.exception(
                     "[publishing] queue item %s (post %s, account %s) raised",
-                    item.id,
+                    _item_id,
                     item.post_id,
                     item.social_account_id,
                 )
@@ -1038,7 +1039,18 @@ async def _process_publish_queue_async(
                 # would lazy-load through the sync driver (MissingGreenlet).
                 _refresh = getattr(db, "refresh", None)
                 if _refresh is not None:
-                    await _refresh(item)
+                    try:
+                        await _refresh(item)
+                    except Exception:
+                        # The queue row was deleted while this item was in
+                        # flight (post-delete cascade, queue-cancel API,
+                        # cleanup beat). Nothing left to requeue or fail —
+                        # skip it or the whole batch dies on StaleDataError.
+                        logger.warning(
+                            "[publishing] queue item %s vanished mid-processing — skipping",
+                            _item_id,
+                        )
+                        continue
                 item.attempts += 1
                 is_final = item.attempts >= item.max_attempts
                 item.status = QueueStatus.FAILED if is_final else QueueStatus.PENDING
