@@ -92,13 +92,35 @@ def run_one(w: dict) -> None:
 
 
 def observe_external(w: dict) -> None:
-    """External watchers: report freshness from meta.log_path mtime."""
+    """External watchers: report freshness from meta.log_path mtime.
+    A missing `>>`-redirect log means the cron has never produced output —
+    a real staleness signal for wildcard schedules, but expected for dated
+    one-shot crons (specific dom/month fields) that haven't fired yet."""
     meta = w.get("meta") or {}
     log = meta.get("log_path")
     if not log:
         return
+    path = os.path.expanduser(log)
+    if not os.path.exists(path):
+        sched = (w.get("schedule_cron") or "").split()
+        dated = len(sched) >= 5 and any(
+            f not in ("*", "?") for f in sched[2:5]
+        )
+        if dated:
+            return
+        _req(
+            "POST",
+            f"/ops/watchers/{w['name']}/result",
+            {
+                "exit_code": 2,
+                "output_tail": f"log missing: {path} — cron has never written",
+                "duration_seconds": 0,
+                "observed": True,
+            },
+        )
+        return
     try:
-        age = time.time() - os.path.getmtime(os.path.expanduser(log))
+        age = time.time() - os.path.getmtime(path)
         stale_after = max(int(w.get("interval_seconds") or 300) * 4, 3600)
         _req(
             "POST",
