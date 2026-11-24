@@ -9,9 +9,11 @@ the authoritative hash->source map; sha256(source) cross-checks it.
 
 Action: for every empty hash that a live/dead container references, rebind
 it inside the docker-desktop VM to a FRESH /dev/sdd mount of the Ubuntu
-disk (verified procedure 2026-11-20/23), then `docker start` the Exited(127)
-casualties. Orphan empty hashes (no container refs) are lazily unmounted
-and removed.
+disk (verified procedure 2026-11-20/23), then recover the Exited(127)
+casualties — compose-managed ones via `up -d --force-recreate --no-deps`
+(restart preserves the poisoned mount table; recreate re-materializes it —
+verified 2026-11-24), non-compose via `docker start`. Orphan empty hashes
+(no container refs) are lazily unmounted and removed.
 
 Probe + rebind both run INSIDE the docker-desktop VM via a privileged
 container + `nsenter -t 1` (pure docker CLI — no Windows interop needed,
@@ -330,6 +332,63 @@ def source_kind(src: str) -> str:
     return "dir"
 
 
+def recreate_casualties(casualties: list[str]) -> tuple[int, list[str]]:
+    """Recreate compose-managed casualties so bind mounts re-materialize
+    from healed hashed sources. Returns (recreated_count, ids needing a
+    plain docker start). Non-compose containers and recreate failures are
+    returned in the second element."""
+    labels = docker(
+        "inspect",
+        "-f",
+        "{{.Name}}|{{index .Config.Labels \"com.docker.compose.project\"}}"
+        "|{{index .Config.Labels \"com.docker.compose.service\"}}"
+        "|{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}"
+        "|{{index .Config.Labels \"com.docker.compose.project.config_files\"}}",
+        *casualties,
+    )
+    groups: dict[tuple[str, str, str], list[tuple[str, str]]] = {}
+    dead: list[str] = []
+    recreated = 0
+    id_by_name: dict[str, str] = {}
+    for line, cid in zip(labels.splitlines(), casualties):
+        parts = line.strip().lstrip("/").split("|")
+        name = parts[0] if parts else cid
+        id_by_name[name] = cid
+        project, service, workdir = (parts[1:4] if len(parts) >= 4 else ("", "", ""))
+        cfg = parts[4] if len(parts) > 4 else ""
+        if project and service and workdir and Path(workdir).is_dir():
+            groups.setdefault((project, workdir, cfg), []).append((service, name))
+        else:
+            dead.append(cid)
+
+    for (project, workdir, cfg), svcs in groups.items():
+        cmd = ["docker", "compose", "-p", project]
+        for f in cfg.split(","):
+            f = f.strip()
+            if f:
+                cmd += ["-f", f]
+        cmd += ["up", "-d", "--force-recreate", "--no-deps", "--pull", "never"]
+        cmd += [s for s, _ in svcs]
+        try:
+            r = subprocess.run(
+                cmd, cwd=workdir, capture_output=True, text=True, timeout=300
+            )
+            names = ",".join(n for _, n in svcs)
+            if r.returncode == 0:
+                recreated += len(svcs)
+                log(f"recreated {len(svcs)} via compose ({project}): {names}")
+            else:
+                dead += [id_by_name[n] for _, n in svcs]
+                log(
+                    f"compose recreate failed ({project}): {names} "
+                    f"rc={r.returncode} {r.stderr.strip()[-200:]}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            dead += [id_by_name[n] for _, n in svcs]
+            log(f"compose recreate error ({project}): {exc}")
+    return recreated, dead
+
+
 def main() -> int:
     if not BM.is_dir():
         log("bind-mounts dir absent — fsbridge namespace not mounted; skip")
@@ -429,15 +488,31 @@ def main() -> int:
         alert("rebind-partial", f"fsbridge rebind partial: {fails}")
         return 1
 
-    # restart casualties
-    casualties = []
-    for cid in docker("ps", "-aq", "--filter", "status=exited").split():
+    # restart casualties — exited or crash-looping on exit 127 (fsbridge
+    # poison signature). `docker start` preserves the container's recorded
+    # mount table, which keeps the poisoned mount → casualty re-dies on the
+    # same error (verified 2026-11-24). Compose-managed casualties get
+    # `up -d --force-recreate --no-deps` so mounts re-materialize from the
+    # freshly-healed hashed source; non-compose containers fall back to
+    # docker start.
+    casualties: list[str] = []
+    for cid in docker(
+        "ps", "-aq", "--filter", "status=exited", "--filter", "status=restarting"
+    ).split():
         if docker("inspect", "-f", "{{.State.ExitCode}}", cid).strip() == "127":
             casualties.append(cid)
+    recreated = 0
     if casualties:
-        names = docker("inspect", "-f", "{{.Name}}", *casualties).split()
-        r = subprocess.run(["docker", "start", *casualties], capture_output=True, text=True, timeout=120)
-        log(f"restarted {len(casualties)} casualties: {r.stdout.strip()[:200]} {r.stderr.strip()[:200]}")
+        recreated, still_dead = recreate_casualties(casualties)
+        if still_dead:
+            r = subprocess.run(
+                ["docker", "start", *still_dead],
+                capture_output=True, text=True, timeout=120,
+            )
+            log(
+                f"plain-started {len(still_dead)} non-compose casualties: "
+                f"{r.stdout.strip()[:120]} {r.stderr.strip()[:120]}"
+            )
 
     ok_n = sum(1 for l in out.splitlines() if l.startswith("OK"))
     skip_n = sum(1 for l in out.splitlines() if l.startswith("SKIP"))
@@ -447,9 +522,9 @@ def main() -> int:
     if real_binds:
         state["last_rebind"] = now
         _save_state(state)
-    log(f"heal complete: {ok_n} mounts rebound, {skip_n} skipped (empty source), {len(casualties)} containers restarted")
+    log(f"heal complete: {ok_n} mounts rebound, {skip_n} skipped (empty source), {recreated} recreated, {len(casualties) - recreated} started")
     if ok_n or orphans:
-        alert("healed", f"fsbridge auto-heal: {ok_n} mounts rebound, {len(orphans)} orphans cleaned, {len(casualties)} containers restarted")
+        alert("healed", f"fsbridge auto-heal: {ok_n} mounts rebound, {len(orphans)} orphans cleaned, {len(casualties)} casualties recovered ({recreated} recreated)")
     return 0
 
 

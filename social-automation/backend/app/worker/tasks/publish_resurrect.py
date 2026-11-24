@@ -13,9 +13,16 @@ and ``materialize_report_videos`` (20min, render retry budget 48h/2 attempts):
   ``meta_data.pending_video_task`` so materialize_report_videos owns the
   post again (DRAFT + pending task → attach → SCHEDULED → publish).
   Capped at 2 resurrections per post, 5-day age cap.
+- Orphaned video posts (PUBLISHING/SUPPRESSED) — render-intent posts whose
+  render died and which then drifted past every watcher: no ``media_ids``,
+  no ``pending_video_task``, but render evidence in meta
+  (``last_render_error`` or ``video_render_dispatched_at``). A publish
+  re-queue never regenerates media — the only correct lane is
+  DRAFT + fresh pending task (2026-11-24 incident: 6 video posts sat
+  media-less through repeated engine flaps).
 
 Content-terminal failures (duplicate, prompt leak, quality gate, mangled
-copy, missing media) are NEVER resurrected — deterministic, needs a human.
+copy) are NEVER resurrected — deterministic, needs a human.
 """
 
 from __future__ import annotations
@@ -175,35 +182,30 @@ async def _sweep() -> dict:
             reason = (post.failure_reason or "").lower()
             if "video render" not in reason and "render" not in reason:
                 continue
-            meta = dict(post.meta_data or {})
-            if meta.get("pending_video_task"):
-                continue  # already re-armed / in flight
-            if int(meta.get("resurrect_count") or 0) >= _MAX_RESURRECTIONS:
-                continue
-            prompt = (meta.get("instruction") or post.content_text or "").strip()
-            if not prompt:
-                continue
-            from app.worker.tasks.media import generate_video_asset_task
+            posts_revived += _revive_video_post(post, now)
 
-            try:
-                res = generate_video_asset_task.delay(
-                    str(post.team_id),
-                    str(post.user_id or ""),
-                    prompt[:2000],
-                    {"model": "wan22"},
+        # --- Part 3: orphaned video posts ----------------------------------
+        # Render-intent posts that drifted into PUBLISHING/SUPPRESSED with no
+        # media and no armed render — e.g. a manual publish re-queue, or a
+        # media-gate suppression landing after the render died. Only the
+        # DRAFT+pending_task lane regenerates their media.
+        orphaned = (
+            (
+                await db.execute(
+                    select(Post).where(
+                        Post.status.in_([PostStatus.PUBLISHING, PostStatus.SUPPRESSED]),
+                        func.cardinality(Post.media_ids) == 0,
+                        Post.meta_data["pending_video_task"].astext.is_(None),
+                        Post.meta_data["last_render_error"].astext.isnot(None),
+                        Post.created_at > now - _POST_MAX_AGE,
+                    )
                 )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("resurrect dispatch failed for post %s: %s", post.id, exc)
-                continue
-            meta["pending_video_task"] = res.id
-            meta["video_render_dispatched_at"] = now.isoformat()
-            meta["video_render_attempts"] = 0
-            meta["resurrect_count"] = int(meta.get("resurrect_count") or 0) + 1
-            post.meta_data = meta
-            post.status = PostStatus.DRAFT
-            post.failure_reason = None
-            posts_revived += 1
-            logger.info("resurrected video post %s (attempt %s)", post.id, meta["resurrect_count"])
+            )
+            .scalars()
+            .all()
+        )
+        for post in orphaned:
+            posts_revived += _revive_video_post(post, now)
 
         await db.commit()
 
@@ -220,6 +222,41 @@ async def _sweep() -> dict:
         except Exception as exc:  # noqa: BLE001
             logger.warning("resurrect alert failed: %s", exc)
     return out
+
+
+def _revive_video_post(post: Post, now: datetime) -> int:
+    """Re-arm a render-intent post: fresh generate_video_asset_task +
+    pending_video_task + DRAFT so materialize_report_videos owns it.
+    Returns 1 on dispatch, 0 on skip/failure."""
+    meta = dict(post.meta_data or {})
+    if meta.get("pending_video_task"):
+        return 0  # already re-armed / in flight
+    if int(meta.get("resurrect_count") or 0) >= _MAX_RESURRECTIONS:
+        return 0
+    prompt = (meta.get("instruction") or post.content_text or "").strip()
+    if not prompt:
+        return 0
+    from app.worker.tasks.media import generate_video_asset_task
+
+    try:
+        res = generate_video_asset_task.delay(
+            str(post.team_id),
+            str(post.user_id or ""),
+            prompt[:2000],
+            {"model": "wan22"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("resurrect dispatch failed for post %s: %s", post.id, exc)
+        return 0
+    meta["pending_video_task"] = res.id
+    meta["video_render_dispatched_at"] = now.isoformat()
+    meta["video_render_attempts"] = 0
+    meta["resurrect_count"] = int(meta.get("resurrect_count") or 0) + 1
+    post.meta_data = meta
+    post.status = PostStatus.DRAFT
+    post.failure_reason = None
+    logger.info("resurrected video post %s (attempt %s)", post.id, meta["resurrect_count"])
+    return 1
 
 
 @shared_task(name="app.worker.tasks.publish_resurrect.run_publish_resurrect_sweep")
