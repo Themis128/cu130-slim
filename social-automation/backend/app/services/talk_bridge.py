@@ -331,7 +331,10 @@ async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     # NO messages get the "You" label rather than a wrong participant getting it.
     expected = (getattr(account, "display_name", None) or getattr(account, "username", None) or "").lower()
     if self_name and expected:
-        if self_name not in expected and expected not in self_name:
+        # Exact normalized match only — a containment check would trust
+        # "Alex Chen Jr." for owner "Alex Chen" and then label THAT group
+        # member's messages "You". A non-match degrades to no "You" labels.
+        if self_name != expected:
             logger.warning("talk-bridge: sidecar self name %r != account %r — attribution off", self_name, expected)
             self_name = ""
 
