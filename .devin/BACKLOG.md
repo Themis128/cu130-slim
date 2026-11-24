@@ -4831,8 +4831,29 @@ manually after 6 attempts. Root-cause chain, all four layers automated:
 - Tool: `.devin/skills/linkedin-newsletter-ops/scripts/newsletter_recover.py`
   (mirror `.cursor/`) — classify → heal → requeue → dispatch → `--watch`.
 - Deploy state: sidecar rebuilt locally + restarted 09:49 UTC (fixes live —
-  attempt 6 published via it). Backend (queue/healer/client) rides the
-  `social-backend-latest` image — sync workers + api after #2608 lands:
-  `docker compose pull && up -d social-api social-worker-publishing
-  social-worker-default` under `.deploy.lock`.
+  attempt 6 published via it). Backend synced 11:15 UTC post-#2608+#2610:
+  all workers + api + celery-beat recreated on e312d240/aa02610a via
+  `deploy/socialauto-standalone` — circuit retry, session_dead relogin and
+  the ad_daily_metrics API upsert are live in production.
 - Watch: `verify_newsletter_issues` (15-min beat) confirms article_url.
+
+## 2026-11-24 — social-backend-latest tag race silently reverts deploys
+
+Two workflows both push `ghcr.io/.../cu130-slim:<service>-latest` on
+master pushes: `docker-ci.yml` (every push) and `build-and-push.yml`
+(only when Dockerfile/pyproject/requirements paths change). When a
+Dockerfile-touching push lands near a code-only merge, the older-source
+`build-and-push` job can finish LATER and overwrite `-latest` with stale
+code — observed live: `social-backend-latest` (bc550938, 10:41:33Z)
+served pre-#2608 `newsletter_issue_queue.py` while the sibling api image
+had the new code. The workers were running a reverted deploy.
+
+- Verify before/after any image sync:
+  `docker run --rm --entrypoint grep <img> -c <marker> /app/app/services/<file>.py`
+- Durable fix candidates: make `build-and-push.yml` push immutable
+  `-sha-*` tags only (leave `-latest` to docker-ci), or merge the two
+  workflows so one job owns each tag.
+- Current state: `deploy/socialauto-standalone/` is the canonical compose
+  project (watchdog rebuilt the stack under it). Root `docker compose up`
+  fails on the `/redis` name that standalone owns — use the standalone
+  file for all recreate/pull operations.
