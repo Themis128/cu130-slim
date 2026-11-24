@@ -38,22 +38,19 @@ verbatim whenever the brief names a deadline, and omits it entirely otherwise.
 
 ## Setting up a campaign
 
+Tool: `scripts/offer_countdown.py` (runs on the WSL host, DB via
+`docker exec social-postgres`):
+
+- `preview "<text with token>"` — render the token exactly as publish will
+- `show <post_id>` — dump `content_text` + `meta_data`
+- `set <post_id> <ISO-8601>` — store `meta_data.offer_ends_at` (requires the
+  tz offset; rejects naive input)
+
 1. Put the token in the post copy — via generation (automatic once the brief
    names the deadline) or hand-written drafts.
-2. For bare `{countdown}`, set the deadline once on the post:
-   ```sql
-   UPDATE posts SET meta_data = COALESCE(meta_data,'{}'::jsonb)
-     || '{"offer_ends_at":"2026-11-27T23:59:00+02:00"}'::jsonb
-     WHERE id = '<post-id>';
-   ```
-3. Verify the render in-container:
-   ```bash
-   docker exec social-api python3 - <<'PY'
-   import sys; sys.path.insert(0,'/app')
-   from app.services.content_renderer import _expand_countdown_tokens
-   print(_expand_countdown_tokens('Only {countdown:2026-11-27T23:59:00+02:00} left'))
-   PY
-   ```
+2. For bare `{countdown}`, set the deadline once:
+   `offer_countdown.py set <post_id> 2026-11-27T23:59:00+02:00`
+3. Verify: `offer_countdown.py preview "Only {countdown:2026-11-27T23:59:00+02:00} left"`
 
 ## Editing an already-live IG caption
 
