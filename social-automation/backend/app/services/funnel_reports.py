@@ -25,7 +25,7 @@ from sqlalchemy import String, cast, func, select
 
 from app.core.config import get_settings
 from app.db.session import async_session_maker
-from app.models.analytics import FollowerSnapshot, PostAnalyticsSnapshot
+from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.content import Post
 from app.models.lead import Lead
 from app.models.linkedin_ads import AdDailyMetric
@@ -191,6 +191,57 @@ async def _inbox_pulse() -> tuple[dict[str, dict[str, int]], list[dict[str, str]
     return by_platform, unread, frt
 
 
+async def _talk_call_pulse(since: datetime) -> dict[str, Any]:
+    """Talk call lifecycle events (talk_call_*) → counts, talk time, rooms."""
+    out: dict[str, Any] = {"calls": 0, "rooms": set(), "talk_seconds": 0, "guests": 0, "by_room": {}}
+    try:
+        async with async_session_maker() as db:
+            rows = (
+                await db.execute(
+                    select(AnalyticsEvent.event_type, AnalyticsEvent.meta_data).where(
+                        AnalyticsEvent.platform == "talk",
+                        AnalyticsEvent.event_type.like("talk_call_%"),
+                        AnalyticsEvent.occurred_at >= since,
+                    )
+                )
+            ).all()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("talk-call pulse query failed: %s", exc)
+        return {"error": str(exc)}
+    for event_type, md in rows:
+        md = md or {}
+        room = str(md.get("room_token") or "")
+        if event_type == "talk_call_call_started":
+            out["calls"] += 1
+            if room:
+                out["rooms"].add(room)
+                slot = out["by_room"].setdefault(room, {"calls": 0, "seconds": 0})
+                slot["calls"] += 1
+            if md.get("actor_type") == "guest":
+                out["guests"] += 1
+        elif event_type == "talk_call_call_ended":
+            try:
+                dur = int(md.get("duration_seconds") or 0)
+            except (TypeError, ValueError):
+                dur = 0
+            out["talk_seconds"] += dur
+            if room:
+                out["by_room"].setdefault(room, {"calls": 0, "seconds": 0})["seconds"] += dur
+    out["rooms"] = len(out["rooms"])
+    return out
+
+
+def _fmt_talk_seconds(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
 def _fmt_counts(counts: dict[str, int], empty: str = "none") -> list[str]:
     if not counts:
         return [empty]
@@ -250,6 +301,22 @@ async def build_lead_pulse() -> FunnelReport:
             )
         ).all()
     report.line("Consultation page visits (24h, by utm_source)", *([f"• {r[0] or '(untagged)'}: {r[1]}" for r in consult] or ["none recorded"]))
+
+    # Talk call lifecycle (analytics_events talk_call_* — incl. /call/ guests)
+    talk = await _talk_call_pulse(since)
+    if talk.get("error"):
+        report.line("Talk calls (24h)", f"• stats unavailable: {talk['error']}")
+    elif talk["calls"]:
+        lines = [
+            f"• {talk['calls']} call(s) across {talk['rooms']} room(s) — {_fmt_talk_seconds(talk['talk_seconds'])} talk time"
+        ]
+        if talk["guests"]:
+            lines.append(f"• {talk['guests']} guest join(s)")
+        for room, slot in sorted(talk["by_room"].items(), key=lambda kv: -kv[1]["seconds"])[:5]:
+            lines.append(f"• {room}: {slot['calls']} call(s), {_fmt_talk_seconds(slot['seconds'])}")
+        report.line("Talk calls (24h)", *lines)
+    else:
+        report.line("Talk calls (24h)", "• no calls in window")
 
     total = sum(v for v in sa_leads.values()) + sum(v for k, v in espo_leads.items() if v > 0)
     total_unread = sum(c.get("unread", 0) for c in inbox_platforms.values())

@@ -197,6 +197,13 @@ async def test_build_lead_pulse(monkeypatch):
             _Result(rows=[("website", 2)]),  # social leads
             _Result(rows=[tid]),  # team ids
             _Result(rows=[("linkedin", 4)]),  # consult visits
+            _Result(  # talk_call_* events
+                rows=[
+                    ("talk_call_call_started", {"room_token": "zsykkx97", "actor_type": "guest"}),
+                    ("talk_call_call_ended", {"room_token": "zsykkx97", "duration_seconds": 68}),
+                    ("talk_call_call_started", {"room_token": "abc123", "actor_type": "user"}),
+                ]
+            ),
         ],
     )
     _patch_espo(monkeypatch, [{"source": "Web Site"}, {"source": "Web Site"}], [{"stage": "Won"}, {"stage": "Lost"}])
@@ -228,8 +235,49 @@ async def test_build_lead_pulse(monkeypatch):
     assert report.key == "lead_pulse"
     titles = [t for t, _ in report.sections]
     assert "Takeaway" in titles and "Unified inbox (live capture)" in titles
+    assert "Talk calls (24h)" in titles
     text = report.to_text()
     assert "website: 2" in text and "linkedin: 4" in text
+    assert "2 call(s) across 2 room(s)" in text and "1m 8s" in text and "guest join" in text
+
+
+def test_fmt_talk_seconds():
+    assert FR._fmt_talk_seconds(0) == "0s"
+    assert FR._fmt_talk_seconds(68) == "1m 8s"
+    assert FR._fmt_talk_seconds(3725) == "1h 2m"
+    assert FR._fmt_talk_seconds(-5) == "0s"
+
+
+@pytest.mark.asyncio
+async def test_talk_call_pulse_aggregates_and_survives_failure(monkeypatch):
+    _patch_fr_db(
+        monkeypatch,
+        [
+            _Result(
+                rows=[
+                    ("talk_call_call_started", {"room_token": "r1", "actor_type": "guest"}),
+                    ("talk_call_call_ended", {"room_token": "r1", "duration_seconds": "90"}),
+                    ("talk_call_call_ended", {"room_token": "r1", "duration_seconds": "bad"}),
+                    ("talk_call_call_left", {"room_token": "r2"}),
+                    ("talk_call_call_started", None),
+                ]
+            )
+        ],
+    )
+    out = await FR._talk_call_pulse(datetime.now(UTC))
+    assert out["calls"] == 2 and out["rooms"] == 1 and out["guests"] == 1
+    assert out["talk_seconds"] == 90 and out["by_room"]["r1"]["calls"] == 1
+
+    class _Boom:
+        async def __aenter__(self):
+            raise RuntimeError("db gone")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(FR, "async_session_maker", lambda: _Boom())
+    out2 = await FR._talk_call_pulse(datetime.now(UTC))
+    assert "error" in out2
 
 
 @pytest.mark.asyncio
@@ -748,6 +796,7 @@ async def test_build_lead_pulse_frt_error_and_unanswered(monkeypatch):
             _Result(rows=[]),
             _Result(rows=[]),
             _Result(rows=[]),
+            _Result(rows=[]),
         ],
     )
     _patch_espo(monkeypatch, [], [])
@@ -773,6 +822,7 @@ async def test_build_lead_pulse_frt_error_and_unanswered(monkeypatch):
     _patch_fr_db(
         monkeypatch,
         [
+            _Result(rows=[]),
             _Result(rows=[]),
             _Result(rows=[]),
             _Result(rows=[]),
