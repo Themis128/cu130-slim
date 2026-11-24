@@ -546,7 +546,8 @@ def _client():
 class TestHelpers:
     def test_validate_id(self):
         assert api._validate_id(" 123_456 ") == "123_456"
-        for bad in ["", "abc", "1-2", "../../x", "12a"]:
+        assert api._validate_id("t_1954808648548104") == "t_1954808648548104"
+        for bad in ["", "abc", "1-2", "../../x", "12a", "t_abc", "t_"]:
             with pytest.raises(ValueError):
                 api._validate_id(bad)
 
