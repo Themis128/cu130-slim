@@ -4795,3 +4795,44 @@ publish_resurrect Part 3 revives PUBLISHING/SUPPRESSED posts with
   media — `ecf2a5ec` proved it by suppressing "no media").
 - [x] 3 stale posts self-healed into the same lane (`bf87a26f`,
   `61d47bda`, `f10294e1`) — resurrect sweep caught them on its own.
+
+## 2026-11-24 — LinkedIn newsletter issue #3 failure chain + self-heal (PR #2608)
+
+Issue `black-friday-offers-2026` ("Black Friday for your business isn't a
+discount — it's a deadline") died `failed` at attempt 3, then was published
+manually after 6 attempts. Root-cause chain, all four layers automated:
+
+1. **Cold-start redirect bounce → false 6h circuit** — the sidecar restarted
+   ~09:14 UTC (stack flap); the first `/feed/` nav hit
+   `ERR_TOO_MANY_REDIRECTS` (transient cookie propagation on cold browser,
+   session was alive the whole time — early-probe closed the circuit as
+   healthy ~10min later). Old code tripped the full
+   `LINKEDIN_RATE_LIMIT_COOLDOWN_MS` on ANY loop.
+   Fix: recovery-nav landing now classifies trips — live linkedin.com page
+   → retryable `REDIRECT_LOOP` error, NO trip; login/checkpoint/authwall →
+   `redirect_loop_session_dead` (full cooldown); ambiguous → new
+   `LINKEDIN_REDIRECT_LOOP_COOLDOWN_MS` (default 1h).
+2. **Infra rejects burned publish attempts** — `record_publish_failure`
+   counted fast `circuit open` rejects toward `MAX_PUBLISH_ATTEMPTS=3`.
+   Fix: parses `circuit open until <ISO>` and reschedules just past reopen
+   (+2min grace), bounded by `MAX_CIRCUIT_WAIT_ATTEMPTS=8`.
+3. **Healer blind spot** — `_heal_linkedin` early-returned `rate_limited`
+   and never reached its own credential `/login` ladder; `/health` now
+   reports `rate_limit_reason`, and `session_dead` circuits fall through
+   to relogin (`/login` clears the circuit on success). Expired-circuit
+   clear also fixed (was `>6h past expiry` — unreachable).
+4. **Media-editor dismiss-confirm modal blocked Next** —
+   `data-test-modal-id="article-editor-media-editor-dismiss-confirmation"`
+   intercepted pointer events (attempt 5 died there). Fix:
+   `dismissMediaEditorBlockers()` clears confirm/media overlays before the
+   Next click + one retry; unclickable-after-retry throws a named error
+   with debug screenshot.
+
+- Tool: `.devin/skills/linkedin-newsletter-ops/scripts/newsletter_recover.py`
+  (mirror `.cursor/`) — classify → heal → requeue → dispatch → `--watch`.
+- Deploy state: sidecar rebuilt locally + restarted 09:49 UTC (fixes live —
+  attempt 6 published via it). Backend (queue/healer/client) rides the
+  `social-backend-latest` image — sync workers + api after #2608 lands:
+  `docker compose pull && up -d social-api social-worker-publishing
+  social-worker-default` under `.deploy.lock`.
+- Watch: `verify_newsletter_issues` (15-min beat) confirms article_url.
