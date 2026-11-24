@@ -4,7 +4,14 @@ Reads /tmp/li_archive.zip (LinkedIn data export) and/or /tmp/li_snapshot.json,
 converts every CSV/JSON surface into JSONL rows, uploads to the datalake
 bucket so datalake-insights / contact-harvest / funnel lanes can query them.
 """
-import asyncio, csv, io, json, sys, time, zipfile
+import asyncio
+import csv
+import io
+import json
+import sys
+import time
+import zipfile
+
 sys.path.insert(0,'/app')
 from app.services import r2_storage
 
@@ -34,11 +41,13 @@ async def main():
     try:
         z=zipfile.ZipFile('/tmp/li_archive.zip')
         for n in z.namelist():
-            if not n.lower().endswith('.csv'): continue
+            if not n.lower().endswith('.csv'):
+                continue
             table=n.rsplit('/',1)[-1].replace('.csv','').replace(' ','_').lower()
             try:
                 rows=list(csv.DictReader(io.StringIO(z.read(n).decode('utf-8','replace'))))
-            except Exception: continue
+            except Exception:
+                continue
             rows=[norm(table,dict(r)) for r in rows]
             if rows:
                 done.append(await put(table,rows))
