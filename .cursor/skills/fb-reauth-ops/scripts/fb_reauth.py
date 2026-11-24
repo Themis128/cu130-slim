@@ -59,7 +59,11 @@ def _signed_state() -> str:
         "  async for db in get_db():\n"
         "    r=await db.execute(text(\"SELECT team_id FROM social_accounts "
         "WHERE platform='facebook' ORDER BY updated_at DESC LIMIT 1\"))\n"
-        "    print('OAUTH_STATE='+sign_oauth_state({'t':str(r.scalar())}))\n"
+        "    t=r.scalar()\n"
+        "    if t is None:\n"  # no FB row left — still need a valid team or the callback rejects the UUID
+        "      r=await db.execute(text(\"SELECT id FROM teams LIMIT 1\"))\n"
+        "      t=r.scalar()\n"
+        "    print('OAUTH_STATE='+sign_oauth_state({'t':str(t)}))\n"
         "asyncio.run(go())"
     )
     out = subprocess.run(
