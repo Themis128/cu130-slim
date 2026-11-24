@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 
 from sqlalchemy import select
@@ -134,11 +135,12 @@ BRIDGE_MARK = "​"  # zero-width space
 async def _post(room: TalkRoom, text: str, db=None) -> bool:
     """Post into the room as the Talk bot (needs `occ talk:bot:setup <bot> <room>`
     per room), falling back to the app-password user. Returns True when a
-    message actually reached the room."""
+    message actually reached the room. Always silent — mirrors are room
+    history, not notification-worthy chat."""
     marked = f"{BRIDGE_MARK}{text}"
-    if await bot_reply(room.room_token, marked, db=db):
+    if await bot_reply(room.room_token, marked, silent=True, db=db):
         return True
-    return await post_to_room(room.room_token, marked)
+    return await post_to_room(room.room_token, marked, silent=True)
 
 
 # ─── inbound message fetchers (normalized dicts) ────────────────────
@@ -208,7 +210,142 @@ async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict
     return out
 
 
-async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool) -> list[dict]:
+# ─── personal-Messenger scrape hygiene ──────────────────────────────
+# The browser scrape returns rendered DOM text, so call logs, E2EE
+# restore banners, sender-name labels, timestamps and buttons all
+# arrive as fake "messages". _pm_clean_text reduces each blob to real
+# message text (None → drop the item) and detects own-message echoes
+# the scraper misattributes to the contact.
+
+_PM_CALL_RE = re.compile(r"^(missed |incoming |outgoing )?(video |voice |audio )?call( (ended|declined|answered))?$", re.I)
+
+_PM_CHROME_EXACT = {
+    "you sent",
+    "you replied",
+    "you forwarded",
+    "you shared",
+    "you",
+    "sent",
+    "seen",
+    "delivered",
+    "read",
+    "typing",
+    "typing…",
+    "call again",
+    "call back",
+    "call ended",
+    "missed call",
+    "declined",
+    "answered",
+    "ringing",
+    "calling",
+    "restore",
+    "restore messages",
+    "message not restored",
+    "messages not restored",
+    "learn more",
+    "reply",
+    "forward",
+    "copy",
+    "unsend",
+    "remove",
+    "react",
+    "more",
+    "report",
+    "open chat",
+    "new message",
+    "enter",
+    "swipe to reply",
+    "this message was deleted",
+}
+
+_PM_CHROME_RES = [
+    re.compile(r"^\d{1,3}:\d{2}(:\d{2})?(\s?[ap]\.?m\.?)?$", re.I),  # 0:14 · 5:20 PM · 1:04 PM
+    re.compile(r"^\d+\s?(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?)( ago)?$", re.I),  # 5 mins · 32 secs
+    re.compile(r"end.to.end encrypt", re.I),
+    re.compile(r"restore chat history|switch devices", re.I),
+    re.compile(r"^active (now|\d+ ?[mhd]( ago)?)$", re.I),
+]
+
+
+def _pm_is_chrome(line: str) -> bool:
+    low = line.lower().strip()
+    return low in _PM_CHROME_EXACT or any(r.search(low) for r in _PM_CHROME_RES)
+
+
+# Banners/notices that can never be genuine message text — the only
+# single-line blobs still dropped outright.
+_PM_NOTICE_EXACT = {
+    "message not restored",
+    "messages not restored",
+    "restore messages",
+    "restore",
+    "this message was deleted",
+}
+_PM_NOTICE_RES = [
+    re.compile(r"end.to.end encrypt", re.I),
+    re.compile(r"restore chat history|switch devices", re.I),
+]
+
+
+def _pm_is_notice(line: str) -> bool:
+    low = line.lower().strip()
+    return low in _PM_NOTICE_EXACT or any(r.search(low) for r in _PM_NOTICE_RES)
+
+
+def _pm_clean_text(text: str, contact: str, ours: bool) -> tuple[str | None, bool]:
+    """Strip DOM chrome from a personal-Messenger scrape blob.
+
+    Returns (text, ours) — text None means the whole blob was UI
+    chrome (call log, banner, timestamp) and the item must be dropped.
+    A collapsed "📞 <call>" marker is emitted for real call events so
+    the room still shows a call happened, minus the 4-line spam.
+
+    Chrome is stripped at the EDGES of a multi-line blob only — interior
+    lines are kept verbatim because a timestamp-looking line inside real
+    text may be content ("on my way / 5:20 PM / see you there"). A lone
+    line has no label/timestamp context, so it is kept unless it is a
+    provable system notice or a call event.
+    """
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None, ours
+    first = lines[0].lower()
+    if first in {"you sent", "you replied", "you forwarded", "you shared", "you"}:
+        ours = True
+        lines = lines[1:]
+    elif contact:
+        c = contact.lower().strip()
+        if first == c or (c.split() and first == c.split()[0]):
+            lines = lines[1:]  # sender-name label the scrape prepends
+    if not lines:
+        return None, ours
+    if len(lines) == 1:
+        ln = lines[0]
+        if _PM_CALL_RE.match(ln):
+            return f"📞 {ln.lower()}", ours
+        if _pm_is_notice(ln):
+            return None, ours
+        return ln, ours
+    call_line = None
+    rest = []
+    for ln in lines:
+        if _PM_CALL_RE.match(ln):
+            call_line = call_line or ln.lower()
+        else:
+            rest.append(ln)
+    # Strip chrome only at the edges; interior lines survive verbatim.
+    while rest and _pm_is_chrome(rest[0]):
+        rest.pop(0)
+    while rest and _pm_is_chrome(rest[-1]):
+        rest.pop()
+    if call_line:
+        marker = f"📞 {call_line}"
+        return (marker + "\n" + "\n".join(rest) if rest else marker), ours
+    return ("\n".join(rest) or None), ours
+
+
+async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool, contact_name: str = "") -> list[dict]:
     from app.services.browser_bridge import BrowserBridgeClient
 
     bridge = BrowserBridgeClient(os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook")
@@ -228,12 +365,17 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     def to_msg(m):
         if not isinstance(m, dict):
             return None
+        sender = str(m.get("sender") or m.get("author") or "")
+        ours = bool(m.get("is_own") or m.get("ours")) or sender.strip().lower() in {"me", "self", "own"}
+        text, ours = _pm_clean_text(m.get("text") or m.get("body") or "", contact_name, ours)
+        if text is None:
+            return None
         return _norm(
             str(m.get("ts") or m.get("created_time") or m.get("id") or ""),
             str(m.get("id") or ""),
             m.get("sender") or m.get("author") or "",
-            m.get("text") or m.get("body") or "",
-            bool(m.get("is_own") or m.get("ours")),
+            text,
+            ours,
             m.get("attachments") or [],
         )
 
@@ -369,7 +511,7 @@ async def _fetch_messages(account: SocialAccount | None, room: TalkRoom) -> list
         if room.platform == "messenger":
             return await _fb_page_messages(account, room.thread_id)
         if room.platform == "personal_messenger":
-            return await _fb_personal_messages(account, room.thread_id, room.is_e2ee)
+            return await _fb_personal_messages(account, room.thread_id, room.is_e2ee, room.contact_name or "")
         if room.platform == "instagram":
             return await _ig_messages(account, room.thread_id)
         if room.platform == "linkedin":
@@ -563,11 +705,20 @@ async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) 
                 continue
             # messages arrive newest-first; post oldest-new of the unseen ones
             unseen: list[dict] = []
+            boundary_found = not room.last_inbound_key
             for m in msgs:
                 # empty last_inbound_key = new room, everything is unseen
                 if room.last_inbound_key and (m["id"] or m["key"]) == room.last_inbound_key:
+                    boundary_found = True
                     break
                 unseen.append(m)
+            if not boundary_found:
+                # Watermark vanished from the feed (filtered row / changed
+                # hash / platform rewrite) — reposting the whole backlog
+                # would spam the room. Re-anchor to the newest row instead.
+                room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"] or room.last_inbound_key
+                await db.commit()
+                continue
             if not unseen:
                 continue
             last_posted_key: str | None = None

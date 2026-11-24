@@ -143,7 +143,7 @@ def verify_bot_request(random: str, body: bytes, signature: str) -> bool:
     return hmac.compare_digest(digest, signature.lower())
 
 
-async def bot_reply(room: str, message: str, *, reply_to: int | None = None, db=None) -> bool:
+async def bot_reply(room: str, message: str, *, reply_to: int | None = None, silent: bool = False, db=None) -> bool:
     """Reply into a room as the installed Talk bot.
 
     URL parts are config-derived only — the room must be one of the
@@ -183,6 +183,8 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None, db=
     }
     if reply_to:
         payload["replyTo"] = reply_to
+    if silent:
+        payload["silent"] = True
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -279,7 +281,7 @@ async def delete_room(token: str) -> bool:
         return False
 
 
-async def post_to_room(token: str, text: str) -> bool:
+async def post_to_room(token: str, text: str, *, silent: bool = False) -> bool:
     """Post into an arbitrary (validated) room — unlike post_to_talk this is
     for caller-supplied tokens such as per-consultation rooms."""
     if not talk_enabled() or not valid_room_token(token):
@@ -292,7 +294,7 @@ async def post_to_room(token: str, text: str) -> bool:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{base}{_OCS}/chat/{token}",
-                json={"message": text[:30000]},
+                json={"message": text[:30000], **({"silent": True} if silent else {})},
                 auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
                 headers={"OCS-APIRequest": "true", "Accept": "application/json"},
             )

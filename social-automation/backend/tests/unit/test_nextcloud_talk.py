@@ -192,6 +192,20 @@ async def test_bot_reply_signed():
     assert call["json"]["replyTo"] == 7
 
 
+@pytest.mark.asyncio
+async def test_bot_reply_silent_flag():
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Client):
+        assert await TALK.bot_reply("room-ops", "mirror", silent=True) is True
+    assert _Client.calls[0]["json"]["silent"] is True
+
+
+@pytest.mark.asyncio
+async def test_post_to_room_silent_flag():
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Client):
+        assert await TALK.post_to_room("abc12345", "mirror", silent=True) is True
+    assert _Client.calls[0]["json"]["silent"] is True
+
+
 # ── slack dual-post fanout ───────────────────────────────────────────
 
 
