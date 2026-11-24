@@ -478,21 +478,24 @@ async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) 
             # messages arrive newest-first; post oldest-new of the unseen ones
             unseen: list[dict] = []
             for m in msgs:
-                if (m["id"] or m["key"]) == room.last_inbound_key:
+                # empty last_inbound_key = new room, everything is unseen
+                if room.last_inbound_key and (m["id"] or m["key"]) == room.last_inbound_key:
                     break
                 unseen.append(m)
             if not unseen:
                 continue
-            failed = False
+            last_posted_key: str | None = None
             for m in reversed(unseen[:10]):  # newest 10, chronological; older backlog stays unread
                 ok = await _post(room, _format_inbound(m["sender"], m["text"], m["ours"], m["attachments"]), db=db)
                 if not ok:
-                    failed = True
-                    break
+                    break  # leave the rest for the next sweep
                 await _log_event(db, room, "outbound" if m["ours"] else "inbound", msg=m)
                 posted += 1
-            if not failed:
-                room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"]
+                last_posted_key = m["id"] or m["key"] or None
+            # Advance only to the last DELIVERED message — failed posts are
+            # retried, delivered ones never repost.
+            if last_posted_key:
+                room.last_inbound_key = last_posted_key
         await db.commit()
     return {"posted": posted}
 

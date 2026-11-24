@@ -1477,7 +1477,7 @@ type 2). `talk_bridge_sync` (Celery beat, `TALK_BRIDGE_POLL_S`, default
 (`sync_rooms`) and posts unseen inbound messages into them
 (`inbound_sync`, watermark = `last_inbound_key`, newest-10 window,
 oldest→newest). User replies in Talk land on the existing
-`talk_bot_webhook` (`/api/v1/talk/bot`): messages in bridge-mapped rooms
+`talk_bot_webhook` (`/api/v1/nextcloud/talk-bot`): messages in bridge-mapped rooms
 route through `_bridge_reply` → `outbound()` → the platform lane
 (Messenger API for Page threads, the personal-Messenger browser bridge
 for `fb_personal`, `InstagramAPIClient.send_dm` honoring Business Login
