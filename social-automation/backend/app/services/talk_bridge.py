@@ -151,7 +151,15 @@ def _attachment_urls(attachments: object) -> list[str]:
 
 
 def _norm(ts_key: str, msg_id: str, sender: str, text: str, ours: bool, atts: list[str] | None = None) -> dict:
-    return {"key": ts_key, "id": msg_id, "sender": sender, "text": text, "ours": ours, "attachments": atts or []}
+    # Lanes without message ids/timestamps (personal Messenger scrape,
+    # LinkedIn) still need a stable key or the watermark can never advance —
+    # synthesize a deterministic one from the content itself.
+    key = ts_key or msg_id
+    if not key:
+        import hashlib
+
+        key = "h_" + hashlib.sha256(f"{sender}|{text}|{ours}".encode()).hexdigest()[:16]
+    return {"key": key, "id": msg_id, "sender": sender, "text": text, "ours": ours, "attachments": atts or []}
 
 
 async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict]:
