@@ -4857,3 +4857,42 @@ had the new code. The workers were running a reverted deploy.
   project (watchdog rebuilt the stack under it). Root `docker compose up`
   fails on the `/redis` name that standalone owns — use the standalone
   file for all recreate/pull operations.
+
+## 2026-11-24 — Meta escalation leftovers (human/Meta-gated, not automatable)
+
+Automated tonight: IG business_login re-mint (`ig_phone_reauth.py`, PR
+#2628), Meta Account TOTP enrolled + converged to all three
+`META_TOTP_SECRET*` keys, FB sidecar session verified live (feed loads —
+`/health` `has_session:false` is a stale flag, browser itself is
+authenticated).
+
+Still open — all waiting on Meta, nothing left to automate client-side:
+
+- **personal-restriction** — FB user 1134463867 restriction; root cause
+  of PPA block. Consolidated brief sits in the Meta AI assistant thread
+  (cloudless.gr BSH); no case ID yet. `meta_infra_retry` beat retries
+  provisioning daily 10:00 UTC.
+- **portfolio-mutation** — BM 1558125105019725 mutation block (#100
+  "apps with the capability" on system_users create — gated by the
+  personal-account restriction above).
+- **unauthorized-ad-account / breach** — Vera Symeonidou ad acct
+  2771400643144250 inside our portfolio; reported in the same
+  consolidated escalation. facebook.com/hacked + instagram.com/hacked
+  portals are the official breach-recovery lanes if Meta doesn't act.
+- **waba-system-user** — WABA 1717901383017723 APPROVED but no system
+  user / owned ad accounts; same #100 gate.
+- **meta-2fa-codes** — SMS/WhatsApp codes to +**38 dead. MITIGATED: TOTP
+  auth app now enrolled (ZUSD…) — all credential lanes can generate
+  codes offline. Keep backup-code list fresh in `~/ig_backup_codes.txt`.
+- **dead-ad-accounts** — Meta ruled the Jan-2021 ad-account restriction
+  permanent; replacement ad account creation is blocked by the same
+  personal-restriction gate. No path until identity review clears.
+- **fb_onboarding IG row (d2215106)** — fresh token valid for reads but
+  publish still #10 (PPA incomplete; phone-app "Confirm Connection"
+  ends in Meta "Something went wrong"). Non-blocking: business_login
+  lane is canonical and publishing (post 086c5988 shipped 19:53Z).
+- **Docker Desktop/WSL instability** — engine + sidecars restarted
+  ~4× during this session; each restart wipes sidecar sessions
+  (`has_session:false` → profile-picker loop). If escalations need the
+  sidecar again, re-login via `POST /login` (FACEBOOK_USERNAME/
+  PASSWORD + TOTP from META_TOTP_SECRET_AC) once the stack settles.
