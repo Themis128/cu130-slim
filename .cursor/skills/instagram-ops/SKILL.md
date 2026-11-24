@@ -1218,3 +1218,33 @@ Requires `INSTAGRAM_USERNAME`/`INSTAGRAM_PASSWORD` in `~/cu130-slim/.env`,
 `instagram-private-api`, `social-api`, `social-postgres` containers up.
 If login hits a challenge/2FA, aiograpi raises — resolve via the phone
 (notification approve or SMS code through `phone-2fa-ops`) and re-run.
+
+## Phone saved-passkey / credential login lane (2026-11-22)
+
+`scripts/ig_phone_passkey.py` — drives the IG Android app on the Galaxy
+S22+ (wireless ADB, `~/galaxy-s22-toolkit`) through the saved-credential
+lane that bypasses the risk-scored web reset ("Something went wrong" on
+every desktop automation surface). Detects the profile picker → "Use
+another profile" → passkey/provider sheet (Samsung Pass / Google Password
+Manager) → fingerprint gate (human) → verifies the feed actually loaded
+(picker-return = dead saved session). `--provider`, `--no-wait`,
+`--package` flags; exit 2 = phone blocked (cover/lock/other focus).
+
+Verified live 2026-11-22:
+
+- **`INSTAGRAM_PASSWORD` is VALID** — phone app login as `t_baltzakis`
+  succeeded with it (it equals the shared Meta account password). The
+  instagrapi/`ig_login` failures were lane-side, not bad-credentials.
+- **`cloudless.gr` IG one-tap login WORKED on the phone** — the business
+  account session is live on-device even though its Accounts Center row
+  shows "Instagram・Locked" (locked = can't be *added* elsewhere, the
+  on-device session itself authenticated).
+- Phone now holds live sessions for: FB personal (@themis.baltzakis),
+  IG t_baltzakis, IG cloudless.gr — the trusted-device set for Meta
+  "Was this you?" approvals (`phone_fb_approve.py` needs ADB dumpsys,
+  which was timing out but recovered).
+- IG app has TWO login activities: `com.instagram.android/...modal` for
+  the picker and `com.instagram.barcelona/...LoginActivity` for the
+  unified account chooser (lists cloudless.gr ×2 + t_baltzakis).
+- Samsung Pass passkey for IG was device-bound and is DEAD ("passkey is
+  no longer available") — Google Password Manager entry may still work.
