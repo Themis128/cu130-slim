@@ -832,3 +832,208 @@ async def test_fb_page_messages_marks_ours():
         out = await TB._fb_page_messages(acct, "t-1")
     assert out[0]["ours"] is True
     assert out[0]["attachments"] == ["u"]
+
+
+# ── coverage batch 2 ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_log_event_bad_account_id_uuid():
+    db = _FakeDB([])
+    room = _room(account_id="not-a-uuid")
+    await TB._log_event(db, room, "inbound", msg={"id": "x", "text": "t"})
+    assert db.added[0].social_account_id is None
+
+
+def test_attachment_urls_skips_non_dict_items():
+    out = TB._attachment_urls({"data": ["junk", {"file_url": "u1"}, {"image_data": {"url": "u2"}}]})
+    assert out == ["u1", "u2"]
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_inactive_and_nonlist():
+    acct = _acct()
+
+    class _B:
+        def __init__(self, *a, **kw):
+            pass
+        async def ensure_session(self, platform):
+            return {"status": "inactive"}
+    with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
+        assert await TB._fb_personal_messages(acct, "t1", False) == []
+
+    class _B2(_B):
+        async def ensure_session(self, platform):
+            return {"status": "active"}
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return {"messages": "not-a-list"}
+    with patch("app.services.browser_bridge.BrowserBridgeClient", _B2):
+        assert await TB._fb_personal_messages(acct, "t1", False) == []
+
+    class _B3(_B2):
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return {"messages": ["junk", {"id": "m1", "sender": "Bob", "text": "hi"}]}
+    with patch("app.services.browser_bridge.BrowserBridgeClient", _B3):
+        out = await TB._fb_personal_messages(acct, "t1", False)
+    assert len(out) == 1 and out[0]["sender"] == "Bob"
+
+
+@pytest.mark.asyncio
+async def test_ig_messages_nonlist_and_ours():
+    acct = _acct(platform="instagram", meta={"ig_user_id": "999"})
+
+    class _C:
+        async def get_dm_messages(self, tid, limit=0):
+            return {"data": "nope"}
+    with patch.object(TB, "_ig_client", lambda a: _C()):
+        assert await TB._ig_messages(acct, "t1") == []
+
+    class _C2:
+        async def get_dm_messages(self, tid, limit=0):
+            return {"data": [{"id": "m1", "from": {"id": "999", "username": "me"}, "message": "yo"},
+                             {"id": "m2", "from": {"id": "5", "name": "them"}, "message": "hi"}]}
+    with patch.object(TB, "_ig_client", lambda a: _C2()):
+        out = await TB._ig_messages(acct, "t1")
+    assert out[0]["ours"] is True and out[1]["ours"] is False
+
+
+@pytest.mark.asyncio
+async def test_li_self_name_cache_hit_and_error():
+    calls = []
+
+    class _S:
+        async def get_profile(self):
+            calls.append(1)
+            return {"name": "Me"}
+    TB._li_self["name"] = None
+    TB._li_self["at"] = 0.0
+    try:
+        assert await TB._li_self_name(_S()) == "Me"
+        assert await TB._li_self_name(_S()) == "Me"  # cache hit — no second call
+        assert len(calls) == 1
+        TB._li_self["at"] = 0.0  # force expiry
+
+        class _SBad:
+            async def get_profile(self):
+                raise RuntimeError("boom")
+        assert await TB._li_self_name(_SBad()) == ""
+    finally:
+        TB._li_self["name"] = None
+        TB._li_self["at"] = 0.0
+
+
+@pytest.mark.asyncio
+async def test_li_messages_nonlist_and_is_own_flag():
+    acct = _acct(platform="linkedin", display_name="Me")
+
+    class _S:
+        async def get_thread_messages(self, tid):
+            return {"messages": "nope"}
+    from app.services import linkedin_sidecar
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
+        assert await TB._li_messages(acct, "t1") == []
+
+    class _S2:
+        async def get_thread_messages(self, tid):
+            return {"messages": ["junk", {"ts": "1", "sender": "X", "text": "hi", "is_own": True}]}
+        async def get_profile(self):
+            return {"name": "Me"}
+    TB._li_self["name"] = None
+    try:
+        with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S2()):
+            out = await TB._li_messages(acct, "t1")
+    finally:
+        TB._li_self["name"] = None
+        TB._li_self["at"] = 0.0
+    assert len(out) == 1 and out[0]["ours"] is True
+
+
+@pytest.mark.asyncio
+async def test_fetch_messages_exception_returns_empty():
+    acct = _acct(platform="facebook")
+    room = _room(platform="messenger")
+    with patch.object(TB, "_fb_page_messages", side_effect=RuntimeError("down")):
+        assert await TB._fetch_messages(acct, room) == []
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_ig_and_li_nonlist():
+    acct = _acct(platform="instagram", meta={})
+    class _C:
+        async def get_conversations(self, limit=0):
+            return {"data": "nope"}
+    with patch.object(TB, "_ig_client", lambda a: _C()):
+        assert await TB._conversation_list(acct) == []
+
+    acct2 = _acct(platform="linkedin")
+    class _S:
+        async def get_conversations(self):
+            return {"conversations": "nope"}
+    from app.services import linkedin_sidecar
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
+        assert await TB._conversation_list(acct2) == []
+
+    class _S3:
+        async def get_conversations(self):
+            return {"conversations": [{"name": "Ann", "thread_url": "https://x/y/123/", "id": ""}]}
+    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S3()):
+        out = await TB._conversation_list(acct2)
+    assert out[0]["thread_id"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_inbound_sync_seen_all_and_no_account():
+    room = _room(last_inbound_key="k1")
+    acct = _acct()
+    db = _FakeDB([[room], [acct]])
+    with patch.object(TB, "_fetch_messages", AsyncMock(return_value=[{"id": "k1", "key": "k1", "sender": "a", "text": "t", "ours": False, "attachments": []}])):
+        out = await TB.inbound_sync(uuid.uuid4(), session_factory=_sf(db))
+    assert out["posted"] == 0
+
+    room2 = _room(account_id=str(uuid.uuid4()))  # account row missing
+    db2 = _FakeDB([[room2], []])
+    out2 = await TB.inbound_sync(uuid.uuid4(), session_factory=_sf(db2))
+    assert out2["posted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_outbound_personal_send_rejected_and_linkedin():
+    room = _room(platform="personal_messenger")
+    acct = _acct()
+    db = _FakeDB([[acct]])
+    with patch.object(TB, "room_for_token", AsyncMock(return_value=room)):
+        class _B:
+            def __init__(self, *a, **kw):
+                pass
+            async def ensure_session(self, p):
+                return {"status": "active"}
+            async def send_personal_messenger_message(self, tid, text, is_e2ee=False):
+                return {"status": "nope"}
+        with patch("app.services.browser_bridge.BrowserBridgeClient", _B):
+            ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(db))
+    assert ok is False and "send failed" in msg
+
+    room2 = _room(platform="linkedin")
+    with patch.object(TB, "room_for_token", AsyncMock(return_value=room2)):
+        class _S:
+            async def send_message(self, tid, text):
+                raise RuntimeError("li down")
+        from app.services import linkedin_sidecar
+        with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
+            ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db))
+    assert ok2 is False and "li down" in msg2
+
+
+@pytest.mark.asyncio
+async def test_outbound_account_missing():
+    room = _room()
+    db = _FakeDB([[]])
+    with patch.object(TB, "room_for_token", AsyncMock(return_value=room)):
+        ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(db))
+    assert ok is False and msg == "account row missing"
+
+
+@pytest.mark.asyncio
+async def test_worker_run_disabled_and_per_team():
+    from app.worker.tasks import talk_bridge as task_mod
+    with patch.object(task_mod, "bridge_enabled", return_value=False):
+        assert await task_mod._run() == {"skipped": "talk bridge disabled"}
