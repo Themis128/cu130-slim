@@ -29,3 +29,25 @@ session logs out. `scripts/fb_session_heal.py` closes that loop:
 - Cron: */30 `heal` (flock-guarded). Companion to ig_fb_session_heal.py
   which covers the facebook-browser-SIDECAR session — this one covers
   the :9229 debug Chrome used for OAuth/Business pages.
+
+## fb_recover_drive.py — passwordless login via the emailed recovery code
+
+When the session is dead AND the stored cookies + credential login both
+fail (Meta anti-retry flags repeated password submits — do NOT retry the
+password lane, use this instead):
+
+- `drive` — full pass: /login/identify → "Get code via email" → poll the
+  mailbox for the fresh 8-digit code (`ssh omv-ha doveadm`, newest uid) →
+  submit → report end-state. `code <8digits>` re-submits a known code;
+  `status` reports the current gate.
+- End states: `waiting-device-approval` = a human must tap "Was this
+  you?" on the trusted phone (Galaxy S22 FB app) — cannot be driven.
+  `password-reset` = accepted; set `TH!123th!`. `logged-in` = run
+  `fb_session_heal.py capture` to store the fresh jar.
+- Live-verified 2026-11-24: password `TH!123th!` was accepted on the
+  picker gate but the 2FA SPA rendered blank; the recovery lane bypassed
+  it entirely and reached the device-approval gate in one pass.
+- Mail facts: codes live on **omv-ha** (not omv); Meta RE-USES the same
+  code across sends in one recovery session — a bounce to the picker
+  means the submit failed, not that the code is stale; `SINCE 15min`
+  doveadm search + grep `[0-9]{8}` on the newest uid gets it.
