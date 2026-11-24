@@ -203,7 +203,6 @@ def test_pm_clean_text_drops_call_log_chrome():
 
 def test_pm_clean_text_drops_banners_and_timestamps():
     for blob in (
-        "0:14",
         "Message not restored",
         "Restore messages\nPersonal chats are secured with end-to-end encryption, so you need to restore chat history when you switch devices.\nRestore",
     ):
@@ -211,6 +210,29 @@ def test_pm_clean_text_drops_banners_and_timestamps():
         assert text is None
     text, _ = TB._pm_clean_text("Carolina\nVideo call\n5 mins\nCall back", "Carolina Nasati", False)
     assert text == "📞 video call"
+
+
+def test_pm_clean_text_single_line_kept_unless_provable_chrome():
+    # A lone line has no label/timestamp context — "Reply" or "5:20 PM"
+    # sent as the whole message are genuine text, not chrome to delete.
+    for blob in ("Reply", "5:20 PM", "0:14", "Let's meet at the cafe."):
+        text, ours = TB._pm_clean_text(blob, "Carolina Nasati", False)
+        assert text == blob and ours is False
+    text, _ = TB._pm_clean_text("Missed video call", "Carolina Nasati", False)
+    assert text == "📞 missed video call"
+    text, _ = TB._pm_clean_text(
+        "Personal chats are secured with end-to-end encryption", "Carolina Nasati", False
+    )
+    assert text is None
+
+
+def test_pm_clean_text_strips_chrome_only_at_edges():
+    # Interior lines — even chrome-looking ones — are kept verbatim.
+    text, _ = TB._pm_clean_text("on my way\n5:20 PM\nsee you there", "Carolina Nasati", False)
+    assert text == "on my way\n5:20 PM\nsee you there"
+    # Leading + trailing chrome bracketing the text is stripped.
+    text, _ = TB._pm_clean_text("Seen\nreal body\nDelivered", "Carolina Nasati", False)
+    assert text == "real body"
 
 
 def test_pm_clean_text_strips_sender_label_keeps_real_text():
@@ -230,6 +252,13 @@ def test_pm_clean_text_empty_and_plain():
     assert TB._pm_clean_text("  \n ", "X", False) == (None, False)
     text, ours = TB._pm_clean_text("hello there", "X", True)
     assert text == "hello there" and ours is True
+
+
+def test_pm_clean_text_multiline_no_contact():
+    # multi-line blob with an empty contact name must not take the
+    # sender-label strip branch — both lines survive verbatim
+    text, ours = TB._pm_clean_text("first line\nsecond line", "", False)
+    assert text == "first line\nsecond line" and ours is False
 
 
 @pytest.mark.asyncio
@@ -259,6 +288,35 @@ async def test_fb_personal_messages_filters_dom_chrome():
         out = await TB._fb_personal_messages(acct, "t-1", False, "Carolina Nasati")
     assert [m["text"] for m in out] == ["📞 missed video call", "Καλημέρα Ραφαέλα"]
     assert out[0]["ours"] is True
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_messages_sender_me_is_ours():
+    acct = _acct(account_type="user")
+
+    class _Bridge:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def ensure_session(self, p):
+            return {"status": "active"}
+
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return {
+                "thread_id": "t-1",
+                "messages": [
+                    {"sender": "them", "text": "ok"},
+                    {"sender": "me", "text": "on my way"},  # outgoing bubble — no "You sent" label
+                ],
+            }
+
+    from app.services import browser_bridge
+
+    with patch.object(browser_bridge, "BrowserBridgeClient", _Bridge):
+        out = await TB._fb_personal_messages(acct, "t-1", False, "Carolina Nasati")
+    assert [m["text"] for m in out] == ["on my way", "ok"]  # newest-first
+    assert out[0]["ours"] is True
+    assert out[1]["ours"] is False
 
 
 # ── _log_event / _post ──────────────────────────────────────────────
@@ -394,6 +452,37 @@ async def test_inbound_sync_skips_when_no_messages():
     with patch.object(TB, "_fetch_messages", fetch):
         out = await TB.inbound_sync(uuid.uuid4(), session_factory=_sf(db))
     assert out == {"posted": 0}
+
+
+@pytest.mark.asyncio
+async def test_inbound_sync_boundary_lost_resyncs_without_repost():
+    acct = _acct()
+    # Saved watermark vanished from the feed (filtered row / changed hash).
+    room = _room(account_id=str(acct.id), last_inbound_key="gone-key")
+    db = _FakeDB([[room], [acct]])
+
+    msgs = [
+        {"key": "n2", "id": "n2", "sender": "Jane", "text": "newest", "ours": False, "attachments": []},
+        {"key": "n1", "id": "n1", "sender": "Jane", "text": "older", "ours": False, "attachments": []},
+    ]
+    posted = []
+
+    async def fetch(a, r):
+        return msgs
+
+    async def post(r, text, db=None):
+        posted.append(text)
+        return True
+
+    with (
+        patch.object(TB, "_fetch_messages", fetch),
+        patch.object(TB, "_post", post),
+        patch.object(TB, "_log_event", return_value=None),
+    ):
+        out = await TB.inbound_sync(uuid.uuid4(), session_factory=_sf(db))
+    assert out == {"posted": 0}
+    assert posted == []  # nothing reposted
+    assert room.last_inbound_key == "n2"  # re-anchored to the newest row
 
 
 # ── outbound ────────────────────────────────────────────────────────
