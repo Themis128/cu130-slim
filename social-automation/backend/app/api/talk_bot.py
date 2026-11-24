@@ -60,25 +60,31 @@ def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
         return "", None, None, None
     obj = payload.get("object") or {}
     target = payload.get("target") or {}
-    # Echo guard: never act on messages posted by the bot itself or by the
-    # app-password user (bridge inbound mirrors use that account) — else a
-    # mirrored contact message routes back outbound and the contact gets an
-    # echo of their own text.
+    # Echo guard: never act on messages posted by the bot itself or on
+    # bridge-originated posts (mirrored inbound + room headers, marked
+    # with an invisible sentinel) — else a mirrored contact message
+    # routes back outbound and the contact gets an echo of their own
+    # text. Actor identity is deliberately NOT used for the bridge case:
+    # the app-password account is also the owner's Talk account, so a
+    # uid filter would swallow real owner replies.
     s = get_settings()
     for actor in (obj.get("actor"), payload.get("actor")):
         if not isinstance(actor, dict):
             continue
         actor_type = str(actor.get("type") or actor.get("actorType") or "")
-        actor_id = str(actor.get("id") or actor.get("actorId") or "")
         if actor_type in ("bots", "bridged"):
-            return "", None, None, None
-        if actor_id and actor_id == (getattr(s, "NEXTCLOUD_USERNAME", "") or ""):
             return "", None, None, None
     try:
         content = json.loads(obj.get("content") or "{}")
         text = str(content.get("message") or "").strip()
     except (TypeError, ValueError):
         text = ""
+    # Bridge-originated posts (mirrored inbound + room headers) carry an
+    # invisible sentinel — without this they would route back outbound and
+    # echo each contact's own text to them. Actor identity can't do this
+    # job: the app-password account is also the owner's Talk account.
+    if text.startswith("​"):
+        return "", None, None, None
     try:
         msg_id = int(obj.get("id"))
     except (TypeError, ValueError):

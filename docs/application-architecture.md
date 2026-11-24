@@ -1483,8 +1483,14 @@ route through `_bridge_reply` → `outbound()` → the platform lane
 for `fb_personal`, `InstagramAPIClient.send_dm` honoring Business Login
 `access_token_enc` vs Page-linked `meta` tokens, `LinkedInSidecar` for
 `linkedin`). Commands `mute`/`unmute`/`help` toggle `TalkRoom.enabled`
-without leaving Talk. Guard rails: bot/app-password actor echo filter in
-`_command`, team-scoped API calls, savepointed `analytics_events`
+without leaving Talk. Guard rails: the webhook echo filter in `_command`
+drops bot/bridged actor types plus any message carrying the invisible
+`BRIDGE_MARK` sentinel — every bridge-originated post (mirrored inbound
+via `_post`, room headers) is marked, so owner replies from the same
+Talk account still route outbound. Note the webhook `actor.id` arrives
+ActivityPub-shaped (`users/<uid>`) while the chat API reports the bare
+uid; that mismatch is why marking beats actor comparison. Team-scoped
+API calls, savepointed `analytics_events`
 logging (`talk_bridge_inbound`/`talk_bridge_outbound` → datalake
 export). Every bridge room must be activated once with
 `occ talk:bot:setup <bot_id> <room_token>` so the SocialAuto bot can post

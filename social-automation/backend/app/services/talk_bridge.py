@@ -124,13 +124,21 @@ async def _log_event(db, room: TalkRoom, direction: str, msg: dict | None = None
         logger.exception("talk-bridge analytics log failed")
 
 
+# Invisible sentinel marking every bridge-originated room post (mirrored
+# inbound + room headers). The webhook echo guard keys on it — actor
+# identity alone can't separate mirrors from real owner replies, because
+# the app-password account IS the owner's Talk account.
+BRIDGE_MARK = "​"  # zero-width space
+
+
 async def _post(room: TalkRoom, text: str, db=None) -> bool:
     """Post into the room as the Talk bot (needs `occ talk:bot:setup <bot> <room>`
     per room), falling back to the app-password user. Returns True when a
     message actually reached the room."""
-    if await bot_reply(room.room_token, text, db=db):
+    marked = f"{BRIDGE_MARK}{text}"
+    if await bot_reply(room.room_token, marked, db=db):
         return True
-    return await post_to_room(room.room_token, text)
+    return await post_to_room(room.room_token, marked)
 
 
 # ─── inbound message fetchers (normalized dicts) ────────────────────

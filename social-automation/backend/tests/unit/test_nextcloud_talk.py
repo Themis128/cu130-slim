@@ -769,8 +769,21 @@ def test_command_drops_bot_and_self_actors():
     with patch.object(BOT, "get_settings", return_value=_settings()):
         p = dict(base_obj, actor={"id": "bot-1", "type": "bots"})
         assert BOT._command(p) == ("", None, None, None)
-        p2 = dict(base_obj, actor={"id": "u@cloudless.gr", "type": "users"})
-        assert BOT._command(p2) == ("", None, None, None)
+        # Owner replies must NOT be dropped — the room owner's uid is the
+        # same account the bridge mirrors through, so uid filtering would
+        # swallow real replies (bare uid and ActivityPub "users/<uid>"
+        # forms alike).
+        for uid in ("u@cloudless.gr", "users/u@cloudless.gr"):
+            p2 = dict(base_obj, actor={"id": uid, "type": "users"})
+            text, room, raw, mid = BOT._command(p2)
+            assert text == "hi" and raw == "room-ops"
+        # Bridge-originated posts (mirrored inbound + room headers) carry
+        # the zero-width sentinel — dropped regardless of actor.
+        for uid in ("u@cloudless.gr", "users/u@cloudless.gr", "bot-1"):
+            p2b = dict(base_obj, actor={"id": uid, "type": "users"},
+                       object={"content": json.dumps(
+                           {"message": "​**them**\ncontact\nhi there"}), "id": 2})
+            assert BOT._command(p2b) == ("", None, None, None)
         # non-dict actor is skipped, not a drop
         p3 = dict(base_obj, actor="weird")
         text, room, raw, mid = BOT._command(p3)
