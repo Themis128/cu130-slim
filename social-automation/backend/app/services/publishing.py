@@ -750,9 +750,7 @@ async def _enforce_media_semantics(
                 # "vision unavailable" (open policy passes; closed fails).
                 vision_down = True
                 if on_vision_down == "closed":
-                    failures.append(
-                        f"{os.path.basename(path)}: vision unavailable — semantic QA required"
-                    )
+                    failures.append(f"{os.path.basename(path)}: vision unavailable — semantic QA required")
                 logger.warning(
                     "[media-qa] total budget %.0fs exhausted — skipping remaining semantic checks",
                     total_budget,

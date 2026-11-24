@@ -243,10 +243,8 @@ def test_engagement_signals_dedup_edge_cases():
     base = datetime(2026, 11, 1, tzinfo=UTC)
     rows = [
         # same post, older capture arrives AFTER newer → must not overwrite
-        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1,
-         "captured_at": base + timedelta(days=2), "engagement_rate": 0.9},
-        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1,
-         "captured_at": base + timedelta(days=1), "engagement_rate": 0.1},
+        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1, "captured_at": base + timedelta(days=2), "engagement_rate": 0.9},
+        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1, "captured_at": base + timedelta(days=1), "engagement_rate": 0.1},
         # row with neither id → cannot dedup, counts as its own post
         {"platform": "threads", "engagement_rate": 0.5},
         {"platform": "threads", "engagement_rate": 0.5},
@@ -279,10 +277,7 @@ def test_ad_signals_zero_denominators():
 
 def test_growth_signals_slope_over_min_span():
     base = datetime(2026, 11, 1, tzinfo=UTC)
-    snaps = [
-        {"platform": "linkedin", "followers": 1000 + i * 10, "captured_at": base + timedelta(days=i)}
-        for i in range(0, 15)
-    ]
+    snaps = [{"platform": "linkedin", "followers": 1000 + i * 10, "captured_at": base + timedelta(days=i)} for i in range(0, 15)]
     out = D.compute_growth_signals(snaps)
     g = out["growth"]["linkedin"]
     assert g["per_week"] is not None and g["per_week"] > 0
@@ -321,12 +316,9 @@ def test_devapp_followers_skips_non_dict_containers_and_finds_value():
 def test_devapp_signals_token_expiry_parsing():
     # Valid ISO expiry → days_to_expiry; garbage string → ValueError swallowed.
     rows = [
-        {"platform": "linkedin", "username": "u1", "ok": True, "token_valid": True,
-         "health": {"expires_at": "2999-01-01T00:00:00+00:00"}},
-        {"platform": "x", "username": "u2", "ok": True, "token_valid": True,
-         "token_expires_at": "not-a-date"},
-        {"platform": "y", "username": "u3", "ok": True, "token_valid": True,
-         "token_expires_at": "2999-06-01T00:00:00"},  # naive ISO → assumed UTC
+        {"platform": "linkedin", "username": "u1", "ok": True, "token_valid": True, "health": {"expires_at": "2999-01-01T00:00:00+00:00"}},
+        {"platform": "x", "username": "u2", "ok": True, "token_valid": True, "token_expires_at": "not-a-date"},
+        {"platform": "y", "username": "u3", "ok": True, "token_valid": True, "token_expires_at": "2999-06-01T00:00:00"},  # naive ISO → assumed UTC
     ]
     out = D.compute_devapp_signals(rows)
     assert out["devapp_channels"][0]["days_to_expiry"] > 30000

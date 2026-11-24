@@ -508,11 +508,11 @@ def test_sweep_skips_pending_target_on_dead_post(monkeypatch):
     )
     db = _DB(
         [
-            _Result([]),          # failed_targets
-            _Result([]),          # failed_posts
-            _Result([]),          # orphaned video posts
-            _Result([pid]),       # dead_post_ids
-            _Result([tgt]),       # orphan_targets
+            _Result([]),  # failed_targets
+            _Result([]),  # failed_posts
+            _Result([]),  # orphaned video posts
+            _Result([pid]),  # dead_post_ids
+            _Result([tgt]),  # orphan_targets
         ]
     )
     _wire(monkeypatch, db)
@@ -536,7 +536,7 @@ def test_sweep_no_dead_posts_leaves_targets(monkeypatch):
             _Result([]),
             _Result([]),
             _Result([]),
-            _Result([]),          # dead_post_ids empty → no target query
+            _Result([]),  # dead_post_ids empty → no target query
         ]
     )
     _wire(monkeypatch, db)

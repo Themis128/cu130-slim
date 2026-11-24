@@ -115,19 +115,19 @@ def sync_linkedin_demographics() -> dict[str, Any]:
     async def _run() -> dict[str, Any]:
         async with task_session() as db:
             accounts = (
-                await db.execute(
-                    select(SocialAccount).where(
-                        SocialAccount.platform == "linkedin",
-                        SocialAccount.account_type == "organization",
+                (
+                    await db.execute(
+                        select(SocialAccount).where(
+                            SocialAccount.platform == "linkedin",
+                            SocialAccount.account_type == "organization",
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if not accounts:
-                accounts = (
-                    await db.execute(
-                        select(SocialAccount).where(SocialAccount.platform == "linkedin")
-                    )
-                ).scalars().all()
+                accounts = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().all()
             results = {}
             for acc in accounts:
                 try:

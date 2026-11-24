@@ -297,11 +297,7 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
         # keyed by sponsoredCampaign id (= CM "ad set"), values are the
         # adAnalytics DAILY elements (dateRange/impressions/clicks/
         # totalEngagements/costInLocalCurrency/approximateUniqueImpressions).
-        m.raw["daily_by_campaign"] = {
-            k.rsplit(":", 1)[-1]: list(b.raw.get("daily") or [])
-            for k, b in stats.items()
-            if not k.startswith("_")
-        }
+        m.raw["daily_by_campaign"] = {k.rsplit(":", 1)[-1]: list(b.raw.get("daily") or []) for k, b in stats.items() if not k.startswith("_")}
         if camp:
             bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
             if bundle is None:

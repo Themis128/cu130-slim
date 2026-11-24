@@ -794,9 +794,7 @@ def test_command_drops_bot_and_self_actors():
         # Bridge-originated posts (mirrored inbound + room headers) carry
         # the zero-width sentinel — dropped regardless of actor.
         for uid in ("u@cloudless.gr", "users/u@cloudless.gr", "bot-1"):
-            p2b = dict(base_obj, actor={"id": uid, "type": "users"},
-                       object={"content": json.dumps(
-                           {"message": "​**them**\ncontact\nhi there"}), "id": 2})
+            p2b = dict(base_obj, actor={"id": uid, "type": "users"}, object={"content": json.dumps({"message": "​**them**\ncontact\nhi there"}), "id": 2})
             assert BOT._command(p2b) == ("", None, None, None)
         # non-dict actor is skipped, not a drop
         p3 = dict(base_obj, actor="weird")

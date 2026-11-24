@@ -220,9 +220,7 @@ def test_pm_clean_text_single_line_kept_unless_provable_chrome():
         assert text == blob and ours is False
     text, _ = TB._pm_clean_text("Missed video call", "Carolina Nasati", False)
     assert text == "📞 missed video call"
-    text, _ = TB._pm_clean_text(
-        "Personal chats are secured with end-to-end encryption", "Carolina Nasati", False
-    )
+    text, _ = TB._pm_clean_text("Personal chats are secured with end-to-end encryption", "Carolina Nasati", False)
     assert text is None
 
 

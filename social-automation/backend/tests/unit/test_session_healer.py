@@ -274,9 +274,7 @@ async def test_li_rate_limit_paths(monkeypatch):
 
     # session_dead circuit → skip the session probe, go to the login ladder
     _Http.routes = {
-        ("GET", "/health"): (200, {"status": "ok", "rate_limited": True,
-                                   "rate_limit_until": fresh,
-                                   "rate_limit_reason": "redirect_loop_session_dead"}),
+        ("GET", "/health"): (200, {"status": "ok", "rate_limited": True, "rate_limit_until": fresh, "rate_limit_reason": "redirect_loop_session_dead"}),
     }
     monkeypatch.setattr(H, "_env", lambda n: "")
     monkeypatch.setattr(H, "_secret", AsyncMock(return_value=""))
