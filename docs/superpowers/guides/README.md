@@ -30,6 +30,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 
 - [Funnel email layout](24-funnel-email-layout.md) — shared branded HTML layout for every funnel/lifecycle email (text + HTML, CTA button)
 - [Offer countdown token](25-offer-countdown.md) — live days/hours/minutes `{countdown}` in posts, cross-posts and campaign emails
+- [Nextcloud Talk messenger bridge](26-nextcloud-talk-messenger-bridge.md) — read + answer FB/IG/LinkedIn DMs as Talk rooms (Android + desktop clients)
 
 ## Product plans
 

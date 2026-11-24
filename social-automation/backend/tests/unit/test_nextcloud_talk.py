@@ -250,7 +250,7 @@ class _Req:
 def _signed_request(text: str, room: str = "room-ops"):
     payload = {
         "type": "Create",
-        "actor": {"id": "u@cloudless.gr"},
+        "actor": {"id": "operator@cloudless.gr", "type": "users"},
         "object": {"content": json.dumps({"message": text}), "id": 42},
         "target": {"id": room},
     }
@@ -343,6 +343,44 @@ async def test_webhook_ignores_foreign_room():
 
 
 @pytest.mark.asyncio
+async def test_webhook_bridge_dm_never_dispatches_ops_command():
+    """A command-like DM in a bridge-mapped room forwards to the platform
+    and must NOT reach the ops-command path or post a bot reply."""
+    import app.services.talk_bridge as TB
+    import app.worker.celery_app as CA
+
+    req = _signed_request("heal", room="room-bridge-1")
+    sent, replies, forwarded = [], [], []
+
+    class _Celery:
+        def send_task(self, name, kwargs=None):
+            sent.append(name)
+
+    async def _reply(*a, **kw):
+        replies.append(a)
+
+    async def _mapped(room):
+        return SimpleNamespace(id=1, enabled=True)
+
+    async def _sent_ok(room, text):
+        forwarded.append((room, text))
+        return True, "ok"
+
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(TB, "room_for_token", _mapped),
+        patch.object(TB, "outbound", _sent_ok),
+        patch.object(CA, "celery_app", _Celery()),
+    ):
+        out = await BOT.talk_bot_webhook(req)
+    assert out == {"ok": True}
+    assert forwarded == [("room-bridge-1", "heal")]
+    assert sent == []
+    assert replies == []
+
+
+@pytest.mark.asyncio
 async def test_webhook_heal_dispatches_task():
     req = _signed_request("heal")
     sent = []
@@ -417,7 +455,7 @@ def _queue_item(status):
 @pytest.mark.asyncio
 async def test_command_non_create_ignored():
     with patch.object(BOT, "get_settings", return_value=_settings()):
-        assert BOT._command({"type": "Update"}) == ("", None, None)
+        assert BOT._command({"type": "Update"}) == ("", None, None, None)
 
 
 @pytest.mark.asyncio
@@ -428,7 +466,7 @@ async def test_command_bad_content_and_bad_id():
         "target": {"id": "room-ops"},
     }
     with patch.object(BOT, "get_settings", return_value=_settings()):
-        assert BOT._command(payload) == ("", "room-ops", None)
+        assert BOT._command(payload) == ("", "room-ops", "room-ops", None)
 
 
 @pytest.mark.asyncio
@@ -721,3 +759,116 @@ async def test_bot_reply_http_error_and_exception_return_false():
 
     with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _Boom()):
         assert await TALK.bot_reply("room-ops", "hi") is False
+
+
+# ── coverage batch: echo guard + bridge reply commands ──────────────
+
+
+def test_command_drops_bot_and_self_actors():
+    base_obj = {"object": {"content": json.dumps({"message": "hi"}), "id": 1},
+                "target": {"id": "room-ops"}, "type": "Create"}
+    with patch.object(BOT, "get_settings", return_value=_settings()):
+        p = dict(base_obj, actor={"id": "bot-1", "type": "bots"})
+        assert BOT._command(p) == ("", None, None, None)
+        p2 = dict(base_obj, actor={"id": "u@cloudless.gr", "type": "users"})
+        assert BOT._command(p2) == ("", None, None, None)
+        # non-dict actor is skipped, not a drop
+        p3 = dict(base_obj, actor="weird")
+        text, room, raw, mid = BOT._command(p3)
+        assert text == "hi" and raw == "room-ops"
+
+
+class _FakeDB2:
+    def __init__(self, room):
+        self._room = room
+        self.commits = 0
+
+    async def get(self, model, pk):
+        return self._room
+
+    async def commit(self):
+        self.commits += 1
+
+
+def _sf2(db):
+    class _SF:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *a):
+            return False
+
+    return _SF()
+
+
+@pytest.mark.asyncio
+async def test_bridge_reply_mute_unmute_help_and_error():
+    room_obj = SimpleNamespace(id=1, enabled=True)
+    mapped = SimpleNamespace(id=1, enabled=True)
+    db = _FakeDB2(room_obj)
+
+    async def _mapped(room):
+        return mapped
+    with (
+        patch("app.services.talk_bridge.room_for_token", _mapped),
+        patch.object(BOT, "async_session_maker", _sf2(db)),
+    ):
+        out = await BOT._bridge_reply("mute", "room-x")
+        assert "muted" in out and room_obj.enabled is False and db.commits == 1
+        out = await BOT._bridge_reply("unmute", "room-x")
+        assert "unmuted" in out and room_obj.enabled is True and db.commits == 2
+        out = await BOT._bridge_reply("help", "room-x")
+        assert "Commands" in out
+
+    async def _boom(room):
+        raise RuntimeError("db down")
+    with patch("app.services.talk_bridge.room_for_token", _boom):
+        assert await BOT._bridge_reply("hi", "room-x") is False
+
+    async def _none(room):
+        return None
+    with patch("app.services.talk_bridge.room_for_token", _none):
+        assert await BOT._bridge_reply("hi", "room-x") is False
+
+    # outbound fails → warning string reply
+    mapped2 = SimpleNamespace(id=1, enabled=True)
+
+    async def _mapped2(room):
+        return mapped2
+
+    async def _fail(room, text):
+        return False, "no recipient"
+    with (
+        patch("app.services.talk_bridge.room_for_token", _mapped2),
+        patch("app.services.talk_bridge.outbound", _fail),
+    ):
+        out = await BOT._bridge_reply("hello", "room-x")
+    assert out.startswith("⚠️")
+
+
+@pytest.mark.asyncio
+async def test_webhook_bridge_reply_string_posts_to_room():
+    """A mute command in a bridged room gets its reply posted via bot_reply."""
+    req = _signed_request("mute", room="room-bridge-1")
+    replies = []
+
+    async def _reply(room, msg, **kw):
+        replies.append((room, msg))
+        return True
+
+    room_obj = SimpleNamespace(id=1, enabled=True)
+
+    async def _mapped(room):
+        return SimpleNamespace(id=1, enabled=True)
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch("app.services.talk_bridge.room_for_token", _mapped),
+        patch.object(BOT, "async_session_maker", _sf2(_FakeDB2(room_obj))),
+    ):
+        out = await BOT.talk_bot_webhook(req)
+    assert out == {"ok": True}
+    assert replies and replies[0][0] == "room-bridge-1" and "muted" in replies[0][1]

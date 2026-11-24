@@ -1,4 +1,5 @@
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from celery import Celery
@@ -138,6 +139,7 @@ celery_app = Celery(
         "app.worker.tasks.meeting_notes",
         "app.worker.tasks.funnel_reports",
         "app.worker.tasks.inbox_snapshot",
+        "app.worker.tasks.talk_bridge",
     ],
 )
 
@@ -1100,6 +1102,13 @@ celery_app.conf.update(
         "inbox-snapshot": {
             "task": "app.worker.tasks.inbox_snapshot.run_inbox_snapshot",
             "schedule": crontab(minute=15, hour="*/6"),
+        },
+        # Nextcloud Talk ↔ FB/IG/LinkedIn DM bridge — map rooms and mirror
+        # inbound messages into per-contact Talk rooms (outbound is webhook-
+        # driven via the Talk bot endpoint).
+        "talk-bridge-sync": {
+            "task": "app.worker.tasks.talk_bridge.talk_bridge_sync",
+            "schedule": timedelta(seconds=settings.TALK_BRIDGE_POLL_S),
         },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {

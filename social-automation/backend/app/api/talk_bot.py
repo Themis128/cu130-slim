@@ -49,12 +49,31 @@ _HELP = (
 )
 
 
-def _command(payload: dict) -> tuple[str, str | None, int | None]:
-    """Extract (text, room_token, message_id) from an ActivityStreams payload."""
+def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
+    """Extract (text, allowed_room, raw_room, message_id) from the payload.
+
+    allowed_room is one of the configured command rooms; raw_room is the
+    requester-supplied token, checked against the bridge room map before
+    use (bridge rooms are also a fixed server-side whitelist, SSRF-safe).
+    """
     if payload.get("type") != "Create":
-        return "", None, None
+        return "", None, None, None
     obj = payload.get("object") or {}
     target = payload.get("target") or {}
+    # Echo guard: never act on messages posted by the bot itself or by the
+    # app-password user (bridge inbound mirrors use that account) — else a
+    # mirrored contact message routes back outbound and the contact gets an
+    # echo of their own text.
+    s = get_settings()
+    for actor in (obj.get("actor"), payload.get("actor")):
+        if not isinstance(actor, dict):
+            continue
+        actor_type = str(actor.get("type") or actor.get("actorType") or "")
+        actor_id = str(actor.get("id") or actor.get("actorId") or "")
+        if actor_type in ("bots", "bridged"):
+            return "", None, None, None
+        if actor_id and actor_id == (getattr(s, "NEXTCLOUD_USERNAME", "") or ""):
+            return "", None, None, None
     try:
         content = json.loads(obj.get("content") or "{}")
         text = str(content.get("message") or "").strip()
@@ -66,14 +85,51 @@ def _command(payload: dict) -> tuple[str, str | None, int | None]:
         msg_id = None
     # Room token is requester-supplied and lands in the reply URL — only
     # reply into the two configured rooms (whitelist = SSRF-safe constant).
-    s = get_settings()
     allowed = {
         (getattr(s, "NEXTCLOUD_TALK_ROOM", "") or "").strip(),
         (getattr(s, "NEXTCLOUD_TALK_ROOM_ALERTS", "") or "").strip(),
     }
     allowed.discard("")
     room = str(target.get("id") or "").strip()
-    return text, (room if room in allowed else None), msg_id
+    return text, (room if room in allowed else None), room, msg_id
+
+
+async def _bridge_reply(text: str, room: str) -> str | bool:
+    """Handle a message posted in a bridge-mapped room.
+
+    Returns: False when room is not bridged (caller falls through to the
+    command path); True when the message was forwarded to the platform
+    (silent — the room reads like a normal chat); a string reply for
+    errors and mute/unmute/help handling.
+    """
+    from app.services.talk_bridge import outbound, room_for_token
+
+    try:
+        mapped = await room_for_token(room)
+    except Exception:  # noqa: BLE001 — unmapped/DB-down rooms stay silent
+        logger.exception("Talk bridge room lookup failed")
+        return False
+    if mapped is None:
+        return False
+    cmd = text.lower().strip()
+    if cmd in ("mute", "/mute", "stop"):
+        async with async_session_maker() as db:
+            db_room = await db.get(type(mapped), mapped.id)
+            if db_room:
+                db_room.enabled = False
+                await db.commit()
+        return "Bridge muted — messages in this room stay in Talk."
+    if cmd in ("unmute", "/unmute", "start"):
+        async with async_session_maker() as db:
+            db_room = await db.get(type(mapped), mapped.id)
+            if db_room:
+                db_room.enabled = True
+                await db.commit()
+        return "Bridge unmuted — replies here go to the contact again."
+    if cmd in ("help", "/help"):
+        return "Bridge room: what you write is sent to the contact. Commands: mute · unmute"
+    ok, detail = await outbound(room, text)
+    return True if ok else f"⚠️ Send failed: {detail}"
 
 
 async def _status() -> str:
@@ -155,9 +211,26 @@ async def talk_bot_webhook(request: Request) -> dict:
         payload = json.loads(body)
     except ValueError:
         return {"ok": False}
-    text, room, msg_id = _command(payload)
+    text, room, raw_room, msg_id = _command(payload)
     if not text:
         return {"ok": True}
+    if room is None and raw_room:
+        # Maybe a bridge-mapped room — route text to the platform thread.
+        try:
+            reply = await _bridge_reply(text, raw_room)
+        except Exception:  # noqa: BLE001
+            logger.exception("Talk bridge routing failed")
+            reply = "⚠️ Send failed — bridge error."
+        if reply is True:
+            # Delivered to the platform contact — stay silent.
+            return {"ok": True}
+        if reply:
+            await bot_reply(raw_room, reply, reply_to=msg_id)
+            return {"ok": True}
+        # Unmapped room: fall through to the command path — it stays
+        # silent for non-commands and never posts into a non-whitelisted
+        # room (`reply and room` below). Mapped rooms never reach this:
+        # a DM starting with e.g. "heal" must not queue an ops task.
     try:
         reply = await _run_command(text)
     except Exception:  # noqa: BLE001

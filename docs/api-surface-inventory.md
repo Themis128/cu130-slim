@@ -570,6 +570,14 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/talk/consult-room` — POST
 
+## `talk-bridge`
+
+- `/api/v1/talk-bridge/status` — GET
+- `/api/v1/talk-bridge/rooms` — GET
+- `/api/v1/talk-bridge/sync` — POST
+- `/api/v1/talk-bridge/rooms/{room_token}/send` — POST
+- `/api/v1/talk-bridge/rooms/{room_token}/toggle` — POST
+
 ## `teams`
 
 - `/api/v1/teams/accept-invite` — POST

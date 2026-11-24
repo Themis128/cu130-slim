@@ -143,19 +143,35 @@ def verify_bot_request(random: str, body: bytes, signature: str) -> bool:
     return hmac.compare_digest(digest, signature.lower())
 
 
-async def bot_reply(room: str, message: str, *, reply_to: int | None = None) -> bool:
+async def bot_reply(room: str, message: str, *, reply_to: int | None = None, db=None) -> bool:
     """Reply into a room as the installed Talk bot.
 
     URL parts are config-derived only — the room must be one of the
-    configured rooms and the base always comes from settings, so nothing
-    requester-controlled reaches the request (CodeQL partial-SSRF).
+    configured rooms (or, when ``db`` is given, a TalkRoom row in the
+    bridge room map — also a server-side whitelist) and the base always
+    comes from settings, so nothing requester-controlled reaches the
+    request (CodeQL partial-SSRF).
     """
     secret = (get_settings().NEXTCLOUD_TALK_BOT_SECRET or "").strip()
     base = _base_url()
     # Resolve against configured rooms and substitute the *config* value —
     # the requester's string never reaches the URL (CodeQL partial-SSRF).
     configured = {room_token("digest"), room_token("alerts")} - {""}
-    room = next((c for c in configured if c == room), "")
+    token = room
+    room = next((c for c in configured if c == token), "")
+    if not room and db is not None:
+        # Bridge-mapped rooms are a fixed server-side set too — a TalkRoom
+        # row exists only because the room was created by sync_rooms.
+        from sqlalchemy import select
+
+        from app.models.talk_room import TalkRoom
+
+        try:
+            res = await db.execute(select(TalkRoom.room_token).where(TalkRoom.room_token == token))
+            room = res.scalar_one_or_none() or ""
+        except Exception:
+            logger.exception("Talk bridge room whitelist check failed")
+            return False
     if not secret or not base or not room:
         return False
     rnd = hashlib.sha256(os.urandom(32)).hexdigest()

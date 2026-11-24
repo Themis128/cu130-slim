@@ -46,6 +46,7 @@ from app.models.queue import PublishQueue
 from app.models.site_traffic import SiteTrafficDaily  # noqa: F401
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
+from app.models.talk_room import TalkRoom
 from app.models.telegram_message import TelegramChannelMessage
 from app.models.trends import TrendSignal
 from app.models.user import AuditLog, Team, TeamMember, User
@@ -105,6 +106,7 @@ __all__ = [
     "TelegramChannelMessage",
     "WhatsAppMessage",
     "InboxSnapshot",
+    "TalkRoom",
     "AgencyAudit",
     "AgencyAuditStatus",
     "AgencyProposal",
