@@ -908,6 +908,7 @@ class LinkedInAPIClient:
 
         payload = {
             "actor": creator_urn,
+            "object": post_urn,
             "message": {"text": text[:MAX_COMMENTARY_CHARS]},
         }
 
