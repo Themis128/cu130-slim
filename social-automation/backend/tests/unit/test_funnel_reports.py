@@ -581,7 +581,10 @@ async def test_inbox_snapshot_task_run(monkeypatch):
     def factory():
         return db
 
-    monkeypatch.setattr(dbs, "async_session_maker", factory)
+    def _api_pool_boom():
+        raise AssertionError("worker code hit the API pool (async_session_maker)")
+
+    monkeypatch.setattr(dbs, "async_session_maker", _api_pool_boom)
     monkeypatch.setattr(wasync, "task_session", factory)
     monkeypatch.setattr(
         ibx,
