@@ -16,6 +16,18 @@ from PIL import Image
 
 import app.api.newsletter as newsletter_api
 import app.services.linkedin_sidecar as sidecar_mod
+import app.services.newsletter_publisher as newsletter_publisher
+
+
+@pytest.fixture(autouse=True)
+def _skip_sidecar_prewarm(monkeypatch):
+    """The pre-publish sidecar warm-up is infra concern — stub it so API
+    tests don't sleep through its retry budget."""
+
+    async def _noop(client, **_kw):
+        return None
+
+    monkeypatch.setattr(newsletter_publisher, "_ensure_sidecar_ready", _noop)
 
 
 def _request(token: str = "s3cret") -> Request:
