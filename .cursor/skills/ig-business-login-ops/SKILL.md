@@ -98,6 +98,37 @@ Gotchas:
 - Backup codes are single-use: the driver removes the consumed code from
   `social_secrets` so the store stays truthful.
 
+## Phone-Chrome recovery lane (verified live 2026-11-24 — minted 38ddbd44)
+
+When the IG-native password is stale/rejected AND desktop CDP lanes are
+down, the whole re-mint runs on the **phone's Chrome** via ADB CDP —
+`scripts/ig_phone_reauth.py` encodes the proven sequence:
+
+1. `instagram.com/accounts/password/reset/?find_by=username` →
+   `cloudless.gr` → Continue → **Meta Account gate** (FB-SSO, not IG).
+2. "Try another way" → "Get code or link via email" → gmail option →
+   8-digit code arrives as a **Gmail push notification** — read it off
+   `adb shell dumpsys notification --noredact` (no mailbox creds).
+3. Next gate = WhatsApp 2FA → "Try another way" → **Backup code** radio
+   (LAST radio row) → codes from `~/ig_backup_codes.txt` — pull a FRESH
+   list from IG app → Accounts Center → 2FA → Backup codes first; old
+   lists go stale when Meta rotates them.
+4. "Create a new password" gate → re-enter `INSTAGRAM_PASSWORD` (same
+   value = no effective rotation; tokens survive).
+5. Logged-in instagram.com session → navigate to the instagram2
+   authorize URL → consent "Allow" — on wbloks consent a JS
+   `el.click()` works where synthetic mouse events don't →
+   `instagram2/callback?code=…` → row flips `active`.
+
+Prereqs: `ADB_SERIAL` (tailnet IP `100.84.31.85:5555`), phone unlocked,
+Chrome foregrounded (`phone_cdp.front()`), `websocket-client`.
+Transport: `phone-web-auth-ops/scripts/phone_cdp.py` (forward tcp:9555).
+Resume mid-flow with `--step N`; skip URL minting with `--authorize-url`.
+
+Side benefit: enrolling **Authentication app** TOTP in IG app →
+Accounts Center → 2FA kills the dead-SIM dependency — secret converged
+to `META_TOTP_SECRET{,_AC,_IG}` = `ZUSD…` on 2026-11-24.
+
 ## Gotchas
 
 - **Two active instagram rows for the same account is a hazard** — the
