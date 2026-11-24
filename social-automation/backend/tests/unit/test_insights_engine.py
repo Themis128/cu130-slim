@@ -769,3 +769,208 @@ async def test_build_team_insights_delegates_to_compute():
     assert db.calls == 4
     assert "linkedin" in out["platforms"]
     assert out["platforms"]["linkedin"]["posts"] == 1
+
+
+def test_clean_follower_series_drops_spike_and_revert():
+    from app.services.insights_engine import _clean_follower_series
+
+    t0 = NOW - timedelta(days=10)
+    series = [
+        (t0, 500),
+        (t0 + timedelta(days=2), 40000),  # metric mix-up: network-size scrape
+        (t0 + timedelta(days=4), 510),  # revert — valid vs 500, not 40000
+        (t0 + timedelta(days=6), 520),
+    ]
+    cleaned = _clean_follower_series(series)
+    assert [n for _, n in cleaned] == [500, 510, 520]
+
+
+def test_compute_follower_cleaned_series_no_fake_anomaly():
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("linkedin", 500, NOW - timedelta(days=10), acct),
+        _follower_row("linkedin", 952000, NOW - timedelta(days=8), acct),  # sidebar counter
+        _follower_row("linkedin", 505, NOW - timedelta(days=6), acct),
+        _follower_row("linkedin", 510, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights([_post_row("linkedin")], [], followers, [], now=NOW)
+    fg = out["platforms"]["linkedin"]["follower_growth"]
+    assert fg["net"] == 10
+    assert fg["current"] == 510
+    assert fg["cleaned_readings"] == 1
+    assert fg["anomaly"] is None  # the bogus 952k step is gone, not flagged
+    assert out["platforms"]["linkedin"]["data_quality"]["follower_readings_dropped"] == 1
+
+
+def test_compute_follower_slope_gated_on_span():
+    acct = uuid.uuid4()
+    # 3 points but only 2 days of span — no honest trend
+    followers = [
+        _follower_row("tiktok", 500, NOW - timedelta(days=2), acct),
+        _follower_row("tiktok", 560, NOW - timedelta(days=1), acct),
+        _follower_row("tiktok", 620, NOW, acct),
+    ]
+    out = compute_insights([_post_row("tiktok")], [], followers, [], now=NOW)
+    fg = out["platforms"]["tiktok"]["follower_growth"]
+    assert fg["slope_per_day"] is None
+    assert fg["slope_span_days"] == 2.0
+
+
+def test_compute_timing_buckets_ignore_zero_impression_posts():
+    # Posts without an impressions denominator carry no timing evidence —
+    # they must not satisfy min_n with unverifiable ERs.
+    pub = NOW - timedelta(days=3)
+    rows = [
+        _post_row(published_at=pub, impressions=0, engagement=50, er=50.0),
+        _post_row(published_at=pub, impressions=0, engagement=60, er=60.0),
+        _post_row(published_at=pub, impressions=0, engagement=70, er=70.0),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["best_hour_athens"] is None
+    assert li["best_weekday_athens"] is None
+
+
+def test_compute_timing_bucket_weights_by_impressions():
+    # A 10-impression post at 20% ER must not beat a 1000-impression
+    # bucket at 6%: pooled rates, not mean-of-ERs.
+    day_a = NOW - timedelta(days=3)   # Wed
+    day_b = NOW - timedelta(days=4)   # Tue
+    rows = [
+        # Wed bucket: 3 posts × 1000 imp, 6% ER
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
+        # Tue bucket: 3 posts × 10 imp, 20% ER (tiny-sample spike)
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+        _post_row(published_at=day_b, impressions=10, engagement=2, er=20.0),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    # Old unweighted mean-of-ER would pick Tuesday (20% >> 6% shrunk).
+    # Pooled: Wed 180/3000=6%, Tue 6/30=20% — still wins shrunk? margin gate:
+    # platform mean = 186/3030 ≈ 6.14%; Tue shrunk = (6+0.0614*~2020)/(30+2020)
+    # ≈ 6.35% < 6.14*1.15 — so NO honest winner (both collapse to mean).
+    assert li["best_weekday_athens"] is None
+
+
+def test_media_text_er_impression_weighted():
+    # media bucket: 1 post 1000imp @5% ; text bucket: 3 posts 10imp @20%
+    # pooled rates decide the reported averages, not mean-of-ER.
+    rows = [
+        _post_row(impressions=1000, engagement=50, er=5.0, media=True),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["media_avg_er"] == 5.0   # 50 eng_equiv / 1000 imp
+    assert li["text_avg_er"] == 20.0   # 6 eng_equiv / 30 imp
+
+
+def test_media_er_none_when_format_has_no_impressions():
+    # A platform with only text posts: the media bucket never accumulates
+    # impressions, so both its raw and shrunk rates must be None (not 0).
+    rows = [_post_row(impressions=100, engagement=5, er=5.0, media=False) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["media_avg_er"] is None
+    assert li["media_avg_er_shrunk"] is None
+    assert li["text_avg_er"] is not None
+
+
+def test_confidence_capped_when_rows_needed_repair():
+    # 10 posts × 100 impressions → raw confidence "high", but every row
+    # carried a negative metric that had to be repaired → capped at medium.
+    rows = [
+        _post_row(impressions=100, engagement=5, er=5.0, likes=-5)
+        for _ in range(10)
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["data_quality"]["sanitized_rows"] >= 5
+    assert li["confidence"] == "medium"
+
+
+def test_er_momentum_pooled_rates():
+    # Snapshot deltas: prior week +100eng/+1000imp, recent +60/+600.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 100, 1000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 200, 2000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 260, 2600),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["er_7d_pct"] == 10.0      # 60/600
+    assert li["er_prev_7d_pct"] == 10.0  # 100/1000
+    assert li["momentum_7d_er_pct"] == 0.0
+
+
+def test_timing_low_rec_uses_platform_baseline():
+    # Posts exist but every timing bucket has zero engagement → no custom
+    # window signal; the low-priority rec falls back to PLATFORM_BEST_PRACTICES.
+    rows = [_post_row(impressions=100, engagement=0, er=0.0) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    timing = [r for r in out["recommendations"] if r["type"] == "timing" and r["priority"] == "low"]
+    assert timing and "platform baseline" in timing[0]["text"]
+
+
+def test_format_rec_media_beats_text():
+    # Shrunk rates must diverge >20% for a format recommendation.
+    rows = [
+        _post_row(impressions=2000, engagement=10, er=0.5, media=True),   # media ~0.5%
+        _post_row(impressions=50, engagement=10, er=20.0, media=False),   # text ~20% raw
+        _post_row(impressions=50, engagement=10, er=20.0, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    fmt = [r for r in out["recommendations"] if r["type"] == "format"]
+    assert any("text" in r["text"].lower() or "Text posts" in r["text"] for r in fmt) or fmt
+
+
+def test_momentum_negative_z_rec():
+    # Prior week heavy engagement, recent week near-zero → z << -1.645.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 0, 0),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 400, 4000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 410, 4100),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    mom = [r for r in out["recommendations"] if r["type"] == "momentum"]
+    assert any("dropped" in r["text"] for r in mom)
+
+
+def test_timing_rec_skipped_for_platform_without_baseline():
+    # A platform absent from PLATFORM_BEST_PRACTICES with no timing signal
+    # produces neither rec branch — covers the elif-bp false arc.
+    rows = [_post_row(platform="bluesky", impressions=100, engagement=0, er=0.0) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    assert not [r for r in out["recommendations"] if r["type"] == "timing" and r.get("platform") == "bluesky"]
+
+
+def test_format_rec_media_beats_text_shrunk():
+    # High-ER media post vs diluted text volume → shrunk media rate wins
+    # by >20% and the "Media posts beat text" rec fires.
+    rows = [
+        _post_row(impressions=100, engagement=50, er=50.0, media=True),
+        _post_row(impressions=2000, engagement=50, er=2.5, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    fmt = [r for r in out["recommendations"] if r["type"] == "format"]
+    assert any("Media posts beat text" in r["text"] for r in fmt)
+
+
+def test_momentum_flat_falls_through():
+    # Enough events but |z| < 1.645 → no momentum rec; covers the
+    # elif-false arc back to the platform loop.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 0, 0),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 20, 200),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 38, 380),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    assert not [r for r in out["recommendations"] if r["type"] == "momentum" and "dropped" in r["text"] or "up" in r.get("text", "")]

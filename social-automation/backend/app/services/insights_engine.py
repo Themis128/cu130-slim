@@ -203,6 +203,14 @@ _FOLLOWER_ANOMALY_PCT = 0.05
 # Counter resets per platform before it becomes a reportable data issue.
 _COUNTER_RESET_WARN_THRESHOLD = 3
 
+# A Theil-Sen slope fit over fewer days than this is a two-endpoint
+# extrapolation, not a trend — report coverage but not the slope.
+_SLOPE_MIN_SPAN_DAYS = 7.0
+
+# Data-quality damage that caps `confidence` at medium: enough repaired
+# metric cells or counter resets means the aggregates already carry noise.
+_CONFIDENCE_CAP_SANITIZED = 5
+
 
 def _sanitize_metric(value: Any) -> tuple[int, bool]:
     """Clamp a metric to a sane non-negative int.
@@ -266,6 +274,26 @@ def _counter_deltas(series: list[int]) -> list[int]:
             out.append(v if i == 0 else v - series[i - 1])
         else:
             out.append(v)
+    return out
+
+
+def _clean_follower_series(series: list[tuple[datetime, int]]) -> list[tuple[datetime, int]]:
+    """Sequential plausibility filter for a (ts, count) series — read path.
+
+    Mirrors ``_plausible_follower_count`` in analytics_sync (write path) so
+    historical rows written before that guard existed — or that arrived via
+    writers that don't call it — get the same treatment: a >5x rise or a
+    >50% drop against the last *accepted* reading is a metric mix-up
+    (network-size scrape, sidebar counter), not organic churn. Rejected
+    points don't become the new baseline, so a spike-then-revert pair
+    removes only the spike."""
+    out: list[tuple[datetime, int]] = []
+    prev: int | None = None
+    for pt in series:
+        n = pt[1]
+        if prev is None or (n <= max(prev * 5, 100) and not (prev >= 100 and n < prev * 0.5)):
+            out.append(pt)
+            prev = n
     return out
 
 
@@ -488,10 +516,10 @@ def compute_insights(
             "likes": 0,
             "comments": 0,
             "shares": 0,
-            "hours": defaultdict(lambda: [0, 0.0]),  # hour -> [n, er_sum]
-            "weekdays": defaultdict(lambda: [0, 0.0]),  # weekday -> [n, er_sum]
-            "media_posts": [0, 0.0],
-            "text_posts": [0, 0.0],
+            "hours": defaultdict(lambda: [0, 0.0, 0]),  # hour -> [n, eng_equiv, impressions]
+            "weekdays": defaultdict(lambda: [0, 0.0, 0]),  # weekday -> [n, eng_equiv, impressions]
+            "media_posts": [0, 0.0, 0],  # [n, eng_equiv, impressions]
+            "text_posts": [0, 0.0, 0],
             "er_imp": 0,  # impressions on rows that have a denominator
             "er_eng": 0,  # engagement on those same rows only
             "notes": set(),
@@ -532,17 +560,28 @@ def compute_insights(
         if r.notes:
             p["notes"].add(r.notes)
 
+        # Only posts with a real impressions denominator carry rate
+        # evidence — an ER asserted without impressions can't be trusted.
+        # Evidence is impression-weighted everywhere: a post's ER estimate
+        # has precision proportional to its impressions, so a 20-impression
+        # post no longer swings a bucket like a 5k-impression one.
+        # eng_equiv = er% × imp ≈ engagement.
+        eng_equiv = er / 100.0 * impressions if impressions > 0 else 0.0
+        if impressions > 0:
+            bucket = "media_posts" if r.media_ids else "text_posts"
+            p[bucket][0] += 1
+            p[bucket][1] += eng_equiv
+            p[bucket][2] += impressions
+
         pub = r.published_at or r.created_at
-        if pub:
+        if pub and impressions > 0:
             local = pub.astimezone(ATHENS) if pub.tzinfo else pub.replace(tzinfo=UTC).astimezone(ATHENS)
             p["hours"][local.hour][0] += 1
-            p["hours"][local.hour][1] += er
+            p["hours"][local.hour][1] += eng_equiv
+            p["hours"][local.hour][2] += impressions
             p["weekdays"][local.weekday()][0] += 1
-            p["weekdays"][local.weekday()][1] += er
-
-        bucket = "media_posts" if r.media_ids else "text_posts"
-        p[bucket][0] += 1
-        p[bucket][1] += er
+            p["weekdays"][local.weekday()][1] += eng_equiv
+            p["weekdays"][local.weekday()][2] += impressions
 
         if p["top_post"] is None or er > p["top_post"]["engagement_rate"]:
             p["top_post"] = {"post_id": str(r.post_id), "engagement_rate": er, "impressions": int(r.impressions or 0)}
@@ -580,7 +619,8 @@ def compute_insights(
     follower_growth: dict[str, dict[str, Any]] = {}
     for key, series in follower_windows.items():
         platform = key.split(":", 1)[0]
-        first, last = series[0][1], series[-1][1]
+        cleaned = _clean_follower_series(series)
+        first, last = cleaned[0][1], cleaned[-1][1]
         g = follower_growth.setdefault(
             platform,
             {
@@ -589,15 +629,23 @@ def compute_insights(
                 "accounts": 0,
                 "anomaly": None,
                 "slopes": [],
+                "span_days": 0.0,
+                "cleaned_readings": 0,
             },
         )
         g["first"] += first
         g["last"] += last
         g["accounts"] += 1
-        slope = _theil_sen_slope(series)
-        if slope is not None:
-            g["slopes"].append(slope)
-        anomaly = _follower_anomaly(series)
+        g["cleaned_readings"] += len(series) - len(cleaned)
+        span_days = (cleaned[-1][0] - cleaned[0][0]).total_seconds() / 86400.0
+        g["span_days"] = max(g["span_days"], round(span_days, 1))
+        # A slope needs both redundancy (>=3 points for Theil-Sen) and a
+        # meaningful window — a fit over a 2-day span is extrapolation.
+        if span_days >= _SLOPE_MIN_SPAN_DAYS:
+            slope = _theil_sen_slope(cleaned)
+            if slope is not None:
+                g["slopes"].append(slope)
+        anomaly = _follower_anomaly(cleaned)
         if anomaly and (g["anomaly"] is None or abs(anomaly["delta"]) > abs(g["anomaly"]["delta"])):
             g["anomaly"] = anomaly
 
@@ -612,28 +660,50 @@ def compute_insights(
         posts = p["posts"]
         avg_er = round(p["er_eng"] / p["er_imp"] * 100, 2) if p["er_imp"] else 0.0
 
-        def _best(buckets: dict[int, list[int]], min_n: int = 2, skip: set[int] | None = None):
-            """Winning bucket on *shrunk* ER — each bucket's mean is pulled
-            toward the platform mean proportional to its sample size, so a
-            3-post bucket that lucked into a spike doesn't beat a 20-post
-            bucket on noise. The winner must still clear the platform mean
-            by a margin — otherwise the argmax is ordering noise."""
+        def _best(buckets: dict[int, list[float]], min_n: int = 2, skip: set[int] | None = None):
+            """Winning bucket on *shrunk pooled* ER — buckets store
+            [n_posts, eng_equiv, impressions], so the bucket rate is the
+            impression-weighted pooled rate (a post's evidence scales with
+            its denominator). Each bucket's rate is shrunk toward the
+            platform pooled rate by a prior worth ~4 posts of average
+            impressions — thin buckets collapse to the platform mean instead
+            of winning on noise. The winner must still clear the platform
+            mean by a margin — otherwise the argmax is ordering noise."""
             total_n = sum(v[0] for v in buckets.values())
-            mean_er = sum(v[1] for v in buckets.values()) / total_n if total_n else 0.0
-            cands = [(k, round(_shrink_mean(v[1], v[0], mean_er), 2)) for k, v in buckets.items() if v[0] >= min_n and not (skip and k in skip)]
+            tot_eng = sum(v[1] for v in buckets.values())
+            tot_imp = sum(v[2] for v in buckets.values())
+            if not total_n or not tot_imp:
+                return None
+            mean_rate = tot_eng / tot_imp  # platform pooled rate (fraction)
+            prior_imp = 4.0 * tot_imp / total_n  # ~4 posts of avg-impression evidence
+            cands = [
+                (k, round((v[1] + mean_rate * prior_imp) / (v[2] + prior_imp) * 100, 2))
+                for k, v in buckets.items()
+                if v[0] >= min_n and v[2] > 0 and not (skip and k in skip)
+            ]
             if not cands:
                 return None
             win = max(cands, key=lambda kv: kv[1])
-            return win if win[1] > 0 and win[1] >= mean_er * 1.15 else None
+            return win if win[1] > 0 and win[1] >= mean_rate * 100 * 1.15 else None
 
-        media_er = round(p["media_posts"][1] / p["media_posts"][0], 2) if p["media_posts"][0] else None
-        text_er = round(p["text_posts"][1] / p["text_posts"][0], 2) if p["text_posts"][0] else None
-        # Shrunk versions for the verdict — a 1-post media sample averaging
-        # high ER shouldn't declare "media wins".
-        all_er = [er for _, _, er in p["post_engagements"]]
-        mean_post_er = sum(all_er) / len(all_er) if all_er else 0.0
-        media_er_s = _shrink_mean(p["media_posts"][1], p["media_posts"][0], mean_post_er)
-        text_er_s = _shrink_mean(p["text_posts"][1], p["text_posts"][0], mean_post_er)
+        # Media vs text — pooled impression-weighted rates (a 1k-impression
+        # post's ER outweighs a 20-impression one). Shrunk versions pull each
+        # bucket's pooled rate toward the platform pooled rate by a prior
+        # worth ~4 posts of average impressions — a thin bucket that lucked
+        # into a spike shouldn't declare a format winner.
+        media_er = round(p["media_posts"][1] / p["media_posts"][2] * 100, 2) if p["media_posts"][2] else None
+        text_er = round(p["text_posts"][1] / p["text_posts"][2] * 100, 2) if p["text_posts"][2] else None
+        mu = p["er_eng"] / p["er_imp"] if p["er_imp"] else 0.0
+        n_meas = p["media_posts"][0] + p["text_posts"][0]
+        prior_imp = 4.0 * p["er_imp"] / n_meas if n_meas and p["er_imp"] else 0.0
+
+        def _shrunk_rate(bucket: list[float]) -> float | None:
+            if not bucket[2]:
+                return None
+            return round((bucket[1] + mu * prior_imp) / (bucket[2] + prior_imp) * 100, 2)
+
+        media_er_s = _shrunk_rate(p["media_posts"])
+        text_er_s = _shrunk_rate(p["text_posts"])
         mom = momentum.get(name, {})
 
         growth = follower_growth.get(name)
@@ -690,9 +760,21 @@ def compute_insights(
         best_wd = _best(p["weekdays"], min_n=3)
         wilson_low = _wilson_low(p["er_eng"], p["er_imp"])
 
+        # Confidence degrades with data damage — a platform whose numbers
+        # needed heavy repair shouldn't read as "high confidence" even when
+        # the volume thresholds are met.
+        conf = _confidence(posts, p["impressions"])
+        if conf == "high" and (counter_resets.get(name, 0) >= _COUNTER_RESET_WARN_THRESHOLD or p["sanitized_rows"] >= _CONFIDENCE_CAP_SANITIZED):
+            conf = "medium"
+
+        # Pooled-rate momentum — volume momentum (engagement counts)
+        # confounds reach with resonance; the rate view separates them.
+        er_recent = mom.get("recent_eng", 0) / mom["recent_imp"] * 100 if mom.get("recent_imp") else None
+        er_prior = mom.get("prior_eng", 0) / mom["prior_imp"] * 100 if mom.get("prior_imp") else None
+
         platforms[name] = {
             "focus_tier": PLATFORM_BEST_PRACTICES.get(name, {}).get("focus", "last"),
-            "confidence": _confidence(posts, p["impressions"]),
+            "confidence": conf,
             "posts": posts,
             "impressions": p["impressions"],
             "engagement": p["engagement"],
@@ -711,11 +793,16 @@ def compute_insights(
             "best_weekday_sample": p["weekdays"][best_wd[0]][0] if best_wd else 0,
             "media_avg_er": media_er,
             "text_avg_er": text_er,
-            "media_avg_er_shrunk": round(media_er_s, 2) if p["media_posts"][0] else None,
-            "text_avg_er_shrunk": round(text_er_s, 2) if p["text_posts"][0] else None,
+            "media_avg_er_shrunk": media_er_s,
+            "text_avg_er_shrunk": text_er_s,
             "avg_engagement_rate_wilson_low": (round(wilson_low * 100, 2) if wilson_low is not None else None),
             "momentum_7d_engagement_pct": _pct_change(mom.get("recent_eng", 0), mom.get("prior_eng", 0)),
             "momentum_7d_impressions_pct": _pct_change(mom.get("recent_imp", 0), mom.get("prior_imp", 0)),
+            # Pooled rate per window — separates "reach grew" from "content
+            # resonated": engagement volume can rise on impressions alone.
+            "er_7d_pct": (round(er_recent, 2) if er_recent is not None else None),
+            "er_prev_7d_pct": (round(er_prior, 2) if er_prior is not None else None),
+            "momentum_7d_er_pct": (_pct_change(er_recent, er_prior) if er_recent is not None and er_prior is not None else None),
             # |z| >= 1.645 → the week-over-week rate shift is ~90%
             # significant, not sampling noise on a small base.
             "momentum_7d_engagement_z": round(_momentum_z(mom.get("recent_eng", 0), mom.get("prior_eng", 0)), 2),
@@ -729,8 +816,12 @@ def compute_insights(
                     "accounts": growth["accounts"],
                     "anomaly": growth["anomaly"],
                     # Median of per-account Theil-Sen slopes — robust to
-                    # endpoint scrapes/purges unlike first→last delta.
+                    # endpoint scrapes/purges unlike first→last delta. Fit
+                    # only over >=7d spans; None means "not enough history
+                    # to trend", not "flat".
                     "slope_per_day": (round(statistics.median(growth["slopes"]), 2) if growth["slopes"] else None),
+                    "slope_span_days": growth["span_days"],
+                    "cleaned_readings": growth["cleaned_readings"],
                 }
                 if growth
                 else None
@@ -742,6 +833,7 @@ def compute_insights(
                 "sanitized_rows": p["sanitized_rows"],
                 "counter_resets": counter_resets.get(name, 0),
                 "outlier_posts": len(outliers),
+                "follower_readings_dropped": growth["cleaned_readings"] if growth else 0,
             },
             "account_insights": latest_events.get((name, "account_insights")),
             "audience_demographics": latest_events.get((name, "audience_demographics")),
@@ -780,6 +872,9 @@ def compute_insights(
             "text_avg_er_shrunk": None,
             "momentum_7d_engagement_pct": None,
             "momentum_7d_impressions_pct": None,
+            "er_7d_pct": None,
+            "er_prev_7d_pct": None,
+            "momentum_7d_er_pct": None,
             "momentum_7d_engagement_z": 0.0,
             "momentum_7d_impressions_z": 0.0,
             "engagement_7d": 0,
@@ -791,6 +886,8 @@ def compute_insights(
                     "accounts": growth["accounts"],
                     "anomaly": growth["anomaly"],
                     "slope_per_day": (round(statistics.median(growth["slopes"]), 2) if growth["slopes"] else None),
+                    "slope_span_days": growth["span_days"],
+                    "cleaned_readings": growth["cleaned_readings"],
                 }
                 if growth
                 else None
@@ -802,6 +899,7 @@ def compute_insights(
                 "sanitized_rows": 0,
                 "counter_resets": counter_resets.get(name, 0),
                 "outlier_posts": 0,
+                "follower_readings_dropped": growth["cleaned_readings"] if growth else 0,
             },
             "account_insights": latest_events.get((name, "account_insights")),
             "audience_demographics": latest_events.get((name, "audience_demographics")),
@@ -819,6 +917,7 @@ def compute_insights(
             "sanitized_rows": sum((p.get("data_quality") or {}).get("sanitized_rows", 0) for p in platforms.values()),
             "counter_resets": {n: r for n, r in counter_resets.items() if r},
             "outlier_posts": sum((p.get("data_quality") or {}).get("outlier_posts", 0) for p in platforms.values()),
+            "follower_readings_dropped": {n: g["cleaned_readings"] for n, g in follower_growth.items() if g["cleaned_readings"]},
         },
     }
 

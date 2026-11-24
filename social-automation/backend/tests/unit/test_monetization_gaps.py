@@ -1018,3 +1018,32 @@ async def test_schedule_compliance_pass_stays_scheduled(monkeypatch):
     assert out[0]["status"] == "scheduled"
     post = next(o for o in db.added if isinstance(o, Post))
     assert post.status == PostStatus.SCHEDULED
+
+
+@pytest.mark.asyncio
+async def test_gather_metrics_short_span_two_points_no_gain():
+    # Two snapshots 1 day apart: endpoint delta is noise, not a daily gain —
+    # the 3-day minimum span gate must zero it out.
+    acc = _account("instagram")
+    acc.access_token_enc = b"not-fernet"
+    now = datetime.now(UTC)
+    snaps = [(now - timedelta(days=1), 100), (now, 130)]
+    out = await M.gather_account_metrics(_Db(results=[_Rows(snaps)]), acc)
+    assert out["gain_per_day"] == 0
+
+
+@pytest.mark.asyncio
+async def test_gather_metrics_snaps_cleaned_of_spike():
+    # A 40k scrape spike inside the window is dropped by the plausibility
+    # filter before slope/latest-value math sees it.
+    acc = _account("instagram")
+    acc.access_token_enc = b"not-fernet"
+    now = datetime.now(UTC)
+    snaps = [
+        (now - timedelta(days=12), 500),
+        (now - timedelta(days=8), 40000),   # metric mix-up
+        (now - timedelta(days=4), 505),
+        (now - timedelta(days=1), 510),
+    ]
+    out = await M.gather_account_metrics(_Db(results=[_Rows(snaps)]), acc)
+    assert out["followers"] == 510

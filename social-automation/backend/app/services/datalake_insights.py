@@ -23,6 +23,7 @@ boundaries.
 from __future__ import annotations
 
 import re
+import statistics
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -38,6 +39,7 @@ from app.models.analytics import (
 )
 from app.models.email_campaign import EmailRecipient, SurveyResponse
 from app.models.linkedin_ads import AdDailyMetric
+from app.services.insights_engine import _clean_follower_series, _theil_sen_slope
 from app.services.monetization import PLATFORM_PROGRAMS
 
 # ── Signal extraction ────────────────────────────────────────────────────────
@@ -98,14 +100,19 @@ def compute_survey_signals(responses: list[dict]) -> dict[str, Any]:
             sval = str(val)
             if qid.startswith("worth") or "month" in qid:
                 for num in re.findall(r"\d{2,5}", sval):
-                    price_anchors.append(float(num))
+                    v = float(num)
+                    # Free text mixes in years ("since 2026") and huge
+                    # numbers — both pollute the retainer median. Keep
+                    # plausible monthly-price anchors only.
+                    if 10 <= v <= 10000 and not 1900 <= v <= 2100:
+                        price_anchors.append(v)
             elif "hesitate" in qid or "objection" in qid:
                 objections[sval[:80]] += 1
             elif any(k in qid for k in _PAIN_QIDS):
                 for w in re.findall(r"[A-Za-z\u0370-\u03ff]{4,}", sval.lower()):
                     if w not in _STOPWORDS:
                         words[w] += 1
-    median_price = sorted(price_anchors)[len(price_anchors) // 2] if price_anchors else None
+    median_price = statistics.median(price_anchors) if price_anchors else None
     return {
         "responses": len(responses),
         "audit_yes": audit_yes,
@@ -148,29 +155,55 @@ def compute_funnel_signals(rows: list[dict]) -> dict[str, Any]:
 
 
 def compute_ad_signals(daily: list[dict]) -> dict[str, Any]:
-    """AdDailyMetric rows → spend, leads, CPL per campaign (trailing window)."""
+    """AdDailyMetric rows → spend, clicks, leads, CPL/CTR/CPC per campaign."""
     per_campaign: dict[str, dict[str, float]] = {}
     for r in daily:
-        d = per_campaign.setdefault(r.get("campaign") or "?", {"spend": 0.0, "leads": 0, "impressions": 0})
+        d = per_campaign.setdefault(r.get("campaign") or "?", {"spend": 0.0, "leads": 0, "impressions": 0, "clicks": 0})
         d["spend"] += float(r.get("spend_eur") or 0)
         d["leads"] += int(r.get("leads") or 0)
         d["impressions"] += int(r.get("impressions") or 0)
+        d["clicks"] += int(r.get("clicks") or 0)
     for c in per_campaign.values():
         c["cpl"] = round(c["spend"] / c["leads"], 2) if c["leads"] else None
+        c["ctr_pct"] = round(c["clicks"] / c["impressions"] * 100, 2) if c["impressions"] else None
+        c["cpc"] = round(c["spend"] / c["clicks"], 2) if c["clicks"] else None
     return {"ad_campaigns": per_campaign}
 
 
 def compute_engagement_signals(rows: list[dict]) -> dict[str, Any]:
-    """Post metrics → per-platform avg engagement rate + top post."""
+    """Post metrics → per-platform avg engagement rate + top post.
+
+    Rows are raw snapshots — the same post captured N times must count once,
+    not N times, or a heavily-sampled post hijacks the platform mean. Dedup
+    to the latest snapshot per post_id (list order is the query's
+    captured_at ordering; latest captured_at wins)."""
     per: dict[str, list[float]] = {}
+    latest: dict[tuple[str, Any], tuple[Any, int]] = {}  # (platform, post_id) -> (captured_at, idx)
     top: dict[str, Any] = {"platform": None, "engagement_rate": 0.0}
     for r in rows:
         p = r.get("platform") or "?"
-        per.setdefault(p, []).append(float(r.get("engagement_rate") or 0))
-        if float(r.get("engagement_rate") or 0) > top["engagement_rate"]:
-            top = {"platform": p, "engagement_rate": float(r["engagement_rate"]), "post_id": r.get("post_id")}
+        # platform_post_id is the per-platform-native id — unique per
+        # platform post and present even for snapshots not linked to an
+        # internal Post; post_id is the fallback. Rows with neither can't
+        # be deduped — count each as its own post.
+        key = (p, r.get("platform_post_id") or r.get("post_id") or None)
+        er = float(r.get("engagement_rate") or 0)
+        cap = r.get("captured_at")
+        if key[1] is not None and key in latest:
+            prev_cap, idx = latest[key]
+            if cap is None or prev_cap is None or cap >= prev_cap:
+                per[p][idx] = er  # newer capture of same post replaces
+                latest[key] = (cap, idx)
+            # older capture of an already-seen post → drop
+        else:
+            per.setdefault(p, []).append(er)
+            if key[1] is not None:
+                latest[key] = (cap, len(per[p]) - 1)
+        if er > top["engagement_rate"]:
+            top = {"platform": p, "engagement_rate": er, "post_id": r.get("post_id")}
     return {
         "platform_engagement": {p: round(sum(v) / len(v), 4) for p, v in per.items()},
+        "platform_posts": {p: len(v) for p, v in per.items()},
         "top_post": top if top["platform"] else None,
     }
 
@@ -178,28 +211,48 @@ def compute_engagement_signals(rows: list[dict]) -> dict[str, Any]:
 def compute_growth_signals(snaps: list[dict]) -> dict[str, Any]:
     """Follower snapshots → per-platform velocity + monetization-gate ETA.
 
-    snaps: rows of {platform, followers, captured_at} ordered by time —
-    velocity uses first-vs-last per platform.
-    """
+    snaps: rows of {platform, followers, captured_at} ordered by time.
+    Velocity is a Theil-Sen slope (robust to bad scrapes) over >=7d spans —
+    a first→last delta over a 1-day window extrapolates noise into a fake
+    weekly rate. Below the floors the honest answer is "no trend", not a
+    number."""
     per: dict[str, list[tuple]] = {}
     for s in snaps:
         per.setdefault(s["platform"], []).append((s["captured_at"], s["followers"]))
     out: dict[str, Any] = {}
     for plat, pts in per.items():
         pts.sort(key=lambda x: x[0])
-        if len(pts) < 2:
-            out[plat] = {"followers": pts[-1][1], "per_week": None}
+        # 0 readings are failed scrapes, not real counts; sequential
+        # plausibility drops interleaved bad values (same rule as the
+        # write-path guard in analytics_sync).
+        clean = _clean_follower_series([(t, f) for t, f in pts if int(f) > 0])
+        dropped = len(pts) - len(clean)
+        if not clean:
+            out[plat] = {"followers": None, "per_week": None, "stalled": True, "points": 0, "cleaned_readings": dropped}
             continue
-        (t0, f0), (t1, f1) = pts[0], pts[-1]
-        days = max(1, (t1 - t0).days)
-        per_week = round((f1 - f0) * 7.0 / days, 1)
+        f1 = clean[-1][1]
+        span_days = (clean[-1][0] - clean[0][0]).total_seconds() / 86400.0
+        slope_day: float | None = None
+        if len(clean) >= 3 and span_days >= 7:
+            slope_day = _theil_sen_slope(clean)
+        elif len(clean) == 2 and span_days >= 7:
+            slope_day = (clean[1][1] - clean[0][1]) / span_days
+        per_week = round(slope_day * 7, 1) if slope_day is not None else None
         gate = None
         for metric, _label, thr, _src in (PLATFORM_PROGRAMS.get(plat) or {}).get("criteria", []):
             if metric == "followers" and isinstance(thr, int) and f1 < thr:
                 gap = thr - f1
-                eta = round(gap / (per_week / 7)) if per_week and per_week > 0 else None
-                gate = {"threshold": thr, "gap": gap, "eta_days": eta}
-        out[plat] = {"followers": f1, "per_week": per_week, "gate": gate}
+                eta = round(gap / slope_day) if slope_day and slope_day > 0 else None
+                gate = {"threshold": thr, "gap": gap, "eta_days": eta, "stalled": slope_day is not None and slope_day <= 0}
+        out[plat] = {
+            "followers": f1,
+            "per_week": per_week,
+            "gate": gate,
+            "stalled": per_week is not None and per_week <= 0,
+            "points": len(clean),
+            "span_days": round(span_days, 1),
+            "cleaned_readings": dropped,
+        }
     return {"growth": out}
 
 
@@ -277,6 +330,8 @@ def compute_email_signals(rows: list[dict]) -> dict[str, Any]:
     for d in out.values():
         if d.get("sent"):
             d["open_rate"] = round(d["opened"] / d["sent"], 3)
+            d["click_rate"] = round(d["clicked"] / d["sent"], 3)
+            d["response_rate"] = round(d["responses"] / d["sent"], 3)
     return {"email_funnel": out}
 
 
@@ -320,6 +375,21 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
                     "gap": g["gate"]["gap"],
                     "eta_days": g["gate"]["eta_days"],
                     "reason": f"{plat} needs {g['gate']['gap']} more followers — ~{g['gate']['eta_days']}d at current pace",
+                }
+            )
+        elif g.get("gate") and g.get("stalled"):
+            # A monetization gate with no positive velocity has no honest
+            # ETA — surface the gap as a growth problem, not a forecast.
+            actions.append(
+                {
+                    "type": "growth_stalled",
+                    "platform": plat,
+                    "gap": g["gate"]["gap"],
+                    "priority": "high",
+                    "reason": (
+                        f"{plat} is {g['gate']['gap']} followers from {g['gate']['threshold']} but growth is "
+                        f"flat/negative ({g['per_week']}/wk) — ETA is unreachable at current pace"
+                    ),
                 }
             )
     for plat, rate in (signals.get("platform_engagement") or {}).items():
@@ -465,9 +535,13 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     ad_daily = (
         (
             await db.execute(
-                select(AdDailyMetric.campaign_name, AdDailyMetric.spend_eur, AdDailyMetric.leads, AdDailyMetric.impressions).where(
-                    AdDailyMetric.team_id == team_id, AdDailyMetric.day >= since.date()
-                )
+                select(
+                    AdDailyMetric.campaign_name,
+                    AdDailyMetric.spend_eur,
+                    AdDailyMetric.leads,
+                    AdDailyMetric.impressions,
+                    AdDailyMetric.clicks,
+                ).where(AdDailyMetric.team_id == team_id, AdDailyMetric.day >= since.date())
             )
         )
         .mappings()
@@ -476,9 +550,13 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     post_metrics = (
         (
             await db.execute(
-                select(PostAnalyticsSnapshot.platform, PostAnalyticsSnapshot.engagement_rate, PostAnalyticsSnapshot.post_id).where(
-                    PostAnalyticsSnapshot.team_id == team_id, PostAnalyticsSnapshot.captured_at >= since
-                )
+                select(
+                    PostAnalyticsSnapshot.platform,
+                    PostAnalyticsSnapshot.engagement_rate,
+                    PostAnalyticsSnapshot.post_id,
+                    PostAnalyticsSnapshot.platform_post_id,
+                    PostAnalyticsSnapshot.captured_at,
+                ).where(PostAnalyticsSnapshot.team_id == team_id, PostAnalyticsSnapshot.captured_at >= since)
             )
         )
         .mappings()
@@ -597,7 +675,9 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
     for plat, g in (signals.get("growth") or {}).items():
         if g.get("gate"):
             eta = f" (~{g['gate']['eta_days']}d)" if g["gate"].get("eta_days") else ""
-            lines.append(f"• {plat}: {g['followers']} followers, +{g.get('per_week') or 0}/wk — gate gap {g['gate']['gap']}{eta}")
+            pw = g.get("per_week")
+            vel = "no trend data" if pw is None else ("stalled (no honest ETA)" if pw <= 0 else f"+{pw}/wk")
+            lines.append(f"• {plat}: {g.get('followers') or '?'} followers, {vel} — gate gap {g['gate']['gap']}{eta}")
     for plat, rate in (signals.get("platform_engagement") or {}).items():
         lines.append(f"• {plat} engagement: {rate:.1%}")
     for kind, d in (signals.get("email_funnel") or {}).items():
