@@ -593,14 +593,18 @@ async def test_li_messages_wraps_keyless():
 
     class _Sidecar:
         async def get_thread_messages(self, tid):
-            return {"messages": [{"ts": "1", "sender": "a", "text": "hi"}]}
+            return {"messages": [
+                {"ts": "1", "sender": "Ann", "text": "theirs"},
+                {"ts": "2", "sender": "Me", "text": "mine"},
+                {"ts": "3", "sender": "unknown", "text": "anon"},
+            ]}
 
     from app.services import linkedin_sidecar
 
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
-        out = await TB._li_messages(acct, "t-1")
-    assert out[0]["text"] == "hi"
-    assert out[0]["key"] == "1"
+        out = await TB._li_messages(acct, "t-1", "Ann")
+    assert [m["text"] for m in out] == ["anon", "mine", "theirs"]
+    assert [m["ours"] for m in out] == [False, True, False]
 
 
 # ── _conversation_list ──────────────────────────────────────────────
@@ -669,7 +673,11 @@ async def test_conversation_list_linkedin():
 
     class _Sidecar:
         async def get_conversations(self):
-            return {"conversations": [{"id": "li-1", "name": "Ann"}]}
+            return {"conversations": [
+                {"id": "li-1", "name": "Ann"},
+                # sidecar falls back to the raw thread URL when regex misses
+                {"thread_id": "https://linkedin.com/messaging/thread/2y77x/", "name": "Bob"},
+            ]}
 
     from app.services import linkedin_sidecar
 
@@ -677,6 +685,8 @@ async def test_conversation_list_linkedin():
         out = await TB._conversation_list(acct)
     assert out[0]["thread_id"] == "li-1"
     assert out[0]["platform"] == "linkedin"
+    assert out[1]["thread_id"] == "2y77x"
+    assert out[1]["recipient_id"] == "2y77x"
 
 
 @pytest.mark.asyncio
@@ -719,17 +729,24 @@ def test_ig_client_prefers_access_token_enc():
     from app.services import instagram_api
 
     captured = {}
+    decrypt_args = []
 
     class _Client:
         def __init__(self, access_token, ig_user_id, use_business_login_api):
             captured.update(token=access_token, uid=ig_user_id, biz=use_business_login_api)
 
+    def _dec(enc):
+        decrypt_args.append(enc)
+        assert isinstance(enc, bytes)
+        return "dec-" + enc.decode()
+
     with (
-        patch.object(security, "decrypt_token", lambda t: "dec-" + (t.decode() if isinstance(t, bytes) else t)),
+        patch.object(security, "decrypt_token", _dec),
         patch.object(instagram_api, "InstagramAPIClient", _Client),
     ):
         TB._ig_client(acct)
     assert captured == {"token": "dec-enc-tok", "uid": "me", "biz": False}
+    assert decrypt_args == [b"enc-tok"]
 
 
 @pytest.mark.asyncio

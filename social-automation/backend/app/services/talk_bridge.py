@@ -296,7 +296,7 @@ async def _ig_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     return out
 
 
-async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
+async def _li_messages(account: SocialAccount, thread_id: str, contact_name: str = "") -> list[dict]:
     from app.services.linkedin_sidecar import LinkedInSidecarClient
 
     sidecar = LinkedInSidecarClient()
@@ -304,16 +304,23 @@ async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
+    contact = (contact_name or "").split("\n")[0].strip().lower()
 
     def to_msg(m):
         if not isinstance(m, dict):
             return None
+        sender = m.get("sender") or m.get("author") or ""
+        ours = m.get("is_own") if "is_own" in m else m.get("ours")
+        if ours is None:
+            # 2-party DM: a named sender that isn't the contact is us. An
+            # empty/"unknown" sender stays not-ours to avoid mislabeling.
+            ours = bool(sender) and sender != "unknown" and bool(contact) and sender.strip().lower() != contact
         return _norm(
             str(m.get("ts") or m.get("created_at") or m.get("id") or ""),
             str(m.get("id") or ""),
-            m.get("sender") or m.get("author") or "",
+            sender,
             m.get("text") or m.get("body") or "",
-            bool(m.get("is_own") or m.get("ours")),
+            bool(ours),
             m.get("attachments") or [],
         )
 
@@ -332,7 +339,7 @@ async def _fetch_messages(account: SocialAccount | None, room: TalkRoom) -> list
         if room.platform == "instagram":
             return await _ig_messages(account, room.thread_id)
         if room.platform == "linkedin":
-            return await _li_messages(account, room.thread_id)
+            return await _li_messages(account, room.thread_id, room.contact_name)
     except Exception:
         logger.exception("talk-bridge inbound fetch failed: %s %s", room.platform, room.thread_id)
     return []
@@ -414,16 +421,28 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 })
             return out
         if platform == "linkedin":
+            import re
+
             from app.services.linkedin_sidecar import LinkedInSidecarClient
 
             data = await LinkedInSidecarClient().get_conversations()
             raw = data.get("conversations") if isinstance(data, dict) else data
             if not isinstance(raw, list):
                 return []
+
+            def _tid(c):
+                # sidecar falls back to the raw thread URL when the id regex
+                # misses — route segments need the bare id, not a path.
+                raw_id = str(c.get("id") or c.get("thread_id") or "")
+                m = re.search(r"thread:(\d+)", raw_id)
+                if m:
+                    return m.group(1)
+                return raw_id.rstrip("/").split("/")[-1] or raw_id
+
             return [{
-                "thread_id": str(c.get("id") or c.get("thread_id") or ""),
+                "thread_id": _tid(c),
                 "contact_name": c.get("name") or c.get("participant") or "",
-                "recipient_id": str(c.get("id") or c.get("thread_id") or ""),
+                "recipient_id": _tid(c),
                 "is_e2ee": False,
                 "platform": "linkedin",
             } for c in raw if isinstance(c, dict)]
