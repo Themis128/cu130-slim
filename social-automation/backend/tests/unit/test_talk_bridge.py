@@ -192,6 +192,75 @@ def test_keyless_newest_first_reverses_and_suffixes_dupes():
     assert out[2]["key"] == "1"
 
 
+# ── _pm_clean_text (personal-Messenger DOM chrome) ──────────────────
+
+
+def test_pm_clean_text_drops_call_log_chrome():
+    text, ours = TB._pm_clean_text("You sent\nMissed video call\n5:20 PM\nCall again", "Carolina Nasati", False)
+    assert text == "📞 missed video call"
+    assert ours is True  # "You sent" first line marks it as ours
+
+
+def test_pm_clean_text_drops_banners_and_timestamps():
+    for blob in (
+        "0:14",
+        "Message not restored",
+        "Restore messages\nPersonal chats are secured with end-to-end encryption, so you need to restore chat history when you switch devices.\nRestore",
+    ):
+        text, _ = TB._pm_clean_text(blob, "Carolina Nasati", False)
+        assert text is None
+    text, _ = TB._pm_clean_text("Carolina\nVideo call\n5 mins\nCall back", "Carolina Nasati", False)
+    assert text == "📞 video call"
+
+
+def test_pm_clean_text_strips_sender_label_keeps_real_text():
+    text, ours = TB._pm_clean_text("Carolina\nΚαλημέρα Ραφαέλα", "Carolina Nasati", False)
+    assert text == "Καλημέρα Ραφαέλα"
+    assert ours is False
+
+
+def test_pm_clean_text_own_echo_sets_ours():
+    text, ours = TB._pm_clean_text("You sent\nAuto-reply: Hi! This is an automated reply", "Sofia", False)
+    assert text == "Auto-reply: Hi! This is an automated reply"
+    assert ours is True
+
+
+def test_pm_clean_text_empty_and_plain():
+    assert TB._pm_clean_text("", "X", False) == (None, False)
+    assert TB._pm_clean_text("  \n ", "X", False) == (None, False)
+    text, ours = TB._pm_clean_text("hello there", "X", True)
+    assert text == "hello there" and ours is True
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_messages_filters_dom_chrome():
+    acct = _acct(account_type="user")
+
+    class _Bridge:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def ensure_session(self, p):
+            return {"status": "active"}
+
+        async def get_personal_messenger_messages(self, tid, is_e2ee=False):
+            return {
+                "thread_id": "t-1",
+                "messages": [
+                    {"sender": "them", "text": "Message not restored"},
+                    {"sender": "them", "text": "Carolina\nΚαλημέρα Ραφαέλα"},
+                    {"sender": "them", "text": "You sent\nMissed video call\n5:20 PM\nCall again"},
+                ],
+            }
+
+    from app.services import browser_bridge
+
+    with patch.object(browser_bridge, "BrowserBridgeClient", _Bridge):
+        out = await TB._fb_personal_messages(acct, "t-1", False, "Carolina Nasati")
+    assert [m["text"] for m in out] == ["📞 missed video call", "Καλημέρα Ραφαέλα"]
+    assert out[0]["ours"] is True
+
+
 # ── _log_event / _post ──────────────────────────────────────────────
 
 

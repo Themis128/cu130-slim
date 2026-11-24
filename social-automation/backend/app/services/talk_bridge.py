@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 
 from sqlalchemy import select
@@ -208,7 +209,102 @@ async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict
     return out
 
 
-async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool) -> list[dict]:
+# ─── personal-Messenger scrape hygiene ──────────────────────────────
+# The browser scrape returns rendered DOM text, so call logs, E2EE
+# restore banners, sender-name labels, timestamps and buttons all
+# arrive as fake "messages". _pm_clean_text reduces each blob to real
+# message text (None → drop the item) and detects own-message echoes
+# the scraper misattributes to the contact.
+
+_PM_CALL_RE = re.compile(r"^(missed |incoming |outgoing )?(video |voice |audio )?call( (ended|declined|answered))?$", re.I)
+
+_PM_CHROME_EXACT = {
+    "you sent",
+    "you replied",
+    "you forwarded",
+    "you shared",
+    "you",
+    "sent",
+    "seen",
+    "delivered",
+    "read",
+    "typing",
+    "typing…",
+    "call again",
+    "call back",
+    "call ended",
+    "missed call",
+    "declined",
+    "answered",
+    "ringing",
+    "calling",
+    "restore",
+    "restore messages",
+    "message not restored",
+    "messages not restored",
+    "learn more",
+    "reply",
+    "forward",
+    "copy",
+    "unsend",
+    "remove",
+    "react",
+    "more",
+    "report",
+    "open chat",
+    "new message",
+    "enter",
+    "swipe to reply",
+    "this message was deleted",
+}
+
+_PM_CHROME_RES = [
+    re.compile(r"^\d{1,3}:\d{2}(:\d{2})?(\s?[ap]\.?m\.?)?$", re.I),  # 0:14 · 5:20 PM · 1:04 PM
+    re.compile(r"^\d+\s?(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?)( ago)?$", re.I),  # 5 mins · 32 secs
+    re.compile(r"end.to.end encrypt", re.I),
+    re.compile(r"restore chat history|switch devices", re.I),
+    re.compile(r"^active (now|\d+ ?[mhd]( ago)?)$", re.I),
+]
+
+
+def _pm_is_chrome(line: str) -> bool:
+    low = line.lower().strip()
+    return low in _PM_CHROME_EXACT or any(r.search(low) for r in _PM_CHROME_RES)
+
+
+def _pm_clean_text(text: str, contact: str, ours: bool) -> tuple[str | None, bool]:
+    """Strip DOM chrome from a personal-Messenger scrape blob.
+
+    Returns (text, ours) — text None means the whole blob was UI
+    chrome (call log, banner, timestamp) and the item must be dropped.
+    A collapsed "📞 <call>" marker is emitted for real call events so
+    the room still shows a call happened, minus the 4-line spam.
+    """
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None, ours
+    first = lines[0].lower()
+    if first in {"you sent", "you replied", "you forwarded", "you shared", "you"}:
+        ours = True
+        lines = lines[1:]
+    elif contact:
+        c = contact.lower().strip()
+        if first == c or (c.split() and first == c.split()[0]):
+            lines = lines[1:]  # sender-name label the scrape prepends
+    kept = []
+    call_line = None
+    for ln in lines:
+        if _PM_CALL_RE.match(ln):
+            call_line = call_line or ln.lower()
+        elif not _pm_is_chrome(ln):
+            kept.append(ln)
+    if call_line:
+        marker = f"📞 {call_line}"
+        return (marker + "\n" + "\n".join(kept) if kept else marker), ours
+    return ("\n".join(kept) or None), ours
+
+
+async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool, contact_name: str = "") -> list[dict]:
     from app.services.browser_bridge import BrowserBridgeClient
 
     bridge = BrowserBridgeClient(os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223"), platform="facebook")
@@ -228,12 +324,15 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     def to_msg(m):
         if not isinstance(m, dict):
             return None
+        text, ours = _pm_clean_text(m.get("text") or m.get("body") or "", contact_name, bool(m.get("is_own") or m.get("ours")))
+        if text is None:
+            return None
         return _norm(
             str(m.get("ts") or m.get("created_time") or m.get("id") or ""),
             str(m.get("id") or ""),
             m.get("sender") or m.get("author") or "",
-            m.get("text") or m.get("body") or "",
-            bool(m.get("is_own") or m.get("ours")),
+            text,
+            ours,
             m.get("attachments") or [],
         )
 
@@ -369,7 +468,7 @@ async def _fetch_messages(account: SocialAccount | None, room: TalkRoom) -> list
         if room.platform == "messenger":
             return await _fb_page_messages(account, room.thread_id)
         if room.platform == "personal_messenger":
-            return await _fb_personal_messages(account, room.thread_id, room.is_e2ee)
+            return await _fb_personal_messages(account, room.thread_id, room.is_e2ee, room.contact_name or "")
         if room.platform == "instagram":
             return await _ig_messages(account, room.thread_id)
         if room.platform == "linkedin":
