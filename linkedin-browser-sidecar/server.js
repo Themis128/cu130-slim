@@ -4059,6 +4059,52 @@ async function confirmMediaEditorModal() {
   }
 }
 
+// Scan the member's recent-activity feed for an already-published /pulse/
+// article carrying this exact title. Best-effort: any failure returns null
+// so a first publish is never blocked by the guard itself.
+async function findPublishedArticleByTitle(title) {
+  try {
+    const profileUrl = await resolveProfileUrl();
+    if (!profileUrl) return null;
+    const base = profileUrl.split("?")[0].replace(/\/+$/, "") + "/";
+    const ok = await navigateAndCheck(base + "recent-activity/all/").catch(
+      () => false,
+    );
+    if (!ok) return null;
+    await page.waitForTimeout(2500);
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => window.scrollBy(0, 1400)).catch(() => {});
+      await page.waitForTimeout(600);
+    }
+    const want = String(title || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (want.length < 10) return null;
+    const found = await page
+      .evaluate((wantTitle) => {
+        const norm = (s) => (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+        for (const el of document.querySelectorAll('[role="listitem"]')) {
+          const text = norm(el.innerText || "");
+          if (!text.includes(wantTitle)) continue;
+          for (const a of el.querySelectorAll("a[href]")) {
+            const href = a.getAttribute("href") || "";
+            if (href.includes("/pulse/")) {
+              return href.startsWith("http")
+                ? href
+                : "https://www.linkedin.com" + href;
+            }
+          }
+        }
+        return null;
+      }, want)
+      .catch(() => null);
+    return found;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function handleNewsletterPublish(body) {
   const {
     title,
@@ -4099,6 +4145,26 @@ async function handleNewsletterPublish(body) {
   if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
     throw new Error("Not logged in — session expired");
   }
+
+  // Duplicate guard: a retry after a lost response, a stale-claim
+  // republish, or a manual requeue must never create a second edition.
+  // Look for an already-live /pulse/ article with this exact title in the
+  // member's recent activity and return it instead of republishing.
+  const dupUrl = await findPublishedArticleByTitle(title);
+  if (dupUrl) {
+    step("dedup-existing-article");
+    return {
+      status: "ok",
+      url: dupUrl,
+      article_url: dupUrl,
+      steps,
+      dry_run: !!dry_run,
+      published: true,
+      scheduled: false,
+      deduplicated: true,
+    };
+  }
+
   // In-document navigation (not a fresh page.goto document) — mirrors the
   // "Write article" link path that hydrated the editor in live recon.
   await page
