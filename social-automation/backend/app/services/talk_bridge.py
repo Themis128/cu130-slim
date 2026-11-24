@@ -273,6 +273,26 @@ def _pm_is_chrome(line: str) -> bool:
     return low in _PM_CHROME_EXACT or any(r.search(low) for r in _PM_CHROME_RES)
 
 
+# Banners/notices that can never be genuine message text — the only
+# single-line blobs still dropped outright.
+_PM_NOTICE_EXACT = {
+    "message not restored",
+    "messages not restored",
+    "restore messages",
+    "restore",
+    "this message was deleted",
+}
+_PM_NOTICE_RES = [
+    re.compile(r"end.to.end encrypt", re.I),
+    re.compile(r"restore chat history|switch devices", re.I),
+]
+
+
+def _pm_is_notice(line: str) -> bool:
+    low = line.lower().strip()
+    return low in _PM_NOTICE_EXACT or any(r.search(low) for r in _PM_NOTICE_RES)
+
+
 def _pm_clean_text(text: str, contact: str, ours: bool) -> tuple[str | None, bool]:
     """Strip DOM chrome from a personal-Messenger scrape blob.
 
@@ -280,6 +300,12 @@ def _pm_clean_text(text: str, contact: str, ours: bool) -> tuple[str | None, boo
     chrome (call log, banner, timestamp) and the item must be dropped.
     A collapsed "📞 <call>" marker is emitted for real call events so
     the room still shows a call happened, minus the 4-line spam.
+
+    Chrome is stripped at the EDGES of a multi-line blob only — interior
+    lines are kept verbatim because a timestamp-looking line inside real
+    text may be content ("on my way / 5:20 PM / see you there"). A lone
+    line has no label/timestamp context, so it is kept unless it is a
+    provable system notice or a call event.
     """
     lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
     if not lines:
@@ -292,17 +318,31 @@ def _pm_clean_text(text: str, contact: str, ours: bool) -> tuple[str | None, boo
         c = contact.lower().strip()
         if first == c or (c.split() and first == c.split()[0]):
             lines = lines[1:]  # sender-name label the scrape prepends
-    kept = []
+    if not lines:
+        return None, ours
+    if len(lines) == 1:
+        ln = lines[0]
+        if _PM_CALL_RE.match(ln):
+            return f"📞 {ln.lower()}", ours
+        if _pm_is_notice(ln):
+            return None, ours
+        return ln, ours
     call_line = None
+    rest = []
     for ln in lines:
         if _PM_CALL_RE.match(ln):
             call_line = call_line or ln.lower()
-        elif not _pm_is_chrome(ln):
-            kept.append(ln)
+        else:
+            rest.append(ln)
+    # Strip chrome only at the edges; interior lines survive verbatim.
+    while rest and _pm_is_chrome(rest[0]):
+        rest.pop(0)
+    while rest and _pm_is_chrome(rest[-1]):
+        rest.pop()
     if call_line:
         marker = f"📞 {call_line}"
-        return (marker + "\n" + "\n".join(kept) if kept else marker), ours
-    return ("\n".join(kept) or None), ours
+        return (marker + "\n" + "\n".join(rest) if rest else marker), ours
+    return ("\n".join(rest) or None), ours
 
 
 async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee: bool, contact_name: str = "") -> list[dict]:
@@ -325,7 +365,9 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     def to_msg(m):
         if not isinstance(m, dict):
             return None
-        text, ours = _pm_clean_text(m.get("text") or m.get("body") or "", contact_name, bool(m.get("is_own") or m.get("ours")))
+        sender = str(m.get("sender") or m.get("author") or "")
+        ours = bool(m.get("is_own") or m.get("ours")) or sender.strip().lower() in {"me", "self", "own"}
+        text, ours = _pm_clean_text(m.get("text") or m.get("body") or "", contact_name, ours)
         if text is None:
             return None
         return _norm(
@@ -663,11 +705,20 @@ async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) 
                 continue
             # messages arrive newest-first; post oldest-new of the unseen ones
             unseen: list[dict] = []
+            boundary_found = not room.last_inbound_key
             for m in msgs:
                 # empty last_inbound_key = new room, everything is unseen
                 if room.last_inbound_key and (m["id"] or m["key"]) == room.last_inbound_key:
+                    boundary_found = True
                     break
                 unseen.append(m)
+            if not boundary_found:
+                # Watermark vanished from the feed (filtered row / changed
+                # hash / platform rewrite) — reposting the whole backlog
+                # would spam the room. Re-anchor to the newest row instead.
+                room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"] or room.last_inbound_key
+                await db.commit()
+                continue
             if not unseen:
                 continue
             last_posted_key: str | None = None
