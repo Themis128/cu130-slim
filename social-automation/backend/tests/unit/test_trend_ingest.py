@@ -128,6 +128,7 @@ async def test_run_upserts_signals(monkeypatch):
     monkeypatch.setattr(TI, "_tiktok_signals", lambda: [_signal(source="tiktok-cc")])
     sess = _FakeSession(rowcount=2)
     monkeypatch.setattr(session_mod, "async_session_maker", lambda: sess)
+    monkeypatch.setattr("app.worker._async.task_session", lambda: sess)
     out = await TI._run()
     assert out == {"fetched": 2, "inserted": 2}
     assert sess.stmt is not None
