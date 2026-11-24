@@ -150,6 +150,14 @@ class Settings(BaseSettings):
     # can stall ~20min when the runner is wedged — that must never park a
     # publishing worker. Timeout degrades to "vision unavailable" fail-open.
     PUBLISH_MEDIA_QA_TIMEOUT_S: float = 90.0
+    # Total wall-clock budget for ALL semantic checks in one publish. The
+    # per-image timeout alone can exceed the per-item publish deadline
+    # (120s on most platforms): N images × 90s >> deadline → the outer
+    # asyncio.wait_for cancels publish_to_platform mid-QA and the item
+    # dies as an unhandled TimeoutError (2026-11-24 telegram/threads/
+    # twitter incident). 55s leaves ~65s of the 120s deadline for the
+    # actual platform call; <=0 disables the total cap.
+    PUBLISH_MEDIA_QA_TOTAL_BUDGET_S: float = 55.0
     # What to do when NO vision backend answers (DMR down and Cloudflare
     # fallback unavailable): "open" publishes anyway (deterministic checks
     # remain the floor), "closed" skips the publish until vision recovers.

@@ -735,9 +735,30 @@ async def _enforce_media_semantics(
 
     max_images = int(getattr(settings, "PUBLISH_MEDIA_QA_MAX_IMAGES", 3) or 3)
     on_vision_down = str(getattr(settings, "PUBLISH_MEDIA_QA_ON_VISION_DOWN", "open") or "open").lower()
+    per_image_timeout = float(getattr(settings, "PUBLISH_MEDIA_QA_TIMEOUT_S", 90.0) or 90.0)
+    total_budget = float(getattr(settings, "PUBLISH_MEDIA_QA_TOTAL_BUDGET_S", 55.0) or 55.0)
+    loop = asyncio.get_running_loop()
+    qa_deadline = loop.time() + total_budget if total_budget > 0 else None
     failures: list[str] = []
     vision_down = False
     for path in images[:max_images]:
+        image_timeout = per_image_timeout
+        if qa_deadline is not None:
+            remaining = qa_deadline - loop.time()
+            if remaining <= 1.0:
+                # Budget exhausted — unchecked images degrade to
+                # "vision unavailable" (open policy passes; closed fails).
+                vision_down = True
+                if on_vision_down == "closed":
+                    failures.append(
+                        f"{os.path.basename(path)}: vision unavailable — semantic QA required"
+                    )
+                logger.warning(
+                    "[media-qa] total budget %.0fs exhausted — skipping remaining semantic checks",
+                    total_budget,
+                )
+                break
+            image_timeout = min(per_image_timeout, remaining)
         try:
             image_bytes = _vision_safe_image_bytes(path)
         except Exception as exc:  # noqa: BLE001 — unreadable asset: deterministic check already passed, don't block here
@@ -746,7 +767,7 @@ async def _enforce_media_semantics(
         try:
             qa = await asyncio.wait_for(
                 verify_media_semantics(image_bytes, subject[:400], media_type="image"),
-                timeout=float(getattr(settings, "PUBLISH_MEDIA_QA_TIMEOUT_S", 90.0) or 90.0),
+                timeout=image_timeout,
             )
         except TimeoutError:
             logger.warning(
