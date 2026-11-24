@@ -50,7 +50,10 @@ _ws = None
 
 def _tab() -> dict | None:
     for t in json.load(urllib.request.urlopen(f"{CDP}/json/list", timeout=10)):
-        if t["type"] == "page" and "facebook" in t["url"]:
+        host = urllib.parse.urlparse(t["url"]).hostname or ""
+        if t["type"] == "page" and (
+            host == "facebook.com" or host.endswith(".facebook.com")
+        ):
             return t
     return None
 
@@ -152,46 +155,56 @@ def _select_email_lane() -> None:
     )
 
 
-def newest_mail_code(since: str = "15min", poll_s: int = 90) -> str | None:
-    """Newest 8-digit code in the mailbox, polling until it arrives."""
+def _mail_uids(since: str = "15min") -> list[int]:
+    try:
+        out = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "ConnectTimeout=8",
+                MAIL_SSH,
+                f"sudo doveadm search -u {MAIL_USER} mailbox INBOX "
+                f"SINCE {since} 2>/dev/null | tail -6",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    return [int(u) for u in re.findall(r"(\d+)\s*$", out.strip(), re.M)]
+
+
+def _mail_codes(uid: int) -> list[str]:
+    try:
+        body = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "ConnectTimeout=8",
+                MAIL_SSH,
+                f"sudo doveadm fetch -u {MAIL_USER} body mailbox INBOX "
+                f"uid {uid} 2>/dev/null | grep -oE '[0-9]{{8}}' | head -2",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    return re.findall(r"\d{8}", body)
+
+
+def newest_mail_code(baseline_uid: int, poll_s: int = 90) -> str | None:
+    """First 8-digit code in a mail with uid > baseline_uid (i.e. arrived
+    after this run requested the email). Old codes in older mail are
+    ignored — Meta re-uses codes, so same-string ≠ same mail."""
     deadline = time.time() + poll_s
-    seen: set[str] = set()
     while time.time() < deadline:
-        try:
-            out = subprocess.run(
-                [
-                    "ssh",
-                    "-o",
-                    "ConnectTimeout=8",
-                    MAIL_SSH,
-                    f"sudo doveadm search -u {MAIL_USER} mailbox INBOX "
-                    f"SINCE {since} 2>/dev/null | tail -4",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            ).stdout
-            uids = re.findall(r"(\d+)\s*$", out.strip(), re.M)
-            for uid in reversed(uids):
-                body = subprocess.run(
-                    [
-                        "ssh",
-                        "-o",
-                        "ConnectTimeout=8",
-                        MAIL_SSH,
-                        f"sudo doveadm fetch -u {MAIL_USER} body mailbox INBOX "
-                        f"uid {uid} 2>/dev/null | grep -oE '[0-9]{{8}}' | head -2",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                ).stdout
-                codes = re.findall(r"\d{8}", body)
-                if codes and codes[0] not in seen:
-                    return codes[0]
-                seen.update(codes)
-        except (subprocess.TimeoutExpired, OSError):
-            pass
+        for uid in sorted(u for u in _mail_uids() if u > baseline_uid):
+            codes = _mail_codes(uid)
+            if codes:
+                return codes[0]
         time.sleep(6)
     return None
 
@@ -213,11 +226,28 @@ def submit_code(code: str) -> None:
 def cmd_drive() -> None:
     _conn()
     url, text = _page()
-    if "recover" not in url:
+    if "recover" not in url and "identify" not in url:
         _call("Page.navigate", {"url": "https://www.facebook.com/login/identify"})
         time.sleep(6)
         _reconn()
         url, text = _page()
+    # Cold start: the identify page asks WHO to recover before offering
+    # the email lane. Fill the account identifier and submit the search.
+    if "identify" in url or (
+        "Find your account" in text or "email address or mobile number" in text
+    ):
+        if not _fill(
+            "document.querySelector('input[name=email],input[type=email],"
+            "input[type=text]')",
+            MAIL_USER,
+        ):
+            raise SystemExit(f"no identify input: {url} | {text[:120]}")
+        if not (_click_label("Search") or _click_label("Continue")):
+            raise SystemExit("no Search/Continue button on identify page")
+        time.sleep(6)
+        _reconn()
+        url, text = _page()
+    baseline = max(_mail_uids() or [0])
     if "Get code via email" in text:
         _select_email_lane()
         time.sleep(1)
@@ -228,7 +258,7 @@ def cmd_drive() -> None:
     if "Enter code" not in text:
         raise SystemExit(f"did not reach code page: {url} | {text[:120]}")
     print("code page reached — polling mailbox", file=sys.stderr)
-    code = newest_mail_code()
+    code = newest_mail_code(baseline)
     if not code:
         raise SystemExit("no code arrived in mailbox within timeout")
     print(f"entering code {code}", file=sys.stderr)
@@ -247,7 +277,10 @@ def cmd_status() -> None:
     elif "Set a new password" in text or "new password" in text.lower():
         state = "password-reset page (recovery accepted)"
     elif url.rstrip("/") in ("https://www.facebook.com", "https://m.facebook.com"):
-        state = "logged-in-or-picker (run fb_session_heal.py status)"
+        if "What's on your mind" in text or "Create a post" in text:
+            state = "logged-in (run fb_session_heal.py capture)"
+        else:
+            state = "profile-picker / logged-out"
     print(f"url: {url[:150]}\nstate: {state}\ntext: {text[:300]}")
 
 

@@ -1,10 +1,13 @@
 ---
 name: fb-reauth-ops
-description: Re-auth a dead Facebook/IG token — mints the FB OAuth consent URL
+description: >-
+  Re-auth a dead Facebook/IG token — mints the FB OAuth consent URL
   (FACEBOOK_CLIENT_ID + redirect + scopes) and drives it on the bound debug
   Chrome (:9222) like the LinkedIn path. Tool: scripts/fb_reauth.py —
   --url prints the consent URL, no-args drives it on CDP. Fires after the
-  CloudlessDebugChrome logon task binds :9222.
+  CloudlessDebugChrome logon task binds :9222. Includes
+  fb_recover_drive.py, a passwordless login lane via the emailed recovery
+  code.
 ---
 
 # FB re-auth
@@ -42,11 +45,12 @@ password lane, use this instead):
   `status` reports the current gate.
 - End states: `waiting-device-approval` = a human must tap "Was this
   you?" on the trusted phone (Galaxy S22 FB app) — cannot be driven.
-  `password-reset` = accepted; set `TH!123th!`. `logged-in` = run
-  `fb_session_heal.py capture` to store the fresh jar.
-- Live-verified 2026-11-24: password `TH!123th!` was accepted on the
-  picker gate but the 2FA SPA rendered blank; the recovery lane bypassed
-  it entirely and reached the device-approval gate in one pass.
+  `password-reset` = accepted; set the Meta Account password from the
+  user's credential store. `logged-in` = run `fb_session_heal.py capture`
+  to store the fresh jar.
+- Live-verified 2026-11-24: the Meta Account password was accepted on
+  the picker gate but the 2FA SPA rendered blank; the recovery lane
+  bypassed it entirely and reached the device-approval gate in one pass.
 - Mail facts: codes live on **omv-ha** (not omv); Meta RE-USES the same
   code across sends in one recovery session — a bounce to the picker
   means the submit failed, not that the code is stale; `SINCE 15min`
