@@ -162,6 +162,24 @@ def _norm(ts_key: str, msg_id: str, sender: str, text: str, ours: bool, atts: li
     return {"key": key, "id": msg_id, "sender": sender, "text": text, "ours": ours, "attachments": atts or []}
 
 
+def _keyless_newest_first(raw: list, to_msg) -> list[dict]:
+    """Normalize a chronological (oldest-first) scrape/feed to the bridge's
+    newest-first contract. Repeated identical texts get an occurrence suffix
+    counted from the oldest end, so a fresh repeat of the same DM does not
+    collide with the watermark of an earlier identical one."""
+    seen: dict[str, int] = {}
+    out: list[dict] = []
+    for m in raw:  # walk oldest→newest, suffix duplicates stably
+        msg = to_msg(m)
+        if msg is not None:
+            seen[msg["key"]] = seen.get(msg["key"], 0) + 1
+            if seen[msg["key"]] > 1:
+                msg["key"] = f"{msg['key']}#{seen[msg['key']]}"
+            out.append(msg)
+    out.reverse()  # newest first
+    return out
+
+
 async def _fb_page_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     from app.services.crypto import decrypt_token
     from app.services.messenger_api import MessengerAPIClient
@@ -202,21 +220,21 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
-    out = []
-    for m in raw:
+
+    def to_msg(m):
         if not isinstance(m, dict):
-            continue
-        out.append(
-            _norm(
-                str(m.get("ts") or m.get("created_time") or m.get("id") or ""),
-                str(m.get("id") or ""),
-                m.get("sender") or m.get("author") or "",
-                m.get("text") or m.get("body") or "",
-                bool(m.get("is_own") or m.get("ours")),
-                m.get("attachments") or [],
-            )
+            return None
+        return _norm(
+            str(m.get("ts") or m.get("created_time") or m.get("id") or ""),
+            str(m.get("id") or ""),
+            m.get("sender") or m.get("author") or "",
+            m.get("text") or m.get("body") or "",
+            bool(m.get("is_own") or m.get("ours")),
+            m.get("attachments") or [],
         )
-    return out
+
+    # Browser scrape returns DOM order (oldest first) — flip to newest-first.
+    return _keyless_newest_first(raw, to_msg)
 
 
 def _ig_client(account: SocialAccount):
@@ -285,21 +303,21 @@ async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
-    out = []
-    for m in raw:
+
+    def to_msg(m):
         if not isinstance(m, dict):
-            continue
-        out.append(
-            _norm(
-                str(m.get("ts") or m.get("created_at") or m.get("id") or ""),
-                str(m.get("id") or ""),
-                m.get("sender") or m.get("author") or "",
-                m.get("text") or m.get("body") or "",
-                bool(m.get("is_own") or m.get("ours")),
-                m.get("attachments") or [],
-            )
+            return None
+        return _norm(
+            str(m.get("ts") or m.get("created_at") or m.get("id") or ""),
+            str(m.get("id") or ""),
+            m.get("sender") or m.get("author") or "",
+            m.get("text") or m.get("body") or "",
+            bool(m.get("is_own") or m.get("ours")),
+            m.get("attachments") or [],
         )
-    return out
+
+    # Sidecar feed is chronological (oldest first) — flip to newest-first.
+    return _keyless_newest_first(raw, to_msg)
 
 
 async def _fetch_messages(account: SocialAccount | None, room: TalkRoom) -> list[dict]:
