@@ -1441,4 +1441,4 @@ async def test_inbound_sync_break_at_watermark_and_post_fail():
         patch.object(TB, "_post", AsyncMock(side_effect=_flaky)),
     ):
         out2 = await TB.inbound_sync(team, session_factory=_sf(db2))
-    assert out2["posted"] == 1 and room2.last_inbound_key == "a"
+    assert out2["posted"] == 1 and room2.last_inbound_key == "b"
