@@ -483,6 +483,8 @@ async def _fetch_linkedin_ad_stats(
                 "clicks": el.get("clicks"),
                 "totalEngagements": el.get("totalEngagements"),
                 "costInLocalCurrency": el.get("costInLocalCurrency"),
+                "approximateUniqueImpressions": el.get("approximateUniqueImpressions"),
+                "landingPageClicks": el.get("landingPageClicks"),
             }
         )
     return out

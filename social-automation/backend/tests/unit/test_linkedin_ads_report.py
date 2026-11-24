@@ -624,3 +624,67 @@ async def test_sidecar_page_text(monkeypatch):
     kinds = [c[0] for c in calls]
     assert kinds == ["post", "post", "get"]
     assert calls[0][2]["url"] == "https://example.com/x"
+
+
+# ── ad_daily_metrics datalake upsert ──────────────────────────────────
+
+
+def test_daily_metric_rows_maps_adset_and_group():
+    m = R.CampaignMetrics(account_id="512642510", campaign_id="932037146")
+    m.raw["campaigns"] = [
+        {
+            "id": "932037146",
+            "name": "BF 2026 - text",
+            "status": "active",
+            "group_id": "888001",
+        },
+        {"id": "932221876", "name": "BF 2026 - video", "status": "paused", "group_id": "888001"},
+    ]
+    m.raw["daily_by_campaign"] = {
+        "932037146": [
+            {
+                "dateRange": {"start": {"year": 2026, "month": 11, "day": 24}},
+                "impressions": 2557,
+                "clicks": 12,
+                "totalEngagements": 40,
+                "costInLocalCurrency": 16.61,
+                "approximateUniqueImpressions": 2000,
+                "landingPageClicks": 9,
+            }
+        ],
+        "932221876": [
+            {
+                "dateRange": {"start": {"year": 2026, "month": 11, "day": 24}},
+                "impressions": 100,
+                "clicks": 0,
+                "totalEngagements": 1,
+                "costInLocalCurrency": 1.5,
+            }
+        ],
+    }
+    rows = R._daily_metric_rows(m)
+    assert len(rows) == 2
+    r0 = next(r for r in rows if r["ad_set_id"] == "932037146")
+    assert r0["campaign_id"] == "888001"
+    assert r0["ad_set_name"] == "BF 2026 - text"
+    assert r0["report_type"] == "campaign_performance"
+    assert r0["day"] == date(2026, 11, 24)
+    assert r0["impressions"] == 2557 and r0["clicks"] == 12
+    assert r0["spend_eur"] == 16.61
+    assert r0["reach"] == 2000 and r0["clicks_to_landing_page"] == 9
+    assert r0["source"] == "api"
+    assert r0["ctr"] == round(12 / 2557 * 100, 2)
+    assert r0["cpm_eur"] == round(16.61 / 2557 * 1000, 2)
+    # Zero-impression row must not divide by zero
+    r1 = next(r for r in rows if r["ad_set_id"] == "932221876")
+    assert r1["ctr"] == round(0 / 100 * 100, 2)
+    assert r1["clicks_to_landing_page"] == 0
+
+
+def test_daily_metric_rows_skips_malformed_and_empty():
+    m = R.CampaignMetrics(account_id="a", campaign_id="c")
+    assert R._daily_metric_rows(m) == []
+    m.raw["daily_by_campaign"] = {
+        "c1": [{"dateRange": {}}, {"no_date": True}],
+    }
+    assert R._daily_metric_rows(m) == []

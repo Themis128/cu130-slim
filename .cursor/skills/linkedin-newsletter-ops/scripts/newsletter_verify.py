@@ -49,6 +49,8 @@ SETTLE_S = 6              # let the SPA paint before evaluating
 
 EVAL_ARTICLE = (
     'return {url: location.href, title: document.title, '
+    'ogTitle: (document.querySelector("meta[property=\'og:title\']")||{})'
+    '.content || "", '
     'h1: (document.querySelector("h1")||{}).innerText || "", '
     'loginWall: !!document.querySelector(".authwall, '
     'form[action*=checkpoint]")}'
@@ -192,6 +194,14 @@ def main() -> int:
         print("profile/activity could not resolve the profile — "
               "session looks dead")
         return 2
+    if profile_url.rstrip("/").endswith("/me"):
+        # /in/me/ is unusable as an activity base — navigate it to resolve
+        # the real vanity slug via the redirect.
+        if navigate(profile_url):
+            resolved = evaluate("return location.href")
+            if resolved and not str(resolved).rstrip("/").endswith("/me"):
+                profile_url = str(resolved).split("?")[0].rstrip("/")
+                out["profile_url"] = profile_url
 
     # ── 4. article live check ─────────────────────────────────────────────
     nav = navigate(article_url)
@@ -200,10 +210,15 @@ def main() -> int:
         return 2
     ev = evaluate(EVAL_ARTICLE)
     out["article"] = ev
-    live = (not ev.get("loginWall")
-            and title_head
-            and title_head.split("—")[0].strip().split("|")[0].strip().lower()
-            in (ev.get("title", "") + ev.get("h1", "")).lower())
+    def _norm(s):
+        s = s.lower()
+        for ch in "'’‘\"“”":
+            s = s.replace(ch, "")
+        return " ".join(s.split())
+    needle = _norm(title_head.split("—")[0].split("|")[0])
+    hay = _norm(" ".join([ev.get("title", ""), ev.get("ogTitle", ""),
+                          ev.get("h1", "")]).lstrip("0123456789() "))
+    live = not ev.get("loginWall") and needle and needle in hay
     out["live"] = bool(live)
 
     # ── 5. duplicate scan on the activity feed ────────────────────────────
