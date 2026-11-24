@@ -1,7 +1,7 @@
 """Unit tests for linkedin_demographics daily sync task."""
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
