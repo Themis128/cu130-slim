@@ -294,3 +294,30 @@ async def test_issues_endpoints_require_token():
         with pytest.raises(HTTPException) as e:
             await api.list_newsletter_issues(_request("wrong"), db=_FakeDB())
     assert e.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_enqueue_issue_media_spec_stashed_in_result(monkeypatch):
+    """media[] on the enqueue body lands in result["_media"] + commits."""
+    from app.services import newsletter_publisher
+
+    issue = _issue(status=NewsletterIssueStatus.QUEUED, result={"seed": True})
+    db = _FakeDB()
+    monkeypatch.setattr(api, "_resolve_issue_content", lambda *a, **k: _async_ret(_resolved()))
+    monkeypatch.setattr(api.newsletter_issue_queue, "enqueue_issue", lambda *a, **k: _async_ret((issue, True)))
+    spec = [{"type": "image", "asset_id": "abc"}]
+    with _patched_settings():
+        out = await api.enqueue_newsletter_issue(
+            api.NewsletterIssueEnqueueRequest(
+                title="Queued Issue",
+                html_body="<p>body</p>",
+                media=spec,
+                scheduled_for="2999-01-01T00:00:00+00:00",
+            ),
+            _request(),
+            db=db,
+        )
+    assert issue.result["seed"] is True
+    assert issue.result[newsletter_publisher.MEDIA_SPEC_KEY] == spec
+    assert db.commits == 1
+    assert out["created"] is True
