@@ -87,6 +87,41 @@ async def room_for_token(room_token: str) -> TalkRoom | None:
         return res.scalar_one_or_none()
 
 
+def _log_event(db, room: TalkRoom, direction: str, msg: dict | None = None, text: str = "") -> None:
+    """Record a bridged message as an analytics event → datalake export.
+
+    Every inbound mirror + outbound send lands in analytics_events so the
+    export-datalake sweep carries the messaging activity for analytics.
+    """
+    from datetime import UTC, datetime
+
+    from app.models.analytics import AnalyticsEvent
+
+    try:
+        account_uuid = uuid.UUID(room.account_id)
+    except (ValueError, TypeError):
+        account_uuid = None
+    body = (msg or {}).get("text") or text
+    db.add(
+        AnalyticsEvent(
+            team_id=room.team_id,
+            social_account_id=account_uuid,
+            event_type=f"talk_bridge_{direction}",
+            platform=room.platform,
+            platform_event_id=(msg or {}).get("id") or None,
+            occurred_at=datetime.now(UTC),
+            meta_data={
+                "room_token": room.room_token,
+                "thread_id": room.thread_id,
+                "contact_name": room.contact_name,
+                "sender": (msg or {}).get("sender", ""),
+                "text_preview": (body or "")[:500],
+                "attachments": (msg or {}).get("attachments", []),
+            },
+        )
+    )
+
+
 async def _post(room: TalkRoom, text: str) -> None:
     ok = await bot_reply(room.room_token, text)
     if not ok:
@@ -420,6 +455,7 @@ async def inbound_sync(team_id: uuid.UUID) -> dict[str, int]:
                 continue
             for m in reversed(unseen[-10:]):  # cap flood on first sync
                 await _post(room, _format_inbound(m["sender"], m["text"], m["ours"], m["attachments"]))
+                _log_event(db, room, "outbound" if m["ours"] else "inbound", msg=m)
                 posted += 1
             room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"]
         await db.commit()
@@ -498,4 +534,11 @@ async def outbound(room_token: str, text: str) -> tuple[bool, str]:
     except Exception as e:  # platform errors are the message the user needs
         logger.exception("talk-bridge outbound failed: %s %s", room.platform, room.thread_id)
         return False, str(e)[:300]
+
+    try:
+        async with async_session_maker() as db:
+            _log_event(db, room, "outbound", text=text)
+            await db.commit()
+    except Exception:
+        logger.exception("talk-bridge analytics log failed")
     return True, "sent"
