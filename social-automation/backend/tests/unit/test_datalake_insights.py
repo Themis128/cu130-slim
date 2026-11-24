@@ -295,3 +295,56 @@ def test_survey_price_anchor_bounds():
     out = D.compute_survey_signals(responses)
     # 50 and 500 survive (10..10000, non-year); 50000/15000 too big, 2026 a year
     assert out["price_anchor_median"] == 275.0
+
+
+def test_growth_signals_all_zero_readings_mark_stalled():
+    # Every snapshot is a failed scrape (followers=0) → cleaned series is
+    # empty → honest stalled entry, not a fabricated trend.
+    now = datetime.now(UTC)
+    snaps = [
+        {"platform": "x", "followers": 0, "captured_at": now - timedelta(days=7)},
+        {"platform": "x", "followers": 0, "captured_at": now},
+    ]
+    out = D.compute_growth_signals(snaps)
+    g = out["growth"]["x"]
+    assert g["stalled"] is True and g["points"] == 0 and g["cleaned_readings"] == 2
+
+
+def test_devapp_followers_skips_non_dict_containers_and_finds_value():
+    # insights.profile as a list hits the isinstance guard; a numeric
+    # follower_count inside a dict container is returned.
+    assert D._devapp_followers({"insights": {"profile": [1, 2], "organization": "x"}}) is None
+    assert D._devapp_followers({"insights": {"creator_info": {"follower_count": 42}}}) == 42.0
+    assert D._devapp_followers({"insights": {"followers": 7}}) == 7.0
+
+
+def test_devapp_signals_token_expiry_parsing():
+    # Valid ISO expiry → days_to_expiry; garbage string → ValueError swallowed.
+    rows = [
+        {"platform": "linkedin", "username": "u1", "ok": True, "token_valid": True,
+         "health": {"expires_at": "2999-01-01T00:00:00+00:00"}},
+        {"platform": "x", "username": "u2", "ok": True, "token_valid": True,
+         "token_expires_at": "not-a-date"},
+        {"platform": "y", "username": "u3", "ok": True, "token_valid": True,
+         "token_expires_at": "2999-06-01T00:00:00"},  # naive ISO → assumed UTC
+    ]
+    out = D.compute_devapp_signals(rows)
+    assert out["devapp_channels"][0]["days_to_expiry"] > 30000
+    assert out["devapp_channels"][1]["days_to_expiry"] is None
+    assert out["devapp_channels"][2]["days_to_expiry"] > 30000
+
+
+def test_pick_actions_devapp_health():
+    signals = {
+        "devapp_unhealthy": [
+            {"platform": "x", "username": "bad", "error": "token revoked"},
+            {"platform": "y", "username": "quota", "quota_exhausted": True},
+        ],
+        "devapp_expiring": [{"platform": "z", "username": "soon", "days_to_expiry": 3}],
+    }
+    acts = D.pick_actions(signals)
+    health = [a for a in acts if a["type"] == "devapp_health"]
+    assert len(health) == 3
+    assert health[0]["reason"] == "token revoked"
+    assert health[1]["reason"] == "quota exhausted"
+    assert health[2]["reason"] == "token expires in 3d"

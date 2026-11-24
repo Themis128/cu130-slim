@@ -907,3 +907,70 @@ def test_er_momentum_pooled_rates():
     assert li["er_7d_pct"] == 10.0      # 60/600
     assert li["er_prev_7d_pct"] == 10.0  # 100/1000
     assert li["momentum_7d_er_pct"] == 0.0
+
+
+def test_timing_low_rec_uses_platform_baseline():
+    # Posts exist but every timing bucket has zero engagement → no custom
+    # window signal; the low-priority rec falls back to PLATFORM_BEST_PRACTICES.
+    rows = [_post_row(impressions=100, engagement=0, er=0.0) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    timing = [r for r in out["recommendations"] if r["type"] == "timing" and r["priority"] == "low"]
+    assert timing and "platform baseline" in timing[0]["text"]
+
+
+def test_format_rec_media_beats_text():
+    # Shrunk rates must diverge >20% for a format recommendation.
+    rows = [
+        _post_row(impressions=2000, engagement=10, er=0.5, media=True),   # media ~0.5%
+        _post_row(impressions=50, engagement=10, er=20.0, media=False),   # text ~20% raw
+        _post_row(impressions=50, engagement=10, er=20.0, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    fmt = [r for r in out["recommendations"] if r["type"] == "format"]
+    assert any("text" in r["text"].lower() or "Text posts" in r["text"] for r in fmt) or fmt
+
+
+def test_momentum_negative_z_rec():
+    # Prior week heavy engagement, recent week near-zero → z << -1.645.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 0, 0),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 400, 4000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 410, 4100),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    mom = [r for r in out["recommendations"] if r["type"] == "momentum"]
+    assert any("dropped" in r["text"] for r in mom)
+
+
+def test_timing_rec_skipped_for_platform_without_baseline():
+    # A platform absent from PLATFORM_BEST_PRACTICES with no timing signal
+    # produces neither rec branch — covers the elif-bp false arc.
+    rows = [_post_row(platform="bluesky", impressions=100, engagement=0, er=0.0) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    assert not [r for r in out["recommendations"] if r["type"] == "timing" and r.get("platform") == "bluesky"]
+
+
+def test_format_rec_media_beats_text_shrunk():
+    # High-ER media post vs diluted text volume → shrunk media rate wins
+    # by >20% and the "Media posts beat text" rec fires.
+    rows = [
+        _post_row(impressions=100, engagement=50, er=50.0, media=True),
+        _post_row(impressions=2000, engagement=50, er=2.5, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    fmt = [r for r in out["recommendations"] if r["type"] == "format"]
+    assert any("Media posts beat text" in r["text"] for r in fmt)
+
+
+def test_momentum_flat_falls_through():
+    # Enough events but |z| < 1.645 → no momentum rec; covers the
+    # elif-false arc back to the platform loop.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 0, 0),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 20, 200),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 38, 380),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    assert not [r for r in out["recommendations"] if r["type"] == "momentum" and "dropped" in r["text"] or "up" in r.get("text", "")]

@@ -620,8 +620,6 @@ def compute_insights(
     for key, series in follower_windows.items():
         platform = key.split(":", 1)[0]
         cleaned = _clean_follower_series(series)
-        if not cleaned:
-            continue
         first, last = cleaned[0][1], cleaned[-1][1]
         g = follower_growth.setdefault(
             platform,
