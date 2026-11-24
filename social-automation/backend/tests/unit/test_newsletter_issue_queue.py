@@ -8,7 +8,7 @@ all with a fake AsyncSession (no real DB).
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -184,6 +184,61 @@ async def test_record_failure_retries_then_fails():
     db2 = _FakeDB(results=[_FakeResult(obj=issue2)])
     out2 = await q.record_publish_failure(db2, issue2.id, "boom")
     assert out2.status == NewsletterIssueStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_circuit_open_error_waits_for_circuit_expiry():
+    until = datetime.now(UTC) + timedelta(hours=2)
+    err = (
+        'sidecar: {"error":"LinkedIn circuit open until '
+        + until.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + 'Z (redirect_loop); skipped navigate https://www.linkedin.com/feed/"}; bridge: {"detail":"busy"}'
+    )
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHING, attempts=1)
+    db = _FakeDB(results=[_FakeResult(obj=issue)])
+    out = await q.record_publish_failure(db, issue.id, err)
+    assert out.status == NewsletterIssueStatus.QUEUED
+    # Scheduled just past the circuit's `until`, not the linear backoff.
+    assert out.scheduled_for > datetime.now(UTC) + timedelta(hours=1)
+    assert out.scheduled_for < until + timedelta(minutes=10)
+
+
+@pytest.mark.asyncio
+async def test_circuit_open_error_survives_max_attempts():
+    """A circuit-blocked failure is infra-side — it doesn't die at MAX attempts."""
+    until = datetime.now(UTC) + timedelta(hours=1)
+    err = f'LinkedIn circuit open until {until.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]}Z (redirect_loop); skipped navigate x'
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHING, attempts=q.MAX_PUBLISH_ATTEMPTS)
+    db = _FakeDB(results=[_FakeResult(obj=issue)])
+    out = await q.record_publish_failure(db, issue.id, err)
+    assert out.status == NewsletterIssueStatus.QUEUED
+    assert out.scheduled_for > datetime.now(UTC) + timedelta(minutes=30)
+
+
+@pytest.mark.asyncio
+async def test_circuit_wait_capped():
+    until = datetime.now(UTC) + timedelta(hours=1)
+    err = f'LinkedIn circuit open until {until.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]}Z (redirect_loop); skipped navigate x'
+    issue = _issue(status=NewsletterIssueStatus.PUBLISHING, attempts=q.MAX_CIRCUIT_WAIT_ATTEMPTS)
+    db = _FakeDB(results=[_FakeResult(obj=issue)])
+    out = await q.record_publish_failure(db, issue.id, err)
+    assert out.status == NewsletterIssueStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_circuit_parse_variants():
+    assert q._circuit_open_until("boom") is None
+    assert q._circuit_open_until('circuit open until (redirect_loop)') is None
+    future = datetime.now(UTC) + timedelta(hours=3)
+    out = q._circuit_open_until(
+        'LinkedIn circuit open until '
+        + future.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+        + 'Z (redirect_loop); skipped navigate x'
+    )
+    assert out == future.replace(microsecond=(future.microsecond // 1000) * 1000)
+    # An `until` already in the past clamps to now (retry almost immediately).
+    past = q._circuit_open_until('circuit open until 2020-01-01T00:00:00.000Z (redirect_loop)')
+    assert past >= datetime.now(UTC) - timedelta(seconds=5)
 
 
 @pytest.mark.asyncio

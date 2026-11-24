@@ -33,6 +33,14 @@ MAX_PUBLISH_ATTEMPTS = 3
 STALE_CLAIM_AFTER = timedelta(minutes=45)
 # Backoff between retries: 30min * attempt number.
 RETRY_BACKOFF = timedelta(minutes=30)
+# A "circuit open until <ts>" sidecar failure is infra-side, not a content
+# failure — the issue waits out the cooldown instead of burning its publish
+# attempts. Extra runway on top of MAX_PUBLISH_ATTEMPTS covers a multi-hour
+# circuit; beyond this cap the row fails like any other error.
+MAX_CIRCUIT_WAIT_ATTEMPTS = MAX_PUBLISH_ATTEMPTS + 5
+# Re-dispatch this far past the circuit's `until` instant.
+CIRCUIT_WAIT_GRACE = timedelta(minutes=2)
+_CIRCUIT_OPEN_RE = re.compile(r"circuit open until (\S+)")
 VERIFY_MAX_ATTEMPTS = 8
 VERIFY_LOOKBACK = timedelta(days=14)
 
@@ -200,6 +208,26 @@ async def record_publish_result(
     return issue
 
 
+def _circuit_open_until(error: str | None) -> datetime | None:
+    """Parse the reopen instant out of a sidecar circuit-open error.
+
+    RATE_LIMITED sidecar failures embed ``LinkedIn circuit open until
+    <ISO-8601> (<reason>); skipped <action>``. Retrying before that instant
+    only burns an attempt on a fast reject, so the caller schedules just
+    past it instead. Returns None when no valid timestamp is embedded.
+    """
+    m = _CIRCUIT_OPEN_RE.search(error or "")
+    if not m:
+        return None
+    try:
+        until = datetime.fromisoformat(m.group(1).rstrip(").,;").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=UTC)
+    return max(until, datetime.now(UTC))
+
+
 async def record_publish_failure(
     db: AsyncSession,
     issue_id: uuid.UUID,
@@ -209,7 +237,11 @@ async def record_publish_failure(
     if issue is None:
         return None
     issue.last_error = (error or "unknown error")[:4000]
-    if issue.attempts >= MAX_PUBLISH_ATTEMPTS:
+    circuit_until = _circuit_open_until(error)
+    if circuit_until is not None and issue.attempts < MAX_CIRCUIT_WAIT_ATTEMPTS:
+        issue.status = NewsletterIssueStatus.QUEUED
+        issue.scheduled_for = circuit_until + CIRCUIT_WAIT_GRACE
+    elif issue.attempts >= MAX_PUBLISH_ATTEMPTS:
         issue.status = NewsletterIssueStatus.FAILED
     else:
         issue.status = NewsletterIssueStatus.QUEUED

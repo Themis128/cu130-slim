@@ -60,6 +60,19 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def clear_rate_limit(self) -> dict[str, Any]:
+        """Clear the persisted rate-limit circuit breaker.
+
+        Ops/healer use only — clearing while LinkedIn still throttles just
+        burns a fresh trip on the next navigation. The session healer calls
+        this only for expired or dead-session circuits.
+        """
+        async with self._client as c:
+            r = await c.post("/session/clear-rate-limit")
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
     async def export_cookies(self, domain: str = "linkedin.com") -> dict[str, str]:
         """Export all cookies from the browser context (including httpOnly).
 

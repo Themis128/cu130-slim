@@ -295,6 +295,12 @@ const RATE_LIMIT_FILE = path.join(
 const RATE_LIMIT_COOLDOWN_MS = Number(
   process.env.LINKEDIN_RATE_LIMIT_COOLDOWN_MS || 6 * 60 * 60 * 1000,
 );
+// Ambiguous redirect loops (recovery nav didn't resolve to a live page or a
+// login bounce) are usually transient — a shorter cooldown lets the early
+// probe self-heal within the hour instead of benching the account for 6h.
+const RATE_LIMIT_REDIRECT_LOOP_COOLDOWN_MS = Number(
+  process.env.LINKEDIN_REDIRECT_LOOP_COOLDOWN_MS || 60 * 60 * 1000,
+);
 
 function readRateLimitState() {
   try {
@@ -305,8 +311,8 @@ function readRateLimitState() {
   }
 }
 
-function tripRateLimit(reason) {
-  const until = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+function tripRateLimit(reason, cooldownMs = RATE_LIMIT_COOLDOWN_MS) {
+  const until = Date.now() + cooldownMs;
   const state = {
     until,
     reason: String(reason || "").slice(0, 300),
@@ -318,7 +324,7 @@ function tripRateLimit(reason) {
   agentLog("H-F", "tripRateLimit", "circuit opened", {
     until,
     reason: state.reason,
-    cooldownMs: RATE_LIMIT_COOLDOWN_MS,
+    cooldownMs,
   });
   return state;
 }
@@ -430,6 +436,7 @@ async function navigate(url, timeout = 60000) {
     assertNotRateLimited(`navigate ${url}`);
     await ensureBrowser();
     let lastErr = null;
+    let recoveryLanding = null;
     const attempts = [
       { waitUntil: "domcontentloaded", timeout },
       { waitUntil: "commit", timeout: Math.min(timeout, 30000) },
@@ -506,7 +513,10 @@ async function navigate(url, timeout = 60000) {
               timeout: 20000,
             });
             await page.waitForTimeout(1500);
-          } catch (_) {}
+            recoveryLanding = page.url();
+          } catch (_) {
+            recoveryLanding = null;
+          }
           continue;
         }
         if (
@@ -529,9 +539,37 @@ async function navigate(url, timeout = 60000) {
       lastErr.message &&
       lastErr.message.includes("ERR_TOO_MANY_REDIRECTS")
     ) {
-      tripRateLimit("redirect_loop");
+      // Classify by where the last /feed/ recovery nav landed:
+      //  - a healthy linkedin.com page → session is alive; the loop was
+      //    transient or URL-scoped. Fail as a retryable error WITHOUT
+      //    tripping the circuit — the caller's normal backoff handles it.
+      //  - login/checkpoint/authwall → stored session is dead; long
+      //    circuit (feed is unusable) + the reason tells the session
+      //    healer to run credential re-login, which clears the circuit.
+      //  - recovery nav itself failed → ambiguous; keep the circuit but
+      //    with the shorter redirect-loop cooldown so a false trip
+      //    self-heals within the hour.
+      const landing = recoveryLanding || "";
+      const deadSession =
+        landing.includes("/login") ||
+        landing.includes("/checkpoint") ||
+        landing.includes("authwall") ||
+        landing.includes("/uas/");
+      if (landing && isLinkedInPageUrl(landing) && !deadSession) {
+        const err = new Error(
+          `LinkedIn redirect loop (transient — session alive) navigating to ${url}`,
+        );
+        err.code = "REDIRECT_LOOP";
+        err.cause = lastErr;
+        throw err;
+      }
+      if (deadSession) {
+        tripRateLimit("redirect_loop_session_dead");
+      } else {
+        tripRateLimit("redirect_loop", RATE_LIMIT_REDIRECT_LOOP_COOLDOWN_MS);
+      }
       const err = new Error(
-        `LinkedIn redirect loop (likely rate-limited) navigating to ${url}`,
+        `LinkedIn redirect loop (${deadSession ? "session dead — re-login required" : "likely rate-limited"}) navigating to ${url}`,
       );
       err.code = "RATE_LIMITED";
       err.status = 429;
@@ -3805,6 +3843,7 @@ app.get("/health", (req, res) => {
     has_session: !!storageState || fs.existsSync(SESSION_FILE),
     rate_limited: cooling,
     rate_limit_until: cooling ? rl.until : null,
+    rate_limit_reason: cooling ? rl.reason || null : null,
     cooldown_ended_at: (() => {
       try {
         return JSON.parse(fs.readFileSync(RATE_LIMIT_HISTORY_FILE, "utf-8")).endedAt || null;
