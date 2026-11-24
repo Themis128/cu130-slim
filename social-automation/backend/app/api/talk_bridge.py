@@ -88,9 +88,20 @@ async def sync_now(
 async def send_to_thread(
     room_token: str,
     body: SendRequest,
+    team_id: uuid.UUID = Depends(get_current_team_id),
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Send a message through the bridge (same path as a Talk-room reply)."""
+    """Send a message through the bridge (same path as a Talk-room reply).
+
+    Scoped to the caller's team — a room token only routes outbound when a
+    TalkRoom row for this team maps it.
+    """
+    res = await db.execute(
+        select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.room_token == room_token)
+    )
+    if res.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Room not found")
     ok, detail = await outbound(room_token, body.text)
     if not ok:
         raise HTTPException(status_code=502, detail=detail)

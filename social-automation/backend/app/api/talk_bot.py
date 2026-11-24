@@ -60,6 +60,20 @@ def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
         return "", None, None, None
     obj = payload.get("object") or {}
     target = payload.get("target") or {}
+    # Echo guard: never act on messages posted by the bot itself or by the
+    # app-password user (bridge inbound mirrors use that account) — else a
+    # mirrored contact message routes back outbound and the contact gets an
+    # echo of their own text.
+    s = get_settings()
+    for actor in (obj.get("actor"), payload.get("actor")):
+        if not isinstance(actor, dict):
+            continue
+        actor_type = str(actor.get("type") or actor.get("actorType") or "")
+        actor_id = str(actor.get("id") or actor.get("actorId") or "")
+        if actor_type in ("bots", "bridged"):
+            return "", None, None, None
+        if actor_id and actor_id == (getattr(s, "NEXTCLOUD_USERNAME", "") or ""):
+            return "", None, None, None
     try:
         content = json.loads(obj.get("content") or "{}")
         text = str(content.get("message") or "").strip()
@@ -71,7 +85,6 @@ def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
         msg_id = None
     # Room token is requester-supplied and lands in the reply URL — only
     # reply into the two configured rooms (whitelist = SSRF-safe constant).
-    s = get_settings()
     allowed = {
         (getattr(s, "NEXTCLOUD_TALK_ROOM", "") or "").strip(),
         (getattr(s, "NEXTCLOUD_TALK_ROOM_ALERTS", "") or "").strip(),
@@ -89,7 +102,11 @@ async def _bridge_reply(text: str, room: str) -> str | None:
     """
     from app.services.talk_bridge import outbound, room_for_token
 
-    mapped = await room_for_token(room)
+    try:
+        mapped = await room_for_token(room)
+    except Exception:  # noqa: BLE001 — unmapped/DB-down rooms stay silent
+        logger.exception("Talk bridge room lookup failed")
+        return None
     if mapped is None:
         return None
     cmd = text.lower().strip()

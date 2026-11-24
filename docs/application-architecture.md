@@ -1469,6 +1469,27 @@ Celery Beat (120s)        Worker               Browser Bridge        AI Provider
      │                       │     (flag_modified)  │                    │
 ```
 
+### Nextcloud Talk Messenger Bridge
+
+One Talk room per platform DM thread (`talk_rooms` rows, private room
+type 2). `talk_bridge_sync` (Celery beat, `TALK_BRIDGE_POLL_S`, default
+180 s, per-worker `task_session`) maps new conversations to rooms
+(`sync_rooms`) and posts unseen inbound messages into them
+(`inbound_sync`, watermark = `last_inbound_key`, newest-10 window,
+oldest→newest). User replies in Talk land on the existing
+`talk_bot_webhook` (`/api/v1/talk/bot`): messages in bridge-mapped rooms
+route through `_bridge_reply` → `outbound()` → the platform lane
+(Messenger API for Page threads, the personal-Messenger browser bridge
+for `fb_personal`, `InstagramAPIClient.send_dm` honoring Business Login
+`access_token_enc` vs Page-linked `meta` tokens, `LinkedInSidecar` for
+`linkedin`). Commands `mute`/`unmute`/`help` toggle `TalkRoom.enabled`
+without leaving Talk. Guard rails: bot/app-password actor echo filter in
+`_command`, team-scoped API calls, savepointed `analytics_events`
+logging (`talk_bridge_inbound`/`talk_bridge_outbound` → datalake
+export). Every bridge room must be activated once with
+`occ talk:bot:setup <bot_id> <room_token>` so the SocialAuto bot can post
+mirrors as itself (falls back to the app-password user).
+
 ### Bot Builder Flow (Create + Activate)
 
 ```

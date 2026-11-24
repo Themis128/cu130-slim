@@ -417,7 +417,7 @@ def _queue_item(status):
 @pytest.mark.asyncio
 async def test_command_non_create_ignored():
     with patch.object(BOT, "get_settings", return_value=_settings()):
-        assert BOT._command({"type": "Update"}) == ("", None, None)
+        assert BOT._command({"type": "Update"}) == ("", None, None, None)
 
 
 @pytest.mark.asyncio
@@ -428,7 +428,7 @@ async def test_command_bad_content_and_bad_id():
         "target": {"id": "room-ops"},
     }
     with patch.object(BOT, "get_settings", return_value=_settings()):
-        assert BOT._command(payload) == ("", "room-ops", None)
+        assert BOT._command(payload) == ("", "room-ops", "room-ops", None)
 
 
 @pytest.mark.asyncio

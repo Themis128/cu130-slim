@@ -47,10 +47,11 @@ INBOUND_LIMIT = 20
 
 def bridge_enabled() -> bool:
     s = get_settings()
+    secret = getattr(s, "NEXTCLOUD_TALK_BOT_SECRET", "") or os.getenv("NEXTCLOUD_TALK_BOT_SECRET", "")
     return bool(
         getattr(s, "TALK_BRIDGE_ENABLED", False)
         and getattr(s, "NEXTCLOUD_TALK_NOTIFY", False)
-        and os.getenv("NEXTCLOUD_TALK_BOT_SECRET")
+        and secret
     )
 
 
@@ -87,11 +88,12 @@ async def room_for_token(room_token: str) -> TalkRoom | None:
         return res.scalar_one_or_none()
 
 
-def _log_event(db, room: TalkRoom, direction: str, msg: dict | None = None, text: str = "") -> None:
+async def _log_event(db, room: TalkRoom, direction: str, msg: dict | None = None, text: str = "") -> None:
     """Record a bridged message as an analytics event → datalake export.
 
     Every inbound mirror + outbound send lands in analytics_events so the
     export-datalake sweep carries the messaging activity for analytics.
+    Savepointed so an FK/type failure never poisons the caller's transaction.
     """
     from datetime import UTC, datetime
 
@@ -102,30 +104,37 @@ def _log_event(db, room: TalkRoom, direction: str, msg: dict | None = None, text
     except (ValueError, TypeError):
         account_uuid = None
     body = (msg or {}).get("text") or text
-    db.add(
-        AnalyticsEvent(
-            team_id=room.team_id,
-            social_account_id=account_uuid,
-            event_type=f"talk_bridge_{direction}",
-            platform=room.platform,
-            platform_event_id=(msg or {}).get("id") or None,
-            occurred_at=datetime.now(UTC),
-            meta_data={
-                "room_token": room.room_token,
-                "thread_id": room.thread_id,
-                "contact_name": room.contact_name,
-                "sender": (msg or {}).get("sender", ""),
-                "text_preview": (body or "")[:500],
-                "attachments": (msg or {}).get("attachments", []),
-            },
-        )
-    )
+    try:
+        async with db.begin_nested():
+            db.add(
+                AnalyticsEvent(
+                    team_id=room.team_id,
+                    social_account_id=account_uuid,
+                    event_type=f"talk_bridge_{direction}",
+                    platform=room.platform,
+                    platform_event_id=(msg or {}).get("id") or None,
+                    occurred_at=datetime.now(UTC),
+                    meta_data={
+                        "room_token": room.room_token,
+                        "thread_id": room.thread_id,
+                        "contact_name": room.contact_name,
+                        "sender": (msg or {}).get("sender", ""),
+                        "text_preview": (body or "")[:500],
+                        "attachments": (msg or {}).get("attachments", []),
+                    },
+                )
+            )
+    except Exception:
+        logger.exception("talk-bridge analytics log failed")
 
 
-async def _post(room: TalkRoom, text: str) -> None:
-    ok = await bot_reply(room.room_token, text)
-    if not ok:
-        await post_to_room(room.room_token, text)
+async def _post(room: TalkRoom, text: str, db=None) -> bool:
+    """Post into the room as the Talk bot (needs `occ talk:bot:setup <bot> <room>`
+    per room), falling back to the app-password user. Returns True when a
+    message actually reached the room."""
+    if await bot_reply(room.room_token, text, db=db):
+        return True
+    return await post_to_room(room.room_token, text)
 
 
 # ─── inbound message fetchers (normalized dicts) ────────────────────
@@ -177,6 +186,11 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     if session.get("status") != "active":
         return []
     data = await bridge.get_personal_messenger_messages(thread_id, is_e2ee=is_e2ee)
+    if isinstance(data, dict):
+        seen_thread = str(data.get("thread_id") or data.get("conversation_id") or "")
+        if seen_thread and seen_thread != str(thread_id):
+            logger.warning("talk-bridge: browser returned thread %s, wanted %s — dropped", seen_thread, thread_id)
+            return []
     raw = data.get("messages") if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
@@ -197,19 +211,42 @@ async def _fb_personal_messages(account: SocialAccount, thread_id: str, is_e2ee:
     return out
 
 
-async def _ig_messages(account: SocialAccount, thread_id: str) -> list[dict]:
-    from app.services.crypto import decrypt_token
+def _ig_client(account: SocialAccount):
+    """InstagramAPIClient honoring both token stores + the Business Login host.
+
+    Business Login accounts (instagram2_callback) keep the token in
+    access_token_enc and must call graph.instagram.com; Page-linked accounts
+    keep it in meta_data and use graph.facebook.com.
+    """
+    from app.core.security import decrypt_token
     from app.services.instagram_api import InstagramAPIClient
 
     meta = account.meta_data or {}
-    token = meta.get("access_token") or meta.get("page_token") or ""
-    if token and not str(token).startswith(("EA", "IGA")):
+    token = ""
+    if account.access_token_enc:
         try:
-            token = decrypt_token(token)
+            token = decrypt_token(account.access_token_enc)
         except Exception:
-            pass
-    ig_user_id = meta.get("ig_user_id") or account.account_id
-    client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+            token = ""
+    if not token:
+        token = meta.get("access_token") or meta.get("page_token") or ""
+        if token and not str(token).startswith(("EA", "IGA")):
+            try:
+                token = decrypt_token(token)
+            except Exception:
+                pass
+    ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
+    return InstagramAPIClient(
+        access_token=token,
+        ig_user_id=ig_user_id,
+        use_business_login_api=meta.get("login_type") == "business_login",
+    )
+
+
+async def _ig_messages(account: SocialAccount, thread_id: str) -> list[dict]:
+    meta = account.meta_data or {}
+    ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
+    client = _ig_client(account)
     data = await client.get_dm_messages(thread_id, limit=INBOUND_LIMIT)
     raw = data.get("data") if isinstance(data, dict) else data
     if not isinstance(raw, list):
@@ -330,18 +367,9 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 "platform": "personal_messenger",
             } for c in raw if isinstance(c, dict)]
         if platform == "instagram":
-            from app.services.crypto import decrypt_token
-            from app.services.instagram_api import InstagramAPIClient
-
             meta = account.meta_data or {}
-            token = meta.get("access_token") or meta.get("page_token") or ""
-            if token and not str(token).startswith(("EA", "IGA")):
-                try:
-                    token = decrypt_token(token)
-                except Exception:
-                    pass
-            ig_user_id = meta.get("ig_user_id") or account.account_id
-            client = InstagramAPIClient(access_token=token, ig_user_id=ig_user_id)
+            ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
+            client = _ig_client(account)
             data = await client.get_conversations(limit=MAX_SYNC_ROOMS)
             raw = data.get("data") if isinstance(data, dict) else data
             if not isinstance(raw, list):
@@ -377,10 +405,10 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
     return []
 
 
-async def sync_rooms(team_id: uuid.UUID) -> dict[str, int]:
+async def sync_rooms(team_id: uuid.UUID, session_factory=async_session_maker) -> dict[str, int]:
     """Ensure one Talk room per active platform conversation."""
     created = mapped = 0
-    async with async_session_maker() as db:
+    async with session_factory() as db:
         res = await db.execute(
             select(SocialAccount).where(
                 SocialAccount.team_id == team_id,
@@ -395,7 +423,7 @@ async def sync_rooms(team_id: uuid.UUID) -> dict[str, int]:
                     continue
                 room = await _room_for(db, team_id, conv["platform"], conv["thread_id"])
                 if room is None:
-                    token = await create_room(_room_name(conv["platform"], conv["contact_name"]))
+                    token = await create_room(_room_name(conv["platform"], conv["contact_name"]), room_type=2)
                     if not token:
                         continue
                     room = TalkRoom(
@@ -419,6 +447,8 @@ async def sync_rooms(team_id: uuid.UUID) -> dict[str, int]:
                         f"sent to the conversation. Type `mute` to pause.",
                     )
                 else:
+                    if str(room.account_id) != str(account.id):
+                        room.account_id = str(account.id)  # rebind after account reconnect
                     if conv["contact_name"] and room.contact_name != conv["contact_name"]:
                         room.contact_name = conv["contact_name"]
                     if conv["recipient_id"] and not room.recipient_id:
@@ -428,10 +458,10 @@ async def sync_rooms(team_id: uuid.UUID) -> dict[str, int]:
     return {"created": created, "mapped": mapped}
 
 
-async def inbound_sync(team_id: uuid.UUID) -> dict[str, int]:
+async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) -> dict[str, int]:
     """Post new platform messages into their mapped Talk rooms."""
     posted = 0
-    async with async_session_maker() as db:
+    async with session_factory() as db:
         res = await db.execute(
             select(TalkRoom).where(TalkRoom.team_id == team_id, TalkRoom.enabled.is_(True))
         )
@@ -448,16 +478,21 @@ async def inbound_sync(team_id: uuid.UUID) -> dict[str, int]:
             # messages arrive newest-first; post oldest-new of the unseen ones
             unseen: list[dict] = []
             for m in msgs:
-                if m["id"] and m["id"] == room.last_inbound_key:
+                if (m["id"] or m["key"]) == room.last_inbound_key:
                     break
                 unseen.append(m)
             if not unseen:
                 continue
-            for m in reversed(unseen[-10:]):  # cap flood on first sync
-                await _post(room, _format_inbound(m["sender"], m["text"], m["ours"], m["attachments"]))
-                _log_event(db, room, "outbound" if m["ours"] else "inbound", msg=m)
+            failed = False
+            for m in reversed(unseen[:10]):  # newest 10, chronological; older backlog stays unread
+                ok = await _post(room, _format_inbound(m["sender"], m["text"], m["ours"], m["attachments"]), db=db)
+                if not ok:
+                    failed = True
+                    break
+                await _log_event(db, room, "outbound" if m["ours"] else "inbound", msg=m)
                 posted += 1
-            room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"]
+            if not failed:
+                room.last_inbound_key = msgs[0]["id"] or msgs[0]["key"]
         await db.commit()
     return {"posted": posted}
 
@@ -465,15 +500,17 @@ async def inbound_sync(team_id: uuid.UUID) -> dict[str, int]:
 # ─── outbound (Talk → platform) ─────────────────────────────────────
 
 
-async def outbound(room_token: str, text: str) -> tuple[bool, str]:
+async def outbound(room_token: str, text: str, session_factory=async_session_maker) -> tuple[bool, str]:
     """Route a Talk message to the mapped platform thread."""
+    if not bridge_enabled():
+        return False, "bridge disabled"
     room = await room_for_token(room_token)
     if room is None:
         return False, "not a bridged room"
     if not room.enabled:
         return False, "bridge muted for this room"
 
-    async with async_session_maker() as db:
+    async with session_factory() as db:
         res = await db.execute(
             select(SocialAccount).where(SocialAccount.id == uuid.UUID(room.account_id))
         )
@@ -505,22 +542,11 @@ async def outbound(room_token: str, text: str) -> tuple[bool, str]:
             session = await bridge.ensure_session("facebook")
             if session.get("status") != "active":
                 return False, session.get("message", "bridge session inactive")
-            await bridge.send_personal_messenger_message(room.thread_id, text, is_e2ee=room.is_e2ee)
+            res = await bridge.send_personal_messenger_message(room.thread_id, text, is_e2ee=room.is_e2ee)
+            if not isinstance(res, dict) or res.get("status") != "sent":
+                return False, "browser send failed — composer not found or send rejected"
         elif room.platform == "instagram":
-            from app.services.crypto import decrypt_token
-            from app.services.instagram_api import InstagramAPIClient
-
-            meta = account.meta_data or {}
-            token = meta.get("access_token") or meta.get("page_token") or ""
-            if token and not str(token).startswith(("EA", "IGA")):
-                try:
-                    token = decrypt_token(token)
-                except Exception:
-                    pass
-            client = InstagramAPIClient(
-                access_token=token,
-                ig_user_id=meta.get("ig_user_id") or account.account_id,
-            )
+            client = _ig_client(account)
             recipient = room.recipient_id
             if not recipient:
                 return False, "no recipient id mapped — reply once in the native IG app first"
@@ -537,7 +563,7 @@ async def outbound(room_token: str, text: str) -> tuple[bool, str]:
 
     try:
         async with async_session_maker() as db:
-            _log_event(db, room, "outbound", text=text)
+            await _log_event(db, room, "outbound", text=text)
             await db.commit()
     except Exception:
         logger.exception("talk-bridge analytics log failed")

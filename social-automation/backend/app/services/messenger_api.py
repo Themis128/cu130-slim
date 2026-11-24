@@ -419,7 +419,7 @@ class MessengerAPIClient:
                 url,
                 params=self._params(
                     {
-                        "fields": f"messages.limit({limit}){{message,from,created_time,id}}",
+                        "fields": f"messages.limit({limit}){{message,from,created_time,id,attachments}}",
                     }
                 ),
             )

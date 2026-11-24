@@ -14,10 +14,6 @@ from celery import shared_task
 
 from app.services.talk_bridge import bridge_enabled, inbound_sync, sync_rooms
 from app.worker._async import run_async
-from app.worker.celery_app import celery_app
-
-celery_app.set_default()
-celery_app.set_current()
 
 
 @shared_task(name="app.worker.tasks.talk_bridge.talk_bridge_sync")
@@ -40,8 +36,8 @@ async def _run() -> dict[str, Any]:
     results = []
     for team_id in teams:
         try:
-            rooms = await sync_rooms(team_id)
-            inbound = await inbound_sync(team_id)
+            rooms = await sync_rooms(team_id, session_factory=task_session)
+            inbound = await inbound_sync(team_id, session_factory=task_session)
             results.append({"team_id": str(team_id), **rooms, **inbound})
         except Exception as exc:  # noqa: BLE001 — one team must not kill the sweep
             results.append({"team_id": str(team_id), "error": str(exc)})
