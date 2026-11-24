@@ -94,9 +94,40 @@ status in `~/logs/newsletter_autopilot.status.json`. Launch:
     setsid nohup .devin/skills/linkedin-newsletter-ops/scripts/newsletter_publish_autopilot.sh \
       > ~/logs/newsletter_autopilot.nohup 2>&1 &
 
+### Issue recovery (`newsletter_recover.py`, 2026-11-24)
+
+One command for a `failed`/stuck issue — classifies `last_error`, probes
+the sidecar `/health` (never navigates, so it can't deepen a real
+restriction), clears expired/`--clear-circuit` circuits, optionally
+credential-relogins (`--relogin` for `session_dead` circuits — pushes a
+2FA approval to the phone), requeues via SQL (`status=queued,
+scheduled_for=now`), fires the celery dispatch, and `--watch`es to a
+verdict:
+
+    python3 newsletter_recover.py ISSUE_SLUG --watch 900
+
 ## Failure modes
 
 - `session dead` → sidecar lost its cookies; re-auth (2FA) then re-export.
+- `circuit open until <ts> (redirect_loop)` → **classified since
+  2026-11-24**: the recovery nav's landing page tells transient loop
+  (session alive → retryable error, NO trip) from dead session
+  (`redirect_loop_session_dead`, full 6h — the hourly session healer
+  auto-runs `/login` on this reason) from ambiguous (`redirect_loop`,
+  short `LINKEDIN_REDIRECT_LOOP_COOLDOWN_MS`, default 1h). Check
+  `GET :9225/health` → `rate_limit_reason`; never clear a live circuit
+  blindly — a real restriction re-trips on the next navigation.
+- Issue `failed` after 3 fast `circuit open` rejects → was permanent;
+  `record_publish_failure` now parses the circuit `until` and
+  reschedules just past it (bounded by `MAX_CIRCUIT_WAIT_ATTEMPTS=8`).
+- `data-test-modal-id="article-editor-media-editor-dismiss-confirmation"
+  ... intercepts pointer events` on the publish/Next click → an
+  un-dismissed media editor re-arms a discard-confirm on navigation.
+  Fixed in the sidecar by `dismissMediaEditorBlockers()` (clear overlay
+  → click → retry once); if it recurs, look for a NEW modal id in the
+  playwright call log.
+- `Browser busy with <x> session` (bridge fallback) → shared
+  browser-novnc contention — transient; the retry/backoff covers it.
 - 403 on voyager → `rw_organization_admin` or member-role gap; or LinkedIn
   changed the endpoint shape — check `parse_subscriber` keys.
 - Empty list → wrong `seriesUrn`, or the newsletter has zero subs.

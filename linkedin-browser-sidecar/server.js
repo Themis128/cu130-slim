@@ -4098,6 +4098,41 @@ async function confirmMediaEditorModal() {
   }
 }
 
+// A still-open media editor (or its "discard changes?" confirm,
+// data-test-modal-id="article-editor-media-editor-dismiss-confirmation")
+// sits in an overlay that intercepts pointer events on the editor's
+// Next/publish button. Confirm/accept whatever is open so the publish
+// surface becomes clickable; unsaved media edits are expendable — the
+// cover was already confirmed at upload time.
+async function dismissMediaEditorBlockers() {
+  for (let i = 0; i < 5; i++) {
+    const scope = page
+      .locator(
+        '[data-test-is-confirm-dialog], ' +
+          '#artdeco-modal-outlet [role="dialog"], ' +
+          ".artdeco-modal-overlay--is-top-layer",
+      )
+      .last();
+    if (!(await scope.isVisible().catch(() => false))) return;
+    const btn = scope
+      .locator(
+        'button:has-text("Discard"), button:has-text("Yes"), ' +
+          'button:has-text("Delete"), button:has-text("Leave"), ' +
+          'button:has-text("Confirm"), button:has-text("Save"), ' +
+          'button:has-text("Done"), button:has-text("Next"), ' +
+          "button.artdeco-button--primary",
+      )
+      .last();
+    if ((await btn.count()) === 0) {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(500);
+      continue;
+    }
+    await btn.click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+}
+
 // Scan the member's recent-activity feed for an already-published /pulse/
 // article carrying this exact title. Best-effort: any failure returns null
 // so a first publish is never blocked by the guard itself.
@@ -4712,10 +4747,28 @@ async function handleNewsletterPublish(body) {
     { timeout: 10000 },
   );
   if (!nextBtn) throw new Error("Could not find the Next/publish button");
-  await Promise.all([
-    page.waitForNavigation({ timeout: 30000 }).catch(() => {}),
-    nextBtn.click(),
-  ]);
+  // An un-dismissed media editor re-arms a confirm dialog on navigation —
+  // clear overlays before the click and retry once if it pops mid-click.
+  await dismissMediaEditorBlockers();
+  let nextClicked = await nextBtn
+    .click({ timeout: 20000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!nextClicked) {
+    await dismissMediaEditorBlockers();
+    nextClicked = await nextBtn
+      .click({ timeout: 20000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+  if (!nextClicked) {
+    const shot = await page.screenshot({ type: "png" }).catch(() => null);
+    const shotPath = shot ? saveDebugScreenshot(shot, "article-next-blocked") : null;
+    throw new Error(
+      `Next/publish button stayed unclickable — modal overlay persists${shotPath ? ` (screenshot: ${shotPath})` : ""}`,
+    );
+  }
+  await page.waitForNavigation({ timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(4000);
   step("review-page");
 
