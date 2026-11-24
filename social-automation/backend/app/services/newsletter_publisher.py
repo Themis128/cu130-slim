@@ -11,6 +11,7 @@ import base64
 import html as html_mod
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -105,6 +106,33 @@ async def publish_with_fallback(
 MEDIA_SPEC_KEY = "_media"
 
 
+def _media_url_allowed(url: str) -> bool:
+    """SSRF guard — ``url`` media items may only point at origins this
+    platform itself serves media from (``MEDIA_PUBLIC_BASE_URL`` /
+    ``R2_PUBLIC_URL``). Anything else is dropped before it can reach the
+    sidecar's server-side fetch."""
+    from app.core.config import settings
+
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    origin = f"{parts.scheme}://{parts.netloc}".lower()
+    for base in (settings.MEDIA_PUBLIC_BASE_URL, settings.R2_PUBLIC_URL):
+        base = (base or "").strip()
+        if not base:
+            continue
+        try:
+            b = urlsplit(base if "://" in base else f"https://{base}")
+        except ValueError:
+            continue
+        if b.scheme and b.netloc and f"{b.scheme}://{b.netloc}".lower() == origin:
+            return True
+    return False
+
+
 async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """Resolve a stored media spec into sidecar-ready items.
 
@@ -127,6 +155,12 @@ async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> li
             continue
         mtype = "video" if item.get("type") == "video" else "image"
         if item.get("base64") or item.get("url"):
+            url = item.get("url")
+            # Only the url path reaches the sidecar's server-side fetch —
+            # when base64 is present it wins and the url is ignored.
+            if url and not item.get("base64") and not _media_url_allowed(str(url)):
+                logger.warning("newsletter media url rejected (not an allowed media origin): %s", url)
+                continue
             out.append({"type": mtype, "base64": item.get("base64"), "url": item.get("url"), "filename": item.get("filename")})
             continue
         asset_id = item.get("asset_id")

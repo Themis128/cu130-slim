@@ -49,6 +49,8 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { chromium } from "patchright";
+import dns from "node:dns/promises";
+import net from "node:net";
 import fs from "fs";
 import path from "path";
 import {
@@ -558,6 +560,93 @@ function saveDebugScreenshot(shot, prefix = "debug") {
   const p = path.join(dir, "shot.png");
   fs.writeFileSync(p, shot, { mode: 0o600 });
   return p;
+}
+
+// ── SSRF guard for caller-supplied media URLs ────────────────────────────
+// Media items may carry {url} instead of base64 (large video). The sidecar
+// fetches those server-side, so the URL must be proven public: http(s)
+// only, no loopback/private/link-local/metadata hosts or IPs — checked on
+// the literal AND every DNS answer (rebinding-safe at fetch time is out of
+// scope; this kills the obvious internal-target class).
+
+const PRIVATE_HOSTNAMES = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "instance-data",
+]);
+const PRIVATE_HOST_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".internal",
+  ".lan",
+  ".home",
+  ".corp",
+  ".home.arpa",
+];
+
+function isPrivateIPv4(ip) {
+  const p = ip.split(".").map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return true; // unparseable → treat as private
+  }
+  const [a, b] = p;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) || // link-local + cloud metadata
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) || // CGNAT
+    (a === 198 && (b === 18 || b === 19)) || // benchmark
+    a >= 224 // multicast + reserved
+  );
+}
+
+function isPrivateIPv6(ip) {
+  const s = ip.toLowerCase();
+  if (s === "::1" || s === "::") return true;
+  if (s.startsWith("fc") || s.startsWith("fd")) return true; // ULA fc00::/7
+  if (/^fe[89ab]/.test(s)) return true; // link-local fe80::/10
+  // IPv4-mapped ::ffff:a.b.c.d
+  const m = s.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) return isPrivateIPv4(m[1]);
+  return false;
+}
+
+function isPrivateIp(ip) {
+  const v = net.isIP(ip);
+  if (v === 4) return isPrivateIPv4(ip);
+  if (v === 6) return isPrivateIPv6(ip);
+  return true;
+}
+
+async function assertPublicMediaUrl(rawUrl) {
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    throw new Error("media url is not a valid URL");
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") {
+    throw new Error(`media url scheme not allowed: ${u.protocol}`);
+  }
+  const host = u.hostname.toLowerCase();
+  if (
+    PRIVATE_HOSTNAMES.has(host) ||
+    PRIVATE_HOST_SUFFIXES.some((s) => host.endsWith(s))
+  ) {
+    throw new Error(`media url host not allowed: ${host}`);
+  }
+  // IP literal → check directly; hostname → resolve and check every answer.
+  const literal = net.isIP(host) ? host : null;
+  const addresses = literal
+    ? [literal]
+    : (await dns.lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+  if (!addresses.length || addresses.some(isPrivateIp)) {
+    throw new Error(`media url resolves to a non-public address: ${host}`);
+  }
+  return u.toString();
 }
 
 /** Save a Buffer to a private temp file under /data (mkdtemp + mode 0o600). */
@@ -4290,10 +4379,21 @@ async function handleNewsletterPublish(body) {
         if (m.base64) {
           buf = Buffer.from(m.base64, "base64");
         } else if (m.url) {
-          const resp = await fetch(m.url, {
-            redirect: "follow",
-            signal: AbortSignal.timeout(60000),
-          });
+          // Manual redirect following — every hop is re-validated so a
+          // public URL can't bounce the fetch to an internal target.
+          let fetchUrl = await assertPublicMediaUrl(String(m.url));
+          let resp = null;
+          for (let hop = 0; hop < 6; hop++) {
+            resp = await fetch(fetchUrl, {
+              redirect: "manual",
+              signal: AbortSignal.timeout(60000),
+            });
+            if (resp.status < 300 || resp.status >= 400) break;
+            const loc = resp.headers.get("location");
+            if (!loc) break;
+            fetchUrl = await assertPublicMediaUrl(new URL(loc, fetchUrl).toString());
+          }
+          if (!resp) throw new Error("media fetch failed");
           if (!resp.ok) throw new Error(`media fetch ${resp.status}`);
           buf = Buffer.from(await resp.arrayBuffer());
           try {
