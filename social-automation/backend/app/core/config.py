@@ -481,6 +481,8 @@ class Settings(BaseSettings):
     NEXTCLOUD_TALK_ROOM: str = ""  # "SocialAuto Ops" room token
     NEXTCLOUD_TALK_ROOM_ALERTS: str = ""  # "SocialAuto Approvals" room token
     NEXTCLOUD_TALK_ROOM_CHANGELOG: str = ""  # "Cloudless Changelog" room token
+    TALK_BRIDGE_ENABLED: bool = False  # per-contact Talk rooms ↔ FB/IG/LinkedIn DMs
+    TALK_BRIDGE_POLL_S: int = 180  # beat cadence for room sync + inbound mirror
     NEXTCLOUD_BASE_URL: str = ""  # https://cloud.cloudless.gr
     # Shared secret for the Talk webhook bot (occ talk:bot:install) —
     # verifies inbound commands and signs outbound bot replies.

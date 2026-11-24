@@ -23,6 +23,7 @@ from app.models.email_campaign import (
     SurveyResponse,
 )
 from app.models.inbox_snapshot import InboxSnapshot
+from app.models.talk_room import TalkRoom
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
