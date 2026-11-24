@@ -867,6 +867,9 @@ services:
     build:
       context: ./env-manager/frontend
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_BASE_IMAGE:-mirror.gcr.io/library/node:22-alpine}
+        NGINX_IMAGE: ${NGINX_BASE_IMAGE:-mirror.gcr.io/library/nginx:alpine}
     container_name: env-manager-frontend
     networks:
       - backend
@@ -942,6 +945,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: api
       additional_contexts:
         browser: ./browser-novnc
@@ -1348,6 +1353,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1397,6 +1404,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1450,6 +1459,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1498,6 +1509,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1547,6 +1560,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1597,6 +1612,8 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
       target: worker
       additional_contexts:
         browser: ./browser-novnc
@@ -1646,6 +1663,8 @@ services:
     build:
       context: ./social-automation
       dockerfile: Dockerfile.cloudflared
+      args:
+        ALPINE_IMAGE: ${ALPINE_BASE_IMAGE:-mirror.gcr.io/library/alpine:3.20}
     container_name: social-cloudflared
     networks:
       - backend
@@ -1693,6 +1712,8 @@ services:
     build:
       context: ./social-automation/frontend
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_BASE_IMAGE:-mirror.gcr.io/library/node:22-alpine}
     container_name: social-frontend
     labels:
       - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
@@ -2602,6 +2623,8 @@ services:
     build:
       context: ./docker
       dockerfile: Dockerfile.sidecar-base
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
 
   # ── autoheal — restarts opted-in APP containers whose HEALTHCHECK goes
   # unhealthy. Opt-in only (label autoheal=true): never postgres/redis/infra.

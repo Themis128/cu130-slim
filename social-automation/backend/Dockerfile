@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # ── Builder: compile/install deps with a toolchain that never ships ──
-FROM mirror.gcr.io/library/python:3.11-slim AS builder
+# PYTHON_IMAGE is overridable (compose build arg PYTHON_BASE_IMAGE) so CI can
+# pull the authenticated docker.io base when mirror.gcr.io rate-limits.
+ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.11-slim
+FROM ${PYTHON_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -43,7 +46,7 @@ RUN pip install --no-cache-dir "instagrapi==3.2.19" --no-deps && \
 # the venv, which each target copies in from its own builder stage. ──
 # No compilers, no browser engines — browser automation lives in the
 # dedicated sidecar containers, not in this codebase.
-FROM mirror.gcr.io/library/python:3.11-slim AS runtime-common
+FROM ${PYTHON_IMAGE} AS runtime-common
 
 WORKDIR /app
 

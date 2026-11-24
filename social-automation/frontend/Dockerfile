@@ -1,5 +1,7 @@
 # Build stage
-FROM mirror.gcr.io/library/node:22-alpine AS builder
+# Base image overridable via compose arg (mirror.gcr.io 429s).
+ARG NODE_IMAGE=mirror.gcr.io/library/node:22-alpine
+FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -19,7 +21,7 @@ COPY . .
 RUN npm run build
 
 # Production stage - Next.js standalone server
-FROM mirror.gcr.io/library/node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 
 WORKDIR /app
 

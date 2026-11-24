@@ -30,6 +30,14 @@ jobs:
     name: Build and push ${{ matrix.service }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      # Authenticated docker.io pulls (login-action below) — mirror.gcr.io
+      # rate-limits (429) under shared-runner load; the plain docker.io refs
+      # resolve via the Docker Hub login and have far higher limits.
+      PYTHON_BASE_IMAGE: python:3.11-slim
+      NODE_BASE_IMAGE: node:22-alpine
+      NGINX_BASE_IMAGE: nginx:alpine
+      ALPINE_BASE_IMAGE: alpine:3.20
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +84,7 @@ jobs:
             echo "sidecar base missing — building+pushing $BASE"
             docker buildx build --push \
               -f docker/Dockerfile.sidecar-base \
+              --build-arg "PYTHON_IMAGE=${PYTHON_BASE_IMAGE}" \
               -t "$BASE" docker/
           else
             echo "sidecar base present"
