@@ -237,3 +237,61 @@ def test_ad_signals_ctr_cpc():
 def test_pick_actions_stalled_growth():
     acts = D.pick_actions({"growth": {"threads": {"per_week": -1.0, "stalled": True, "gate": {"threshold": 500, "gap": 50, "eta_days": None}}}})
     assert any(a["type"] == "growth_stalled" and a["platform"] == "threads" for a in acts)
+
+
+def test_engagement_signals_dedup_edge_cases():
+    base = datetime(2026, 11, 1, tzinfo=UTC)
+    rows = [
+        # same post, older capture arrives AFTER newer → must not overwrite
+        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1,
+         "captured_at": base + timedelta(days=2), "engagement_rate": 0.9},
+        {"platform": "linkedin", "platform_post_id": "p1", "post_id": 1,
+         "captured_at": base + timedelta(days=1), "engagement_rate": 0.1},
+        # row with neither id → cannot dedup, counts as its own post
+        {"platform": "threads", "engagement_rate": 0.5},
+        {"platform": "threads", "engagement_rate": 0.5},
+        # captured_at None comparisons stay safe
+        {"platform": "x", "platform_post_id": "x1", "engagement_rate": 0.2, "captured_at": None},
+        {"platform": "x", "platform_post_id": "x1", "engagement_rate": 0.4, "captured_at": None},
+    ]
+    out = D.compute_engagement_signals(rows)
+    # linkedin: single post, latest capture (0.9) wins
+    assert out["platform_engagement"]["linkedin"] == 0.9
+    assert out["platform_posts"]["linkedin"] == 1
+    # threads: two id-less rows count separately
+    assert out["platform_posts"]["threads"] == 2
+    # x: both None-cap captures — second replaces first (cap >= prev_cap)
+    assert out["platform_engagement"]["x"] == 0.4
+    assert out["platform_posts"]["x"] == 1
+
+
+def test_ad_signals_zero_denominators():
+    daily = [
+        {"campaign": "c1", "spend_eur": 100.0, "leads": 0, "impressions": 0, "clicks": 0},
+        {"campaign": "c2", "spend_eur": 50.0, "leads": 2, "impressions": 500, "clicks": 0},
+    ]
+    out = D.compute_ad_signals(daily)
+    c1 = out["ad_campaigns"]["c1"]
+    assert c1["cpl"] is None and c1["ctr_pct"] is None and c1["cpc"] is None
+    c2 = out["ad_campaigns"]["c2"]
+    assert c2["cpl"] == 25.0 and c2["ctr_pct"] == 0.0 and c2["cpc"] is None
+
+
+def test_growth_signals_slope_over_min_span():
+    base = datetime(2026, 11, 1, tzinfo=UTC)
+    snaps = [
+        {"platform": "linkedin", "followers": 1000 + i * 10, "captured_at": base + timedelta(days=i)}
+        for i in range(0, 15)
+    ]
+    out = D.compute_growth_signals(snaps)
+    g = out["growth"]["linkedin"]
+    assert g["per_week"] is not None and g["per_week"] > 0
+
+
+def test_survey_price_anchor_bounds():
+    responses = [
+        {"answers": {"worth_per_month": "5 50 500 50000 2026 15000"}},
+    ]
+    out = D.compute_survey_signals(responses)
+    # 50 and 500 survive (10..10000, non-year); 50000/15000 too big, 2026 a year
+    assert out["price_anchor_median"] == 275.0

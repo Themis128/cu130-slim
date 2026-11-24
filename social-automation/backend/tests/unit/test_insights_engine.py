@@ -853,3 +853,57 @@ def test_compute_timing_bucket_weights_by_impressions():
     # platform mean = 186/3030 ≈ 6.14%; Tue shrunk = (6+0.0614*~2020)/(30+2020)
     # ≈ 6.35% < 6.14*1.15 — so NO honest winner (both collapse to mean).
     assert li["best_weekday_athens"] is None
+
+
+def test_media_text_er_impression_weighted():
+    # media bucket: 1 post 1000imp @5% ; text bucket: 3 posts 10imp @20%
+    # pooled rates decide the reported averages, not mean-of-ER.
+    rows = [
+        _post_row(impressions=1000, engagement=50, er=5.0, media=True),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+        _post_row(impressions=10, engagement=2, er=20.0, media=False),
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["media_avg_er"] == 5.0   # 50 eng_equiv / 1000 imp
+    assert li["text_avg_er"] == 20.0   # 6 eng_equiv / 30 imp
+
+
+def test_media_er_none_when_format_has_no_impressions():
+    # A platform with only text posts: the media bucket never accumulates
+    # impressions, so both its raw and shrunk rates must be None (not 0).
+    rows = [_post_row(impressions=100, engagement=5, er=5.0, media=False) for _ in range(3)]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["media_avg_er"] is None
+    assert li["media_avg_er_shrunk"] is None
+    assert li["text_avg_er"] is not None
+
+
+def test_confidence_capped_when_rows_needed_repair():
+    # 10 posts × 100 impressions → raw confidence "high", but every row
+    # carried a negative metric that had to be repaired → capped at medium.
+    rows = [
+        _post_row(impressions=100, engagement=5, er=5.0, likes=-5)
+        for _ in range(10)
+    ]
+    out = compute_insights(rows, [], [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["data_quality"]["sanitized_rows"] >= 5
+    assert li["confidence"] == "medium"
+
+
+def test_er_momentum_pooled_rates():
+    # Snapshot deltas: prior week +100eng/+1000imp, recent +60/+600.
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=20), 100, 1000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 200, 2000),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=3), 260, 2600),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["er_7d_pct"] == 10.0      # 60/600
+    assert li["er_prev_7d_pct"] == 10.0  # 100/1000
+    assert li["momentum_7d_er_pct"] == 0.0
