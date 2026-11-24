@@ -341,19 +341,30 @@ async def _heal_linkedin(stats: dict) -> None:
             )
             return
 
-        # Clear a stale in-memory 429 circuit (>6h past expiry).
+        # Persisted rate-limit circuit is open. Three cases:
+        #  - `until` already passed but the file is still on disk → clear it.
+        #  - reason contains "session_dead" → the sidecar's recovery nav saw
+        #    a login/authwall bounce, so the stored session is dead. POST
+        #    /login is allowed while the circuit is open and clears it on
+        #    success — skip the session probe (it would 429 anyway) and go
+        #    straight to the credential-login ladder below.
+        #  - anything else → respect the cooldown; every early probe that
+        #    still hits LinkedIn-side throttling re-trips the circuit.
         until = health.get("rate_limit_until")
-        if health.get("rate_limited") and until:
-            age = time.time() * 1000 - until
-            if age > 6 * 3600 * 1000:
+        reason = health.get("rate_limit_reason") or ""
+        session_dead = False
+        if health.get("rate_limited"):
+            if until and time.time() * 1000 > until:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     await client.post(f"{LINKEDIN_SIDECAR_URL}/session/clear-rate-limit")
                 stats["linkedin"]["rate_limit_cleared"] = True
+            elif "session_dead" in reason:
+                session_dead = True
             else:
                 stats["linkedin"]["status"] = "rate_limited"
                 return
 
-        if await _li_logged_in():
+        if not session_dead and await _li_logged_in():
             stats["linkedin"]["status"] = "healthy"
             await _li_sync_cookies()
             await r.delete(_LI_PENDING_KEY)
