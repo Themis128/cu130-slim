@@ -247,9 +247,7 @@ async def _sweep() -> dict:
             for tgt in orphan_targets:
                 tgt.status = "skipped"
                 tgt.error_class = "orphaned_target"
-                tgt.error_message = (
-                    "post terminally dead — orphaned target swept"
-                )
+                tgt.error_message = "post terminally dead — orphaned target swept"
             targets_skipped = len(orphan_targets)
 
         await db.commit()

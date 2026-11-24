@@ -1041,7 +1041,7 @@ async def test_gather_metrics_snaps_cleaned_of_spike():
     now = datetime.now(UTC)
     snaps = [
         (now - timedelta(days=12), 500),
-        (now - timedelta(days=8), 40000),   # metric mix-up
+        (now - timedelta(days=8), 40000),  # metric mix-up
         (now - timedelta(days=4), 505),
         (now - timedelta(days=1), 510),
     ]

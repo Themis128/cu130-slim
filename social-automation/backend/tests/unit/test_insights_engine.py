@@ -834,8 +834,8 @@ def test_compute_timing_buckets_ignore_zero_impression_posts():
 def test_compute_timing_bucket_weights_by_impressions():
     # A 10-impression post at 20% ER must not beat a 1000-impression
     # bucket at 6%: pooled rates, not mean-of-ERs.
-    day_a = NOW - timedelta(days=3)   # Wed
-    day_b = NOW - timedelta(days=4)   # Tue
+    day_a = NOW - timedelta(days=3)  # Wed
+    day_b = NOW - timedelta(days=4)  # Tue
     rows = [
         # Wed bucket: 3 posts × 1000 imp, 6% ER
         _post_row(published_at=day_a, impressions=1000, engagement=60, er=6.0),
@@ -866,8 +866,8 @@ def test_media_text_er_impression_weighted():
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
-    assert li["media_avg_er"] == 5.0   # 50 eng_equiv / 1000 imp
-    assert li["text_avg_er"] == 20.0   # 6 eng_equiv / 30 imp
+    assert li["media_avg_er"] == 5.0  # 50 eng_equiv / 1000 imp
+    assert li["text_avg_er"] == 20.0  # 6 eng_equiv / 30 imp
 
 
 def test_media_er_none_when_format_has_no_impressions():
@@ -884,10 +884,7 @@ def test_media_er_none_when_format_has_no_impressions():
 def test_confidence_capped_when_rows_needed_repair():
     # 10 posts × 100 impressions → raw confidence "high", but every row
     # carried a negative metric that had to be repaired → capped at medium.
-    rows = [
-        _post_row(impressions=100, engagement=5, er=5.0, likes=-5)
-        for _ in range(10)
-    ]
+    rows = [_post_row(impressions=100, engagement=5, er=5.0, likes=-5) for _ in range(10)]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
     assert li["data_quality"]["sanitized_rows"] >= 5
@@ -904,7 +901,7 @@ def test_er_momentum_pooled_rates():
     rows = [_post_row(published_at=NOW - timedelta(days=30))]
     out = compute_insights(rows, delta_rows, [], [], now=NOW)
     li = out["platforms"]["linkedin"]
-    assert li["er_7d_pct"] == 10.0      # 60/600
+    assert li["er_7d_pct"] == 10.0  # 60/600
     assert li["er_prev_7d_pct"] == 10.0  # 100/1000
     assert li["momentum_7d_er_pct"] == 0.0
 
@@ -921,8 +918,8 @@ def test_timing_low_rec_uses_platform_baseline():
 def test_format_rec_media_beats_text():
     # Shrunk rates must diverge >20% for a format recommendation.
     rows = [
-        _post_row(impressions=2000, engagement=10, er=0.5, media=True),   # media ~0.5%
-        _post_row(impressions=50, engagement=10, er=20.0, media=False),   # text ~20% raw
+        _post_row(impressions=2000, engagement=10, er=0.5, media=True),  # media ~0.5%
+        _post_row(impressions=50, engagement=10, er=20.0, media=False),  # text ~20% raw
         _post_row(impressions=50, engagement=10, er=20.0, media=False),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)

@@ -307,9 +307,7 @@ async def build_lead_pulse() -> FunnelReport:
     if talk.get("error"):
         report.line("Talk calls (24h)", f"• stats unavailable: {talk['error']}")
     elif talk["calls"]:
-        lines = [
-            f"• {talk['calls']} call(s) across {talk['rooms']} room(s) — {_fmt_talk_seconds(talk['talk_seconds'])} talk time"
-        ]
+        lines = [f"• {talk['calls']} call(s) across {talk['rooms']} room(s) — {_fmt_talk_seconds(talk['talk_seconds'])} talk time"]
         if talk["guests"]:
             lines.append(f"• {talk['guests']} guest join(s)")
         for room, slot in sorted(talk["by_room"].items(), key=lambda kv: -kv[1]["seconds"])[:5]:

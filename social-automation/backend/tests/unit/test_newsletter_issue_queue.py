@@ -207,7 +207,7 @@ async def test_circuit_open_error_waits_for_circuit_expiry():
 async def test_circuit_open_error_survives_max_attempts():
     """A circuit-blocked failure is infra-side — it doesn't die at MAX attempts."""
     until = datetime.now(UTC) + timedelta(hours=1)
-    err = f'LinkedIn circuit open until {until.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]}Z (redirect_loop); skipped navigate x'
+    err = f"LinkedIn circuit open until {until.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]}Z (redirect_loop); skipped navigate x"
     issue = _issue(status=NewsletterIssueStatus.PUBLISHING, attempts=q.MAX_PUBLISH_ATTEMPTS)
     db = _FakeDB(results=[_FakeResult(obj=issue)])
     out = await q.record_publish_failure(db, issue.id, err)
@@ -218,7 +218,7 @@ async def test_circuit_open_error_survives_max_attempts():
 @pytest.mark.asyncio
 async def test_circuit_wait_capped():
     until = datetime.now(UTC) + timedelta(hours=1)
-    err = f'LinkedIn circuit open until {until.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]}Z (redirect_loop); skipped navigate x'
+    err = f"LinkedIn circuit open until {until.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]}Z (redirect_loop); skipped navigate x"
     issue = _issue(status=NewsletterIssueStatus.PUBLISHING, attempts=q.MAX_CIRCUIT_WAIT_ATTEMPTS)
     db = _FakeDB(results=[_FakeResult(obj=issue)])
     out = await q.record_publish_failure(db, issue.id, err)
@@ -228,16 +228,12 @@ async def test_circuit_wait_capped():
 @pytest.mark.asyncio
 async def test_circuit_parse_variants():
     assert q._circuit_open_until("boom") is None
-    assert q._circuit_open_until('circuit open until (redirect_loop)') is None
+    assert q._circuit_open_until("circuit open until (redirect_loop)") is None
     future = datetime.now(UTC) + timedelta(hours=3)
-    out = q._circuit_open_until(
-        'LinkedIn circuit open until '
-        + future.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
-        + 'Z (redirect_loop); skipped navigate x'
-    )
+    out = q._circuit_open_until("LinkedIn circuit open until " + future.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z (redirect_loop); skipped navigate x")
     assert out == future.replace(microsecond=(future.microsecond // 1000) * 1000)
     # An `until` already in the past clamps to now (retry almost immediately).
-    past = q._circuit_open_until('circuit open until 2020-01-01T00:00:00.000Z (redirect_loop)')
+    past = q._circuit_open_until("circuit open until 2020-01-01T00:00:00.000Z (redirect_loop)")
     assert past >= datetime.now(UTC) - timedelta(seconds=5)
 
 
