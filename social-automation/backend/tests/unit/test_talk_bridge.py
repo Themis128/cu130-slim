@@ -1956,3 +1956,10 @@ def test_worker_task_entrypoint_runs_sweep_via_run_async():
     ):
         assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
     assert len(submitted) == 1
+
+
+def test_pm_clean_text_label_only_blob_drops():
+    # A blob that is ONLY the sender label / ours-marker has no message
+    # text left after the strip → dropped, not mirrored as an empty msg.
+    assert TB._pm_clean_text("You sent", "Carolina Nasati", False) == (None, True)
+    assert TB._pm_clean_text("Carolina", "Carolina Nasati", False) == (None, False)
