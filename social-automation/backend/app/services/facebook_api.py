@@ -39,8 +39,10 @@ DEFAULT_TIMEOUT = 60.0
 logger = logging.getLogger(__name__)
 
 # Facebook object ids are numeric strings, sometimes with a prefix like
-# ``page_id_post_id``. We validate to prevent SSRF via crafted identifiers.
-_FB_ID_RE = re.compile(r"^[0-9]{1,64}(_[0-9]{1,64})?$")
+# ``page_id_post_id``. Conversation/thread ids may also carry a ``t_``
+# prefix (returned by /{page}/conversations for certain thread types).
+# We validate to prevent SSRF via crafted identifiers.
+_FB_ID_RE = re.compile(r"^(?:t_)?[0-9]{1,64}(_[0-9]{1,64})?$")
 
 
 def _validate_id(value: str, label: str = "id") -> str:
