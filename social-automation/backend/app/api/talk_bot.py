@@ -94,11 +94,13 @@ def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
     return text, (room if room in allowed else None), room, msg_id
 
 
-async def _bridge_reply(text: str, room: str) -> str | None:
+async def _bridge_reply(text: str, room: str) -> str | bool:
     """Handle a message posted in a bridge-mapped room.
 
-    Returns a bot reply (errors only — successful sends stay silent so
-    the room reads like a normal chat) or None when room is not bridged.
+    Returns: False when room is not bridged (caller falls through to the
+    command path); True when the message was forwarded to the platform
+    (silent — the room reads like a normal chat); a string reply for
+    errors and mute/unmute/help handling.
     """
     from app.services.talk_bridge import outbound, room_for_token
 
@@ -106,9 +108,9 @@ async def _bridge_reply(text: str, room: str) -> str | None:
         mapped = await room_for_token(room)
     except Exception:  # noqa: BLE001 — unmapped/DB-down rooms stay silent
         logger.exception("Talk bridge room lookup failed")
-        return None
+        return False
     if mapped is None:
-        return None
+        return False
     cmd = text.lower().strip()
     if cmd in ("mute", "/mute", "stop"):
         async with async_session_maker() as db:
@@ -127,7 +129,7 @@ async def _bridge_reply(text: str, room: str) -> str | None:
     if cmd in ("help", "/help"):
         return "Bridge room: what you write is sent to the contact. Commands: mute · unmute"
     ok, detail = await outbound(room, text)
-    return None if ok else f"⚠️ Send failed: {detail}"
+    return True if ok else f"⚠️ Send failed: {detail}"
 
 
 async def _status() -> str:
@@ -219,12 +221,16 @@ async def talk_bot_webhook(request: Request) -> dict:
         except Exception:  # noqa: BLE001
             logger.exception("Talk bridge routing failed")
             reply = "⚠️ Send failed — bridge error."
+        if reply is True:
+            # Delivered to the platform contact — stay silent.
+            return {"ok": True}
         if reply:
             await bot_reply(raw_room, reply, reply_to=msg_id)
             return {"ok": True}
-        # Unmapped room (or a delivered bridge message): fall through to the
-        # command path — it stays silent for non-commands and never posts
-        # into a non-whitelisted room (`reply and room` below).
+        # Unmapped room: fall through to the command path — it stays
+        # silent for non-commands and never posts into a non-whitelisted
+        # room (`reply and room` below). Mapped rooms never reach this:
+        # a DM starting with e.g. "heal" must not queue an ops task.
     try:
         reply = await _run_command(text)
     except Exception:  # noqa: BLE001
