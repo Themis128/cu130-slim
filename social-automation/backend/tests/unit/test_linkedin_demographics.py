@@ -87,3 +87,108 @@ def test_task_happy(monkeypatch):
     monkeypatch.setattr(ld, "run_async", lambda coro: {"ok": True} if coro else {})
     out = ld.sync_linkedin_demographics()
     assert out == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_get_success_and_error():
+    class FakeResp:
+        def __init__(self, code, data=None, text=""):
+            self.status_code = code
+            self._d = data or {}
+            self.text = text
+
+        def json(self):
+            return self._d
+
+    class FakeClient:
+        def __init__(self, resp):
+            self.resp = resp
+
+        async def get(self, url, timeout=None):
+            return self.resp
+
+    ok = await ld._get(FakeClient(FakeResp(200, {"elements": [1]})), "x")
+    assert ok == {"status": 200, "data": {"elements": [1]}}
+    bad = await ld._get(FakeClient(FakeResp(429, text="rate limited")), "x")
+    assert bad["status"] == 429
+    assert "rate limited" in bad["error"]
+
+
+class _FakeScalars:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return _FakeScalars(self._rows)
+
+
+class _FakeDB:
+    def __init__(self, results):
+        self._results = list(results)
+        self.added = []
+        self.committed = False
+
+    async def execute(self, _q):
+        return _FakeResult(self._results.pop(0))
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        self.committed = True
+
+
+class _FakeSession:
+    def __init__(self, db):
+        self._db = db
+
+    async def __aenter__(self):
+        return self._db
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_run_inner_fallback_and_account_error(monkeypatch):
+    acc = _account()
+    db = _FakeDB([[], [acc]])  # org query empty -> fallback returns acc
+    monkeypatch.setattr(ld, "task_session", lambda: _FakeSession(db))
+
+    async def boom(_db, _acc):
+        raise RuntimeError("nope")
+
+    monkeypatch.setattr(ld, "_sync_account", boom)
+    coros = []
+    monkeypatch.setattr(ld, "run_async", lambda c: coros.append(c) or "sentinel")
+    out = ld.sync_linkedin_demographics()
+    assert out == "sentinel"
+    res = await coros[0]
+    assert res[str(acc.id)] == {"error": "nope"}
+    assert db.committed
+
+
+@pytest.mark.asyncio
+async def test_run_inner_happy_path(monkeypatch):
+    acc = _account()
+    db = _FakeDB([[acc]])
+    monkeypatch.setattr(ld, "task_session", lambda: _FakeSession(db))
+
+    async def ok_sync(_db, _acc):
+        return {"followers": 1, "page_stats": 1}
+
+    monkeypatch.setattr(ld, "_sync_account", ok_sync)
+    coros = []
+    monkeypatch.setattr(ld, "run_async", lambda c: coros.append(c) or "sentinel")
+    ld.sync_linkedin_demographics()
+    res = await coros[0]
+    assert res[str(acc.id)] == {"followers": 1, "page_stats": 1}
+    assert db.committed
