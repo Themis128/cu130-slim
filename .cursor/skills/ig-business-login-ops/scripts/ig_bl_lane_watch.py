@@ -45,6 +45,8 @@ from pathlib import Path
 HOME = Path.home()
 REPO = HOME / "cu130-slim"
 DRIVE = REPO / ".devin/skills/ig-business-login-ops/scripts/ig_bl_session_drive.py"
+PHONE_REAUTH = REPO / ".devin/skills/ig-business-login-ops/scripts/ig_phone_reauth.py"
+BACKUP_CODES = HOME / "ig_backup_codes.txt"
 TG_ALERT = REPO / ".devin/skills/telegram-alert-ops/scripts/tg_alert.py"
 STATE_DIR = HOME / ".local/state/ig-bl-watch"
 STATE_FILE = STATE_DIR / "state.json"
@@ -92,7 +94,9 @@ def _open_tab(cdp: str, url: str) -> dict:
 def _tab_eval(tab: dict, expr: str):
     import websocket  # type: ignore
 
-    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=20)
+    ws = websocket.create_connection(
+        tab["webSocketDebuggerUrl"], timeout=20, suppress_origin=True
+    )
     ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
                         "params": {"expression": expr, "returnByValue": True}}))
     ws.settimeout(15)
@@ -162,6 +166,44 @@ def _probe() -> bool:
     return ok
 
 
+def _phone_reachable() -> bool:
+    """Galaxy S22+ on tailnet ADB — the phone-Chrome re-mint lane."""
+    serial = os.environ.get("ADB_SERIAL", "100.84.31.85:5555")
+    try:
+        r = subprocess.run(
+            ["adb", "-s", serial, "get-state"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.stdout.strip() == "device"
+    except Exception:
+        return False
+
+
+def _backup_codes_left() -> int:
+    try:
+        return sum(1 for l in BACKUP_CODES.read_text().splitlines() if l.strip())
+    except Exception:
+        return 0
+
+
+def _phone_reauth() -> int:
+    """Fallback lane: full recovery + instagram2 OAuth on phone Chrome.
+    Verified live 2026-11-24 (3 consecutive mints). Only worth running
+    when the desktop CDP lane is dead — it drives the real reset flow
+    (email code + backup code) when the IG web session is gone."""
+    if not PHONE_REAUTH.is_file():
+        _log(f"phone reauth script missing: {PHONE_REAUTH}")
+        return 1
+    env = {**os.environ, "ADB_SERIAL": os.environ.get("ADB_SERIAL", "100.84.31.85:5555")}
+    r = subprocess.run(
+        [sys.executable, str(PHONE_REAUTH)],
+        capture_output=True, text=True, timeout=600, env=env,
+    )
+    out = (r.stdout + r.stderr).strip()
+    _log(f"phone-reauth rc={r.returncode} | {out[-400:]}")
+    return r.returncode
+
+
 def _state() -> dict:
     try:
         return json.loads(STATE_FILE.read_text())
@@ -210,9 +252,25 @@ def main() -> int:
 
     cdp = args.cdp or f"http://{_host_ip()}:9229"
     if not _cdp_alive(cdp):
-        _alert(f"IG business_login token dead AND CDP chrome unreachable at {cdp} — manual re-auth needed.")
-        _log(f"CDP unreachable: {cdp}")
-        _save_state({**st, "dead": True, "checked_at": now})
+        # Desktop CDP dead (crash-looping debug Chrome is the common
+        # case) — fall back to the phone-Chrome lane before alerting.
+        _log(f"CDP unreachable: {cdp} — trying phone-Chrome lane")
+        if not _phone_reachable():
+            _alert(f"IG business_login token dead AND CDP chrome unreachable at {cdp} AND phone ADB unreachable — manual re-auth needed.")
+            _save_state({**st, "dead": True, "checked_at": now})
+            return 1
+        codes = _backup_codes_left()
+        _log(f"phone reachable, {codes} backup code(s) left")
+        rc = _phone_reauth()
+        _save_state({**st, "dead": True, "last_drive_at": now, "checked_at": now, "last_rc": rc, "lane": "phone"})
+        if rc == 0 and _probe():
+            _alert("IG business_login lane auto-healed via PHONE Chrome re-mint (CDP was down).")
+            _save_state({"dead": False, "checked_at": time.time()})
+            return 0
+        if codes <= 1:
+            _alert("IG lane dead — phone re-mint ran but backup codes are nearly exhausted; regenerate in IG app → Accounts Center → 2FA → Backup codes.")
+        else:
+            _alert("IG business_login token dead — phone-Chrome re-mint attempted and failed. Check ~/logs/ig-bl-lane-watch.log.")
         return 1
 
     # Revive the browser IG session first — the OAuth consent needs a live
