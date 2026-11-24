@@ -125,6 +125,16 @@ Chrome foregrounded (`phone_cdp.front()`), `websocket-client`.
 Transport: `phone-web-auth-ops/scripts/phone_cdp.py` (forward tcp:9555).
 Resume mid-flow with `--step N`; skip URL minting with `--authorize-url`.
 
+Battle-tested 2026-11-24 (second run): live-session short-circuit →
+authorize URL → consent Allow → callback → row `38ddbd44` refreshed,
+fresh token verified on `graph.instagram.com/v26.0/me`. Lessons baked
+into the script: Chrome suspends background tabs (page ws accepts but
+eval hangs — every candidate is probed before use), `find_by=username`
+does NOT preselect the identifier field (the "Find by email or username
+instead" toggle needs a substring click), and the consent URL embeds the
+callback inside `params_json` so `social.cloudless.gr` alone
+false-positives — the real landing carries `?code=…&state=…`.
+
 Side benefit: enrolling **Authentication app** TOTP in IG app →
 Accounts Center → 2FA kills the dead-SIM dependency — secret converged
 to `META_TOTP_SECRET{,_AC,_IG}` = `ZUSD…` on 2026-11-24.

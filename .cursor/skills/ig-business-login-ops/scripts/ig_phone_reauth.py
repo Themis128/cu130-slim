@@ -120,31 +120,53 @@ asyncio.run(main())
 
 
 class PhoneTab:
-    """CDP driver bound to one phone-Chrome tab, foreground-safe."""
+    """CDP driver bound to one LIVE phone-Chrome tab.
 
-    def __init__(self, target_id=None, url_match=None):
-        tabs = phone_cdp.tabs()
-        t = None
-        if target_id:
-            t = next((x for x in tabs if x["id"].startswith(target_id)), None)
-        if t is None and url_match:
-            t = next((x for x in tabs if url_match in x.get("url", "")), None)
-        if t is None:
-            raise RuntimeError("tab not found")
-        self.target_id = t["id"]
-        # bring Chrome forward + activate the tab (suspended tabs drop ws);
-        # Target.activateTarget needs the browser-level socket — best effort
+    Chrome on Android suspends background tabs — their page websocket
+    accepts the connection but Runtime.evaluate hangs forever. List order
+    is not reliable, so every url_match candidate is probed with a short
+    eval timeout and the first responsive one wins. Pass fresh_url to
+    open a brand-new tab instead (cleanest for auth flows).
+    """
+
+    def __init__(self, target_id=None, url_match=None, fresh_url=None):
         phone_cdp.front()
-        try:
-            bt = phone_cdp.Tab(phone_cdp._get("/json/version")["webSocketDebuggerUrl"])
-            bt.call("Target.activateTarget", {"targetId": self.target_id})
-        except Exception:
-            pass
-        time.sleep(1.5)
+        if fresh_url:
+            tid = phone_cdp.new_tab(fresh_url)
+            time.sleep(4)
+            tabs = phone_cdp.tabs()
+            t = next((x for x in tabs if x["id"] == tid), None) \
+                or next((x for x in tabs if fresh_url.split("?")[0]
+                         in x.get("url", "")), None)
+            if t is None:
+                raise RuntimeError("fresh tab not found")
+            self.target_id = t["id"]
+            self.tab = phone_cdp.Tab(t["webSocketDebuggerUrl"])
+            self.tab.ws.settimeout(20)
+            return
         tabs = phone_cdp.tabs()
-        t = next(x for x in tabs if x["id"] == self.target_id)
-        self.tab = phone_cdp.Tab(t["webSocketDebuggerUrl"])
-        self.tab.ws.settimeout(20)
+        cands = []
+        if target_id:
+            cands = [x for x in tabs if x["id"].startswith(target_id)]
+        elif url_match:
+            cands = [x for x in tabs if url_match in x.get("url", "")]
+        if not cands:
+            raise RuntimeError("tab not found")
+        last_err = None
+        for t in cands:
+            try:
+                probe = phone_cdp.Tab(t["webSocketDebuggerUrl"])
+                probe.ws.settimeout(6)
+                if probe.evaluate("1") != 1:
+                    continue
+                self.target_id = t["id"]
+                self.tab = probe
+                self.tab.ws.settimeout(20)
+                return
+            except Exception as e:  # suspended/dead tab — try next
+                last_err = e
+                continue
+        raise RuntimeError(f"no live tab matched ({last_err})")
 
     def ev(self, expr):
         return self.tab.evaluate(expr)
@@ -229,34 +251,63 @@ def main():
            if "--authorize-url" in sys.argv else None)
 
     phone_cdp.forward()
-    phone_cdp.front()
 
-    # --- session check: already logged in as cloudless.gr? ---
-    tab = PhoneTab(url_match="instagram.com/")
-    if "cloudless.gr" in tab.body(1500):
-        print("[session] already logged in as cloudless.gr — skipping recovery")
+    # --- session check: fresh tab to IG home — a visible password field
+    # means the login wall; its absence means a live session ---
+    tab = PhoneTab(fresh_url="https://www.instagram.com/")
+    time.sleep(6)
+    has_pw = tab.ev(
+        "!![...document.querySelectorAll('input')]"
+        ".find(i=>i.type==='password'&&i.getClientRects().length)")
+    u = tab.url()
+    on_login_wall = has_pw or any(s in u for s in
+                                  ("login", "signup", "challenge"))
+    if not on_login_wall:
+        print("[session] live IG session — skipping recovery")
     else:
         # --- step 1: password reset → Meta Account gate ---
+        # NB: find_by=username in the URL does NOT preselect the field —
+        # the form still renders "Enter your mobile number" with a
+        # "Find by email or username instead" toggle. Match labels by
+        # substring (exact anchors miss the "…instead" suffix).
         if only <= 1:
-            tab.nav(RESET_URL)
+            tab = PhoneTab(fresh_url=RESET_URL)
             time.sleep(5)
-            if "mobile number" in tab.body(400).lower():
-                tab.click_text("find by email or username")
+            body = tab.body(600).lower()
+            if "mobile number" in body or "find by email or username" in body:
+                if not tab.click_text("find by email or username",
+                                      exact=False):
+                    raise RuntimeError("username toggle not found")
                 time.sleep(3)
             tab.fill_first_input(USERNAME)
             time.sleep(1)
             tab.click_text("continue")
-            time.sleep(6)
+            # verify we actually left the identifier page
+            for _ in range(10):
+                time.sleep(3)
+                b = tab.body(600).lower()
+                if "find your profile" not in b and "mobile number" not in b:
+                    break
             print("[gate]", tab.body(200).replace("\n", " | ")[:160])
+            if "find your profile" in tab.body(600).lower():
+                raise RuntimeError("identifier submit bounced — check username field")
 
         # --- step 2: Try another way → email code ---
+        # `tab` carries the whole recovery flow — do NOT re-acquire by
+        # URL (the page navigates off /password/reset into Meta gates).
         if only <= 2:
-            tab = PhoneTab(url_match="password/reset")
-            tab.click_text("try another way")
+            tab.click_text("try another way", exact=False)
             time.sleep(5)
-            # pick gmail email option: second 'Get code or link via email' row
-            if not tab.click_text("get code or link via email", occurrence=1):
-                raise RuntimeError("email option not found")
+            # prefer the row naming our gmail; else first email-code option
+            b = tab.body(1200)
+            if "gmail" in b.lower() or "baltzakis" in b.lower():
+                tab.click_text("baltzakis.themis@gmail.com", exact=False) \
+                    or tab.click_text("gmail", exact=False)
+                time.sleep(2)
+            if not tab.click_text("get code or link via email",
+                                  exact=False):
+                raise RuntimeError("email option not found: " +
+                                   tab.body(300).replace("\n", " | ")[:200])
             time.sleep(2)
             tab.click_text("continue")
             time.sleep(6)
@@ -280,12 +331,11 @@ def main():
 
         # --- step 4: Try another way → Backup code radio → code ---
         if only <= 4:
-            tab.click_text("try another way")
+            tab.click_text("try another way", exact=False)
             time.sleep(4)
             # radios: WhatsApp/SMS/Backup — backup is the LAST radio row
             states = tab.radio_states().split(",")
             if len(states) >= 3 and states[2] not in ("true", "True"):
-                # click the backup row (~y position of 3rd radio label)
                 ys = tab.ev(
                     "(()=>{const i=[...document.querySelectorAll("
                     "'input[type=radio],[role=radio]')];"
@@ -294,6 +344,9 @@ def main():
                 y = int(ys.split(",")[2]) + 6
                 tab.click_row_at_y(y)
                 time.sleep(2)
+            else:
+                print("[2fa-methods] radios:", tab.radio_states(),
+                      "|", tab.body(300).replace("\n", " | ")[:200])
             tab.click_text("continue")
             time.sleep(4)
             bc = backup_code()
@@ -303,28 +356,30 @@ def main():
             time.sleep(1)
             tab.click_text("continue")
             time.sleep(6)
-            print("[pw]", tab.body(200).replace("\n", " | ")[:160])
+            print("[pw-gate]", tab.body(200).replace("\n", " | ")[:160])
 
         # --- step 5: create-new-password gate → same password → session ---
         if only <= 5:
-            import re as _re
             env = {}
             for line in open(os.path.expanduser("~/cu130-slim/.env")):
-                m = _re.match(r"([A-Z_0-9]+)=(.*)", line.strip())
+                m = re.match(r"([A-Z_0-9]+)=(.*)", line.strip())
                 if m:
                     env[m.group(1)] = m.group(2).strip().strip("\"'")
             pw = env.get("INSTAGRAM_PASSWORD") or env.get("FACEBOOK_PASSWORD")
-            if "new password" in tab.body(400).lower():
+            if "new password" in tab.body(600).lower():
                 tab.fill_first_input(pw)
                 time.sleep(1)
                 tab.click_text("continue")
-                # submit is slow — poll for feed
-                for _ in range(10):
-                    time.sleep(3)
-                    if "instagram.com/" == tab.url().rstrip("/").split("?")[0].rsplit("/", 1)[-1] or "/" == tab.url().rstrip("/").rsplit("/", 1)[-1]:
-                        if "password/reset" not in tab.url():
-                            break
-                print("[session]", tab.url()[:80])
+            # poll until the flow leaves auth surfaces (feed or oauth)
+            deadline = time.time() + 90
+            while time.time() < deadline:
+                u = tab.url()
+                if not any(s in u for s in
+                           ("password", "login", "two_factor", "challenge")):
+                    break
+                time.sleep(4)
+            print("[session]", tab.url()[:90],
+                  "|", tab.body(150).replace("\n", " | ")[:120])
 
     # --- step 6: OAuth consent ---
     if only <= 6:
@@ -344,7 +399,11 @@ def main():
         deadline = time.time() + 60
         while time.time() < deadline:
             u = tab.url()
-            if "instagram2/callback" in u or "social.cloudless.gr" in u:
+            # the consent URL embeds the callback in params_json (with
+            # escaped slashes) — 'social.cloudless.gr' alone false-positives.
+            # The real landing carries ?code=…&state=…
+            if "code=" in u and ("callback" in u or
+                                 "social.cloudless.gr" in u):
                 print("[callback] reached:", u[:110])
                 return 0
             time.sleep(3)
