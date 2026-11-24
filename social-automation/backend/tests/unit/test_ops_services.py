@@ -170,10 +170,10 @@ async def test_service_action_paths():
 async def test_sync_services_upsert_and_agent_gate(monkeypatch):
     _agent_token(monkeypatch)
     existing = _svc()
-    item = api.SyncItem(name=existing.name, title="new", tier="docker", kind="container",
-                        executor="docker-cli", managed_by="platform", target="t", meta={"a": 1})
-    item2 = api.SyncItem(name="new-svc", title="n2", tier="systemd", kind="service",
-                         executor="systemctl", managed_by="external")
+    item = api.SyncItem(
+        name=existing.name, title="new", tier="docker", kind="container", executor="docker-cli", managed_by="platform", target="t", meta={"a": 1}
+    )
+    item2 = api.SyncItem(name="new-svc", title="n2", tier="systemd", kind="service", executor="systemctl", managed_by="external")
     db = FakeDB([existing])
     db.queue = [[existing], []]
     out = await api.sync_services(api.SyncBody(services=[item, item2]), _req(), db=db)
@@ -191,9 +191,13 @@ async def test_pending_and_report(monkeypatch):
     assert len(out["actions"]) == 1
     s2 = _svc()
     db.queue = [[s], [s2], []]
-    body = api.ReportBody(reports=[api.ReportItem(name=s.name, status="ok", health="up", detail="d"),
-                                   api.ReportItem(name=s2.name, status="ok", health="up"),
-                                   api.ReportItem(name="ghost")])
+    body = api.ReportBody(
+        reports=[
+            api.ReportItem(name=s.name, status="ok", health="up", detail="d"),
+            api.ReportItem(name=s2.name, status="ok", health="up"),
+            api.ReportItem(name="ghost"),
+        ]
+    )
     out = await api.service_report(body, _req(), db=db)
     assert out["applied"] == 2 and s.status == "ok" and s.meta["last_detail"] == "d" and "last_detail" not in s2.meta
 

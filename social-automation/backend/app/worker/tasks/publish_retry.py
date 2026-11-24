@@ -67,12 +67,7 @@ async def _sweep() -> dict:
                 done = list(meta.get("auth_resurrected") or [])
                 key = f"{tgt.post_id}:{tgt.social_account_id}"
                 account = getattr(tgt, "social_account", None)
-                if (
-                    account
-                    and getattr(account, "status", None) == "active"
-                    and is_auth_terminal(err)
-                    and key not in done
-                ):
+                if account and getattr(account, "status", None) == "active" and is_auth_terminal(err) and key not in done:
                     auth_revive = True
                 else:
                     skipped += 1
