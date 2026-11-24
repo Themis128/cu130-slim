@@ -805,11 +805,11 @@ engine created inside that loop. This replaced the per-task
 attached to a different loop" whenever a second task reused a pooled
 connection bound to a dead loop, and paid a full reconnect per task.
 Never combine `asyncio.run()` with `async_session_maker()` in a task.
-The worker engine runs `pool_pre_ping=True`: every checkout costs one
-round trip (`SELECT 1`) across ALL tasks (publishing included). It
-revalidates REUSED pooled connections at checkout — it cannot save a
-transaction already in flight when Postgres goes down, it only stops a
-DEAD pooled connection from being handed out as if it were alive.
+The worker engine runs `pool_pre_ping=True`: each checkout of a REUSED
+pooled connection costs one round trip (`SELECT 1`) across ALL tasks
+(publishing included); freshly opened connections are skipped. It
+cannot save a transaction already in flight when Postgres goes down —
+it only stops a DEAD pooled connection from being handed out as alive.
 
 Beat Schedule:
 ┌──────────────────────────┬────────────────────────────────┬──────────┐
