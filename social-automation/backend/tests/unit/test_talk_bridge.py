@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
+import app.api.talk_bridge as API
 import app.services.talk_bridge as TB
 
 
@@ -1247,3 +1249,192 @@ async def test_outbound_muted_and_success_analytics_failure():
     ):
         ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db))
     assert ok2 is True and msg2 == "sent" and sent == ["hi"]
+
+
+# ── coverage batch 4: API endpoints + last service branches ────────
+
+
+
+
+@pytest.mark.asyncio
+async def test_api_status_and_rooms_list():
+    rooms = [_room(platform="messenger", enabled=True),
+             _room(platform="instagram", enabled=True),
+             _room(platform="instagram", enabled=False)]
+    db = _FakeDB([rooms])
+    team = uuid.uuid4()
+    with patch.object(API, "bridge_enabled", return_value=True):
+        out = await API.talk_bridge_status(team_id=team, db=db, _user=None)
+    assert out == {"enabled": True, "rooms": 3, "active_rooms": 2,
+                   "by_platform": {"messenger": 1, "instagram": 1}}
+
+    db2 = _FakeDB([rooms])
+    lst = await API.list_rooms(team_id=team, db=db2, _user=None)
+    assert len(lst) == 3 and lst[0].platform == "messenger"
+
+
+@pytest.mark.asyncio
+async def test_api_sync_disabled_and_enabled():
+    with patch.object(API, "bridge_enabled", return_value=False):
+        with pytest.raises(HTTPException) as e:
+            await API.sync_now(team_id=uuid.uuid4(), _user=None)
+    assert e.value.status_code == 409
+
+    with (
+        patch.object(API, "bridge_enabled", return_value=True),
+        patch.object(API, "sync_rooms", AsyncMock(return_value={"created": 1, "mapped": 0})),
+        patch.object(API, "inbound_sync", AsyncMock(return_value={"posted": 2})),
+    ):
+        out = await API.sync_now(team_id=uuid.uuid4(), _user=None)
+    assert out == {"created": 1, "mapped": 0, "posted": 2}
+
+
+@pytest.mark.asyncio
+async def test_api_send_and_toggle():
+    team = uuid.uuid4()
+    # send: room missing → 404
+    db = _FakeDB([[]])
+    with pytest.raises(HTTPException) as e:
+        await API.send_to_thread("tok", API.SendRequest(text="hi"), team_id=team, db=db, _user=None)
+    assert e.value.status_code == 404
+
+    # send: outbound fails → 502
+    room = _room()
+    db2 = _FakeDB([[room]])
+    with patch.object(API, "outbound", AsyncMock(return_value=(False, "down"))):
+        with pytest.raises(HTTPException) as e2:
+            await API.send_to_thread("tok", API.SendRequest(text="hi"), team_id=team, db=db2, _user=None)
+    assert e2.value.status_code == 502
+
+    # send: ok
+    db3 = _FakeDB([[room]])
+    with patch.object(API, "outbound", AsyncMock(return_value=(True, "sent"))):
+        out = await API.send_to_thread("tok", API.SendRequest(text="hi"), team_id=team, db=db3, _user=None)
+    assert out == {"ok": True}
+
+    # toggle: missing → 404; found → flips + commits
+    db4 = _FakeDB([[]])
+    with pytest.raises(HTTPException):
+        await API.toggle_room("tok", team_id=team, db=db4, _user=None)
+    db5 = _FakeDB([[room]])
+    out2 = await API.toggle_room("tok", team_id=team, db=db5, _user=None)
+    assert out2["enabled"] is False and room.enabled is False and db5.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_fb_page_messages_nonlist_and_fetch_unknown():
+    acct = _acct(meta_data={"page_token": "EAxx"})
+
+    class _C:
+        def __init__(self, *a, **kw):
+            pass
+        async def get_conversation_messages(self, tid, limit=0):
+            return {"unexpected": True}
+    from app.services import messenger_api
+    with patch.object(messenger_api, "MessengerAPIClient", _C):
+        assert await TB._fb_page_messages(acct, "t1") == []
+
+    # unknown platform dispatch → []
+    assert await TB._fetch_messages(acct, _room(platform="carrier_pigeon")) == []
+
+
+@pytest.mark.asyncio
+async def test_conversation_list_page_and_ig_nonlist():
+    acct = _acct(meta_data={"page_token": "EAxx"})
+
+    class _C:
+        def __init__(self, *a, **kw):
+            pass
+        async def get_conversations(self, platform=None, limit=0):
+            return {"conversations": {"not": "a list"}}
+    from app.services import instagram_api, messenger_api
+    with patch.object(messenger_api, "MessengerAPIClient", _C):
+        assert await TB._conversation_list(acct) == []
+
+    acct_ig = _acct(platform="instagram", meta_data={"access_token": "IGA"})
+
+    class _IC:
+        def __init__(self, *a, **kw):
+            pass
+        async def get_conversations(self, limit=0):
+            return {"weird": 1}
+    with patch.object(instagram_api, "InstagramAPIClient", _IC):
+        assert await TB._conversation_list(acct_ig) == []
+
+
+@pytest.mark.asyncio
+async def test_outbound_ig_and_linkedin_success():
+    room = _room(platform="instagram", recipient_id="igsid-1")
+    acct = _acct(platform="instagram", id=uuid.UUID(room.account_id),
+                 meta_data={"access_token": "IGA"})
+    db = _FakeDB([[acct]])
+    sent = []
+
+    class _IC:
+        def __init__(self, *a, **kw):
+            pass
+        async def send_dm(self, rid, text):
+            sent.append((rid, text))
+    from app.services import instagram_api, linkedin_sidecar
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
+        patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
+        patch.object(instagram_api, "InstagramAPIClient", _IC),
+        patch.object(TB, "_log_event", AsyncMock()),
+    ):
+        ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(db))
+    assert (ok, msg) == (True, "sent") and sent == [("igsid-1", "hi")]
+
+    room2 = _room(platform="linkedin")
+    acct2 = _acct(platform="linkedin", id=uuid.UUID(room2.account_id))
+    db2 = _FakeDB([[acct2]])
+    li_sent = []
+
+    class _LS:
+        async def send_message(self, tid, text):
+            li_sent.append((tid, text))
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
+        patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
+        patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _LS()),
+        patch.object(TB, "_log_event", AsyncMock()),
+    ):
+        ok2, msg2 = await TB.outbound("tok", "yo", session_factory=_sf(db2))
+    assert (ok2, msg2) == (True, "sent") and li_sent == [("t-1", "yo")]
+
+
+@pytest.mark.asyncio
+async def test_inbound_sync_break_at_watermark_and_post_fail():
+    team = uuid.uuid4()
+    room = _room(last_inbound_key="k2")
+    db = _FakeDB([[room], [_acct(id=uuid.UUID(room.account_id))]])
+    msgs = [{"key": "k3", "ours": False, "sender": "A", "text": "new", "attachments": []},
+            {"key": "k2", "ours": False, "sender": "A", "text": "old", "attachments": []},
+            {"key": "k1", "ours": False, "sender": "A", "text": "older", "attachments": []}]
+    posted = []
+    with (
+        patch.object(TB, "_fetch_messages", AsyncMock(return_value=msgs)),
+        patch.object(TB, "_post", AsyncMock(side_effect=lambda db_, r, body: posted.append(body) or True)),
+    ):
+        out = await TB.inbound_sync(team, session_factory=_sf(db))
+    assert out["posted"] == 1 and room.last_inbound_key == "k3"
+
+    # post failure mid-list → watermark keeps last delivered
+    room2 = _room(last_inbound_key=None)
+    db2 = _FakeDB([[room2], [_acct(id=uuid.UUID(room2.account_id))]])
+    calls = {"n": 0}
+
+    async def _flaky(db_, r, body):
+        calls["n"] += 1
+        return calls["n"] < 2
+    with (
+        patch.object(TB, "_fetch_messages", AsyncMock(return_value=[
+            {"key": "a", "ours": False, "sender": "A", "text": "1", "attachments": []},
+            {"key": "b", "ours": False, "sender": "A", "text": "2", "attachments": []},
+        ])),
+        patch.object(TB, "_post", AsyncMock(side_effect=_flaky)),
+    ):
+        out2 = await TB.inbound_sync(team, session_factory=_sf(db2))
+    assert out2["posted"] == 1 and room2.last_inbound_key == "a"
