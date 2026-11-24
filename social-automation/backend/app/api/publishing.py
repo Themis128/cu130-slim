@@ -167,6 +167,10 @@ async def cancel_scheduled(
         .join(TeamMember)
         .where(PublishQueue.id == queue_id, TeamMember.user_id == current_user.id)
         .options(selectinload(PublishQueue.post))
+        # Lock the row for the check+delete: the worker's claim uses
+        # FOR UPDATE SKIP LOCKED, so a locked PENDING row can't be claimed
+        # and flipped to PROCESSING between our status check and the delete.
+        .with_for_update(of=PublishQueue)
     )
     queue_item = result.scalar_one_or_none()
     if not queue_item:

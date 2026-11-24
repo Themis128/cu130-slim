@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 import app.api.newsletter as newsletter_api
 import app.services.linkedin_sidecar as sidecar_mod
+import app.services.newsletter_publisher as newsletter_publisher
 from tests.unit.test_newsletter_linkedin_issue import (
     _Bridge,
     _long_body,
@@ -16,6 +17,14 @@ from tests.unit.test_newsletter_linkedin_issue import (
     _request,
     _stub_bridge,
 )
+
+
+@pytest.fixture(autouse=True)
+def _skip_sidecar_prewarm(monkeypatch):
+    async def _noop(client, **_kw):
+        return None
+
+    monkeypatch.setattr(newsletter_publisher, "_ensure_sidecar_ready", _noop)
 
 
 class _RaisingHttp:

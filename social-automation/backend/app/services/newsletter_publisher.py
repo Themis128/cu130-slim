@@ -7,6 +7,7 @@ Extracted from ``app.api.newsletter`` so both the synchronous
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import html as html_mod
 import logging
@@ -57,6 +58,7 @@ async def publish_with_fallback(
     sidecar_error: str | None = None
     if browser != "bridge":
         client = LinkedInSidecarClient()
+        await _ensure_sidecar_ready(client)
         try:
             result = await client.publish_newsletter_issue(
                 title=title,
@@ -106,6 +108,26 @@ async def publish_with_fallback(
 MEDIA_SPEC_KEY = "_media"
 
 
+async def _ensure_sidecar_ready(client: LinkedInSidecarClient, attempts: int = 6, delay: float = 20.0) -> None:
+    """Best-effort warm-up before the long publish call.
+
+    A just-woken sidecar takes ~1-2 min to launch Chromium and load the
+    session; hitting ``/newsletter/publish`` during that window drops the
+    connection (``RemoteProtocolError``) and burns the whole attempt.
+    ``check_session`` is the only endpoint that forces ``ensureBrowser`` +
+    a real feed navigation, so poll it until ``logged_in`` or the budget
+    runs out — then publish anyway and let the normal fallback decide.
+    """
+    for _ in range(attempts):
+        try:
+            session = await client.check_session()
+            if session.get("logged_in"):
+                return
+        except Exception:  # noqa: BLE001 — warm-up is best-effort, never block publish
+            pass
+        await asyncio.sleep(delay)
+
+
 def _media_url_allowed(url: str) -> bool:
     """SSRF guard — ``url`` media items may only point at origins this
     platform itself serves media from (``MEDIA_PUBLIC_BASE_URL`` /
@@ -149,6 +171,21 @@ async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> li
     from app.models.content import MediaAsset
     from app.services.media_dedup import load_asset_bytes
 
+    async def _load_with_retry(asset: Any) -> bytes:
+        # R2/MinIO GETs die on transient transport drops (RemoteProtocolError,
+        # ConnectError, timeouts — e.g. a stale pooled connection a middlebox
+        # silently closed). One retry lands them; GET is idempotent.
+        delay = 0.5
+        for attempt in range(3):
+            try:
+                return await load_asset_bytes(asset)
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")
+
     out: list[dict[str, Any]] = []
     for item in media:
         if not isinstance(item, dict):
@@ -169,7 +206,7 @@ async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> li
                 asset = (await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))).scalar_one_or_none()
                 if asset is None:
                     continue
-                data = await load_asset_bytes(asset)
+                data = await _load_with_retry(asset)
                 out.append({"type": mtype, "base64": base64.b64encode(data).decode(), "filename": item.get("filename") or asset.filename})
             except Exception as exc:  # noqa: BLE001 — skip bad asset
                 logger.warning("newsletter media resolve failed for %s: %s", asset_id, exc)

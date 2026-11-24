@@ -263,6 +263,45 @@ async def test_exception_final_refetch_raises_and_no_post(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_exception_vanished_queue_row_skips_bookkeeping(monkeypatch):
+    """A queue row deleted mid-flight (post cascade / cancel API) must not
+    kill the batch: refresh() raises, the item is skipped, later items still
+    process on the rolled-back session."""
+    item1 = _qitem(attempts=0, max_attempts=3)
+    item2 = _qitem(attempts=0, max_attempts=3)
+    post1 = _post(id=item1.post_id)
+    acct1 = _acct(id=item1.social_account_id)
+    tgt1 = _target(post_id=post1.id, social_account_id=acct1.id)
+    post2 = _post(id=item2.post_id)
+    acct2 = _acct(id=item2.social_account_id)
+    tgt2 = _target(post_id=post2.id, social_account_id=acct2.id)
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item1, item2]),
+            _res(one=post1),
+            _res(one=acct1),
+            _res(one=tgt1),
+            _res(scalars_all=[]),
+            _res(one=post2),
+            _res(one=acct2),
+            _res(one=tgt2),
+            _res(scalars_all=[]),
+        ]
+    )
+    db.refresh = AsyncMock(side_effect=RuntimeError("row gone"))
+    _patch_db(monkeypatch, db)
+    pub = AsyncMock(side_effect=[RuntimeError("boom"), W.PublishResult(success=True)])
+    monkeypatch.setattr(W, "publish_to_platform", pub)
+    await W._process_publish_queue_async()
+    assert pub.await_count == 2
+    # item1's row is gone — bookkeeping skipped, status left as claimed
+    assert item1.status == QueueStatus.PROCESSING
+    # item2 processed normally on the same session after the rollback
+    assert item2.status == QueueStatus.COMPLETED
+    assert db.rollbacks == 1
+
+
+@pytest.mark.asyncio
 async def test_exception_final_same_unhandled_error_not_realerted(monkeypatch):
     msg = "Unhandled exception while publishing (see worker logs)"
     item = _qitem(attempts=2, max_attempts=3)
