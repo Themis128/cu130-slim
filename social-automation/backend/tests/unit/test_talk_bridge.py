@@ -879,7 +879,7 @@ async def test_fb_personal_inactive_and_nonlist():
 
 @pytest.mark.asyncio
 async def test_ig_messages_nonlist_and_ours():
-    acct = _acct(platform="instagram", meta={"ig_user_id": "999"})
+    acct = _acct(platform="instagram", meta_data={"ig_user_id": "999"})
 
     class _C:
         async def get_dm_messages(self, tid, limit=0):
@@ -974,7 +974,7 @@ async def test_conversation_list_ig_and_li_nonlist():
 
     class _S3:
         async def get_conversations(self):
-            return {"conversations": [{"name": "Ann", "thread_url": "https://x/y/123/", "id": ""}]}
+            return {"conversations": [{"name": "Ann", "id": "https://x/y/123/"}]}
     with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S3()):
         out = await TB._conversation_list(acct2)
     assert out[0]["thread_id"] == "123"
@@ -998,9 +998,13 @@ async def test_inbound_sync_seen_all_and_no_account():
 @pytest.mark.asyncio
 async def test_outbound_personal_send_rejected_and_linkedin():
     room = _room(platform="personal_messenger")
-    acct = _acct()
+    acct = _acct(id=uuid.UUID(room.account_id))
     db = _FakeDB([[acct]])
-    with patch.object(TB, "room_for_token", AsyncMock(return_value=room)):
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
+        patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
+    ):
         class _B:
             def __init__(self, *a, **kw):
                 pass
@@ -1013,13 +1017,19 @@ async def test_outbound_personal_send_rejected_and_linkedin():
     assert ok is False and "send failed" in msg
 
     room2 = _room(platform="linkedin")
-    with patch.object(TB, "room_for_token", AsyncMock(return_value=room2)):
+    acct2 = _acct(id=uuid.UUID(room2.account_id), platform="linkedin")
+    db2 = _FakeDB([[acct2]])
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room2)),
+        patch.object(TB, "async_session_maker", _sf(_FakeDB([]))),
+    ):
         class _S:
             async def send_message(self, tid, text):
                 raise RuntimeError("li down")
         from app.services import linkedin_sidecar
         with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _S()):
-            ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db))
+            ok2, msg2 = await TB.outbound("tok", "hi", session_factory=_sf(db2))
     assert ok2 is False and "li down" in msg2
 
 
@@ -1027,7 +1037,10 @@ async def test_outbound_personal_send_rejected_and_linkedin():
 async def test_outbound_account_missing():
     room = _room()
     db = _FakeDB([[]])
-    with patch.object(TB, "room_for_token", AsyncMock(return_value=room)):
+    with (
+        patch.object(TB, "get_settings", return_value=_settings()),
+        patch.object(TB, "room_for_token", AsyncMock(return_value=room)),
+    ):
         ok, msg = await TB.outbound("tok", "hi", session_factory=_sf(db))
     assert ok is False and msg == "account row missing"
 
