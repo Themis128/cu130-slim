@@ -7,6 +7,7 @@ Extracted from ``app.api.newsletter`` so both the synchronous
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import html as html_mod
 import logging
@@ -149,6 +150,21 @@ async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> li
     from app.models.content import MediaAsset
     from app.services.media_dedup import load_asset_bytes
 
+    async def _load_with_retry(asset: Any) -> bytes:
+        # R2/MinIO GETs die on transient transport drops (RemoteProtocolError,
+        # ConnectError, timeouts — e.g. a stale pooled connection a middlebox
+        # silently closed). One retry lands them; GET is idempotent.
+        delay = 0.5
+        for attempt in range(3):
+            try:
+                return await load_asset_bytes(asset)
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")
+
     out: list[dict[str, Any]] = []
     for item in media:
         if not isinstance(item, dict):
@@ -169,7 +185,7 @@ async def resolve_media_items(db: Any, media: list[dict[str, Any]] | None) -> li
                 asset = (await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id))).scalar_one_or_none()
                 if asset is None:
                     continue
-                data = await load_asset_bytes(asset)
+                data = await _load_with_retry(asset)
                 out.append({"type": mtype, "base64": base64.b64encode(data).decode(), "filename": item.get("filename") or asset.filename})
             except Exception as exc:  # noqa: BLE001 — skip bad asset
                 logger.warning("newsletter media resolve failed for %s: %s", asset_id, exc)

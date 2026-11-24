@@ -148,5 +148,52 @@ async def test_resolve_asset_item_ignored_without_db(media_origins):
     assert out == []
 
 
+@pytest.mark.asyncio
+async def test_resolve_asset_item_transport_error_retries(monkeypatch, media_origins):
+    """A transient httpx.TransportError (RemoteProtocolError, ConnectError,
+    timeouts) is retried — one flaky attempt must not drop the media item."""
+    import httpx
+
+    from tests.unit.test_newsletter_issue_queue import _FakeDB, _FakeResult
+
+    asset = SimpleNamespace(id="a3", filename="reel.mp4")
+    db = _FakeDB(results=[_FakeResult(obj=asset)])
+    calls = {"n": 0}
+
+    async def flaky(a):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return b"\x00mp4"
+
+    monkeypatch.setattr("app.services.media_dedup.load_asset_bytes", flaky)
+    monkeypatch.setattr("app.services.newsletter_publisher.asyncio.sleep", _async_ret)
+    out = await pub.resolve_media_items(db, [{"type": "video", "asset_id": "a3"}])
+    assert len(out) == 1 and out[0]["type"] == "video"
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_resolve_asset_item_transport_error_exhausted(monkeypatch, media_origins):
+    """After 3 failed transport attempts the item is skipped, not fatal."""
+    import httpx
+
+    from tests.unit.test_newsletter_issue_queue import _FakeDB, _FakeResult
+
+    asset = SimpleNamespace(id="a4", filename="reel.mp4")
+    db = _FakeDB(results=[_FakeResult(obj=asset)])
+    calls = {"n": 0}
+
+    async def always_down(a):
+        calls["n"] += 1
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr("app.services.media_dedup.load_asset_bytes", always_down)
+    monkeypatch.setattr("app.services.newsletter_publisher.asyncio.sleep", _async_ret)
+    out = await pub.resolve_media_items(db, [{"type": "video", "asset_id": "a4"}])
+    assert out == []
+    assert calls["n"] == 3
+
+
 async def _async_ret(v):
     return v
