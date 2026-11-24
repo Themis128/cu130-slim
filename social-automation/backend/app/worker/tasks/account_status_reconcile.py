@@ -13,6 +13,7 @@ Per-platform probes use the cheapest authoritative read:
 - Meta (facebook/instagram/threads/whatsapp): Graph API object GET
 - TikTok: creator_info query   - LinkedIn: /v2/userinfo
 - Twitter/X: /2/users/me       - Telegram: getMe
+- Bluesky: getSession on the stored JWT, createSession fallback
 Accounts whose ``token_expires_at`` already passed are marked ``expired``
 without a network probe. A single account failure never aborts the sweep.
 """
@@ -96,6 +97,34 @@ async def _probe(platform: str, account_id: str, token: str, meta: dict | None) 
                 )
                 if r.status_code == 401:
                     return "inconclusive"
+            elif platform == "bluesky":
+                from app.services.bluesky_api import BSKY_PDS_DEFAULT, backoff_active
+
+                pds = (meta.get("pds_url") or BSKY_PDS_DEFAULT).rstrip("/")
+                # Cheap path first: getSession on the stored access JWT is a
+                # read-only call — no createSession rate-limit cost. Deliberately
+                # NO refreshSession here: refresh tokens rotate single-use and
+                # this probe cannot persist the new pair, so consuming one
+                # would kill the stored session it is verifying.
+                access_jwt = (meta.get("bsky_session") or {}).get("access_jwt")
+                if access_jwt:
+                    r = await c.get(
+                        f"{pds}/xrpc/com.atproto.server.getSession",
+                        headers={"Authorization": f"Bearer {access_jwt}"},
+                    )
+                    if r.status_code == 200:
+                        return "active"
+                # JWT dead/absent → definitive app-password check. createSession
+                # is the strictest rate-limited bsky endpoint (30/5min, 300/day
+                # per account) — skip entirely while a 429 backoff window is
+                # active on meta; a 429 response lands on the shared
+                # inconclusive tail and never flaps status.
+                if backoff_active(meta):
+                    return "inconclusive"
+                r = await c.post(
+                    f"{pds}/xrpc/com.atproto.server.createSession",
+                    json={"identifier": account_id, "password": token},
+                )
             elif platform == "telegram":
                 r = await c.get(f"https://api.telegram.org/bot{token}/getMe")
             else:

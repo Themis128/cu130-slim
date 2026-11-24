@@ -119,6 +119,68 @@ async def test_probe_500_inconclusive(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_probe_bluesky_session_jwt_active(monkeypatch):
+    from app.worker.tasks import account_status_reconcile as M
+
+    c = _client(200)
+    _patch(monkeypatch, c)
+    meta = {"bsky_session": {"access_jwt": "jwt"}}
+    assert await M._probe("bluesky", "did:plc:x", "apppw", meta) == "active"
+    c.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_probe_bluesky_no_session_createSession_active(monkeypatch):
+    from app.worker.tasks import account_status_reconcile as M
+
+    _patch(monkeypatch, _client(200))
+    assert await M._probe("bluesky", "did:plc:x", "apppw", {}) == "active"
+
+
+@pytest.mark.asyncio
+async def test_probe_bluesky_createSession_revoked(monkeypatch):
+    from app.worker.tasks import account_status_reconcile as M
+
+    _patch(monkeypatch, _client(401))
+    assert await M._probe("bluesky", "did:plc:x", "badpw", {}) == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_probe_bluesky_dead_jwt_falls_back_to_createSession(monkeypatch):
+    from app.worker.tasks import account_status_reconcile as M
+
+    c = _client()
+    c.get = AsyncMock(return_value=MagicMock(status_code=401))
+    c.post = AsyncMock(return_value=MagicMock(status_code=200))
+    _patch(monkeypatch, c)
+    meta = {"bsky_session": {"access_jwt": "stale"}}
+    assert await M._probe("bluesky", "did:plc:x", "apppw", meta) == "active"
+    c.post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_probe_bluesky_backoff_inconclusive(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.worker.tasks import account_status_reconcile as M
+
+    c = _client(200)
+    _patch(monkeypatch, c)
+    until = (datetime.now(UTC) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    meta = {"bsky_backoff_until": until}
+    assert await M._probe("bluesky", "did:plc:x", "apppw", meta) == "inconclusive"
+    c.post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_probe_bluesky_429_inconclusive(monkeypatch):
+    from app.worker.tasks import account_status_reconcile as M
+
+    _patch(monkeypatch, _client(429))
+    assert await M._probe("bluesky", "did:plc:x", "apppw", {}) == "inconclusive"
+
+
+@pytest.mark.asyncio
 async def test_probe_exception_inconclusive(monkeypatch):
     from app.worker.tasks import account_status_reconcile as M
 
