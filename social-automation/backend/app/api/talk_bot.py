@@ -72,7 +72,10 @@ def _command(payload: dict) -> tuple[str, str | None, str | None, int | None]:
         actor_id = str(actor.get("id") or actor.get("actorId") or "")
         if actor_type in ("bots", "bridged"):
             return "", None, None, None
-        if actor_id and actor_id == (getattr(s, "NEXTCLOUD_USERNAME", "") or ""):
+        uname = getattr(s, "NEXTCLOUD_USERNAME", "") or ""
+        # Webhook actor.id is ActivityPub-shaped ("users/<uid>"); the chat
+        # API reports the bare uid. Compare against both forms.
+        if actor_id and actor_id.removeprefix("users/") == uname:
             return "", None, None, None
     try:
         content = json.loads(obj.get("content") or "{}")

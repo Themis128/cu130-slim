@@ -772,6 +772,11 @@ def test_command_drops_bot_and_self_actors():
         assert BOT._command(p) == ("", None, None, None)
         p2 = dict(base_obj, actor={"id": "u@cloudless.gr", "type": "users"})
         assert BOT._command(p2) == ("", None, None, None)
+        # ActivityPub-shaped actor id ("users/<uid>") must also be dropped —
+        # Talk bot webhooks deliver that form; without it mirrored inbound
+        # messages loop back outbound to the contact.
+        p2b = dict(base_obj, actor={"id": "users/u@cloudless.gr", "type": "users"})
+        assert BOT._command(p2b) == ("", None, None, None)
         # non-dict actor is skipped, not a drop
         p3 = dict(base_obj, actor="weird")
         text, room, raw, mid = BOT._command(p3)
