@@ -21,13 +21,14 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import case, desc, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.db.session import async_session_maker
 from app.models.analytics import FollowerSnapshot, PostAnalyticsSnapshot
-from app.models.linkedin_ads import AdCampaignSnapshot
+from app.models.linkedin_ads import AdCampaignSnapshot, AdDailyMetric
 from app.models.social_account import SocialAccount
 from app.models.user import Team
 from app.services.email_digest import send_email_smtp
@@ -257,6 +258,9 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
                         "status": (el.get("status") or "").lower(),
                         "budget": float(tb) if tb else None,
                         "start_ms": el_rs.get("start"),
+                        # urn:li:sponsoredCampaignGroup:<id> — the CM "campaign"
+                        # level; ad_daily_metrics.campaign_id uses this id.
+                        "group_id": str(el.get("campaignGroup") or "").rsplit(":", 1)[-1],
                     }
                 )
             m.raw["campaigns"] = campaigns
@@ -289,6 +293,15 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
         # campaign's REMAINING cap, not just its spend so far.
         m.raw["spend_by_campaign"] = {k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0) for k, b in stats.items() if not k.startswith("_")}
         m.account_spend_eur = round(sum(m.raw["spend_by_campaign"].values()), 2)
+        # Per-campaign daily rows for the ad_daily_metrics datalake upsert —
+        # keyed by sponsoredCampaign id (= CM "ad set"), values are the
+        # adAnalytics DAILY elements (dateRange/impressions/clicks/
+        # totalEngagements/costInLocalCurrency/approximateUniqueImpressions).
+        m.raw["daily_by_campaign"] = {
+            k.rsplit(":", 1)[-1]: list(b.raw.get("daily") or [])
+            for k, b in stats.items()
+            if not k.startswith("_")
+        }
         if camp:
             bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
             if bundle is None:
@@ -760,6 +773,98 @@ async def _get_team_id(db: AsyncSession) -> Any:
     return (await db.execute(select(Team.id).order_by(desc(tier_rank)).limit(1))).scalar_one_or_none()
 
 
+def _daily_metric_rows(m: CampaignMetrics) -> list[dict[str, Any]]:
+    """Flatten adAnalytics DAILY elements into ``ad_daily_metrics`` values.
+
+    API ``sponsoredCampaign`` = CM "ad set" (``ad_set_id``); its
+    ``campaignGroup`` URN = CM "campaign" (``campaign_id``) — the same grain
+    the CM CSV importer writes, so a later CSV upsert overrides these
+    api-sourced rows with export ground truth instead of double-counting.
+    """
+    camps = {c["id"]: c for c in m.raw.get("campaigns") or []}
+    rows: list[dict[str, Any]] = []
+    for ad_set_id, days in (m.raw.get("daily_by_campaign") or {}).items():
+        camp = camps.get(str(ad_set_id)) or {}
+        for d in days:
+            start = ((d or {}).get("dateRange") or {}).get("start") or {}
+            try:
+                day = date(int(start["year"]), int(start["month"]), int(start["day"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            impr = int(d.get("impressions") or 0)
+            clicks = int(d.get("clicks") or 0)
+            spend = float(d.get("costInLocalCurrency") or 0.0)
+            eng = int(d.get("totalEngagements") or 0)
+            rows.append(
+                {
+                    "account_id": m.account_id,
+                    "report_type": "campaign_performance",
+                    "campaign_id": str(camp.get("group_id") or ""),
+                    "campaign_name": "",
+                    "ad_set_id": str(ad_set_id),
+                    "ad_set_name": camp.get("name") or "",
+                    "ad_id": "",
+                    "ad_name": "",
+                    "placement": "",
+                    "status": str(camp.get("status") or ""),
+                    "day": day,
+                    "impressions": impr,
+                    "clicks": clicks,
+                    "engagements": eng,
+                    "reach": int(d.get("approximateUniqueImpressions") or 0),
+                    "clicks_to_landing_page": int(d.get("landingPageClicks") or 0),
+                    "spend_eur": round(spend, 2),
+                    "ctr": round(clicks / impr * 100, 2) if impr else 0.0,
+                    "cpc_eur": round(spend / clicks, 2) if clicks else 0.0,
+                    "cpm_eur": round(spend / impr * 1000, 2) if impr else 0.0,
+                    "engagement_rate": round(eng / impr * 100, 2) if impr else 0.0,
+                    "source": "api",
+                    "raw": {"dateRange": (d or {}).get("dateRange")},
+                }
+            )
+    return rows
+
+
+async def _upsert_ad_daily(db: AsyncSession, team_id: Any, m: CampaignMetrics) -> int:
+    """Persist API daily rows into ``ad_daily_metrics`` (``source='api'``)."""
+    rows = _daily_metric_rows(m)
+    if not rows:
+        return 0
+    table = AdDailyMetric.__table__
+    stmt = pg_insert(table).values([{**r, "team_id": team_id} for r in rows])
+    keep_existing = {
+        col: case(
+            (getattr(stmt.excluded, col) == "", table.c[col]),
+            else_=getattr(stmt.excluded, col),
+        )
+        for col in ("campaign_id", "campaign_name", "ad_set_name")
+    }
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_ad_daily_metrics_grain",
+        set_={
+            col: getattr(stmt.excluded, col)
+            for col in (
+                "impressions",
+                "clicks",
+                "engagements",
+                "reach",
+                "clicks_to_landing_page",
+                "spend_eur",
+                "ctr",
+                "cpc_eur",
+                "cpm_eur",
+                "engagement_rate",
+                "status",
+                "raw",
+                "source",
+            )
+        }
+        | keep_existing,
+    )
+    await db.execute(stmt)
+    return len(rows)
+
+
 async def _latest_snapshot(db: AsyncSession, campaign_id: str) -> AdCampaignSnapshot | None:
     return (
         await db.execute(
@@ -897,6 +1002,16 @@ async def run_daily_report() -> dict[str, Any]:
         # Persist before rendering — the notebook reads snapshots in its own
         # session, so the row must be committed for it to see today's metrics.
         await db.commit()
+
+        # Datalake: adAnalytics DAILY rows → ad_daily_metrics (source='api')
+        # so the local lake reflects campaign history without a CM CSV export.
+        try:
+            n_daily = await _upsert_ad_daily(db, team_id, metrics)
+            if n_daily:
+                await db.commit()
+                logger.info("ad_daily_metrics: upserted %d api rows", n_daily)
+        except Exception as exc:  # noqa: BLE001 — report delivery must not fail on this
+            logger.warning("ad_daily_metrics upsert failed: %s", exc)
 
         rendered = await _render_report_notebook(
             campaign_id=campaign_id,
