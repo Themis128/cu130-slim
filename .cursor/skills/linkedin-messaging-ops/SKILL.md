@@ -50,15 +50,15 @@ navigate returns:
 ```
 
 **Every probe past the `until` timestamp that still hits LinkedIn-side
-throttling RE-TRIPS the circuit for another 6h.** Checking `/session` or
+throttling RE-TRIPS the circuit.** Checking `/session` or
 listing conversations to "see if it works now" actively extends the block.
 Treat the circuit like a rate-limit `Retry-After`: don't probe early.
 
-- Inspect without touching LinkedIn: `docker exec linkedin-browser-sidecar cat /data/rate-limit.json` and `GET /health` (reports `has_session`, `rate_limited`, `rate_limit_until` — no navigation).
+- Inspect without touching LinkedIn: `docker exec linkedin-browser-sidecar cat /data/rate-limit.json` and `GET /health` (reports `has_session`, `rate_limited`, `rate_limit_until`, and since 2026-11-24 `rate_limit_reason` — no navigation).
 - `GET /session` DOES navigate `/feed/` — it will trip/extend the circuit if the block is live.
-- "redirect loop (likely rate-limited)" means LinkedIn is still throttling the session/IP **or** the session expired and bounces to the authwall — the two are indistinguishable while the circuit is open.
-- `POST /session/clear-rate-limit` exists but only clear it when the `until` is stale — clearing while LinkedIn still blocks just burns a fresh 6h trip.
-- Recovery ladder: stale-circuit clear → `POST /login` (credential login via `LINKEDIN_EMAIL`/`LINKEDIN_PASSWORD` secrets; sends a **2FA app push the owner must approve** — warn before triggering) → noVNC manual login. **Never cookie-transplant LinkedIn — `li_at` is fingerprint-bound and gets revoked globally.**
+- **Redirect loops are classified at trip time (2026-11-24):** the recovery nav's landing page distinguishes them — `/feed/` landing on a live LinkedIn page → transient loop → retryable `REDIRECT_LOOP` error with **no trip**; landing on login/checkpoint/authwall → dead session → `redirect_loop_session_dead` (full cooldown; the hourly session healer auto-runs `/login` on this reason); recovery nav itself failed → `redirect_loop` on the shorter `LINKEDIN_REDIRECT_LOOP_COOLDOWN_MS` (default **1h**, not 6h). Check `GET /health` → `rate_limit_reason` before assuming which kind.
+- `POST /session/clear-rate-limit` exists but only clear it when the `until` is stale or you've verified the session is alive — clearing while LinkedIn still blocks just burns a fresh trip. Also exposed as `LinkedInSidecarClient.clear_rate_limit()`.
+- Recovery ladder: stale-circuit clear → `POST /login` (credential login via `LINKEDIN_EMAIL`/`LINKEDIN_PASSWORD` secrets; sends a **2FA app push the owner must approve** — warn before triggering; works while the circuit is open and clears it on success) → noVNC manual login. **Never cookie-transplant LinkedIn — `li_at` is fingerprint-bound and gets revoked globally.**
 
 ## Deferred replies — `linkedin-dm-deferred-reply` n8n workflow
 
