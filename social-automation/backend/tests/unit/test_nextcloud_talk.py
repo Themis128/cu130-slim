@@ -765,8 +765,7 @@ async def test_bot_reply_http_error_and_exception_return_false():
 
 
 def test_command_drops_bot_and_self_actors():
-    base_obj = {"object": {"content": json.dumps({"message": "hi"}), "id": 1},
-                "target": {"id": "room-ops"}, "type": "Create"}
+    base_obj = {"object": {"content": json.dumps({"message": "hi"}), "id": 1}, "target": {"id": "room-ops"}, "type": "Create"}
     with patch.object(BOT, "get_settings", return_value=_settings()):
         p = dict(base_obj, actor={"id": "bot-1", "type": "bots"})
         assert BOT._command(p) == ("", None, None, None)
@@ -812,6 +811,7 @@ async def test_bridge_reply_mute_unmute_help_and_error():
 
     async def _mapped(room):
         return mapped
+
     with (
         patch("app.services.talk_bridge.room_for_token", _mapped),
         patch.object(BOT, "async_session_maker", _sf2(db)),
@@ -825,11 +825,13 @@ async def test_bridge_reply_mute_unmute_help_and_error():
 
     async def _boom(room):
         raise RuntimeError("db down")
+
     with patch("app.services.talk_bridge.room_for_token", _boom):
         assert await BOT._bridge_reply("hi", "room-x") is False
 
     async def _none(room):
         return None
+
     with patch("app.services.talk_bridge.room_for_token", _none):
         assert await BOT._bridge_reply("hi", "room-x") is False
 
@@ -841,6 +843,7 @@ async def test_bridge_reply_mute_unmute_help_and_error():
 
     async def _fail(room, text):
         return False, "no recipient"
+
     with (
         patch("app.services.talk_bridge.room_for_token", _mapped2),
         patch("app.services.talk_bridge.outbound", _fail),
@@ -863,6 +866,7 @@ async def test_webhook_bridge_reply_string_posts_to_room():
 
     async def _mapped(room):
         return SimpleNamespace(id=1, enabled=True)
+
     with (
         patch.object(BOT, "verify_bot_request", return_value=True),
         patch.object(BOT, "bot_reply", _reply),

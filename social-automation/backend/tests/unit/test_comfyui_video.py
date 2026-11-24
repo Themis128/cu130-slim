@@ -463,15 +463,13 @@ class TestResume:
         data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
         assert meta["prompt_id"] == "p2"
         dele.assert_awaited_once()  # dead checkpoint discarded
-        put.assert_awaited_once()   # new prompt checkpointed
+        put.assert_awaited_once()  # new prompt checkpointed
         assert put.await_args.args[1] == {"prompt_id": "p2"}
 
     @pytest.mark.asyncio
     async def test_error_checkpoint_resubmits(self, monkeypatch):
         c = _FakeClient()
-        c.get_responses["/history/p1"] = _Resp(
-            {"p1": {"status": {"status_str": "error", "messages": []}, "outputs": {}}}
-        )
+        c.get_responses["/history/p1"] = _Resp({"p1": {"status": {"status_str": "error", "messages": []}, "outputs": {}}})
         c.post_responses["/prompt"] = _Resp({"prompt_id": "p2"})
         c.get_responses["/history/p2"] = [self._hist_success("p2")]
         c.get_responses["/view"] = _Resp(content=b"x" * 2048)
@@ -535,7 +533,7 @@ class TestResumeStore:
         monkeypatch.setattr(CV, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"))
         assert await CV.resume_get("k") is None
         await CV.resume_put("k", {"a": 1}, ttl_s=1)  # warns, no raise
-        await CV._resume_del("k")                    # no raise
+        await CV._resume_del("k")  # no raise
 
 
 class TestPromptState:
@@ -588,6 +586,7 @@ class TestResumeErrorPaths:
         _wire(monkeypatch, c)
         self._patch_store(monkeypatch, None)
         import asyncio as _a
+
         t = _a.ensure_future(generate_video(prompt="x", timeout_s=60, poll_s=0.01, resume_key="t1"))
         await _a.sleep(0.05)
         t.cancel()
