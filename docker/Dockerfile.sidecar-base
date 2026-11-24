@@ -3,7 +3,9 @@
 # Shared base for the python sidecar services (messenger-sidecar,
 # env-manager-backend, browser-novnc). One published image so each sidecar's
 # own Dockerfile is FROM-this + COPY + CMD — no repeated bootstrap layers.
-FROM mirror.gcr.io/library/python:3.11-slim
+# Base image overridable via build arg (mirror.gcr.io 429s).
+ARG PYTHON_IMAGE=mirror.gcr.io/library/python:3.11-slim
+FROM ${PYTHON_IMAGE}
 
 WORKDIR /app
 

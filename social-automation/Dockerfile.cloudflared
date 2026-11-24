@@ -1,4 +1,6 @@
-FROM mirror.gcr.io/library/alpine:3.20
+# Base image overridable via compose arg (mirror.gcr.io 429s).
+ARG ALPINE_IMAGE=mirror.gcr.io/library/alpine:3.20
+FROM ${ALPINE_IMAGE}
 RUN apk add --no-cache curl ca-certificates && \
     curl -fsSL -o /usr/local/bin/cloudflared \
       https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
