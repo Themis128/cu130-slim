@@ -436,6 +436,19 @@ def _pick_workspace_token(
     the channel only inside its own workspace, so the first candidate that
     can see it is the right token. Falls back to the freshest file.
     """
+    # Team map first: one token file per workspace, and _team_map.json
+    # (written by auth.test probes) already records which team each file
+    # belongs to. When SLACK_TEAM_ID names the workspace holding the
+    # configured channel IDs, the map answers without any slack.com call —
+    # this host cannot always reach slack.com (seen 2026-11-08), and
+    # probing every workspace's conversations.info just to find the owner
+    # logs a misleading channel_not_found for every non-owning workspace.
+    want_team = _env_lookup("SLACK_TEAM_ID")
+    if want_team:
+        team_map = _team_map()
+        for _, path, tok in cands:
+            if (team_map.get(path.name) or {}).get("team_id") == want_team:
+                return path, tok
     channel = _env_lookup("SLACK_CHANNEL_ID")
     if channel:
         for _, path, tok in cands:
@@ -447,17 +460,6 @@ def _pick_workspace_token(
                 f"({r.get('error', 'request failed')})",
                 file=sys.stderr,
             )
-    # Offline fallback: this host cannot always reach slack.com (seen
-    # 2026-11-08 — github OK, slack/google TCP timeouts). mcp-remote keeps
-    # one token file per workspace; _team_map.json (written by auth.test
-    # probes) records which team each file belongs to, and SLACK_TEAM_ID
-    # in .env names the workspace the configured channel IDs live in.
-    want_team = _env_lookup("SLACK_TEAM_ID")
-    if want_team:
-        team_map = _team_map()
-        for _, path, tok in cands:
-            if (team_map.get(path.name) or {}).get("team_id") == want_team:
-                return path, tok
     if cands:
         return cands[0][1], cands[0][2]
     return None, None
