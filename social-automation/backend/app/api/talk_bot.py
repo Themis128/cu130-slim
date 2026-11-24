@@ -221,7 +221,10 @@ async def talk_bot_webhook(request: Request) -> dict:
             reply = "⚠️ Send failed — bridge error."
         if reply:
             await bot_reply(raw_room, reply, reply_to=msg_id)
-        return {"ok": True}
+            return {"ok": True}
+        # Unmapped room (or a delivered bridge message): fall through to the
+        # command path — it stays silent for non-commands and never posts
+        # into a non-whitelisted room (`reply and room` below).
     try:
         reply = await _run_command(text)
     except Exception:  # noqa: BLE001
