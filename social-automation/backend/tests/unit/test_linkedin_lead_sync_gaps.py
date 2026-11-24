@@ -202,7 +202,8 @@ async def test_webhook_route_exception_recorded(monkeypatch):
     out = await LSYNC.lead_sync_webhook(_Req(body))
     data = _json.loads(out.body)
     assert data["routed"] == 0
-    assert any("route boom" in e for e in data["errors"])
+    # Exception detail stays in server logs; the API response is generic.
+    assert any("route failed" in e for e in data["errors"])
 
 
 @pytest.mark.asyncio
