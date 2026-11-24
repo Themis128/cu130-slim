@@ -60,7 +60,7 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
+    from app.worker._async import task_session
     from app.models.engagement import EngagementCandidate
 
     groups = [g.strip() for g in os.environ.get("FACEBOOK_GROUP_URLS", "").split(",") if g.strip()]
@@ -73,7 +73,7 @@ async def _run():
             await c.post("/session/start", json={"platform": "facebook", "force": True})
         except Exception:
             return {"skipped": "browser busy"}
-        async with async_session_maker() as db:
+        async with task_session() as db:
             for gurl in groups[:3]:  # cap: 3 groups per sweep
                 await c.post("/session/navigate", json={"url": gurl + ("&" if "?" in gurl else "?") + "sorting_setting=CHRONOLOGICAL"})
                 await asyncio.sleep(8)

@@ -21,7 +21,7 @@ def dispatch_engagements(self, limit: int = 10):
 
 
 async def _run(limit: int):
-    from app.db.session import async_session_maker
+    from app.worker._async import task_session
     from app.models.engagement import EngagementAction, EngagementCandidate
     from app.services.dmr import call_dmr_chat
     from app.services.engagement import (
@@ -32,7 +32,7 @@ async def _run(limit: int):
         queue_engagement,
     )
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         # 1. score unscored candidates → queue actions
         fresh = (await db.execute(select(EngagementCandidate).where(EngagementCandidate.scored == False).limit(50))).scalars().all()  # noqa: E712
         for c in fresh:
