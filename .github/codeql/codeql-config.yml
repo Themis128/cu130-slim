@@ -13,8 +13,16 @@ paths-ignore:
   - "social-automation/backend/tests/**"
   # One-off operational scripts; not part of deployed images
   - "scripts/*"
-  # Vendored dependencies
+  # Agent skill helper scripts — same class as .cursor scratch and scripts/*
+  # (local ops tooling, never shipped in an image)
+  - ".devin/skills/*/scripts/**"
+  # Vendored dependencies / local virtualenvs (never committed, but the
+  # extractor picks them up if a polluted workspace is scanned)
   - "**/node_modules/**"
+  - "**/.venv/**"
+  - "**/venv/**"
+  - "**/site-packages/**"
+  - "opt/**"
   - "social-automation/backend/alembic/versions/**"
 
 query-filters:
