@@ -627,8 +627,12 @@ async def test_li_messages_mismatched_self_name_disables_attribution():
     from app.services import linkedin_sidecar
 
     TB._li_self["name"] = None
-    with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
-        out = await TB._li_messages(acct, "t-1")
+    try:
+        with patch.object(linkedin_sidecar, "LinkedInSidecarClient", lambda: _Sidecar()):
+            out = await TB._li_messages(acct, "t-1")
+    finally:
+        TB._li_self["name"] = None
+        TB._li_self["at"] = 0.0
     assert out[0]["ours"] is False
 
 
