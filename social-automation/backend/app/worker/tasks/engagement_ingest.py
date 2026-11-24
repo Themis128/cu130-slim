@@ -22,9 +22,9 @@ def ingest_x_feed(self):
 async def _x():
     from sqlalchemy import select
 
-    from app.worker._async import task_session
     from app.models.engagement import EngagementCandidate
     from app.models.social_account import SocialAccount
+    from app.worker._async import task_session
 
     async with task_session() as db:
         acct = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "twitter", SocialAccount.status == "active"))).scalars().first()

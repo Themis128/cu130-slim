@@ -60,8 +60,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.worker._async import task_session
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     tags = [t.strip().lstrip("#") for t in os.environ.get("TIKTOK_TARGET_TAGS", DEFAULT_TAGS).split(",") if t.strip()]
 

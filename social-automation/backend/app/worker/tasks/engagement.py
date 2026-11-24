@@ -21,7 +21,6 @@ def dispatch_engagements(self, limit: int = 10):
 
 
 async def _run(limit: int):
-    from app.worker._async import task_session
     from app.models.engagement import EngagementAction, EngagementCandidate
     from app.services.dmr import call_dmr_chat
     from app.services.engagement import (
@@ -31,6 +30,7 @@ async def _run(limit: int):
         build_3c_prompt,
         queue_engagement,
     )
+    from app.worker._async import task_session
 
     async with task_session() as db:
         # 1. score unscored candidates → queue actions

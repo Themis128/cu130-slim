@@ -55,8 +55,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.worker._async import task_session
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=60) as c:
         try:

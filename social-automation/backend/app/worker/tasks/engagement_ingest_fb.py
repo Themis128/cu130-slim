@@ -60,8 +60,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.worker._async import task_session
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     groups = [g.strip() for g in os.environ.get("FACEBOOK_GROUP_URLS", "").split(",") if g.strip()]
     if not groups:
