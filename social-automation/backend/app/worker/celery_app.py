@@ -140,6 +140,7 @@ celery_app = Celery(
         "app.worker.tasks.funnel_reports",
         "app.worker.tasks.inbox_snapshot",
         "app.worker.tasks.talk_bridge",
+        "app.worker.tasks.talk_call_ingest",
     ],
 )
 
@@ -317,6 +318,10 @@ celery_app.conf.update(
             "soft_time_limit": 900,
             "time_limit": 1200,
         },
+        "app.worker.tasks.talk_call_ingest.talk_call_ingest": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -425,6 +430,7 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_won_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_post_consult_sweep": {"queue": "default"},
         "app.worker.tasks.meeting_notes.run_meeting_notes_sweep": {"queue": "default"},
+        "app.worker.tasks.talk_call_ingest.talk_call_ingest": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
@@ -1109,6 +1115,14 @@ celery_app.conf.update(
         "talk-bridge-sync": {
             "task": "app.worker.tasks.talk_bridge.talk_bridge_sync",
             "schedule": timedelta(seconds=settings.TALK_BRIDGE_POLL_S),
+        },
+        # Talk call events → analytics_events → datalake. Talk exposes call
+        # lifecycle only as chat system messages (no webhook), so a 15-min
+        # sweep backfills call_started/ended/left per room. Chat history is
+        # the source of truth — nothing is lost between sweeps.
+        "talk-call-ingest": {
+            "task": "app.worker.tasks.talk_call_ingest.talk_call_ingest",
+            "schedule": crontab(minute="5,20,35,50"),
         },
         # Daily billing usage/revenue digest → Slack billing channel (10:00 Europe/Athens)
         "daily-paddle-digest": {
