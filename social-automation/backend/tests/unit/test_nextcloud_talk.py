@@ -872,3 +872,51 @@ async def test_webhook_bridge_reply_string_posts_to_room():
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
     assert replies and replies[0][0] == "room-bridge-1" and "muted" in replies[0][1]
+
+
+# ── bridge-mapped room whitelist (db lookup) ────────────────────────
+
+
+class _TokenDB:
+    def __init__(self, token=None, exc=None):
+        self._token = token
+        self._exc = exc
+        self.queries = 0
+
+    async def execute(self, *a, **kw):
+        self.queries += 1
+        if self._exc:
+            raise self._exc
+        tok = self._token
+
+        class _R:
+            def scalar_one_or_none(self):
+                return tok
+
+        return _R()
+
+
+@pytest.mark.asyncio
+async def test_bot_reply_allows_bridge_mapped_room_from_db():
+    """A non-configured room is allowed only when the TalkRoom map has it."""
+    s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
+    db = _TokenDB(token="bridge-room")
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", _Client):
+        assert await TALK.bot_reply("bridge-room", "hi", db=db) is True
+    assert db.queries == 1
+    assert _Client.calls[0]["url"] == "https://cloud.cloudless.gr/ocs/v2.php/apps/spreed/api/v1/bot/bridge-room/message"
+
+
+@pytest.mark.asyncio
+async def test_bot_reply_unmapped_room_and_db_error_fail_closed():
+    s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", _Client):
+        assert await TALK.bot_reply("attacker-room", "hi", db=_TokenDB(token=None)) is False
+        assert await TALK.bot_reply("bridge-room", "hi", db=_TokenDB(exc=RuntimeError("db down"))) is False
+    assert _Client.calls == []
+
+    # configured rooms short-circuit — no DB lookup
+    db = _TokenDB(token="ignored")
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", _Client):
+        assert await TALK.bot_reply("room-ops", "hi", db=db) is True
+    assert db.queries == 0
