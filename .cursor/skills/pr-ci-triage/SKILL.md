@@ -89,3 +89,35 @@ bash /tmp/pr_watch.sh   # run in background, read output periodically
   `git log` on the branch before assuming the head is yours.
 - Never claim a PR merged without `gh pr view` state — auto-merge may be
   armed but checks still running.
+
+## CodeQL / GHAS tool-status checks (codeql_triage.py)
+
+The `CodeQL`/`Trivy` check runs from the `github-advanced-security` app are
+tool-status checks, NOT workflow jobs — they compare the analysis
+configurations GitHub recorded on the base ref against what the PR run
+produced.
+
+- **"N configuration(s) not found"** alone = neutral noise. Causes seen
+  live: the JS extractor resolves `javascript`→`javascript-typescript` and
+  registers both extracted languages on master, so a PR uploading only
+  `/language:javascript` trips a phantom `/language:typescript` miss; Trivy
+  matrix configs that only ran on push (not PR) do the same.
+- **The run only flips to FAILURE when the same summary carries
+  "New alerts … N critical"** — i.e. the PR introduced a real finding.
+  Fix the code, don't chase the config list.
+
+```bash
+python3 .devin/skills/pr-ci-triage/scripts/codeql_triage.py 2586
+# prints each GHAS run: conclusion, missing configs, new-alert counts,
+# then the open CodeQL alerts on refs/pull/<N>/merge (rule, severity,
+# file:line). Exit 1 when any run failed.
+python3 .devin/skills/pr-ci-triage/scripts/codeql_triage.py 2586 --analyses
+python3 .devin/skills/pr-ci-triage/scripts/codeql_triage.py \
+    --stale /language:typescript            # find master analyses to delete
+python3 .devin/skills/pr-ci-triage/scripts/codeql_triage.py \
+    --stale /language:typescript --delete   # delete them (confirm_delete)
+```
+
+If a missing config IS backed by a stored master analysis that should no
+longer exist (renamed category/workflow), `--stale` + `--delete` clears it;
+the check then stops expecting it on PRs.
