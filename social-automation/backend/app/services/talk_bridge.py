@@ -135,11 +135,12 @@ BRIDGE_MARK = "​"  # zero-width space
 async def _post(room: TalkRoom, text: str, db=None) -> bool:
     """Post into the room as the Talk bot (needs `occ talk:bot:setup <bot> <room>`
     per room), falling back to the app-password user. Returns True when a
-    message actually reached the room."""
+    message actually reached the room. Always silent — mirrors are room
+    history, not notification-worthy chat."""
     marked = f"{BRIDGE_MARK}{text}"
-    if await bot_reply(room.room_token, marked, db=db):
+    if await bot_reply(room.room_token, marked, silent=True, db=db):
         return True
-    return await post_to_room(room.room_token, marked)
+    return await post_to_room(room.room_token, marked, silent=True)
 
 
 # ─── inbound message fetchers (normalized dicts) ────────────────────
