@@ -589,7 +589,7 @@ async def test_fb_personal_messages_normalizes_chronological():
 
 @pytest.mark.asyncio
 async def test_li_messages_wraps_keyless():
-    acct = _acct(platform="linkedin")
+    acct = _acct(platform="linkedin", display_name="Me Myself")
 
     class _Sidecar:
         async def get_thread_messages(self, tid):

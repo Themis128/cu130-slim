@@ -326,6 +326,14 @@ async def _li_messages(account: SocialAccount, thread_id: str) -> list[dict]:
     if not isinstance(raw, list):
         return []
     self_name = (await _li_self_name(sidecar)).lower()
+    # The sidecar's own-profile scrape can land on a wrong /in/ link — only
+    # trust it when it agrees with the stored account name; a mismatch means
+    # NO messages get the "You" label rather than a wrong participant getting it.
+    expected = (getattr(account, "display_name", None) or getattr(account, "username", None) or "").lower()
+    if self_name and expected:
+        if self_name not in expected and expected not in self_name:
+            logger.warning("talk-bridge: sidecar self name %r != account %r — attribution off", self_name, expected)
+            self_name = ""
 
     def to_msg(m):
         if not isinstance(m, dict):
