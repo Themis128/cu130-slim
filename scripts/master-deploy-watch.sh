@@ -28,6 +28,7 @@ DW_LOG="${DW_LOG:-$REPO_DIR/logs/deploy-watch.log}"
 DEPLOY_LOCK="${DEPLOY_LOCK:-$REPO_DIR/.deploy.lock}"
 DEPLOY_LOCK_MAX_AGE="${DEPLOY_LOCK_MAX_AGE:-3600}"
 DW_MAX_FAILS="${DW_MAX_FAILS:-3}"        # health-gate failures before giving up on a sha
+DW_MAX_DEFERS="${DW_MAX_DEFERS:-6}"      # busy-defer cycles (~10min cadence) before deploying anyway
 mkdir -p "$DW_STATE_DIR" "$(dirname "$DW_LOG")"
 exec >>"$DW_LOG" 2>&1
 
@@ -191,13 +192,35 @@ publish_busy() {
   # Meta-lane publishes (facebook/instagram/threads) run on
   # social-worker-meta, not social-worker-publishing — check both or a
   # Meta publish dies exactly like the LinkedIn one did.
+  # social-worker-media: a video render is 10-40min of GPU — killing it
+  # mid-flight orphans the ComfyUI job (the prompt_id resume checkpoint
+  # softens this, but a kill during expand/QA still restarts the render).
+  # Defer while one is active; DW_MAX_DEFERS caps the delay so a render
+  # backlog can't freeze deploys.
   local w act
   for w in social-worker-publishing social-worker-meta; do
     act=$(COMPOSE exec -T "$w" celery -A app.worker.celery_app inspect active --timeout=8 2>/dev/null || true)
     printf '%s' "$act" | grep -q "app.worker.tasks.publishing" && return 0
   done
+  act=$(COMPOSE exec -T social-worker-media celery -A app.worker.celery_app inspect active --timeout=8 2>/dev/null || true)
+  printf '%s' "$act" | grep -q "generate_video_asset_task" && return 0
   return 1
 }
+
+defer_file="$DW_STATE_DIR/defer-$new"
+if { [ "$compose_change" = 1 ] || [ "$app_code" = 1 ]; } && publish_busy; then
+  # Exit BEFORE the deployed-sha state write below — a deferred cycle must
+  # leave last_sha untouched so the next run retries the deploy. force-
+  # recreate kills publishing AND media workers, so this gate sits above
+  # the compose-up/recreate blocks, not just the rebuild path.
+  defers=$(( $(cat "$defer_file" 2>/dev/null || echo 0) + 1 ))
+  if [ "$defers" -lt "$DW_MAX_DEFERS" ]; then
+    echo "$defers" > "$defer_file"
+    log "work in flight (publish or video render) — deferring deploy ($defers/$DW_MAX_DEFERS, sha stays pending)"
+    exit 0
+  fi
+  log "defer cap hit ($DW_MAX_DEFERS) — deploying despite in-flight work"
+fi
 
 if [ "$compose_change" = 1 ]; then
   log "compose/env files changed — compose up -d"
@@ -245,10 +268,15 @@ while IFS= read -r f; do
 done <<< "$changed"
 rebuild_svcs="${rebuild_svcs# }"
 if { [ "$compose_change" = 1 ] || [ "$app_code" = 1 ] || [ -n "$rebuild_svcs" ]; } && publish_busy; then
-  # Exit BEFORE the deployed-sha state write below - a deferred cycle must
-  # leave last_sha untouched so the next run retries the deploy.
-  log "publish in flight — deferring deploy one cycle (sha stays pending)"
-  exit 0
+  # Second check for work that started between the main gate and here —
+  # the rebuild path recreates publish-lane sidecars too.
+  defers=$(( $(cat "$defer_file" 2>/dev/null || echo 0) + 1 ))
+  if [ "$defers" -lt "$DW_MAX_DEFERS" ]; then
+    echo "$defers" > "$defer_file"
+    log "work in flight — deferring deploy ($defers/$DW_MAX_DEFERS, sha stays pending)"
+    exit 0
+  fi
+  log "defer cap hit ($DW_MAX_DEFERS) — deploying despite in-flight work"
 fi
 if [ -n "$rebuild_svcs" ]; then
   log "build-context changed — rebuilding:$rebuild_svcs"
@@ -277,7 +305,7 @@ nodes=$(COMPOSE exec -T social-worker-publishing celery -A app.worker.celery_app
 
 if [ "$healthy" = 1 ]; then
   echo "$new" > "$DW_STATE_DIR/last_sha"
-  rm -f "$fails_file"
+  rm -f "$fails_file" "$DW_STATE_DIR"/defer-*
   log "deployed $(git rev-parse --short "$new") — healthy (celery nodes: $nodes)"
 else
   fails=$((fails+1)); echo "$fails" > "$fails_file"

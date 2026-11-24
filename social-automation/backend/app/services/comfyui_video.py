@@ -27,6 +27,7 @@ Wan2.2 TI2V-5B (quality tier, hybrid T2V+I2V, Apache-2.0):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import subprocess
@@ -34,6 +35,7 @@ import tempfile
 from pathlib import Path
 
 import httpx
+import redis.asyncio as aioredis
 
 from app.core.config import get_settings
 from app.services import stack_ops
@@ -495,6 +497,126 @@ async def _cancel_prompt(client: httpx.AsyncClient, prompt_id: str) -> None:
         logger.warning("[comfyui-video] cancel of prompt %s failed: %s", prompt_id, exc)
 
 
+_RESUME_TTL_PAD_S = 3600
+
+
+def _resume_name(resume_key: str) -> str:
+    return f"comfyui:render:{resume_key}"
+
+
+async def resume_get(resume_key: str) -> dict | None:
+    """Read the resume record for an in-flight render (worker-death safe)."""
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.get(_resume_name(resume_key))
+        finally:
+            await r.aclose()
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+async def resume_put(resume_key: str, fields: dict, ttl_s: int) -> None:
+    """Merge ``fields`` into the resume record; store failures are non-fatal."""
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.get(_resume_name(resume_key))
+            data = json.loads(raw) if raw else {}
+            data.update(fields)
+            await r.set(_resume_name(resume_key), json.dumps(data), ex=ttl_s)
+        finally:
+            await r.aclose()
+    except Exception:
+        logger.warning("[comfyui-video] resume store unreachable — running uncheckpointed")
+
+
+async def _resume_del(resume_key: str) -> None:
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await r.delete(_resume_name(resume_key))
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+
+
+async def _prompt_state(client: httpx.AsyncClient, prompt_id: str) -> str:
+    """Locate a previously submitted prompt: finished / error / active / lost."""
+    h = await client.get(f"/history/{prompt_id}", timeout=10)
+    if h.status_code == 200:
+        entry = (h.json() or {}).get(prompt_id)
+        if entry:
+            if (entry.get("status") or {}).get("status_str") == "error":
+                return "error"
+            return "finished"
+    q = await client.get("/queue", timeout=10)
+    qj = q.json() or {}
+    queued = {
+        item[1]
+        for bucket in ("queue_running", "queue_pending")
+        for item in qj.get(bucket, [])
+        if len(item) > 1
+    }
+    return "active" if prompt_id in queued else "lost"
+
+
+async def _poll_and_fetch(
+    client: httpx.AsyncClient,
+    prompt_id: str,
+    *,
+    timeout_s: float,
+    poll_s: float,
+    width: int,
+    height: int,
+    num_frames: int,
+    frame_rate: int,
+    model: str,
+) -> tuple[bytes, dict]:
+    """Poll /history until the prompt finishes, then fetch the mp4 bytes."""
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(poll_s)
+        h = await client.get(f"/history/{prompt_id}")
+        h.raise_for_status()
+        entry = (h.json() or {}).get(prompt_id)
+        if not entry:
+            continue
+        status = entry.get("status") or {}
+        if status.get("status_str") == "error":
+            msgs = [m[1].get("exception_message", "?") for m in status.get("messages", []) if m[0] == "execution_error"]
+            raise ComfyUIVideoError(f"ComfyUI execution failed: {msgs or status}")
+        outputs = entry.get("outputs") or {}
+        vids = (outputs.get("12") or {}).get("gifs") or []
+        if vids:
+            meta_out = vids[0]
+            params = {
+                "filename": meta_out["filename"],
+                "type": meta_out.get("type", "output"),
+                "subfolder": meta_out.get("subfolder", ""),
+            }
+            d = await client.get("/view", params=params, timeout=300.0)
+            d.raise_for_status()
+            if len(d.content) < 1024:
+                raise ComfyUIVideoError("ComfyUI returned a suspiciously small video")
+            return d.content, {
+                "prompt_id": prompt_id,
+                "filename": meta_out["filename"],
+                "subfolder": meta_out.get("subfolder", ""),
+                "width": width,
+                "height": height,
+                "frame_rate": frame_rate,
+                "num_frames": num_frames,
+                "duration_seconds": round(num_frames / float(frame_rate), 2),
+                "model": model,
+            }
+    # Timeout — the prompt may still be queued or running in ComfyUI.
+    await _cancel_prompt(client, prompt_id)
+    raise ComfyUIVideoError(f"ComfyUI video job timed out after {timeout_s:.0f}s")
+
+
 async def generate_video(
     *,
     prompt: str,
@@ -512,8 +634,14 @@ async def generate_video(
     i2v_strength: float = 1.0,
     timeout_s: float | None = None,
     poll_s: float = 5.0,
+    resume_key: str | None = None,
 ) -> tuple[bytes, dict]:
     """Submit a T2V/I2V job to ComfyUI, poll until done, return (mp4_bytes, meta).
+
+    ``resume_key``: durable checkpoint (Redis). On entry, a stored prompt_id
+    still alive in ComfyUI (queue/history) is resumed instead of submitting a
+    second render — a worker death + celery redelivery then costs a poll, not
+    ~40 min of GPU. Dead/lost checkpoints are discarded and re-submitted.
 
     ``model``: only "wan22" (Wan2.2 TI2V-5B GGUF — T2V + native I2V) is
     supported; it beat the LTXV/Wan2.1 tiers on verified A/B output and is
@@ -580,62 +708,56 @@ async def generate_video(
     await stack_ops.keepawake("comfyui", ttl_s=int(timeout_s) + 600)
 
     async with httpx.AsyncClient(base_url=base, timeout=60.0) as client:
-        r = await client.post("/prompt", json=graph)
-        r.raise_for_status()
-        resp = r.json()
-        prompt_id = resp.get("prompt_id")
-        node_errors = resp.get("node_errors") or {}
-        if node_errors:
-            raise ComfyUIVideoError(f"ComfyUI rejected the graph: {node_errors}")
-        if not prompt_id:
-            raise ComfyUIVideoError(f"ComfyUI returned no prompt_id: {resp}")
+        prompt_id: str | None = None
+        if resume_key:
+            cached = await resume_get(resume_key)
+            cached_id = (cached or {}).get("prompt_id")
+            if cached_id:
+                state = await _prompt_state(client, cached_id)
+                if state in ("active", "finished"):
+                    prompt_id = cached_id
+                    logger.info("[comfyui-video] resuming prompt_id=%s (state=%s)", prompt_id, state)
+                else:
+                    logger.info("[comfyui-video] stale resume prompt_id=%s (state=%s) — submitting fresh", cached_id, state)
+                    await _resume_del(resume_key)
+        if prompt_id is None:
+            r = await client.post("/prompt", json=graph)
+            r.raise_for_status()
+            resp = r.json()
+            prompt_id = resp.get("prompt_id")
+            node_errors = resp.get("node_errors") or {}
+            if node_errors:
+                raise ComfyUIVideoError(f"ComfyUI rejected the graph: {node_errors}")
+            if not prompt_id:
+                raise ComfyUIVideoError(f"ComfyUI returned no prompt_id: {resp}")
+            logger.info("[comfyui-video] submitted prompt_id=%s (%dx%d, %df @%dfps)", prompt_id, width, height, num_frames, frame_rate)
+            if resume_key:
+                await resume_put(resume_key, {"prompt_id": prompt_id}, ttl_s=int(timeout_s) + _RESUME_TTL_PAD_S)
 
-        logger.info("[comfyui-video] submitted prompt_id=%s (%dx%d, %df @%dfps)", prompt_id, width, height, num_frames, frame_rate)
-
-        deadline = asyncio.get_event_loop().time() + timeout_s
         try:
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(poll_s)
-                h = await client.get(f"/history/{prompt_id}")
-                h.raise_for_status()
-                entry = (h.json() or {}).get(prompt_id)
-                if not entry:
-                    continue
-                status = entry.get("status") or {}
-                if status.get("status_str") == "error":
-                    msgs = [m[1].get("exception_message", "?") for m in status.get("messages", []) if m[0] == "execution_error"]
-                    raise ComfyUIVideoError(f"ComfyUI execution failed: {msgs or status}")
-                outputs = entry.get("outputs") or {}
-                vids = (outputs.get("12") or {}).get("gifs") or []
-                if vids:
-                    meta_out = vids[0]
-                    params = {
-                        "filename": meta_out["filename"],
-                        "type": meta_out.get("type", "output"),
-                        "subfolder": meta_out.get("subfolder", ""),
-                    }
-                    d = await client.get("/view", params=params, timeout=300.0)
-                    d.raise_for_status()
-                    if len(d.content) < 1024:
-                        raise ComfyUIVideoError("ComfyUI returned a suspiciously small video")
-                    return d.content, {
-                        "prompt_id": prompt_id,
-                        "filename": meta_out["filename"],
-                        "subfolder": meta_out.get("subfolder", ""),
-                        "width": width,
-                        "height": height,
-                        "frame_rate": frame_rate,
-                        "num_frames": num_frames,
-                        "duration_seconds": round(num_frames / float(frame_rate), 2),
-                        "model": model,
-                    }
+            return await _poll_and_fetch(
+                client,
+                prompt_id,
+                timeout_s=timeout_s,
+                poll_s=poll_s,
+                width=width,
+                height=height,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                model=model,
+            )
         except asyncio.CancelledError:
             # Celery revoke / worker shutdown — don't leave the GPU job running.
             await _cancel_prompt(client, prompt_id)
+            if resume_key:
+                await _resume_del(resume_key)
             raise
-        # Timeout — the prompt may still be queued or running in ComfyUI.
-        await _cancel_prompt(client, prompt_id)
-        raise ComfyUIVideoError(f"ComfyUI video job timed out after {timeout_s:.0f}s")
+        except ComfyUIVideoError:
+            # Job dead or deliberately cancelled — the checkpoint would only
+            # resurrect the corpse; let the next attempt render fresh.
+            if resume_key:
+                await _resume_del(resume_key)
+            raise
 
 
 def _concat_mp4s(blobs: list[bytes], frame_rate: int) -> bytes:

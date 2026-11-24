@@ -231,3 +231,63 @@ class TestGenerateVideo:
         monkeypatch.setattr(asyncio, "to_thread", _tt_boom)
         M.generate_video_asset_task(_TEAM, _USER, "p")
         assert asset.meta_data["semantic_qa"]["reason"] == "not run"
+
+    def test_redelivery_returns_finished_asset(self, monkeypatch):
+        """Worker death after _persist: redelivery returns the asset, no re-render."""
+        gen, segs, asset = _wire_video(monkeypatch)
+        monkeypatch.setattr(
+            M.comfyui_video, "resume_get", AsyncMock(return_value={"asset_id": "done-1", "done": True})
+        )
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-1")
+        assert res.result == "done-1"
+        gen.assert_not_awaited()
+
+    def test_resume_key_passed_to_render(self, monkeypatch):
+        gen, segs, asset = _wire_video(monkeypatch)
+        put = AsyncMock()
+        monkeypatch.setattr(M.comfyui_video, "resume_get", AsyncMock(return_value=None))
+        monkeypatch.setattr(M.comfyui_video, "resume_put", put)
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-2")
+        assert res.result == str(asset.id)
+        assert gen.await_args.kwargs["resume_key"] == "r-2"
+        assert put.await_args.args[1] == {"asset_id": str(asset.id), "done": True}
+
+    def test_qa_mismatch_retry_threads_resume_key(self, monkeypatch):
+        """QA-retry render must clear the first prompt_id, then re-checkpoint."""
+        qa = AsyncMock(side_effect=[
+            {"match": False, "reason": "wrong subject", "vision": "v"},
+            {"match": True, "caption": "c", "reason": "ok"},
+        ])
+        gen, segs, asset = _wire_video(monkeypatch, qa=qa)
+        put = AsyncMock()
+        monkeypatch.setattr(M.comfyui_video, "resume_get", AsyncMock(return_value=None))
+        monkeypatch.setattr(M.comfyui_video, "resume_put", put)
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-9")
+        assert res.result == str(asset.id)
+        assert gen.await_count == 2
+        puts = [c.args[1] for c in put.await_args_list]
+        assert {"prompt_id": None} in puts
+        assert puts[-1] == {"asset_id": str(asset.id), "done": True}
+
+    def test_qa_no_budget_early_return(self, monkeypatch):
+        """Zero QA budget → 'not run: no budget', asset still returns."""
+        monkeypatch.setattr(M, "_TASK_SOFT_LIMIT_S", 74)
+        gen, segs, asset = _wire_video(monkeypatch)
+        out = M.generate_video_asset_task(_TEAM, _USER, "a dog")
+        assert out == str(asset.id)
+        assert asset.meta_data["semantic_qa"]["reason"] == "not run: no budget"
+        assert asset.meta_data["semantic_qa"]["match"] is True
+
+    def test_qa_retry_render_failure_preserves_first_asset(self, monkeypatch):
+        """A dead retry render rolls back + annotates, first asset wins."""
+        qa = AsyncMock(return_value={"match": False, "reason": "wrong subject", "vision": "v"})
+        db = SimpleNamespace(get=AsyncMock(return_value=None), commit=AsyncMock(), rollback=AsyncMock())
+        gen, segs, asset = _wire_video(monkeypatch, qa=qa, db=db)
+        gen.side_effect = [
+            (b"mp4data", {"filename": "v.mp4", "model": "wan22", "width": 704, "height": 1280, "duration_seconds": 3.4}),
+            RuntimeError("render died"),
+        ]
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-10")
+        assert res.result == str(asset.id)
+        db.rollback.assert_awaited()
+        assert asset.meta_data["semantic_qa"]["retry"].startswith("failed")

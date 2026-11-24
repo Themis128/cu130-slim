@@ -4775,19 +4775,20 @@ publish_resurrect Part 3 revives PUBLISHING/SUPPRESSED posts with
 `media_ids={}` + `last_render_error` + no `pending_video_task` (the
 2026-11-23/24 orphan class — manual recovery no longer needed).
 
-- [ ] **Render resumability** — persist ComfyUI `prompt_id` in
-  `post.meta_data`; `generate_video_asset_task` redelivery currently
-  re-renders from scratch (~40min GPU wasted per kill). Skill draft:
-  `video-render-recovery` already reattaches finished-but-uncommitted
-  renders; resumability closes the mid-flight case.
-- [ ] **Drain-aware deploys** — master-deploy-watch recreates ALL workers
-  per merge, orphaning PROCESSING claims + in-flight renders (25min
-  stale-lock reclaim + 1h redis visibility timeout recover them, slowly).
-  Options: defer worker recreate while `gpu:media_busy`/`media` queue
-  is non-empty, or rolling recreate (media worker last).
-- [ ] **watch: engine flaps ↔ vhdx compact correlation** — if flaps
-  recur without a compact event, root-cause elsewhere (WSL 8.9GB total,
-  host free hit 0.6GB tonight — check Docker Desktop crash logs).
+- [x] **Render resumability** — Redis checkpoint keyed by celery
+  task_id: `generate_video(resume_key=)` resumes a live ComfyUI
+  prompt_id instead of re-submitting; `{asset_id,done}` after _persist
+  makes post-commit redelivery return the finished asset. (#2603)
+- [x] **Drain-aware deploys** — publish_busy gate was BELOW the
+  force-recreate block (only protected rebuilds); hoisted + extended to
+  social-worker-media renders, DW_MAX_DEFERS=6 cap. (#2603)
+- [x] **Engine-flap root cause** — NOT the compact (all runs
+  short-circuited): 02:00 UTC "engine-down" was the nightly
+  wsl-idle-shutdown FORCE-HEAL lane (`37 3` cron) firing wsl --shutdown
+  on the already-poisoned bridge (poisoned by the 01:10 DD restart).
+  home-ops@5c909cc adds due-publish gate + pre-fire TG alert. The 01:10
+  DD restart itself remains unexplained — watch RAM pressure (host
+  free hit 0.6GB).
 - [x] Manual recovery of 6 orphaned video posts — re-dispatched via
   `generate_video_asset_task` + `pending_video_task` arming (DRAFT lane),
   NOT publish re-queue (publish path only re-arms, doesn't regenerate

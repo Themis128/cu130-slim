@@ -402,3 +402,194 @@ class TestConcatMp4s:
         monkeypatch.setattr(CV.subprocess, "run", lambda cmd, **kw: SimpleNamespace(returncode=1, stderr=b"bad ffmpeg"))
         with pytest.raises(ComfyUIVideoError, match="ffmpeg concat failed"):
             CV._concat_mp4s([b"a"], 24)
+
+
+class TestResume:
+    """generate_video(resume_key=…) — worker-death redelivery path."""
+
+    def _hist_success(self, pid):
+        return _Resp(
+            {
+                pid: {
+                    "status": {"status_str": "success", "messages": []},
+                    "outputs": {"12": {"gifs": [{"filename": "out.mp4", "type": "output", "subfolder": "s"}]}},
+                }
+            }
+        )
+
+    def _patch_store(self, monkeypatch, cached):
+        get = AsyncMock(return_value=cached)
+        put = AsyncMock()
+        dele = AsyncMock()
+        monkeypatch.setattr(CV, "resume_get", get)
+        monkeypatch.setattr(CV, "resume_put", put)
+        monkeypatch.setattr(CV, "_resume_del", dele)
+        return get, put, dele
+
+    @pytest.mark.asyncio
+    async def test_resume_active_prompt_skips_submit(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = [_Resp({}), self._hist_success("p1")]
+        c.get_responses["/queue"] = _Resp({"queue_running": [[0, "p1"]], "queue_pending": []})
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        get, _, _ = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert data == b"x" * 2048
+        assert meta["prompt_id"] == "p1"
+        assert not c.posts  # never re-submitted
+
+    @pytest.mark.asyncio
+    async def test_resume_finished_prompt_fetches_without_submit(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = self._hist_success("p1")
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, _ = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert data == b"x" * 2048
+        assert not c.posts
+
+    @pytest.mark.asyncio
+    async def test_lost_checkpoint_resubmits(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = [_Resp({})]
+        c.get_responses["/queue"] = _Resp({"queue_running": [], "queue_pending": []})
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p2"})
+        c.get_responses["/history/p2"] = [self._hist_success("p2")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        _, put, dele = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert meta["prompt_id"] == "p2"
+        dele.assert_awaited_once()  # dead checkpoint discarded
+        put.assert_awaited_once()   # new prompt checkpointed
+        assert put.await_args.args[1] == {"prompt_id": "p2"}
+
+    @pytest.mark.asyncio
+    async def test_error_checkpoint_resubmits(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = _Resp(
+            {"p1": {"status": {"status_str": "error", "messages": []}, "outputs": {}}}
+        )
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p2"})
+        c.get_responses["/history/p2"] = [self._hist_success("p2")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        _, _, dele = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert meta["prompt_id"] == "p2"
+        dele.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_key_no_store_calls(self, monkeypatch):
+        c = _FakeClient()
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p1"})
+        c.get_responses["/history/p1"] = [self._hist_success("p1")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        get, put, dele = self._patch_store(monkeypatch, None)
+        await generate_video(prompt="hi", poll_s=0.01, timeout_s=30)
+        get.assert_not_awaited()
+        put.assert_not_awaited()
+        dele.assert_not_awaited()
+
+
+class TestResumeStore:
+    """The redis checkpoint helpers degrade silently and round-trip."""
+
+    class _FakeRedis:
+        def __init__(self):
+            self.store = {}
+
+        async def get(self, k):
+            return self.store.get(k)
+
+        async def set(self, k, v, ex=None):
+            self.store[k] = v
+
+        async def delete(self, k):
+            self.store.pop(k, None)
+
+        async def aclose(self):
+            return None
+
+    @pytest.mark.asyncio
+    async def test_store_roundtrip(self, monkeypatch):
+        r = self._FakeRedis()
+        monkeypatch.setattr(CV.aioredis, "from_url", lambda *a, **k: r)
+        monkeypatch.setattr(CV, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"))
+        assert await CV.resume_get("k") is None
+        await CV.resume_put("k", {"a": 1}, ttl_s=10)
+        await CV.resume_put("k", {"b": 2}, ttl_s=10)
+        assert await CV.resume_get("k") == {"a": 1, "b": 2}
+        await CV._resume_del("k")
+        assert await CV.resume_get("k") is None
+
+    @pytest.mark.asyncio
+    async def test_store_failures_degrade(self, monkeypatch):
+        def _boom(*a, **k):
+            raise RuntimeError("redis down")
+
+        monkeypatch.setattr(CV.aioredis, "from_url", _boom)
+        monkeypatch.setattr(CV, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"))
+        assert await CV.resume_get("k") is None
+        await CV.resume_put("k", {"a": 1}, ttl_s=1)  # warns, no raise
+        await CV._resume_del("k")                    # no raise
+
+
+class TestPromptState:
+    @pytest.mark.asyncio
+    async def test_states(self):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = _Resp({"p1": {"status": {"status_str": "success"}, "outputs": {}}})
+        assert await CV._prompt_state(c, "p1") == "finished"
+
+        c.get_responses["/history/p2"] = _Resp({"p2": {"status": {"status_str": "error"}, "outputs": {}}})
+        assert await CV._prompt_state(c, "p2") == "error"
+
+        c.get_responses["/queue"] = _Resp({"queue_pending": [[0, "p3"]], "queue_running": []})
+        assert await CV._prompt_state(c, "p3") == "active"
+
+        c.get_responses["/queue"] = _Resp({"queue_pending": [], "queue_running": []})
+        assert await CV._prompt_state(c, "p4") == "lost"
+
+    @pytest.mark.asyncio
+    async def test_non_200_history_falls_to_queue(self):
+        c = _FakeClient()
+        c.get_responses["/history/p5"] = _Resp(status=404)
+        c.get_responses["/queue"] = _Resp({"queue_running": [[0, "p5"]], "queue_pending": []})
+        assert await CV._prompt_state(c, "p5") == "active"
+
+
+class TestResumeErrorPaths:
+    def _patch_store(self, monkeypatch, cached):
+        monkeypatch.setattr(CV, "resume_get", AsyncMock(return_value=cached))
+        monkeypatch.setattr(CV, "resume_put", AsyncMock())
+        dele = AsyncMock()
+        monkeypatch.setattr(CV, "_resume_del", dele)
+        return dele
+
+    @pytest.mark.asyncio
+    async def test_timeout_with_key_clears_checkpoint(self, monkeypatch):
+        c = _FakeClient()
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p1"})
+        _wire(monkeypatch, c)
+        dele = self._patch_store(monkeypatch, None)
+        with pytest.raises(ComfyUIVideoError, match="timed out"):
+            await generate_video(prompt="x", timeout_s=0.001, poll_s=0.001, resume_key="t1")
+        dele.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancel_with_key_clears_checkpoint(self, monkeypatch):
+        c = _FakeClient()
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p1"})
+        # history never resolves → poll until cancelled
+        _wire(monkeypatch, c)
+        self._patch_store(monkeypatch, None)
+        import asyncio as _a
+        t = _a.ensure_future(generate_video(prompt="x", timeout_s=60, poll_s=0.01, resume_key="t1"))
+        await _a.sleep(0.05)
+        t.cancel()
+        with pytest.raises(_a.CancelledError):
+            await t
