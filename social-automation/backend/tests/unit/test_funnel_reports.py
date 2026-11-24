@@ -572,6 +572,7 @@ def test_task_wrappers_map_keys(monkeypatch):
 async def test_inbox_snapshot_task_run(monkeypatch):
     import app.db.session as dbs
     import app.services.inbox_snapshot as ibx
+    import app.worker._async as wasync
     import app.worker.tasks.inbox_snapshot as T
 
     t1, t2 = uuid.uuid4(), uuid.uuid4()
@@ -581,6 +582,7 @@ async def test_inbox_snapshot_task_run(monkeypatch):
         return db
 
     monkeypatch.setattr(dbs, "async_session_maker", factory)
+    monkeypatch.setattr(wasync, "task_session", factory)
     monkeypatch.setattr(
         ibx,
         "capture",
