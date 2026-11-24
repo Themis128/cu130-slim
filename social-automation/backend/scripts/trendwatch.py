@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from app.db.session import async_session_maker  # noqa: E402
+from app.worker._async import task_session  # noqa: E402
 
 TRENDING_RSS = "https://trends.google.com/trending/rss?geo={geo}"
 
@@ -190,7 +190,7 @@ def _summarise_news(row: dict) -> str:
 async def _funnel_weakest() -> str | None:
     """Live tie-in with funnel_audit: weakest transition steers the channel."""
     try:
-        async with async_session_maker() as db:
+        async with task_session() as db:
             leads = (await db.execute(text("SELECT count(*) FROM espocrm_lead_cache WHERE deleted IS NOT TRUE"))).scalar()
             if leads is None:
                 return None

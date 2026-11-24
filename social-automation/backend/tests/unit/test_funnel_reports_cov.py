@@ -316,6 +316,7 @@ class _TeamResult:
 async def test_inbox_snapshot_task_runs_all_teams(monkeypatch):
     import app.db.session as dbs
     import app.services.inbox_snapshot as svc
+    import app.worker._async as wasync
 
     class _AM:
         async def __aenter__(self):
@@ -325,6 +326,7 @@ async def test_inbox_snapshot_task_runs_all_teams(monkeypatch):
             return False
 
     monkeypatch.setattr(dbs, "async_session_maker", lambda: _AM())
+    monkeypatch.setattr(wasync, "task_session", lambda: _AM())
     monkeypatch.setattr(svc, "capture", AsyncMock(return_value={"batch_id": "b", "conversations": 0, "by_platform": {}}))
     out = await IT._run()
     assert out["teams"] == 2 and len(out["results"]) == 2
@@ -334,6 +336,7 @@ async def test_inbox_snapshot_task_runs_all_teams(monkeypatch):
 async def test_inbox_snapshot_task_isolates_team_failure(monkeypatch):
     import app.db.session as dbs
     import app.services.inbox_snapshot as svc
+    import app.worker._async as wasync
 
     class _AM:
         async def __aenter__(self):
@@ -346,6 +349,7 @@ async def test_inbox_snapshot_task_isolates_team_failure(monkeypatch):
         raise RuntimeError("provider down")
 
     monkeypatch.setattr(dbs, "async_session_maker", lambda: _AM())
+    monkeypatch.setattr(wasync, "task_session", lambda: _AM())
     monkeypatch.setattr(svc, "capture", _boom)
     out = await IT._run()
     assert out["teams"] == 2

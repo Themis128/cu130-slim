@@ -23,10 +23,10 @@ def update_connection_tiers(self):
 
 
 async def _run():
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementAction, EngagementCandidate
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         # outbound volume per author — authors we've engaged get reciprocity credit
         vol = dict(
             (

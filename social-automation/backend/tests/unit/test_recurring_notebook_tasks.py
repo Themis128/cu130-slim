@@ -525,7 +525,11 @@ async def test_fallback_monetization_body(monkeypatch):
         async def __aexit__(self, *a):
             return False
 
-    monkeypatch.setattr(dbs, "async_session_maker", lambda: _Sess())
+    def _api_pool_boom():
+        raise AssertionError("worker code hit the API pool (async_session_maker)")
+
+    monkeypatch.setattr(dbs, "async_session_maker", _api_pool_boom)
+    monkeypatch.setattr("app.worker._async.task_session", lambda: _Sess())
     run = AsyncMock(return_value={"reports": 2})
     monkeypatch.setattr(mr, "run_monetization_report_for_all_teams", run)
     out = await NR._fallback_monetization({"insight_days": 14}, send=False)

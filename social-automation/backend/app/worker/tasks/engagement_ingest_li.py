@@ -96,8 +96,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     async with httpx.AsyncClient(base_url=SIDECAR, timeout=90) as c:
         h = (await c.get("/health")).json()
@@ -113,7 +113,7 @@ async def _run():
 
     new = 0
     seen_types = {"person": 0, "skipped": 0}
-    async with async_session_maker() as db:
+    async with task_session() as db:
         for p in posts:
             pid = _post_id(p)
             # Sponsored/promoted posts are ads — never engage them.

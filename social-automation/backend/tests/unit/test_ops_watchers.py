@@ -91,6 +91,9 @@ def test_load_enabled_db_path_and_cache(monkeypatch):
             return SimpleNamespace(all=lambda: [("task.a", True), ("task.b", False)])
 
     monkeypatch.setattr(sess, "async_session_maker", lambda: _Sess())
+    import app.worker._async as wasync
+
+    monkeypatch.setattr(wasync, "task_session", lambda: _Sess())
     monkeypatch.setattr(WG, "_cache", {})
     monkeypatch.setattr(WG, "_cache_at", 0.0)
 
@@ -98,6 +101,7 @@ def test_load_enabled_db_path_and_cache(monkeypatch):
     assert WG._cache_at > 0
     # within TTL → cache hit, session factory not consulted again
     monkeypatch.setattr(sess, "async_session_maker", lambda: (_ for _ in ()).throw(AssertionError("db hit")))
+    monkeypatch.setattr(wasync, "task_session", lambda: (_ for _ in ()).throw(AssertionError("db hit")))
     assert WG._load_enabled() == {"task.a": True, "task.b": False}
     assert time.monotonic() - WG._cache_at < WG._CACHE_TTL
 
@@ -109,6 +113,9 @@ def test_load_enabled_fail_open_on_db_error(monkeypatch):
         raise RuntimeError("no db")
 
     monkeypatch.setattr(sess, "async_session_maker", _boom)
+    import app.worker._async as wasync
+
+    monkeypatch.setattr(wasync, "task_session", _boom)
     monkeypatch.setattr(WG, "_cache", {})
     monkeypatch.setattr(WG, "_cache_at", 0.0)
     assert WG._load_enabled() == {}

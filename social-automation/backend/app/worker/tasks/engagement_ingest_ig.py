@@ -55,8 +55,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=60) as c:
         try:
@@ -69,7 +69,7 @@ async def _run():
         posts = js.loads(raw or "[]")
 
     new = 0
-    async with async_session_maker() as db:
+    async with task_session() as db:
         for p in posts:
             href = p.get("href", "")
             sc = href.strip("/").split("/")[-1]

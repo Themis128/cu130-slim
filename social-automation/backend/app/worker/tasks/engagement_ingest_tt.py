@@ -60,8 +60,8 @@ async def _run():
 
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementCandidate
+    from app.worker._async import task_session
 
     tags = [t.strip().lstrip("#") for t in os.environ.get("TIKTOK_TARGET_TAGS", DEFAULT_TAGS).split(",") if t.strip()]
 
@@ -73,7 +73,7 @@ async def _run():
                 return {"skipped": "no-session"}
         except Exception:
             return {"skipped": "sidecar unreachable"}
-        async with async_session_maker() as db:
+        async with task_session() as db:
             for tag in tags[:3]:
                 try:
                     await c.post("/browse", json={"url": f"https://www.tiktok.com/tag/{tag}"})

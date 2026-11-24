@@ -22,11 +22,11 @@ def ingest_x_feed(self):
 async def _x():
     from sqlalchemy import select
 
-    from app.db.session import async_session_maker
     from app.models.engagement import EngagementCandidate
     from app.models.social_account import SocialAccount
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         acct = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "twitter", SocialAccount.status == "active"))).scalars().first()
         if not acct:
             return {"error": "no active twitter account"}

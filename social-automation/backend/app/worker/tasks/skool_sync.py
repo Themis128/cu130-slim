@@ -15,10 +15,10 @@ def sync_skool(self):
 
 
 async def _run():
-    from app.db.session import async_session_maker
     from app.services import skool_sync
+    from app.worker._async import task_session
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         res = await skool_sync.diff_and_report(db)
     logger.info("[skool] %s", res)
     return res

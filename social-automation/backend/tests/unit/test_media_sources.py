@@ -316,12 +316,14 @@ def nc_task(monkeypatch):
     from app.core import config
     from app.db import session as session_mod
     from app.services import media_storage
+    from app.worker import _async as wasync
     from app.worker.tasks import nextcloud_sync as T
 
     cfg = SimpleNamespace(NEXTCLOUD_SYNC_ENABLED=True, NEXTCLOUD_SYNC_FOLDER="")
     monkeypatch.setattr(config, "get_settings", lambda: cfg)
     state = SimpleNamespace(cfg=cfg, db=None, session_mod=session_mod, T=T)
     monkeypatch.setattr(session_mod, "async_session_maker", lambda: _Ctx(state.db))
+    monkeypatch.setattr(wasync, "task_session", lambda: _Ctx(state.db))
     state.save = AsyncMock(return_value=SimpleNamespace(meta_data=None))
     monkeypatch.setattr(media_storage, "save_uploaded_media", state.save)
     return state

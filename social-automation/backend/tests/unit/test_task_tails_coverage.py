@@ -33,6 +33,7 @@ async def test_weekly_analytics_sends(monkeypatch):
     monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", AsyncMock(side_effect=lambda m: sent.append(m)))
     db = _db(all_rows=[("published", 3)], first=(4.5, 2))
     monkeypatch.setattr("app.db.session.async_session_maker", lambda: db)
+    monkeypatch.setattr("app.worker._async.task_session", lambda: db)
     out = await M._weekly_analytics()
     assert out["audits"]["count"] == 2 and sent
 
@@ -206,6 +207,7 @@ async def test_nurture_sweeps(monkeypatch):
     monkeypatch.setattr("app.core.config.get_settings", lambda: MagicMock(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=tid))
     db = _db()
     monkeypatch.setattr("app.db.session.async_session_maker", lambda: db)
+    monkeypatch.setattr("app.worker._async.task_session", lambda: db)
     monkeypatch.setattr("app.services.nurture_sequence.nurture_sweep", AsyncMock(return_value={"advanced": 2}))
     assert (await M._run())["advanced"] == 2
 

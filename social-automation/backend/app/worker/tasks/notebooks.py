@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 async def _weekly_analytics() -> dict:
-    from app.db.session import async_session_maker
     from app.services.slack_notifications import post_alert_to_slack
+    from app.worker._async import task_session
 
     since = dt.datetime.now(dt.UTC) - dt.timedelta(days=7)
-    async with async_session_maker() as db:
+    async with task_session() as db:
         pub = {
             k.value if hasattr(k, "value") else k: v
             for k, v in (

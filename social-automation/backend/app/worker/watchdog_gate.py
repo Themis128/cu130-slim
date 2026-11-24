@@ -30,20 +30,18 @@ def _load_enabled() -> dict[str, bool]:
     if now - _cache_at < _CACHE_TTL and _cache:
         return _cache
     try:
-        import asyncio
-
         from sqlalchemy import select
 
-        from app.db.session import async_session_maker
         from app.models.ops_watcher import OpsWatcher, WatcherExecutor
+        from app.worker._async import run_async, task_session
 
         async def _q():
-            async with async_session_maker() as db:
+            async with task_session() as db:
                 rows = (await db.execute(select(OpsWatcher.command, OpsWatcher.enabled).where(OpsWatcher.executor == WatcherExecutor.CELERY))).all()
                 return {cmd: en for cmd, en in rows}
 
         _cache.clear()
-        _cache.update(asyncio.run(_q()))
+        _cache.update(run_async(_q()))
         _cache_at = now
     except Exception as exc:  # registry unreadable → fail-open, never block tasks
         logger.warning("watcher gate registry read failed (fail-open): %s", exc)
