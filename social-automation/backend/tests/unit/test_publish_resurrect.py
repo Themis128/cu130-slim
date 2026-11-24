@@ -392,3 +392,104 @@ def test_sweep_slack_alert_failure_swallowed(monkeypatch):
 
     out = R.run_publish_resurrect_sweep()
     assert out["posts_revived"] == 1
+
+
+# ── sweep: orphaned video posts (PUBLISHING/SUPPRESSED, no media, no task) ──
+
+
+def test_sweep_revives_orphaned_suppressed_video_post(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        status=PostStatus.SUPPRESSED,
+        meta={
+            "instruction": "reel about the free audit",
+            "last_render_error": "video render failed: Name or service not known",
+        },
+    )
+    db = _DB([_Result([]), _Result([]), _Result([post])])
+    task = _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["posts_revived"] == 1
+    task.delay.assert_called_once()
+    assert task.delay.call_args[0][2] == "reel about the free audit"
+    assert post.status == PostStatus.DRAFT
+    assert post.meta_data["pending_video_task"] == "celery-task-1"
+    assert post.meta_data["resurrect_count"] == 1
+
+
+def test_sweep_revives_orphaned_publishing_post_with_content_prompt(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        status=PostStatus.PUBLISHING,
+        meta={"last_render_error": "video render timed out (>6h)"},
+        content="tiktok video prompt",
+    )
+    db = _DB([_Result([]), _Result([]), _Result([post])])
+    task = _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["posts_revived"] == 1
+    assert task.delay.call_args[0][2] == "tiktok video prompt"
+
+
+def test_sweep_skips_orphan_with_pending_task_or_cap(monkeypatch):
+    pid1, pid2 = uuid.uuid4(), uuid.uuid4()
+    p1 = _post(
+        pid=pid1,
+        status=PostStatus.PUBLISHING,
+        meta={"pending_video_task": "live-task", "last_render_error": "x"},
+    )
+    p2 = _post(
+        pid=pid2,
+        status=PostStatus.SUPPRESSED,
+        meta={
+            "resurrect_count": R._MAX_RESURRECTIONS,
+            "last_render_error": "x",
+            "instruction": "i",
+        },
+    )
+    db = _DB([_Result([]), _Result([]), _Result([p1, p2])])
+    task = _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["posts_revived"] == 0
+    task.delay.assert_not_called()
+
+
+def test_sweep_skips_orphan_without_prompt(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        status=PostStatus.PUBLISHING,
+        meta={"last_render_error": "video render failed"},
+        content="",
+    )
+    db = _DB([_Result([]), _Result([]), _Result([post])])
+    task = _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["posts_revived"] == 0
+    task.delay.assert_not_called()
+
+
+def test_sweep_orphan_dispatch_failure_continues(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        status=PostStatus.SUPPRESSED,
+        meta={"instruction": "x", "last_render_error": "x"},
+    )
+    db = _DB([_Result([]), _Result([]), _Result([post])])
+    _wire(monkeypatch, db, delay=Mock(side_effect=RuntimeError("broker down")))
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["posts_revived"] == 0
+    assert post.status == PostStatus.SUPPRESSED
