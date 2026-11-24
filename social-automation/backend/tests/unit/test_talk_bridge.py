@@ -1037,3 +1037,15 @@ async def test_worker_run_disabled_and_per_team():
     from app.worker.tasks import talk_bridge as task_mod
     with patch.object(task_mod, "bridge_enabled", return_value=False):
         assert await task_mod._run() == {"skipped": "talk bridge disabled"}
+
+    db = _FakeDB([[uuid.uuid4(), uuid.uuid4()]])  # two team ids
+    with (
+        patch.object(task_mod, "bridge_enabled", return_value=True),
+        patch("app.worker._async.task_session", _sf(db)),
+        patch.object(task_mod, "sync_rooms", AsyncMock(return_value={"created": 1, "mapped": 0})),
+        patch.object(task_mod, "inbound_sync", AsyncMock(side_effect=[{"posted": 2}, RuntimeError("db down")])),
+    ):
+        out = await task_mod._run()
+    assert out["teams"] == 2
+    assert out["results"][0]["posted"] == 2
+    assert "db down" in out["results"][1]["error"]
