@@ -402,3 +402,94 @@ class TestConcatMp4s:
         monkeypatch.setattr(CV.subprocess, "run", lambda cmd, **kw: SimpleNamespace(returncode=1, stderr=b"bad ffmpeg"))
         with pytest.raises(ComfyUIVideoError, match="ffmpeg concat failed"):
             CV._concat_mp4s([b"a"], 24)
+
+
+class TestResume:
+    """generate_video(resume_key=…) — worker-death redelivery path."""
+
+    def _hist_success(self, pid):
+        return _Resp(
+            {
+                pid: {
+                    "status": {"status_str": "success", "messages": []},
+                    "outputs": {"12": {"gifs": [{"filename": "out.mp4", "type": "output", "subfolder": "s"}]}},
+                }
+            }
+        )
+
+    def _patch_store(self, monkeypatch, cached):
+        get = AsyncMock(return_value=cached)
+        put = AsyncMock()
+        dele = AsyncMock()
+        monkeypatch.setattr(CV, "resume_get", get)
+        monkeypatch.setattr(CV, "resume_put", put)
+        monkeypatch.setattr(CV, "_resume_del", dele)
+        return get, put, dele
+
+    @pytest.mark.asyncio
+    async def test_resume_active_prompt_skips_submit(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = [_Resp({}), self._hist_success("p1")]
+        c.get_responses["/queue"] = _Resp({"queue_running": [[0, "p1"]], "queue_pending": []})
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        get, _, _ = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert data == b"x" * 2048
+        assert meta["prompt_id"] == "p1"
+        assert not c.posts  # never re-submitted
+
+    @pytest.mark.asyncio
+    async def test_resume_finished_prompt_fetches_without_submit(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = self._hist_success("p1")
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, _ = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert data == b"x" * 2048
+        assert not c.posts
+
+    @pytest.mark.asyncio
+    async def test_lost_checkpoint_resubmits(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = [_Resp({})]
+        c.get_responses["/queue"] = _Resp({"queue_running": [], "queue_pending": []})
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p2"})
+        c.get_responses["/history/p2"] = [self._hist_success("p2")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        _, put, dele = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert meta["prompt_id"] == "p2"
+        dele.assert_awaited_once()  # dead checkpoint discarded
+        put.assert_awaited_once()   # new prompt checkpointed
+        assert put.await_args.args[1] == {"prompt_id": "p2"}
+
+    @pytest.mark.asyncio
+    async def test_error_checkpoint_resubmits(self, monkeypatch):
+        c = _FakeClient()
+        c.get_responses["/history/p1"] = _Resp(
+            {"p1": {"status": {"status_str": "error", "messages": []}, "outputs": {}}}
+        )
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p2"})
+        c.get_responses["/history/p2"] = [self._hist_success("p2")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        _, _, dele = self._patch_store(monkeypatch, {"prompt_id": "p1"})
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30, resume_key="t1")
+        assert meta["prompt_id"] == "p2"
+        dele.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_key_no_store_calls(self, monkeypatch):
+        c = _FakeClient()
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p1"})
+        c.get_responses["/history/p1"] = [self._hist_success("p1")]
+        c.get_responses["/view"] = _Resp(content=b"x" * 2048)
+        _wire(monkeypatch, c)
+        get, put, dele = self._patch_store(monkeypatch, None)
+        await generate_video(prompt="hi", poll_s=0.01, timeout_s=30)
+        get.assert_not_awaited()
+        put.assert_not_awaited()
+        dele.assert_not_awaited()

@@ -54,16 +54,23 @@ def auto_tag_asset_task(asset_id: str) -> None:
         logger.warning("auto_tag_asset_task failed for %s: %s", asset_id, exc)
 
 
-@shared_task
-def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: dict | None = None) -> str:
+@shared_task(bind=True)
+def generate_video_asset_task(self, team_id: str, user_id: str, prompt: str, options: dict | None = None) -> str:
     """Generate a video via ComfyUI (LTX-Video 2B GGUF) and store a MediaAsset.
 
     Returns the new media asset id as a string so the API can hand it back
     through the Celery result backend.
     """
     options = options or {}
+    task_key = self.request.id
 
     async def _run() -> str:
+        # Redelivery checkpoint: a worker death after _persist committed
+        # returns the finished asset instead of re-rendering (~40 min GPU).
+        cached = await comfyui_video.resume_get(task_key) if task_key else None
+        if cached and cached.get("asset_id"):
+            logger.info("[video-task] redelivery with finished asset %s — no re-render", cached["asset_id"])
+            return cached["asset_id"]
         started = time.monotonic()
         # Expand the terse prompt into a detailed scene description BEFORE
         # the GPU lock — the call runs on the warm DMR mid model.
@@ -194,12 +201,15 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                         model=model,
                         image_bytes=image_bytes,
                         i2v_strength=float(options.get("i2v_strength") or 1.0),
+                        resume_key=task_key,
                     )
             render_elapsed = time.monotonic() - render_started
 
             # Persist the render BEFORE semantic QA — the bytes are the
             # expensive product; QA only annotates metadata afterwards.
             asset = await _persist(data, meta)
+            if task_key:
+                await comfyui_video.resume_put(task_key, {"asset_id": str(asset.id), "done": True}, ttl_s=14400)
 
             # Semantic QA on frame 0 — DMR vision, AFTER the GPU lock was
             # released (the vision model reloads through the arbiter).
@@ -212,6 +222,10 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                 if time.monotonic() - started + retry_cost < _TASK_SOFT_LIMIT_S:
                     logger.warning("[video-task] QA mismatch (%s) — retrying once", qa.get("reason"))
                     retry_prompt = f"{expanded_prompt}. Depict: {prompt[:200]}. Avoid: {qa.get('reason', 'wrong subject')}"
+                    if task_key:
+                        # Clear the first render's prompt_id or the retry
+                        # would "resume" the finished job and re-fetch it.
+                        await comfyui_video.resume_put(task_key, {"prompt_id": None}, ttl_s=14400)
                     try:
                         async with gpu_arbiter.media_gpu_lock():
                             data, meta = await comfyui_video.generate_video(
@@ -228,12 +242,15 @@ def generate_video_asset_task(team_id: str, user_id: str, prompt: str, options: 
                                 model=model,
                                 image_bytes=image_bytes,
                                 i2v_strength=float(options.get("i2v_strength") or 1.0),
+                                resume_key=task_key,
                             )
                         # Persist the retry render BEFORE its QA — same rule as
                         # the first pass: the bytes are the expensive product,
                         # and a soft-limit kill during QA must not lose them.
                         previous = asset
                         asset = await _persist(data, meta)
+                        if task_key:
+                            await comfyui_video.resume_put(task_key, {"asset_id": str(asset.id), "done": True}, ttl_s=14400)
                         retry_qa = await _qa_frame(data)
                         # Keep the first verdict when the retry's QA couldn't
                         # produce one — a fake "not run" pass would erase a

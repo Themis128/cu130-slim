@@ -231,3 +231,23 @@ class TestGenerateVideo:
         monkeypatch.setattr(asyncio, "to_thread", _tt_boom)
         M.generate_video_asset_task(_TEAM, _USER, "p")
         assert asset.meta_data["semantic_qa"]["reason"] == "not run"
+
+    def test_redelivery_returns_finished_asset(self, monkeypatch):
+        """Worker death after _persist: redelivery returns the asset, no re-render."""
+        gen, segs, asset = _wire_video(monkeypatch)
+        monkeypatch.setattr(
+            M.comfyui_video, "resume_get", AsyncMock(return_value={"asset_id": "done-1", "done": True})
+        )
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-1")
+        assert res.result == "done-1"
+        gen.assert_not_awaited()
+
+    def test_resume_key_passed_to_render(self, monkeypatch):
+        gen, segs, asset = _wire_video(monkeypatch)
+        put = AsyncMock()
+        monkeypatch.setattr(M.comfyui_video, "resume_get", AsyncMock(return_value=None))
+        monkeypatch.setattr(M.comfyui_video, "resume_put", put)
+        res = M.generate_video_asset_task.apply(args=(_TEAM, _USER, "a dog"), task_id="r-2")
+        assert res.result == str(asset.id)
+        assert gen.await_args.kwargs["resume_key"] == "r-2"
+        assert put.await_args.args[1] == {"asset_id": str(asset.id), "done": True}
