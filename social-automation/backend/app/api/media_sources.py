@@ -10,6 +10,8 @@ POST /media-sources/gdrive/import     {file_ids: []} → media_assets rows
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,7 @@ from app.services import media_sources
 from app.services.media_storage import save_uploaded_media
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _media_only(files):
@@ -71,7 +74,8 @@ async def nextcloud_import(body: NcImport, db: AsyncSession = Depends(get_db), u
             )
             imported.append(str(asset.id))
         except Exception as e:  # per-file, don't fail the batch
-            errors.append({"path": p, "error": str(e)[:200]})
+            logger.warning("nextcloud import failed for %s: %s", p, e)
+            errors.append({"path": p, "error": "import failed"})
     await db.commit()
     return {"imported": imported, "errors": errors}
 
@@ -156,6 +160,7 @@ async def gdrive_import(body: GdImport, db: AsyncSession = Depends(get_db), user
             )
             imported.append(str(asset.id))
         except Exception as e:
-            errors.append({"file_id": fid, "error": str(e)[:200]})
+            logger.warning("gdrive import failed for %s: %s", fid, e)
+            errors.append({"file_id": fid, "error": "import failed"})
     await db.commit()
     return {"imported": imported, "errors": errors}

@@ -194,7 +194,7 @@ async def lead_sync_webhook(request: Request) -> Any:
                     routed += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning("lead-sync route %s failed: %s", it["urn"], exc)
-                errors.append(f"{it['urn']}: {exc}")
+                errors.append(f"{it['urn']}: route failed")
 
     if routed:
         await post_alert_to_slack(f":new: LinkedIn Lead Sync: {routed} lead(s) routed")
