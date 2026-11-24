@@ -57,7 +57,8 @@ def _signed_state() -> str:
         "from sqlalchemy import text\n"
         "async def go():\n"
         "  async for db in get_db():\n"
-        "    r=await db.execute(text('SELECT id FROM teams LIMIT 1'))\n"
+        "    r=await db.execute(text(\"SELECT team_id FROM social_accounts "
+        "WHERE platform='facebook' ORDER BY updated_at DESC LIMIT 1\"))\n"
         "    print('OAUTH_STATE='+sign_oauth_state({'t':str(r.scalar())}))\n"
         "asyncio.run(go())"
     )
@@ -208,8 +209,13 @@ def main() -> int:
         final = {}
     fu = final.get("url", "")
     print("final:", fu[:160])
-    ok = CALLBACK_MARK in fu or ("social.cloudless.gr" in fu
-                                 and "error" not in fu.lower())
+    # Only a real callback URL counts — a stalled consent page still
+    # contains the redirect domain, and a rejected callback carries
+    # error=/error_reason=/error_description in the query.
+    ok = (CALLBACK_MARK in fu
+          and not any(p in urllib.parse.urlparse(fu).query
+                      for p in ("error=", "error_reason=",
+                                "error_description=")))
     _close_tab(base, tab.get("id", ""))
     print("reauth", "callback-landed" if ok else "needs-human")
     return 0 if ok else 2

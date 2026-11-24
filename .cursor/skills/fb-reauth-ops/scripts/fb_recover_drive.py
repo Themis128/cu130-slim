@@ -247,8 +247,12 @@ def cmd_drive() -> None:
         time.sleep(6)
         _reconn()
         url, text = _page()
-    baseline = max(_mail_uids() or [0])
+    # Baseline uid is only meaningful if WE request the email this run —
+    # if the code page is already open, the code may already be delivered,
+    # so any code in the mailbox counts.
+    baseline = 0
     if "Get code via email" in text:
+        baseline = max(_mail_uids() or [0])
         _select_email_lane()
         time.sleep(1)
         _click_label("Continue")
@@ -277,7 +281,8 @@ def cmd_status() -> None:
     elif "Set a new password" in text or "new password" in text.lower():
         state = "password-reset page (recovery accepted)"
     elif url.rstrip("/") in ("https://www.facebook.com", "https://m.facebook.com"):
-        if "What's on your mind" in text or "Create a post" in text:
+        if ("on your mind" in text or "Create a post" in text
+                or "Stories" in text):
             state = "logged-in (run fb_session_heal.py capture)"
         else:
             state = "profile-picker / logged-out"

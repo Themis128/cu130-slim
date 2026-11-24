@@ -3,7 +3,8 @@ name: fb-reauth-ops
 description: >-
   Re-auth a dead Facebook/IG token — mints the FB OAuth consent URL
   (FACEBOOK_CLIENT_ID + redirect + scopes) and drives it on the bound debug
-  Chrome (:9222) like the LinkedIn path. Tool: scripts/fb_reauth.py —
+  Chrome (:9229 — :9222 is claimed by a Lenovo WebView2 on this host)
+  like the LinkedIn path. Tool: scripts/fb_reauth.py —
   --url prints the consent URL, no-args drives it on CDP. Fires after the
   CloudlessDebugChrome logon task binds :9222. Includes
   fb_recover_drive.py, a passwordless login lane via the emailed recovery
