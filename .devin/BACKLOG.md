@@ -4941,3 +4941,30 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   admin login (Cognito → Firebase Auth — secrets already in repo),
   chatbot (Bedrock → Workers AI or DMR), contact form (Lambda →
   CF Pages Function + Turnstile + Resend/omv-ha SMTP).
+
+## 2026-11-25 (eve) — ntfy sweep findings
+
+- **R2 media loss (verified)**: 634 `media_assets` objects on
+  `cloudless-pipeline-assets` 404 — clean boundary: every asset created
+  <= 2026-11-03 is gone, everything >= 11-05 verifies ok. Whatever ran
+  ~Nov 4 wiped/rebuilt the older objects. 375 of the lost assets still
+  carry `generation_prompt` → regenerable via a bounded media-heal batch
+  (GPU time — not a quick sweep fix). 5 posts already parked at
+  `media_heal_alerted` for human rewrite.
+- **FB session invalidated (190)** — both facebook rows +
+  messenger/call-ingest lanes fail on OAuthException 190
+  ("user changed password or session invalidated for security
+  reasons"). Debug-Chrome FB session also logged out (no `c_user`);
+  SMS-2FA code went to the phone — ADB dead. **Human gate**: log in on a
+  trusted device / approve the Meta login alert, then re-drive.
+  threads/IG-lane tokens verified live; pending FB targets will fail
+  until re-auth.
+- **DMR corrupt model**: `ai/qwen3:8b-q4_K_M` entry was epoch-0/partial
+  (created:0, no size) — chat calls hang 25s+ (gate timeouts class).
+  `docker model rm` + re-pull issued on host. stale `smollm2` pins
+  repointed to `DMR_TINY_MODEL` in PR #2667.
+- **Galaxy S22+ unreachable >24h**: adb offline, no mDNS endpoints,
+  Termux sshd down. Needs physical: re-enable Wireless debugging
+  (Developer options) or plug USB + `adb tcpip 5555`.
+- **greptile MCP** `ok-auth-required` — needs OAuth re-login in the
+  Devin app (plugin servers can't be logged in from standalone CLI).
