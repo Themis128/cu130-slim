@@ -11,6 +11,7 @@ Dedupe key: ``platform_event_id = "<room_token>:<message_id>"``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime
@@ -130,15 +131,26 @@ async def ingest_call_events(*, session_factory=None) -> dict[str, Any]:
         if default_team is None:
             return {"skipped": "no teams"}
 
-        for room in rooms:
-            token = room["token"]
-            team_id = room["team_id"] or str(default_team)
+        # Parallel fetch — 42+ rooms sequential at 25s/timeout worst-case
+        # exceeds the task soft limit; a bounded gather keeps the sweep
+        # inside the call budget.
+        sem = asyncio.Semaphore(6)
+
+        async def _fetch(token: str) -> list[dict] | None:
             try:
-                async with httpx.AsyncClient(timeout=25, auth=_auth()) as client:
-                    msgs = await _chat_messages(client, base, token)
+                async with sem, httpx.AsyncClient(timeout=25, auth=_auth()) as client:
+                    return await _chat_messages(client, base, token)
             except Exception:
                 stats["errors"] += 1
                 logger.warning("talk-calls: chat fetch failed for %s", token, exc_info=True)
+                return None
+
+        fetched = await asyncio.gather(*(_fetch(r["token"]) for r in rooms))
+
+        for room, msgs in zip(rooms, fetched, strict=True):
+            token = room["token"]
+            team_id = room["team_id"] or str(default_team)
+            if msgs is None:
                 continue
             stats["rooms"] += 1
 

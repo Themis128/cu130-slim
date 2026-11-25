@@ -221,17 +221,18 @@ async def _bridge_health() -> str:
 
 async def _dmr_health() -> str:
     """Keep the serving model warm + alert if the engine stops serving.
-    A 1-token chat call holds smollm2 loaded — cold-load is the
+    A 1-token chat call holds the tiny model loaded — cold-load is the
     ConnectTimeout/ReadTimeout class that broke the triage."""
     import os
 
     import httpx
 
     url = os.environ.get("DMR_URL", "http://host.docker.internal:12435/engines/llama.cpp/v1")
+    model = os.environ.get("DMR_TINY_MODEL", "docker.io/ai/smollm3:latest")
     try:
         async with httpx.AsyncClient(timeout=45) as c:
             r = await c.post(
-                f"{url}/chat/completions", json={"model": "docker.io/ai/smollm2:latest", "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
+                f"{url}/chat/completions", json={"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
             )
         if r.status_code == 200:
             return "warm"

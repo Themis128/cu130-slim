@@ -59,7 +59,7 @@ async def llm_call(
                 import httpx
 
                 url = os.environ.get("DMR_URL", "http://host.docker.internal:12435/engines/llama.cpp/v1")
-                m = model or os.environ.get("DMR_TEXT_MODEL", "docker.io/ai/smollm2:latest")
+                m = model or os.environ.get("DMR_TEXT_MODEL", "docker.io/ai/smollm3:latest")
                 msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
                 async with httpx.AsyncClient(timeout=60) as c:
                     r = await c.post(f"{url}/chat/completions", json={"model": m, "messages": msgs, "max_tokens": 500})
