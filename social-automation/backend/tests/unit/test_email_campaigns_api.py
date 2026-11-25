@@ -126,6 +126,57 @@ class TestAudienceAndLists:
         assert out["stats"] == {"pending": 1, "skipped_suppressed": 1}
 
     @pytest.mark.asyncio
+    async def test_add_audience_arms_survey_autosend(self):
+        from app.models.email_campaign import EmailCampaign
+
+        c = EmailCampaign(team_id=TEAM, name="Survey", kind=CampaignKind.survey, subject="S", text_body="t")
+        db = _DB(
+            [
+                _Res([c]),  # campaign
+                _Res([]),  # suppression list
+                _Res([]),  # lead lookup for explicit emails
+                _Res([("pending", 1)]),  # stats
+            ]
+        )
+        spec = api.AudienceSpec(emails=[{"email": "ok@x.com"}])
+        out = await api.add_audience(c.id, spec, TEAM, db, USER)
+        assert out["queued"] == 1
+        assert c.meta_data["auto_send"] is True
+        assert db.commits >= 1
+
+    @pytest.mark.asyncio
+    async def test_add_audience_no_autosend_for_marketing(self):
+        c = _campaign()  # kind=marketing
+        db = _DB(
+            [
+                _Res([c]),
+                _Res([]),
+                _Res([]),
+                _Res([("pending", 1)]),
+            ]
+        )
+        spec = api.AudienceSpec(emails=[{"email": "ok@x.com"}])
+        await api.add_audience(c.id, spec, TEAM, db, USER)
+        assert "auto_send" not in (c.meta_data or {})
+
+    @pytest.mark.asyncio
+    async def test_add_audience_no_autosend_without_pending(self):
+        from app.models.email_campaign import EmailCampaign
+
+        c = EmailCampaign(team_id=TEAM, name="Survey", kind=CampaignKind.survey, subject="S", text_body="t")
+        db = _DB(
+            [
+                _Res([c]),
+                _Res([]),
+                _Res([]),
+                _Res([]),  # stats — nothing pending
+            ]
+        )
+        spec = api.AudienceSpec(emails=[{"email": "ok@x.com"}])
+        await api.add_audience(c.id, spec, TEAM, db, USER)
+        assert "auto_send" not in (c.meta_data or {})
+
+    @pytest.mark.asyncio
     async def test_add_audience_404(self):
         with pytest.raises(HTTPException) as e:
             await api.add_audience(uuid.uuid4(), api.AudienceSpec(), TEAM, _DB([_Res([])]), USER)

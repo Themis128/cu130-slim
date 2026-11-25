@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
@@ -207,10 +208,20 @@ async def add_audience(
         include_espocrm=body.include_espocrm,
         include_socialauto_leads=body.include_socialauto_leads,
     )
+    stats = await svc.campaign_stats(db, c.id)
+    if stats.get("pending") and c.kind == CampaignKind.survey:
+        # Arm the survey-autosend beat — it only fires campaigns flagged
+        # meta_data.auto_send with pending recipients (30-day dedup gate
+        # still applies inside send_campaign).
+        meta = dict(c.meta_data or {})
+        meta["auto_send"] = True
+        c.meta_data = meta
+        flag_modified(c, "meta_data")
+        await db.commit()
     return {
         "queued": sum(1 for r in recipients if r.status == RecipientStatus.pending),
         "skipped_suppressed": sum(1 for r in recipients if r.status == RecipientStatus.skipped_suppressed),
-        "stats": await svc.campaign_stats(db, c.id),
+        "stats": stats,
     }
 
 
