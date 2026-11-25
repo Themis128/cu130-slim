@@ -1988,13 +1988,19 @@ def test_worker_task_lock_skip_when_run_in_progress():
         assert task_mod.talk_bridge_sync() == {"skipped": "run-in-progress"}
 
 
+def _run_async_sync(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
 def test_worker_task_lock_acquire_run_release():
     from app.worker.tasks import talk_bridge as task_mod
 
     redis = _FakeLockRedis(acquired=True)
     with (
         patch.object(task_mod, "_lock_client", return_value=redis),
-        patch.object(task_mod, "run_async", return_value={"teams": 0}),
+        patch.object(task_mod, "run_async", _run_async_sync),
         patch.object(task_mod, "bridge_enabled", return_value=False),
     ):
         out = task_mod.talk_bridge_sync()
@@ -2012,7 +2018,7 @@ def test_worker_task_lock_failopen_when_client_down():
 
     with (
         patch.object(task_mod, "_lock_client", return_value=_DeadRedis()),
-        patch.object(task_mod, "run_async", return_value={"teams": 0}),
+        patch.object(task_mod, "run_async", _run_async_sync),
         patch.object(task_mod, "bridge_enabled", return_value=False),
     ):
         assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
