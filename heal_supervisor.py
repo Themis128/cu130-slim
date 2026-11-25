@@ -23,7 +23,6 @@ REGISTRY = {
     "li_vetting":     {"kind": "watch", "script": ".devin/skills/li-vetting-watch/scripts/vetting_watch.py", "tier": "host"},
     "wa_code_watch":  {"kind": "watch", "script": ".devin/skills/wa-verify-ops/scripts/wa_code_watch.py", "tier": "host"},
     "fb_reauth":      {"kind": "watch", "script": ".devin/skills/fb-reauth-ops/scripts/fb_reauth.py", "tier": "host"},
-    "redis_drift":    {"kind": "watch", "script": ".devin/skills/social-stack-ops/scripts/redis_drift_guard.py", "tier": "host"},
 }
 STATE = {k: {"status": "starting", "runs": 0, "last": 0} for k in REGISTRY}
 
