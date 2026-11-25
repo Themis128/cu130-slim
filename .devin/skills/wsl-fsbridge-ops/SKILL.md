@@ -253,6 +253,24 @@ previously needed a manual rebind or `wsl --shutdown`:
 5. **Restart** every `Exited(127)` container; TG alert on heal / unmapped /
    failure (30-min dedup). Throttle: 10 min between REAL rebinds only —
    skip/orphan-only passes don't delay the next wave.
+6. **Stale-running watch** (2026-11-25): a RUNNING container keeps its
+   poisoned mount namespace — the VM-side rebind does NOT propagate into
+   it (verified: `/notebooks` hash rebound OK while workers still saw the
+   dir empty). Every pass therefore probes each running container's bind
+   dests (`docker exec` — source non-empty + dest empty = stale) and
+   `compose up -d --force-recreate --no-deps` the stale ones, with a
+   per-name cooldown in `state["watch"]` (5 min, 30 min after 3 tries).
+   This also heals containers recreated DURING the dead-proxy window on a
+   later clean pass — the case where the VM probe shows nothing suspect.
+7. **Wedged-proxy restart** (2026-11-25): the proxy can be ALIVE but
+   functionally dead — process running, hvs channel to Docker Desktop
+   gone. Every new mount then materializes empty AND each mass-recreate
+   re-poisons hashes the rebind just healed (verified: proxy up 30 min
+   while 36 mounts were empty; `systemctl restart dd-user-distro-proxy`
+   via `wsl.exe -u root` restored fresh mounts instantly). Whenever the
+   pass finds suspects or stale containers it attempts this restart
+   FIRST — it is the root-cause fix; rebind/recreate then land on a
+   working translation layer. Best-effort: wsl.exe may be dead mid-flap.
 
 Verified live 2026-11-23: detected + correctly skipped the
 `/var/lib/docker/containers` empty-source false-positive, removed 2 orphan
