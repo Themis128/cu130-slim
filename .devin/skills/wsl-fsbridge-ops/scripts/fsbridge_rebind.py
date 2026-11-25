@@ -578,6 +578,23 @@ def recreate_casualties(casualties: list[str]) -> tuple[int, list[str]]:
     return recreated, dead
 
 
+def proxy_probe() -> bool:
+    """Cheap liveness probe for the mount translation layer: bind-mount a
+    known-nonempty file into a throwaway container. If the destination is
+    empty/missing the proxy is wedged (alive process, dead hvs channel —
+    verified 2026-11-25). ~1-2 s per pass."""
+    try:
+        r = subprocess.run(
+            ["docker", "run", "--rm",
+             "-v", "/etc/hostname:/ph:ro",
+             "alpine", "test", "-s", "/ph"],
+            capture_output=True, timeout=60,
+        )
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def main() -> int:
     if not BM.is_dir():
         log("bind-mounts dir absent — fsbridge namespace not mounted; skip")
@@ -587,6 +604,29 @@ def main() -> int:
     except Exception:
         log("docker engine unreachable — skip")
         return 0
+
+    # proactive proxy check — a wedged proxy poisons EVERY new mount, so
+    # catch it before the suspect probe even runs. Restart + re-probe;
+    # only escalate when the restart itself doesn't restore translation.
+    if not proxy_probe():
+        log("proxy mount translation wedged — attempting restart")
+        if restart_proxy():
+            time.sleep(3)
+            if proxy_probe():
+                log("proxy heal verified — mount translation restored")
+                alert("proxy-healed", "fsbridge: wedged dd-user-distro-proxy restarted — mounts healthy again")
+            else:
+                alert(
+                    "proxy-wedged",
+                    "fsbridge: proxy restart did NOT restore mounts — "
+                    "full `wsl --shutdown` needed (nightly task will cover it)",
+                )
+        else:
+            alert(
+                "proxy-wedged",
+                "fsbridge: proxy wedged and restart unreachable — "
+                "`wsl --shutdown` needed",
+            )
 
     probed = vm_probe()
     if probed is None:
