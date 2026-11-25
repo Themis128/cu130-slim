@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 CONSULT_STAGE = "appointmentscheduled"
 ROOM_TAG = "talk_room:"
 NOTES_TAG = "Meeting notes:"
-ROOM_TAG_RE = re.compile(r"talk_room:([a-z0-9]{8})")
+ROOM_TAG_RE = re.compile(r"talk_room:([a-z0-9]{8,16})")
 
 _MAX_RECORDING_BYTES = 300 * 1024 * 1024  # 300 MB — longer calls are skipped
 
