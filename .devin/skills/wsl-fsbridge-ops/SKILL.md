@@ -61,6 +61,17 @@ Failure sequence (observed 2026-11-13, ~3 recurrences in one evening):
   agent-owned.
 
 
+
+## virtiofs root fix (2026-11-25, LIVE)
+
+The 9p plane is the load behind the vsock/fsbridge flap class. WSL 3.0.1+
+(incl. the drive-automount fix #40773) supports replacing it with virtiofs:
+`.wslconfig` → `[wsl2]` section → `virtiofs=true` on its OWN line (strict bool
+parse — no trailing inline comment, and NOT in `[experimental]`). Verify:
+`mount | grep 'on /mnt/c'` → `type virtiofs`. Enabled on this host 2026-11-25
+(WSL 3.0.5.0); the earlier 2026-11-16 experiment failed only because the key
+was `experimental.virtiofs` — wrong section+name for every build.
+
 ## Auto-retire of transplant overrides (2026-11-15+)
 
 Flap #4 response transplanted six services onto named volumes via
