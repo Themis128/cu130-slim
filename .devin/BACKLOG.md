@@ -4959,12 +4959,17 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   trusted device / approve the Meta login alert, then re-drive.
   threads/IG-lane tokens verified live; pending FB targets will fail
   until re-auth.
-- **DMR corrupt model**: `ai/qwen3:8b-q4_K_M` entry was epoch-0/partial
-  (created:0, no size) — chat calls hang 25s+ (gate timeouts class).
-  `docker model rm` + re-pull issued on host. stale `smollm2` pins
-  repointed to `DMR_TINY_MODEL` in PR #2667.
+- **DMR incident (RESOLVED)**: `ai/qwen3:8b-q4_K_M` entry was epoch-0/partial
+  and a ~6.5 GiB `.incomplete` blob (larger than the real object) made
+  every re-pull 416. `restart-runner` then removed the runner container
+  and new port binds wedged on `/forwards/expose 500` until
+  com.docker.backend respawned. Fixed via `dmr-restore.sh`
+  (`_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1 install-runner --port 12435`),
+  `.incomplete` blob deleted, clean re-pull verified serving. All 5
+  models live on :12435; quality gate unblocked. stale `smollm2` pins
+  repointed to `DMR_TINY_MODEL` in PR #2667 (merged).
 - **Galaxy S22+ unreachable >24h**: adb offline, no mDNS endpoints,
   Termux sshd down. Needs physical: re-enable Wireless debugging
   (Developer options) or plug USB + `adb tcpip 5555`.
-- **greptile MCP** `ok-auth-required` — needs OAuth re-login in the
-  Devin app (plugin servers can't be logged in from standalone CLI).
+- **greptile MCP** `ok-auth-required` — transient; `get_me` verified
+  healthy (cloudless-gr org, ADMIN). No action needed.
