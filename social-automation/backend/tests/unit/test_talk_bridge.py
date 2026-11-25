@@ -847,6 +847,7 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
         async def get_conversations(self, limit=0):
             return {
                 "data": [
+                    # live-shape payload: exclusion works via username
                     {
                         "id": "t1",
                         "participants": {
@@ -855,14 +856,28 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
                                 {"username": "daphne.965", "id": "1430297392652118"},
                             ]
                         },
-                    }
+                    },
+                    # no usernames anywhere: exclusion must fall back to the
+                    # real ig_user_id in meta — id-only lane
+                    {
+                        "id": "t2",
+                        "participants": {
+                            "data": [
+                                {"id": "17841436821573754"},
+                                {"id": "9000000000000001"},
+                            ]
+                        },
+                    },
                 ]
             }
 
+    acct.meta_data = {"login_type": "fb_onboarding", "ig_user_id": "17841436821573754"}
     with patch.object(TB, "_ig_client", lambda a: _Client()):
         out = await TB._conversation_list(acct)
     assert out[0]["contact_name"] == "daphne.965"
     assert out[0]["recipient_id"] == "1430297392652118"
+    # self excluded purely by meta ig_user_id (account_id matches neither)
+    assert out[1]["recipient_id"] == "9000000000000001"
 
 
 @pytest.mark.asyncio

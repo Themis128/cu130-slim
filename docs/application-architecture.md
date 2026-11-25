@@ -1496,6 +1496,14 @@ export). Every bridge room must be activated once with
 `occ talk:bot:setup <bot_id> <room_token>` so the SocialAuto bot can post
 mirrors as itself (falls back to the app-password user).
 
+Instagram contact resolution: `_conversation_list` excludes the business
+account from the participant list by every id shape the row carries
+(`account_id` is often the app-scoped id while participants use the real
+IG user id) plus username. Re-resolved contacts rewrite the stored
+`contact_name`/`recipient_id` and rename the Nextcloud room
+(`rename_room`), so rooms mapped while the exclusion was broken
+(self-named, recipient=self) heal on the next sync pass.
+
 ### Bot Builder Flow (Create + Activate)
 
 ```

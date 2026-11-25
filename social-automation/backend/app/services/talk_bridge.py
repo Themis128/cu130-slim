@@ -30,7 +30,7 @@ from app.core.config import get_settings
 from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from app.models.talk_room import TalkRoom
-from app.services.nextcloud_talk import bot_reply, create_room, post_to_room
+from app.services.nextcloud_talk import bot_reply, create_room, post_to_room, rename_room
 
 logger = logging.getLogger(__name__)
 
@@ -705,7 +705,13 @@ async def sync_rooms(team_id: uuid.UUID, session_factory=async_session_maker) ->
                         room.account_id = str(account.id)  # rebind after account reconnect
                     if conv["contact_name"] and room.contact_name != conv["contact_name"]:
                         room.contact_name = conv["contact_name"]
-                    if conv["recipient_id"] and not room.recipient_id:
+                        # the Nextcloud room title carries the contact too —
+                        # rename so re-resolved contacts don't stay mislabeled
+                        await rename_room(room.room_token, _room_name(conv["platform"], conv["contact_name"]))
+                    # recipient re-resolution must win over a stale value:
+                    # rooms mapped while self-exclusion was broken carry
+                    # recipient_id=self, which silently misroutes replies
+                    if conv["recipient_id"] and room.recipient_id != conv["recipient_id"]:
                         room.recipient_id = conv["recipient_id"]
                     mapped += 1
         await db.commit()
