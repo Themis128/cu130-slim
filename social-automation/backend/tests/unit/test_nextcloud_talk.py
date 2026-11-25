@@ -991,9 +991,16 @@ async def test_rename_room_success_failure_and_guardrails():
         _Client.raise_exc = True
         with patch.object(TALK.httpx, "AsyncClient", _Client):
             assert await TALK.rename_room("abc123xy", "new name") is False
-        # invalid tokens never reach the network
-        assert await TALK.rename_room("bad token!", "x") is False
+        # invalid tokens never reach the network — a client that witnesses
+        # any construction raises, so passing means the guard fired first
+        class _Witness:
+            def __init__(self, *a, **kw):
+                raise AssertionError("network attempted")
+
+        with patch.object(TALK.httpx, "AsyncClient", _Witness):
+            assert await TALK.rename_room("bad token!", "x") is False
 
     # talk disabled -> False without any network
     with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)):
-        assert await TALK.rename_room("abc123xy", "x") is False
+        with patch.object(TALK.httpx, "AsyncClient", _Witness):
+            assert await TALK.rename_room("abc123xy", "x") is False
