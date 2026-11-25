@@ -29,6 +29,19 @@ ops rooms).
 | `instagram` | `InstagramAPIClient.send_dm` (Instagram Messaging API; recipient ig-user-id captured at sync) |
 | `linkedin` | `LinkedInSidecar.send_message` (conversation API) |
 
+## Personal-Messenger scrape hygiene
+
+The personal-Messenger lane scrapes rendered DOM text, so call logs,
+E2EE/restore banners, sender labels, timestamps and buttons can arrive
+as fake "messages". `_pm_clean_text` keeps a single-line blob unless it
+is provably chrome (call row or system banner), and in multi-line blobs
+strips chrome only from the leading/trailing edges — interior lines are
+verbatim. Call rows collapse to a `📞 <call>` marker; a leading
+`You sent` line or a scraper `sender: "me"` marks the message as ours.
+Mirrored posts are sent `silent` (no Talk notifications). If the stored
+`last_inbound_key` is missing from the feed (filtered row / changed
+hash), the room re-anchors to the newest message without reposting.
+
 ## Room commands (typed in the room)
 
 - `mute` — replies stay in Talk, nothing goes to the contact

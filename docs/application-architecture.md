@@ -1493,7 +1493,27 @@ drops bot/bridged actor types plus any message carrying the invisible
 via `_post`, room headers) is marked, so owner replies from the same
 Talk account still route outbound. Note the webhook `actor.id` arrives
 ActivityPub-shaped (`users/<uid>`) while the chat API reports the bare
-uid; that mismatch is why marking beats actor comparison. Team-scoped
+uid; that mismatch is why marking beats actor comparison.
+
+Personal-Messenger inbound arrives as raw DOM text from the browser
+scrape, so `_pm_clean_text` filters UI chrome before mirroring: call
+rows collapse to a `📞 <call>` marker, a leading `You sent`/contact-name
+line is treated as a label (the former also marks the message as ours),
+and outgoing bubbles arrive with `sender: "me"` from the scraper. A
+single-line blob is kept unless it is provably chrome (a call row or an
+E2EE/restore system banner) — genuine one-word or clock-like messages
+such as `Reply`/`5:20 PM` survive. Multi-line blobs strip chrome lines
+only from the leading and trailing edges, since labels and timestamps
+bracket the real text; interior lines pass verbatim. Every mirrored post
+is sent with the Talk `silent` flag so mirrors never push notifications.
+
+The `last_inbound_key` watermark can point at a row that later
+disappears from the feed (a filtered banner or a changed content hash).
+When the stored key is not found in the fetched messages, `inbound_sync`
+posts nothing for that room and re-anchors the watermark to the newest
+message instead of replaying already-mirrored rows.
+
+Team-scoped
 API calls, savepointed `analytics_events`
 logging (`talk_bridge_inbound`/`talk_bridge_outbound` → datalake
 export). Every bridge room must be activated once with
