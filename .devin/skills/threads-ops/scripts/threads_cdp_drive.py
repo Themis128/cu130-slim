@@ -146,10 +146,39 @@ _CLICK_JS = """
       .sort((a, b) => rank(a) - rank(b))[0];
   const b = pick(/use your instagram account|log in with instagram|continue as cloudless|cloudless\\.gr/i)
          || pick(/continue|allow|authorize|approve|next|confirm|got it/i, 60);
-  if (b) { b.click(); return 'clicked:' + txt(b).slice(0, 40); }
+  if (b) { const r = b.getBoundingClientRect();
+           return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2,
+                                  t: txt(b).slice(0, 40)}); }
   return 'no-button';
 })()
 """
+
+
+def _trusted_click(page, loc, timeout=2500):
+    """Click via page.mouse at the element's bounding-box center —
+    CDP Input.dispatchMouseEvent is trusted; Meta ignores el.click()."""
+    try:
+        box = loc.bounding_box(timeout=timeout)
+        if box and box["width"] > 0 and box["height"] > 0:
+            page.mouse.click(box["x"] + box["width"] / 2,
+                             box["y"] + box["height"] / 2)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _js_trusted_click(page):
+    """Run _CLICK_JS (returns center coords), then trusted-click them."""
+    try:
+        res = page.evaluate(_CLICK_JS)
+        if res and res != "no-button":
+            d = json.loads(res)
+            page.mouse.click(d["x"], d["y"])
+            return d.get("t", "?")
+    except Exception:
+        pass
+    return None
 
 
 def _txt(page) -> str:
@@ -203,12 +232,19 @@ def drive(url: str, cdp: str, timeout: int, secret: str,
                   "context", file=sys.stderr)
             return 5
         print(f"harvested {len(cookies)} IG cookies — isolated drive")
+        sys.path.insert(0, os.path.join(
+            REPO, ".devin/skills/credential-reset-ops/scripts"))
+        from ig_pw_reset import chrome_exe, _pwlibs_env
+        env = _pwlibs_env()
+        os.environ["LD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH"]
         with sync_playwright() as p:
             ctx = p.chromium.launch_persistent_context(
                 profile,
+                executable_path=chrome_exe(),
                 headless=False,
                 viewport={"width": 1280, "height": 900},
                 locale="en-US",
+                env=env,
                 args=["--disable-blink-features=AutomationControlled"],
             )
             ctx.add_cookies([
@@ -245,26 +281,67 @@ def _drive_loop(page, url: str, timeout: int, secret: str, ctx,
 
             # threads.com login wall → "Log in with Instagram"
             if "threads.com/login" in cur or "threads.net/login" in cur:
-                low0 = _txt(page).lower()
-                # chooser variant → real link click; login variant → IG button
-                for sel in ("a:has-text('Use your Instagram account')",
-                            "text=Use your Instagram account",
-                            "text=Continue with Instagram",
-                            "text=Log in with Instagram",
-                            "[role=button]:has-text('Continue with Instagram')",
-                            "[role=button]:has-text('Log in with Instagram')",
-                            "button:has-text('Continue with Instagram')",
-                            "button:has-text('Log in with Instagram')",
-                            "a:has-text('Instagram')"):
-                    try:
-                        loc = page.locator(sel).first
-                        if loc.count():
-                            loc.click(timeout=2500)
-                            break
-                    except Exception:
-                        continue
+                # 2FA challenge renders on threads.com too (verified live)
+                if "two-factor" in low or "authentication app" in low or \
+                        "6-digit" in low or "verification code" in low:
+                    print("threads 2FA wall — driving TOTP")
+                    _handle_ig_2fa(page, secret)
                 else:
-                    page.evaluate(_CLICK_JS)
+                    # chooser variant → real link click; login variant → IG button
+                    for sel in ("a:has-text('Use your Instagram account')",
+                                "text=Use your Instagram account",
+                                "text=Continue with Instagram",
+                                "text=Log in with Instagram",
+                                "[role=button]:has-text('Continue with Instagram')",
+                                "[role=button]:has-text('Log in with Instagram')",
+                                "button:has-text('Continue with Instagram')",
+                                "button:has-text('Log in with Instagram')",
+                                "a:has-text('Instagram')"):
+                        try:
+                            loc = page.locator(sel).first
+                            if loc.count() and _trusted_click(page, loc):
+                                break
+                        except Exception:
+                            continue
+                    else:
+                        # credential variant: "Log in with Instagram" title +
+                        # username/password form (no OAuth button). Fill
+                        # INSTAGRAM_USERNAME/PASSWORD and submit — verified
+                        # live 2026-11-22 (pw4 + META_TOTP_SECRET_IG).
+                        env = load_env()
+                        iuser = env.get("INSTAGRAM_USERNAME", "")
+                        ipass = env.get("INSTAGRAM_PASSWORD", "")
+                        has_pw = page.locator('input[type="password"]').count()
+                        has_user = page.locator(
+                            'input[type="text"],input[name="username"],'
+                            'input[autocomplete="username"]').count()
+                        if has_pw and has_user and iuser and ipass:
+                            print("credential variant — filling IG login")
+                            _fill_first(page, [
+                                'input[type="text"]',
+                                'input[name="username"]',
+                                'input[autocomplete="username"]'], iuser)
+                            _fill_first(page, [
+                                'input[type="password"]'], ipass)
+                            time.sleep(0.5)
+                            btn = None
+                            for bsel in (
+                                    'div[role="button"]:has-text("Log in")',
+                                    'button:has-text("Log in")',
+                                    'input[type="submit"]'):
+                                try:
+                                    loc = page.locator(bsel).first
+                                    if loc.count():
+                                        btn = loc
+                                        break
+                                except Exception:
+                                    continue
+                            if btn is not None:
+                                _trusted_click(page, btn, timeout=4000)
+                            else:
+                                _js_trusted_click(page)
+                        else:
+                            _js_trusted_click(page)
             # IG OAuth consent / account chooser
             elif _host_is(cur, "instagram.com"):
                 if "two-factor" in low or "authentication app" in low or \
@@ -272,10 +349,10 @@ def _drive_loop(page, url: str, timeout: int, secret: str, ctx,
                     print("2FA wall — driving TOTP")
                     _handle_ig_2fa(page, secret)
                 else:
-                    page.evaluate(_CLICK_JS)
+                    _js_trusted_click(page)
             # generic consent
             else:
-                page.evaluate(_CLICK_JS)
+                _js_trusted_click(page)
 
             if time.time() - last_log > 15:
                 print(f"  …{cur[:100]}\n    {body_head[:140]}")
@@ -317,12 +394,28 @@ def _handle_ig_2fa(page, secret: str) -> None:
     if rem < 5:
         time.sleep(rem + 1)
     code = totp_now(secret)
-    if not _fill_first(page, [
+    filled = _fill_first(page, [
         'input[name="verificationCode"]',
         'input[inputmode="numeric"]',
         'input[type="tel"]',
-        'input[type="text"]',
-    ], code):
+        'input[maxlength="6"]',
+    ], code)
+    if not filled:
+        # threads.com 2FA keeps the login form mounted — the code field is
+        # the LAST visible text input, not the first (verified live).
+        try:
+            texts = page.locator('input[type="text"]')
+            n = texts.count()
+            for i in range(n - 1, -1, -1):
+                loc = texts.nth(i)
+                if loc.is_visible(timeout=800):
+                    loc.click()
+                    loc.fill(code)
+                    filled = True
+                    break
+        except Exception:
+            pass
+    if not filled:
         boxes = page.locator('input[maxlength="1"]')
         if boxes.count() >= 6:
             for i, ch in enumerate(code):
@@ -330,9 +423,11 @@ def _handle_ig_2fa(page, secret: str) -> None:
     page.wait_for_timeout(400)
     for label in ("Continue", "Confirm", "Next", "Submit"):
         try:
-            page.locator(f"button:has-text('{label}')").first.click(
-                timeout=1500)
-            break
+            loc = page.locator(
+                f'div[role="button"]:has-text("{label}"),'
+                f'button:has-text("{label}")').first
+            if loc.count() and _trusted_click(page, loc, timeout=1500):
+                break
         except Exception:
             continue
 
