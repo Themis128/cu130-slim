@@ -951,8 +951,12 @@ async def _render_report_notebook(
         return None
 
 
-async def run_daily_report() -> dict[str, Any]:
-    """Collect → snapshot → report → deliver. Runs daily until campaign end."""
+async def run_daily_report(force: bool = False) -> dict[str, Any]:
+    """Collect → snapshot → report → deliver. Runs daily until campaign end.
+
+    ``force`` bypasses the same-day dedupe — a manual re-send after the beat
+    already delivered today.
+    """
     settings = get_settings()
     tz = ZoneInfo(settings.APP_TIMEZONE)
     today = datetime.now(tz).date()
@@ -974,6 +978,15 @@ async def run_daily_report() -> dict[str, Any]:
             return {"ok": True, "skipped": "campaign finished, final report already sent"}
 
         prev = await _latest_snapshot(db, campaign_id)
+        # Same-day dedupe: the snapshot row is committed before delivery, so
+        # a snapshot captured today means a report already ran — beat and
+        # manual dispatches must not double-send. force=True bypasses.
+        if not force and prev is not None:
+            captured = prev.captured_at
+            if captured.tzinfo is None:
+                captured = captured.replace(tzinfo=UTC)
+            if captured.astimezone(tz).date() == today:
+                return {"ok": True, "skipped": "report already sent today"}
         metrics = await collect_metrics(db)
 
         is_final = bool(end_date and today >= end_date)
