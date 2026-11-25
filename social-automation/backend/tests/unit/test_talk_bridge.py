@@ -857,6 +857,17 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
                             ]
                         },
                     },
+                    # business_login lane shape: participants carry `name`,
+                    # not `username` — the username exclusion must read both
+                    {
+                        "id": "t3",
+                        "participants": {
+                            "data": [
+                                {"name": "cloudless.gr", "id": "17841436821573754"},
+                                {"name": "Kostas", "id": "555000111222333"},
+                            ]
+                        },
+                    },
                     # no usernames anywhere: exclusion must fall back to the
                     # real ig_user_id in meta — id-only lane
                     {
@@ -885,6 +896,9 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
     with patch.object(TB, "_ig_client", lambda a: _Client()):
         out = await TB._conversation_list(acct)
     assert out[0]["recipient_id"] == "1430297392652118"
+    # and the business_login `name`-field lane must exclude self too
+    assert out[2]["contact_name"] == "Kostas"
+    assert out[2]["recipient_id"] == "555000111222333"
 
 
 @pytest.mark.asyncio

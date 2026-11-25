@@ -589,7 +589,9 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 return []
             # Self-matching must cover every id shape the account row carries:
             # account_id is often the APP-scoped id while conversation
-            # participants use the real IG user id — a single-id exclusion
+            # participants use the real IG user id, and the business_login lane
+            # labels participants `name` not `username` — a single-id/
+            # username-only exclusion
             # matched neither and "the other participant" resolved to SELF
             # (rooms named after the business account, recipient_id=self).
             self_ids = {
@@ -610,7 +612,7 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                         p
                         for p in parts
                         if str(p.get("id")) not in self_ids
-                        and (p.get("username") or "").strip().lower() != self_username
+                        and (p.get("username") or p.get("name") or "").strip().lower() != self_username
                     ),
                     {},
                 )
