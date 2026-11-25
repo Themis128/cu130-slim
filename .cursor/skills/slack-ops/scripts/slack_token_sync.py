@@ -35,6 +35,24 @@ from pathlib import Path
 TOKEN_DIR = Path(
     os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
 )
+# Additional token dirs to refresh — the WSL devin CLI and the Windows
+# mcp-remote each keep INDEPENDENT OAuth grants under their own
+# ~/.mcp-auth/mcp-remote-v1 (refresh_token rotation means a copied file
+# would kill the other side's grant). The root cron points SLACK_TOKEN_DIR
+# at the Windows dir; SLACK_EXTRA_TOKEN_DIRS covers the WSL side.
+EXTRA_TOKEN_DIRS = [
+    Path(p)
+    for p in os.environ.get("SLACK_EXTRA_TOKEN_DIRS", "").split(":")
+    if p.strip()
+]
+
+
+def _token_dirs() -> list[Path]:
+    dirs = [TOKEN_DIR, *EXTRA_TOKEN_DIRS]
+    seen: set[Path] = set()
+    return [d for d in dirs if d.is_dir() and not (d in seen or seen.add(d))]
+
+
 ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
 # The live stack runs from the standalone compose project — its .env is
 # what containers actually read, so every sync writes BOTH files.
@@ -101,13 +119,14 @@ INFISICAL_SYNC = os.environ.get(
 def _slack_token_files() -> list[tuple[float, Path]]:
     """Return (expires_at_ms, path) for token files holding Slack chat:write scope."""
     out: list[tuple[float, Path]] = []
-    for p in TOKEN_DIR.glob("*_tokens.json"):
-        try:
-            d = json.loads(p.read_text(encoding="utf-8-sig"))
-        except Exception:
-            continue
-        if "chat:write" in (d.get("scope") or ""):
-            out.append((float(d.get("expires_at") or 0), p))
+    for d in _token_dirs():
+        for p in d.glob("*_tokens.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8-sig"))
+            except Exception:
+                continue
+            if "chat:write" in (data.get("scope") or ""):
+                out.append((float(data.get("expires_at") or 0), p))
     return sorted(out, reverse=True)
 
 
@@ -205,12 +224,36 @@ def _env_lookup(name: str) -> str | None:
     return None
 
 
+def _n8n_busy_via_db() -> int | None:
+    """Count in-flight executions straight from the n8n DB — the source of
+    truth the HTTP probe reads anyway. Removes the N8N_API_KEY dependency
+    from the token-rotation path: the key in .env had rotted (401), which
+    made the probe permanently return "unknown" and defer every n8n
+    recreate (seen 2026-11-24)."""
+    try:
+        r = subprocess.run(
+            ["docker", "exec", "-i", "social-postgres", "psql", "-U", "social_user",
+             "-d", "n8n", "-tAc",
+             "select count(*) from execution_entity "
+             "where status in ('running','new','waiting')"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            return int(r.stdout.strip())
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
 def _n8n_running_executions() -> int | None:
     """Count of currently-running n8n executions, or None on probe failure.
 
     None means "unknown", not "idle" — a rejected request (lost scope, bad
     key) or an unreachable API can happen while executions still run.
     """
+    n = _n8n_busy_via_db()
+    if n is not None:
+        return n
     key = _env_lookup("N8N_API_KEY")
     if not key:
         return None
@@ -412,6 +455,19 @@ def _pick_workspace_token(
     the channel only inside its own workspace, so the first candidate that
     can see it is the right token. Falls back to the freshest file.
     """
+    # Team map first: one token file per workspace, and _team_map.json
+    # (written by auth.test probes) already records which team each file
+    # belongs to. When SLACK_TEAM_ID names the workspace holding the
+    # configured channel IDs, the map answers without any slack.com call —
+    # this host cannot always reach slack.com (seen 2026-11-08), and
+    # probing every workspace's conversations.info just to find the owner
+    # logs a misleading channel_not_found for every non-owning workspace.
+    want_team = _env_lookup("SLACK_TEAM_ID")
+    if want_team:
+        team_map = _team_map()
+        for _, path, tok in cands:
+            if (team_map.get(path.name) or {}).get("team_id") == want_team:
+                return path, tok
     channel = _env_lookup("SLACK_CHANNEL_ID")
     if channel:
         for _, path, tok in cands:
@@ -423,27 +479,21 @@ def _pick_workspace_token(
                 f"({r.get('error', 'request failed')})",
                 file=sys.stderr,
             )
-    # Offline fallback: this host cannot always reach slack.com (seen
-    # 2026-11-08 — github OK, slack/google TCP timeouts). mcp-remote keeps
-    # one token file per workspace; _team_map.json (written by auth.test
-    # probes) records which team each file belongs to, and SLACK_TEAM_ID
-    # in .env names the workspace the configured channel IDs live in.
-    want_team = _env_lookup("SLACK_TEAM_ID")
-    if want_team:
-        team_map = _team_map()
-        for _, path, tok in cands:
-            if (team_map.get(path.name) or {}).get("team_id") == want_team:
-                return path, tok
     if cands:
         return cands[0][1], cands[0][2]
     return None, None
 
 
 def _team_map() -> dict:
-    try:
-        return json.loads((TOKEN_DIR / "_team_map.json").read_text(encoding="utf-8-sig"))
-    except Exception:  # noqa: BLE001
-        return {}
+    merged: dict = {}
+    for d in _token_dirs():
+        try:
+            merged.update(
+                json.loads((d / "_team_map.json").read_text(encoding="utf-8-sig"))
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    return merged
 
 
 def main() -> int:
