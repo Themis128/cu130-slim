@@ -63,7 +63,7 @@ async def triage_logs(minutes: int = 15) -> dict[str, Any]:
         constraint="be terse; no markdown tables; emoji per severity",
     )
     try:
-        summary = await llm_call(prompt, expect=lambda t: len(t) > 20, tag="log-triage", model="docker.io/ai/smollm2:latest")
+        summary = await llm_call(prompt, expect=lambda t: len(t) > 20, tag="log-triage", model=os.environ.get("DMR_TINY_MODEL", "docker.io/ai/smollm3:latest"))
     except Exception as e:
         summary = f"triage failed: {e}"
     return {"lines": len(lines), "summary": summary}

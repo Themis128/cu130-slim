@@ -82,7 +82,7 @@ async def test_llm_call_falls_back_to_bare_chat(dmr, monkeypatch):
     assert await LH.llm_call("p", system="s") == "fallback"
     url, body = client.posts[0]
     assert url == "http://dmr/chat/completions"
-    assert body["model"] == "docker.io/ai/smollm2:latest"
+    assert body["model"] == "docker.io/ai/smollm3:latest"
     assert body["messages"][0] == {"role": "system", "content": "s"}
 
     client.payload = {"choices": []}
