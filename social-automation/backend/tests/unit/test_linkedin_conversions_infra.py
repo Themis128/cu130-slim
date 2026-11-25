@@ -151,17 +151,59 @@ async def test_dmp_sync_uploads_hashed_emails(monkeypatch):
     monkeypatch.setattr(DS, "_redis", lambda: fake_r)
     monkeypatch.setattr(
         ESPO,
-        "list_leads_for_campaign",
+        "list_all",
         AsyncMock(return_value=[{"emailAddress": "  A@B.com "}, {"emailAddress": "bad"}, {}]),
     )
+    monkeypatch.setattr(ESPO, "list_contacts", AsyncMock(return_value=[]))
     upload = AsyncMock(return_value={"status": 204, "ok": True})
     monkeypatch.setattr(ADV, "upload_dmp_users", upload)
+    monkeypatch.setattr(ADV, "upload_dmp_elements", AsyncMock(return_value={"status": 204, "ok": True}))
     monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
     out = await DS._sync()
-    assert out["uploaded"] == 1 and out["leads"] == 3
+    assert out["emails_uploaded"] == 1 and out["leads"] == 3 and out["emails"] == 1
     sent = upload.await_args.args[1][0]
     assert sent == [{"idType": "SHA256_EMAIL", "idValue": hashlib.sha256(b"a@b.com").hexdigest()}]
     assert "A@B.com" not in json.dumps(upload.await_args.args)
+
+
+@pytest.mark.asyncio
+async def test_dmp_sync_profile_elements_and_junk_filters(monkeypatch):
+    """Leads without usable emails still upload as firstName+lastName
+    profile elements; synthetic emails/names are filtered out."""
+    monkeypatch.setattr(ADV, "_ctx", AsyncMock(return_value=("tok", "o")))
+    fake_r = SimpleNamespace(get=lambda k: "urn:li:adSegment:7", set=lambda *a, **k: True, delete=lambda k: None)
+    monkeypatch.setattr(DS, "_redis", lambda: fake_r)
+    monkeypatch.setattr(
+        ESPO,
+        "list_all",
+        AsyncMock(
+            return_value=[
+                {"firstName": "Ada", "lastName": "Lovelace", "title": "Engineer", "accountName": "Analytical Engines"},
+                {"firstName": "probe", "lastName": "probe", "emailAddress": "probe@test.dev"},
+                {"firstName": "Msg", "lastName": "probe", "emailAddress": "psid.1@messenger.local"},
+                {"firstName": "", "lastName": "Noname"},
+                {"firstName": "Real", "lastName": "Person", "emailAddress": "real@firm.com"},
+            ]
+        ),
+    )
+    monkeypatch.setattr(ESPO, "list_contacts", AsyncMock(return_value=[{"firstName": "C", "lastName": "Contact", "emailAddress": "c@x.io"}]))
+    upload_users = AsyncMock(return_value={"status": 204, "ok": True})
+    upload_elems = AsyncMock(return_value={"status": 204, "ok": True})
+    monkeypatch.setattr(ADV, "upload_dmp_users", upload_users)
+    monkeypatch.setattr(ADV, "upload_dmp_elements", upload_elems)
+    monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
+    out = await DS._sync()
+    assert out["emails"] == 2 and out["emails_uploaded"] == 2  # real@firm.com + c@x.io only
+    assert out["profiles"] == 3 and out["profiles_uploaded"] == 3  # Ada, Real Person, C Contact
+    elems = upload_elems.await_args.args[1]
+    names = {(e["firstName"], e["lastName"]) for e in elems}
+    assert names == {("Ada", "Lovelace"), ("Real", "Person"), ("C", "Contact")}
+    ada = next(e for e in elems if e["firstName"] == "Ada")
+    assert ada["title"] == "Engineer" and ada["company"] == "Analytical Engines"
+    hashed = upload_users.await_args.args[1][0]
+    assert all(i["idType"] == "SHA256_EMAIL" for i in hashed)
+    blob = json.dumps(upload_users.await_args.args) + json.dumps(upload_elems.await_args.args)
+    assert "messenger.local" not in blob and "probe@test.dev" not in blob and "A@B.com" not in blob
 
 
 @pytest.mark.asyncio
@@ -184,10 +226,11 @@ async def test_dmp_sync_segment_create_caches_urn(monkeypatch):
     monkeypatch.setattr(DS, "_redis", lambda: fake_r)
     create = AsyncMock(return_value={"urn": "urn:li:adSegment:9"})
     monkeypatch.setattr(ADV, "create_dmp_segment", create)
-    monkeypatch.setattr(ESPO, "list_leads_for_campaign", AsyncMock(return_value=[]))
+    monkeypatch.setattr(ESPO, "list_all", AsyncMock(return_value=[]))
+    monkeypatch.setattr(ESPO, "list_contacts", AsyncMock(return_value=[]))
     out = await DS._sync()
     assert sets == [(DS.SEGMENT_REDIS_KEY, "urn:li:adSegment:9")]
-    assert out["skip"] == "no-lead-emails" and out["segment"] == "urn:li:adSegment:9"
+    assert out["skip"] == "no-usable-identifiers" and out["segment"] == "urn:li:adSegment:9"
 
 
 @pytest.mark.asyncio
@@ -197,14 +240,16 @@ async def test_dmp_sync_upload_failure_breaks_without_alert(monkeypatch):
     monkeypatch.setattr(DS, "_redis", lambda: fake_r)
     monkeypatch.setattr(
         ESPO,
-        "list_leads_for_campaign",
+        "list_all",
         AsyncMock(return_value=[{"emailAddress": "a@b.com"}, {"emailAddress": "c@d.com"}]),
     )
+    monkeypatch.setattr(ESPO, "list_contacts", AsyncMock(return_value=[]))
     monkeypatch.setattr(ADV, "upload_dmp_users", AsyncMock(return_value={"status": 500, "ok": False, "error": "x"}))
+    monkeypatch.setattr(ADV, "upload_dmp_elements", AsyncMock(return_value={"status": 204, "ok": True}))
     alert = AsyncMock()
     monkeypatch.setattr(SN, "post_alert_to_slack", alert)
     out = await DS._sync()
-    assert out["uploaded"] == 0 and out["status"] == 500
+    assert out["emails_uploaded"] == 0 and out["status"] == 500
     alert.assert_not_awaited()  # partial/failed upload never alerts success
 
 
@@ -218,8 +263,10 @@ async def test_dmp_sync_404_evicts_segment_cache(monkeypatch):
         delete=lambda k: deleted.append(k),
     )
     monkeypatch.setattr(DS, "_redis", lambda: fake_r)
-    monkeypatch.setattr(ESPO, "list_leads_for_campaign", AsyncMock(return_value=[{"emailAddress": "a@b.com"}]))
+    monkeypatch.setattr(ESPO, "list_all", AsyncMock(return_value=[{"emailAddress": "a@b.com"}]))
+    monkeypatch.setattr(ESPO, "list_contacts", AsyncMock(return_value=[]))
     monkeypatch.setattr(ADV, "upload_dmp_users", AsyncMock(return_value={"status": 404, "ok": False}))
+    monkeypatch.setattr(ADV, "upload_dmp_elements", AsyncMock(return_value={"status": 204, "ok": True}))
     monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
     out = await DS._sync()
     assert deleted == [DS.SEGMENT_REDIS_KEY]
