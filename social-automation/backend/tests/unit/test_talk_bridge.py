@@ -832,6 +832,40 @@ async def test_conversation_list_page():
 
 
 @pytest.mark.asyncio
+async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_shapes():
+    """Regression: account_id is app-scoped while participants carry the real
+    IG user id — single-id exclusion resolved 'other' to SELF (rooms named
+    after the business account, recipient_id=self)."""
+    acct = _acct(
+        platform="instagram",
+        username="cloudless.gr",
+        account_id="28747382798219804",
+        meta_data={"login_type": "fb_onboarding"},
+    )
+
+    class _Client:
+        async def get_conversations(self, limit=0):
+            return {
+                "data": [
+                    {
+                        "id": "t1",
+                        "participants": {
+                            "data": [
+                                {"username": "cloudless.gr", "id": "17841436821573754"},
+                                {"username": "daphne.965", "id": "1430297392652118"},
+                            ]
+                        },
+                    }
+                ]
+            }
+
+    with patch.object(TB, "_ig_client", lambda a: _Client()):
+        out = await TB._conversation_list(acct)
+    assert out[0]["contact_name"] == "daphne.965"
+    assert out[0]["recipient_id"] == "1430297392652118"
+
+
+@pytest.mark.asyncio
 async def test_conversation_list_personal_and_error():
     acct = _acct(account_type="user")
 

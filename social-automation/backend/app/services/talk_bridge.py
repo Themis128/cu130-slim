@@ -582,16 +582,38 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
             ]
         if platform == "instagram":
             meta = account.meta_data or {}
-            ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
             client = _ig_client(account)
             data = await client.get_conversations(limit=MAX_SYNC_ROOMS)
             raw = data.get("data") if isinstance(data, dict) else data
             if not isinstance(raw, list):
                 return []
+            # Self-matching must cover every id shape the account row carries:
+            # account_id is often the APP-scoped id while conversation
+            # participants use the real IG user id — a single-id exclusion
+            # matched neither and "the other participant" resolved to SELF
+            # (rooms named after the business account, recipient_id=self).
+            self_ids = {
+                str(x)
+                for x in (
+                    account.account_id,
+                    meta.get("ig_user_id"),
+                    meta.get("ig_business_id"),
+                )
+                if x
+            }
+            self_username = (account.username or "").strip().lower()
             out = []
             for c in raw:
                 parts = (c.get("participants") or {}).get("data") or []
-                other = next((p for p in parts if str(p.get("id")) != str(ig_user_id)), {})
+                other = next(
+                    (
+                        p
+                        for p in parts
+                        if str(p.get("id")) not in self_ids
+                        and (p.get("username") or "").strip().lower() != self_username
+                    ),
+                    {},
+                )
                 out.append(
                     {
                         "thread_id": c.get("id", ""),
