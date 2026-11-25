@@ -4,6 +4,6 @@
   "private": true,
   "description": "Puppeteer-core CDP driver for :9229 debug-Chrome human-act lanes",
   "dependencies": {
-    "puppeteer-core": "24.43.1"
+    "puppeteer-core": "25.19.0"
   }
 }
