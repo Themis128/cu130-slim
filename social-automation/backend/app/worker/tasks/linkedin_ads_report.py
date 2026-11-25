@@ -15,10 +15,13 @@ celery_app.set_current()
 
 
 @shared_task(name="app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report")
-def send_linkedin_ads_report() -> dict[str, Any]:
+def send_linkedin_ads_report(force: bool = False) -> dict[str, Any]:
     """Collect Campaign Manager metrics and deliver the daily report.
 
     Runs at 10:00 Europe/Athens (beat) until LINKEDIN_ADS_END_DATE — the last
     report is marked final and the task skips itself afterwards.
+
+    Same-day dedupe is on by default — a second dispatch (beat + manual)
+    skips once a snapshot already exists for today. ``force=True`` resends.
     """
-    return run_async(run_daily_report())
+    return run_async(run_daily_report(force=force))
