@@ -665,6 +665,25 @@ async def test_bridge_platform_error_session_is_reclaimed(monkeypatch):
     assert ("/session/stop", "facebook") in calls
     assert ("/session/start", "threads") in calls
 
+    # Stop didn't free the slot (another session grabbed it) → contended,
+    # and we never force /session/start.
+    calls.clear()
+
+    async def still_busy_call(path, platform, body=None, timeout=60.0):
+        calls.append(path)
+        if path == "/session/status":
+            if "/session/stop" in calls:
+                return 200, {"platform": "tiktok", "status": "waiting"}
+            return 200, {"platform": "facebook", "status": "error"}
+        return 200, {}
+
+    monkeypatch.setattr(H, "_bridge_call", still_busy_call)
+    stats = {}
+    await H._heal_bridge_platform("threads", stats)
+    assert stats["threads"]["status"] == "contended"
+    assert stats["threads"]["detail"] == "bridge busy with tiktok (waiting)"
+    assert "/session/start" not in calls
+
 
 @pytest.mark.asyncio
 async def test_bridge_platform_error_records_exception_type(monkeypatch):
