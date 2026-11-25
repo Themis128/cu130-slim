@@ -15,9 +15,15 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-USER = os.environ["OMV_SSH_USER"]
-HOST = os.environ["OMV_SSH_HOST"]
-KEY = os.path.expanduser("~/.ssh/id_rsa_win")
+# Mailbox lane caveat (2026-11-25): the export-ready email goes to the
+# Gmail the LinkedIn account is registered on — omv-ha's doveadm will
+# usually see nothing. li_export_download.py is the working lane: it
+# pulls the archive through the sidecar session's
+# settingsApiArchivedMemberDataDownload endpoint. This watcher still
+# covers setups where the notification lands on the omv-ha mailbox.
+USER = os.environ.get("OMV_SSH_USER", "tbaltzakis")
+HOST = os.environ.get("OMV_SSH_HOST", "omv-ha")
+KEY = os.path.expanduser(os.environ.get("OMV_SSH_KEY", "~/.ssh/omv_id_rsa"))
 OUT = Path("/mnt/c/Users/tbaltzakis/Downloads")
 LINK = re.compile(r"https://[^\s\"'>]+linkedin\.com[^\s\"'>]*", re.I)
 

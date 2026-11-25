@@ -23,7 +23,7 @@ EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 JUNK = re.compile(r"noreply|no-reply|notification|mailer|postmaster|@mail\.|"
                   r"linkedin\.|skool\.|messenger\.local$|test\.dev$|example\.", re.I)
 OWNER = re.compile(r"baltzakis|themis|tbaltzakis|cloudless\.gr", re.I)
-SURVEY = Path(__file__).resolve().parents[3] / "offer-survey-ops/scripts/offer_survey.py"
+SURVEY = Path(__file__).resolve().parents[2] / "offer-survey-ops/scripts/offer_survey.py"
 SEEN = Path("/tmp/audience_watch_seen.txt")
 SEEN.touch(exist_ok=True)
 
@@ -46,9 +46,11 @@ def attach(campaign: str, emails: list[str]) -> int:
            *(f"--email={e}" for e in new)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     print(r.stdout.strip() or r.stderr.strip())
-    if r.returncode == 0:
-        seen.update(new)
-        SEEN.write_text("\n".join(sorted(seen)) + "\n")
+    if r.returncode != 0:
+        print(f"attach FAILED (rc={r.returncode}) — recipients NOT recorded")
+        return 0
+    seen.update(new)
+    SEEN.write_text("\n".join(sorted(seen)) + "\n")
     return len(new)
 
 
