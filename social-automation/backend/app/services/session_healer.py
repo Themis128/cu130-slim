@@ -705,9 +705,24 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
         other = str(status.get("platform") or "")
         busy_state = str(status.get("status") or "")
         if other and other != platform and busy_state not in ("active", "done", "idle", ""):
-            slot["status"] = "contended"
-            slot["detail"] = f"bridge busy with {other} ({busy_state})"
-            return
+            if busy_state == "error":
+                # A dead session still owns the slot: the bridge released its
+                # busy-hold on the error transition, but _state['platform']
+                # stays set — without this stop every other platform reports
+                # contended forever (CLO-18). Stop it, then fall through and
+                # try /session/start for ourselves.
+                await _bridge_call("/session/stop", other, {}, timeout=30.0)
+                _, status = await _bridge_call("/session/status", platform, timeout=15.0)
+                other = str(status.get("platform") or "")
+                busy_state = str(status.get("status") or "")
+                if other and other != platform and busy_state not in ("active", "done", "idle", ""):
+                    slot["status"] = "contended"
+                    slot["detail"] = f"bridge busy with {other} ({busy_state})"
+                    return
+            else:
+                slot["status"] = "contended"
+                slot["detail"] = f"bridge busy with {other} ({busy_state})"
+                return
 
         code, started = await _bridge_call("/session/start", platform, {"platform": platform}, timeout=60.0)
         if code == 409:

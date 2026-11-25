@@ -29,6 +29,12 @@ services:
       - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       social-postgres:
         condition: service_healthy
@@ -82,6 +88,12 @@ services:
       - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis
@@ -111,6 +123,10 @@ services:
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     extra_hosts:
       - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis
@@ -140,6 +156,12 @@ services:
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     volumes:
       - ../../notebooks:/notebooks
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis
@@ -167,6 +189,12 @@ services:
       - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis
@@ -196,6 +224,12 @@ services:
       - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis
@@ -223,6 +257,12 @@ services:
       - MINIO_SECURE=false
       - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
       - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
     depends_on:
       - social-postgres
       - redis

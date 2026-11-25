@@ -639,6 +639,34 @@ async def test_bridge_platform_contended_when_other_busy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bridge_platform_error_session_is_reclaimed(monkeypatch):
+    """A dead (error) session owned by another platform must be stopped and
+    the bridge reclaimed — not reported contended forever (CLO-18)."""
+    calls = []
+
+    async def fake_call(path, platform, body=None, timeout=60.0):
+        calls.append((path, platform))
+        if path == "/session/status":
+            # First status: dead facebook session owns the slot. After stop:
+            # bridge is idle.
+            if ("/session/stop", "facebook") in calls:
+                return 200, {"platform": None, "status": "idle"}
+            return 200, {"platform": "facebook", "status": "error"}
+        return 200, {}
+
+    monkeypatch.setattr(H, "_bridge_call", fake_call)
+    monkeypatch.setattr(H, "_bridge_poll_done", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_bridge_extract", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_alert_recovered", AsyncMock())
+    monkeypatch.setattr(H, "_clear_dead_marker", AsyncMock())
+    stats = {}
+    await H._heal_bridge_platform("threads", stats)
+    assert stats["threads"]["status"] == "healthy"
+    assert ("/session/stop", "facebook") in calls
+    assert ("/session/start", "threads") in calls
+
+
+@pytest.mark.asyncio
 async def test_bridge_platform_error_records_exception_type(monkeypatch):
     """Empty str(exc) (ReadTimeout etc.) must not produce an empty error."""
 
