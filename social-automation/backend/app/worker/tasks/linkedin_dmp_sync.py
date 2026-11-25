@@ -119,11 +119,7 @@ async def _sync() -> dict:
     contacts = await espocrm_client.list_contacts()
     people = [*leads, *contacts]
 
-    ids = [
-        {"idType": "SHA256_EMAIL", "idValue": h}
-        for h in (_sha256(_usable_email(p.get("emailAddress")) or "") for p in people)
-        if h
-    ]
+    ids = [{"idType": "SHA256_EMAIL", "idValue": h} for h in (_sha256(_usable_email(p.get("emailAddress")) or "") for p in people) if h]
     elements = [el for el in (_profile_element(p) for p in people) if el]
     if not ids and not elements:
         return {"skip": "no-usable-identifiers", "segment": urn}
@@ -157,8 +153,7 @@ async def _sync() -> dict:
         r.delete(SEGMENT_REDIS_KEY)  # segment gone — recreate next run
     if (uploaded_ids and uploaded_ids == len(ids)) or (uploaded_profiles and uploaded_profiles == len(elements)):
         await post_alert_to_slack(
-            f":link: LinkedIn Matched Audiences: {uploaded_ids} hashed emails + "
-            f"{uploaded_profiles} name profiles synced to segment {SEGMENT_NAME}"
+            f":link: LinkedIn Matched Audiences: {uploaded_ids} hashed emails + {uploaded_profiles} name profiles synced to segment {SEGMENT_NAME}"
         )
     return {
         "segment": urn,

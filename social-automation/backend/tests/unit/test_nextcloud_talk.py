@@ -952,6 +952,7 @@ async def test_bot_reply_unmapped_room_and_db_error_fail_closed():
         assert await TALK.bot_reply("room-ops", "hi", db=db) is True
     assert db.queries == 0
 
+
 def test_valid_room_token_accepts_legacy_and_numeric_newstyle():
     from app.services.nextcloud_talk import valid_room_token
 
@@ -962,7 +963,6 @@ def test_valid_room_token_accepts_legacy_and_numeric_newstyle():
     # SSRF guard: hostnames, paths, empties never pass
     for bad in ("", None, "evil.com", "a/b", "../x", "Abc123xy", "x" * 17, "short"):
         assert not valid_room_token(bad or "")
-
 
 
 @pytest.mark.asyncio
@@ -993,6 +993,7 @@ async def test_rename_room_success_failure_and_guardrails():
         _Client.raise_exc = True
         with patch.object(TALK.httpx, "AsyncClient", _Client):
             assert await TALK.rename_room("abc123xy", "new name") is False
+
         # invalid tokens never reach the network — a client that witnesses
         # any construction raises, so passing means the guard fired first
         class _Witness:

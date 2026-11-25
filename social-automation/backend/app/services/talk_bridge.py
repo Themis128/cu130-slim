@@ -608,12 +608,7 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
             for c in raw:
                 parts = (c.get("participants") or {}).get("data") or []
                 other = next(
-                    (
-                        p
-                        for p in parts
-                        if str(p.get("id")) not in self_ids
-                        and (p.get("username") or p.get("name") or "").strip().lower() != self_username
-                    ),
+                    (p for p in parts if str(p.get("id")) not in self_ids and (p.get("username") or p.get("name") or "").strip().lower() != self_username),
                     {},
                 )
                 out.append(

@@ -231,9 +231,7 @@ async def _dmr_health() -> str:
     model = os.environ.get("DMR_TINY_MODEL", "docker.io/ai/smollm3:latest")
     try:
         async with httpx.AsyncClient(timeout=45) as c:
-            r = await c.post(
-                f"{url}/chat/completions", json={"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
-            )
+            r = await c.post(f"{url}/chat/completions", json={"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1})
         if r.status_code == 200:
             return "warm"
         return f"http {r.status_code}"
