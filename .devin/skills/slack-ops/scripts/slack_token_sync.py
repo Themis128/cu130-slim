@@ -464,9 +464,12 @@ def _pick_workspace_token(
     # logs a misleading channel_not_found for every non-owning workspace.
     want_team = _env_lookup("SLACK_TEAM_ID")
     if want_team:
-        team_map = _team_map()
         for _, path, tok in cands:
-            if (team_map.get(path.name) or {}).get("team_id") == want_team:
+            # Per-dir map: the same filename can hold DIFFERENT workspaces
+            # in the WSL vs Windows mcp-auth stores (observed 2026-11-25 —
+            # aef6a202… = SocialAuto on Windows, www.cloudless.gr on WSL),
+            # so a merged filename-keyed map mis-attributes one side.
+            if (_team_map_for(path).get(path.name) or {}).get("team_id") == want_team:
                 return path, tok
     channel = _env_lookup("SLACK_CHANNEL_ID")
     if channel:
@@ -484,16 +487,13 @@ def _pick_workspace_token(
     return None, None
 
 
-def _team_map() -> dict:
-    merged: dict = {}
-    for d in _token_dirs():
-        try:
-            merged.update(
-                json.loads((d / "_team_map.json").read_text(encoding="utf-8-sig"))
-            )
-        except Exception:  # noqa: BLE001
-            continue
-    return merged
+def _team_map_for(path: Path) -> dict:
+    try:
+        return json.loads(
+            (path.parent / "_team_map.json").read_text(encoding="utf-8-sig")
+        )
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def main() -> int:
