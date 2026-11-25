@@ -30,12 +30,24 @@ on-device), **and** the mailbox via doveadm (SMS→email forward covers
 phone-off). Submits `verify_code`. Last resort: `wa_verify.py <code>` —
 the rest is still scripted.
 
-## LinkedIn export — `li_export_watch.py`
+## LinkedIn export — `li_export_watch.py` + `li_export_download.py`
 You click "Request data export" in LinkedIn's UI once (their portal, no
-API). The watcher polls the mailbox (`doveadm`, omv-ha) for the
-export-ready email, downloads the ZIP, extracts `Connections.csv` into
-`Downloads/` — where `audience_watch.py` harvests and attaches it.
-`--daemon` polls every 10 min until the email arrives.
+API). When the archive is ready, `li_export_download.py` fetches the ZIP
+through the live **linkedin-browser-sidecar** session — the
+`settingsApiArchivedMemberDataDownload` endpoint returns the archive
+inline (JSESSIONID cookie as `csrf-token`); bytes are base64-chunked out
+and `Connections.csv` lands in `Downloads/` for `audience_watch.py`.
+The repo isn't mounted into social-api — stage it, run it, copy the CSV
+back to Downloads:
+```
+docker cp .devin/skills/human-gate-bridges/scripts/li_export_download.py social-api:/tmp/
+docker exec social-api python3 /tmp/li_export_download.py
+docker cp social-api:/tmp/Connections.csv /mnt/c/Users/tbaltzakis/Downloads/
+python3 .devin/skills/audience-watch-ops/scripts/audience_watch.py
+```
+The old `li_export_watch.py` mailbox lane still exists but the
+export-ready email goes to the account's Gmail, not omv-ha — treat the
+sidecar download as the working lane.
 
 ## LinkedIn export click — `li_export_request.py`
 Drives LinkedIn's data-privacy export page through the shared browser
