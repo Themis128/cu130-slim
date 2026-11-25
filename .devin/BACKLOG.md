@@ -4919,3 +4919,25 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   @TBaltzakis back to active. Still revoked: instagram (cloudless.gr
   row) + threads cloudless.gr. Manual `heal_sessions` run triggered
   12:34Z — check result; Meta lanes may still need phone/2FA.
+
+## 2026-11-25 — figma-cloud-portfolio: AWS retired → Cloudflare (domain rescue pending)
+
+- **Done**: site rehosted on Cloudflare Workers static assets
+  (`baltzakisthemis-portfolio.baltzakis-themis.workers.dev`, verified 200).
+  Deploy CI replaced AWS S3/CloudFront with `wrangler@4 deploy`
+  (PR #355); 2 green runs. Dependabot vuln surgery 142→10, 0 critical
+  (PR #357). Repo secrets CLOUDFLARE_API_TOKEN/ACCOUNT_ID set; 8 dead
+  AWS/AMPLIFY secrets removed.
+- **USER ACTION — domain rescue**: `baltzakisthemis.com` is on
+  `clientHold` at Amazon Registrar under the closed AWS account;
+  AWS deletes Amazon-Registrar domains ~30 days after suspension.
+  Path: AWS Support → Account and Billing → Domains → Registration
+  Issue (free; "can't sign in" path exists for closed accounts) →
+  request hold lift + transfer auth code → transfer to Cloudflare
+  Registrar → then attach custom domain to the Worker
+  (`wrangler.toml routes` or dashboard Worker → Domains).
+  Tracked: figma-cloud-portfolio issue #358.
+- **Deferred rebuild** (dead AWS features, options in issue #358):
+  admin login (Cognito → Firebase Auth — secrets already in repo),
+  chatbot (Bedrock → Workers AI or DMR), contact form (Lambda →
+  CF Pages Function + Turnstile + Resend/omv-ha SMTP).
