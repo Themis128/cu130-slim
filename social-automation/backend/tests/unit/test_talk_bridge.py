@@ -887,8 +887,11 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
         out = await TB._conversation_list(acct)
     assert out[0]["contact_name"] == "daphne.965"
     assert out[0]["recipient_id"] == "1430297392652118"
-    # self excluded purely by meta ig_user_id (account_id matches neither)
-    assert out[1]["recipient_id"] == "9000000000000001"
+    # fixture order is t1, t3, t2: t3 (name-field lane) must exclude self
+    assert out[1]["contact_name"] == "Kostas"
+    assert out[1]["recipient_id"] == "555000111222333"
+    # t2: self excluded purely by meta ig_user_id (account_id matches neither)
+    assert out[2]["recipient_id"] == "9000000000000001"
 
     # live onboarding rows carry no ig_user_id in meta at all — t1 must
     # still resolve via the username lane alone
@@ -896,9 +899,7 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
     with patch.object(TB, "_ig_client", lambda a: _Client()):
         out = await TB._conversation_list(acct)
     assert out[0]["recipient_id"] == "1430297392652118"
-    # and the business_login `name`-field lane must exclude self too
-    assert out[2]["contact_name"] == "Kostas"
-    assert out[2]["recipient_id"] == "555000111222333"
+    assert out[1]["recipient_id"] == "555000111222333"
 
 
 @pytest.mark.asyncio
