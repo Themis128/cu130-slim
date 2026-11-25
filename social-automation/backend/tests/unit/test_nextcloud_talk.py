@@ -958,6 +958,6 @@ def test_valid_room_token_accepts_legacy_and_numeric_newstyle():
     # newer Nextcloud 34 numeric 10-digit tokens (observed live 2026-11-25)
     assert valid_room_token("6961273562")
     # SSRF guard: hostnames, paths, empties never pass
-    for bad in ("", None, "evil.com", "a/b", "../x", "Abc123xy", "x" * 21, "short"):
+    for bad in ("", None, "evil.com", "a/b", "../x", "Abc123xy", "x" * 17, "short"):
         assert not valid_room_token(bad or "")
 
