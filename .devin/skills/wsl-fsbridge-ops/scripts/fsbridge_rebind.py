@@ -388,6 +388,29 @@ def source_kind(src: str) -> str:
     return "dir"
 
 
+def restart_proxy() -> bool:
+    """The dd-user-distro-proxy can be ALIVE but wedged — its hvs channel
+    to Docker Desktop is dead while the process keeps running (verified
+    2026-11-25: proxy PID 170 up 30 min while every new mount materialized
+    empty AND each mass-recreate re-poisoned hashes the rebind had just
+    healed). A wedged proxy is the real root: restart it and the engine's
+    mount translation works again. Best-effort via the Windows interop
+    channel — wsl.exe may itself be dead during a flap."""
+    try:
+        r = subprocess.run(
+            ["wsl.exe", "-d", DISTRO, "-u", "root", "-e",
+             "systemctl", "restart", "dd-user-distro-proxy"],
+            capture_output=True, timeout=60,
+        )
+        if r.returncode == 0:
+            log("dd-user-distro-proxy restarted — mount translation restored")
+            return True
+        log(f"proxy restart rc={r.returncode}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"proxy restart unavailable: {exc}")
+    return False
+
+
 def container_bind_dests(name: str) -> list[tuple[str, str]]:
     """[(dest_path, hash)] for a container's bind mounts — hash is the
     hashed-bind-mount dir basename, or sha256(source) for raw sources."""
@@ -629,6 +652,8 @@ def main() -> int:
                 f"{len(stale)} running containers on stale mounts: "
                 f"{sorted(stale)} — recreating"
             )
+            restart_proxy()  # wedged proxy would re-poison the recreates
+            stale = {n: d for n, d in stale_running(learned).items()}
             n = recreate_stale_running(stale, state, now)
             log(f"stale-watch: recreated {n} running containers")
             alert(
@@ -688,6 +713,7 @@ def main() -> int:
 
     if plan:
         log(f"poison detected: {len(suspects)} suspect mounts, rebinding {len(plan)}")
+        restart_proxy()  # root cause: wedged proxy re-poisons on recreate
     script = build_vm_script(plan, orphans)
     ok, out = run_in_vm(script)
     log("vm output: " + " | ".join(l for l in out.splitlines() if l.startswith(("OK", "FAIL", "FRESH", "SKIP", "ORPHAN"))))
@@ -748,6 +774,7 @@ def main() -> int:
     # hashes keep the stale mount namespace — recreate them too.
     stale = stale_running(learned)
     if stale:
+        restart_proxy()  # recreates onto a wedged proxy re-poison
         log(f"{len(stale)} running containers on stale mounts post-heal: {sorted(stale)}")
         recreated += recreate_stale_running(stale, state, now)
 
