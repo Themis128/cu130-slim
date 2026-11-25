@@ -603,7 +603,7 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
                 )
                 if x
             }
-            self_username = (account.username or "").strip().lower()
+            self_username = (getattr(account, "username", None) or "").strip().lower()
             out = []
             for c in raw:
                 parts = (c.get("participants") or {}).get("data") or []
