@@ -143,12 +143,20 @@ def main() -> int:
                 if os.path.exists(cand):
                     exe = cand
                     break
+        # PW libs: chromium needs libasound etc. from the pwlibs root —
+        # without LD_LIBRARY_PATH the binary dies with exit 127 (found in
+        # 2026-11-22 battle test; ig_emaillogin_session already does this).
+        env = dict(os.environ)
+        env["LD_LIBRARY_PATH"] = os.path.expanduser(
+            "~/.local/pwlibs/root/usr/lib/x86_64-linux-gnu"
+        ) + ":" + env.get("LD_LIBRARY_PATH", "")
         ctx = p.chromium.launch_persistent_context(
             args.profile,
             executable_path=exe,
             headless=args.headless,
             viewport={"width": 1280, "height": 900},
             locale="en-US",
+            env=env,
             args=["--disable-blink-features=AutomationControlled"],
         )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()

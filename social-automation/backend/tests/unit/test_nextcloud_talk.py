@@ -203,7 +203,9 @@ async def test_bot_reply_silent_flag():
 async def test_post_to_room_silent_flag():
     with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Client):
         assert await TALK.post_to_room("abc12345", "mirror", silent=True) is True
+        assert await TALK.post_to_room("abc12345", "normal") is True
     assert _Client.calls[0]["json"]["silent"] is True
+    assert "silent" not in _Client.calls[1]["json"]
 
 
 # ── slack dual-post fanout ───────────────────────────────────────────
