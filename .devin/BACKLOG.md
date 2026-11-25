@@ -4944,13 +4944,15 @@ Still open — all waiting on Meta, nothing left to automate client-side:
 
 ## 2026-11-25 (eve) — ntfy sweep findings
 
-- **R2 media loss (verified)**: 634 `media_assets` objects on
-  `cloudless-pipeline-assets` 404 — clean boundary: every asset created
-  <= 2026-11-03 is gone, everything >= 11-05 verifies ok. Whatever ran
-  ~Nov 4 wiped/rebuilt the older objects. 375 of the lost assets still
-  carry `generation_prompt` → regenerable via a bounded media-heal batch
-  (GPU time — not a quick sweep fix). 5 posts already parked at
-  `media_heal_alerted` for human rewrite.
+- **R2 media loss (RESOLVED — stranded migration, not loss)**: the 634
+  "missing" objects were never deleted — writes migrated to
+  `cloudless-pipeline-assets` ~Nov 4 while old objects stayed in the
+  July-era `app-media-bucket` under identical `2026/…` keys (15/15
+  sample HITs). Copied all 634 old→new via `S3LiteClient`
+  (head/get/put, content-type preserved) — **634/634 verified on
+  `cloudless-pipeline-assets`, zero lost, no GPU regen needed**.
+  media-heal retries can stand down; the 5 `media_heal_alerted` posts
+  were media-semantics issues, unrelated.
 - **FB session invalidated (190)** — both facebook rows +
   messenger/call-ingest lanes fail on OAuthException 190
   ("user changed password or session invalidated for security
