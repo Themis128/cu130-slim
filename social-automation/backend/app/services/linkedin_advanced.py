@@ -339,19 +339,13 @@ async def create_dmp_segment(name: str, description: str = "") -> dict:
         return {"error": r.status_code, "body": r.text[:300]}
 
 
-async def upload_dmp_users(segment_urn: str, users: list[dict | list[dict]]) -> dict:
-    """Attach users to a segment. ``users`` is a list of TypedId dicts
-    (``{"idType": "SHA256_EMAIL", "idValue": ...}``) or profile-field dicts;
-    a nested list becomes one element whose ``userIds`` carries the whole
-    chunk — LinkedIn accepts up to 5000 ids per call."""
+async def upload_dmp_elements(segment_urn: str, elements: list[dict]) -> dict:
+    """POST raw DMP segment elements — each already shaped
+    ``{"action": "ADD", ...}`` (userIds and/or profile fields)."""
     ctx = await _ctx()
     if not ctx:
         return {"skip": "disabled-or-no-account"}
     token, _ = ctx
-    elements = []
-    for u in users:
-        ids = u if isinstance(u, list) else [u]
-        elements.append({"action": "ADD", "userIds": ids})
     payload = {"elements": elements}
     async with httpx.AsyncClient(
         timeout=60,
@@ -363,3 +357,15 @@ async def upload_dmp_users(segment_urn: str, users: list[dict | list[dict]]) -> 
     ) as c:
         r = await c.post(f"{REST}/dmpSegments/{segment_urn.split(':')[-1]}/users", json=payload)
         return {"status": r.status_code, "ok": r.status_code in (200, 201, 204)}
+
+
+async def upload_dmp_users(segment_urn: str, users: list[dict | list[dict]]) -> dict:
+    """Attach users to a segment. ``users`` is a list of TypedId dicts
+    (``{"idType": "SHA256_EMAIL", "idValue": ...}``) or profile-field dicts;
+    a nested list becomes one element whose ``userIds`` carries the whole
+    chunk — LinkedIn accepts up to 5000 ids per call."""
+    elements = []
+    for u in users:
+        ids = u if isinstance(u, list) else [u]
+        elements.append({"action": "ADD", "userIds": ids})
+    return await upload_dmp_elements(segment_urn, elements)
