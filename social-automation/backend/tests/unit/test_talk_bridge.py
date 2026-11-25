@@ -1956,6 +1956,108 @@ def test_worker_task_entrypoint_runs_sweep_via_run_async():
     assert len(submitted) == 1
 
 
+class _FakeLockRedis:
+    def __init__(self, acquired: bool):
+        self._acquired = acquired
+        self.store: dict[str, str] = {}
+        self.deleted: list[str] = []
+
+    def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.store:
+            return False
+        self.store[key] = value
+        return True
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, key):
+        self.deleted.append(key)
+        self.store.pop(key, None)
+
+
+def test_worker_task_lock_skip_when_run_in_progress():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    redis = _FakeLockRedis(acquired=False)
+    redis.store[task_mod._SYNC_LOCK] = "someone-else"
+    with (
+        patch.object(task_mod, "_lock_client", return_value=redis),
+        patch.object(task_mod, "run_async", side_effect=AssertionError("must not run")),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "run-in-progress"}
+
+
+def _run_async_sync(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def test_worker_task_lock_acquire_run_release():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    redis = _FakeLockRedis(acquired=True)
+    with (
+        patch.object(task_mod, "_lock_client", return_value=redis),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        out = task_mod.talk_bridge_sync()
+    assert out == {"skipped": "talk bridge disabled"}
+    assert task_mod._SYNC_LOCK in redis.deleted
+    assert task_mod._SYNC_LOCK not in redis.store
+
+
+def test_worker_task_lock_failopen_when_client_down():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    class _DeadRedis:
+        def set(self, *a, **kw):
+            raise ConnectionError("redis down")
+
+    with (
+        patch.object(task_mod, "_lock_client", return_value=_DeadRedis()),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+
+
+def test_worker_task_lock_release_error_swallowed():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    class _FlakyReleaseRedis(_FakeLockRedis):
+        def get(self, key):
+            raise ConnectionError("redis blip during release")
+
+    redis = _FlakyReleaseRedis(acquired=True)
+    with (
+        patch.object(task_mod, "_lock_client", return_value=redis),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+
+
+def test_worker_task_lock_client_none_runs_unlocked():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    with (
+        patch.object(task_mod, "_lock_client", return_value=None),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+
+
+def test_lock_client_returns_none_on_import_failure(monkeypatch):
+    from app.worker.tasks import talk_bridge as task_mod
+
+    monkeypatch.setattr("redis.Redis", None, raising=False)
+    assert task_mod._lock_client() is None
+
+
 def test_pm_clean_text_label_only_blob_drops():
     # A blob that is ONLY the sender label / ours-marker has no message
     # text left after the strip → dropped, not mirrored as an empty msg.
