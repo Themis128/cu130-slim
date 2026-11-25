@@ -4896,3 +4896,26 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (`has_session:false` → profile-picker loop). If escalations need the
   sidecar again, re-login via `POST /login` (FACEBOOK_USERNAME/
   PASSWORD + TOTP from META_TOTP_SECRET_AC) once the stack settles.
+
+## 2026-11-25 — Linear CLO sweep (CLO-18/19/20)
+
+- **CLO-18** — busy-hold release-on-error already landed (#2447); the
+  remaining starvation path was the healer reporting `contended` forever
+  on a dead session's `_state['platform']`. Fix: `heal_bridge_platform`
+  POSTs `/session/stop` (tagged with the dead platform) when status==
+  error, then falls through to `/session/start`. PR #2645 (auto-merge).
+  Deploy note: session_healer runs in workers → needs
+  `social-backend-latest` rebuild + worker recreate after merge.
+- **CLO-20** — LAN postfix already serves a valid LE cert for
+  mail.cloudless.gr; root compose had the `extra_hosts` mapping, the
+  standalone (prod) compose didn't. Added mapping to social-api + 5
+  workers + celery-beat, flipped both `.env`s to
+  `SMTP_HOST=mail.cloudless.gr` + `SMTP_SSL_VERIFY=true`, recreated the
+  7 services live (deploy lock taken/released). Verified in-container:
+  hostname resolves to 192.168.1.130, STARTTLS verifies
+  CN=mail.cloudless.gr. Watch next crm_engagement sweep for the warning
+  to be gone.
+- **CLO-19** — partial progress since 11-21: FB personal + twitter
+  @TBaltzakis back to active. Still revoked: instagram (cloudless.gr
+  row) + threads cloudless.gr. Manual `heal_sessions` run triggered
+  12:34Z — check result; Meta lanes may still need phone/2FA.
