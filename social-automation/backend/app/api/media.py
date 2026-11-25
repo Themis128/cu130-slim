@@ -215,6 +215,7 @@ async def upload_media(
         ".m4a",
         ".ogg",
         ".flac",
+        ".pdf",
     }
     if raw_ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported file extension")
