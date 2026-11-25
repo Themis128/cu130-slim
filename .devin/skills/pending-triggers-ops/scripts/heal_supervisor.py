@@ -31,6 +31,7 @@ HOST_WATCHES = {
     "li_vetting": "/app/.devin/skills/li-vetting-watch/scripts/vetting_watch.py",
     "wa_code_watch": "/app/.devin/skills/wa-verify-ops/scripts/wa_code_watch.py",
     "fb_reauth": "/app/.devin/skills/fb-reauth-ops/scripts/fb_reauth.py",
+    "redis_drift": "/app/.devin/skills/social-stack-ops/scripts/redis_drift_guard.py",
 }
 BEAT_HEALS = ["heal_consents", "dmr_health", "engagement_ingest",
               "log_intel", "media_backfill"]
