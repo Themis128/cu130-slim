@@ -1472,7 +1472,11 @@ Celery Beat (120s)        Worker               Browser Bridge        AI Provider
 ### Nextcloud Talk Messenger Bridge
 
 One Talk room per platform DM thread (`talk_rooms` rows, private room
-type 2). `talk_bridge_sync` (Celery beat, `TALK_BRIDGE_POLL_S`, default
+type 2). Room tokens are accepted in both Talk formats — legacy
+8-char lowercase-alnum and the 10-digit numeric tokens Nextcloud 34 issues —
+`valid_room_token` allows `^[a-z0-9]{8,16}$` (upper bound matches the
+`talk_rooms.room_token` varchar(16) column; the strict-8 regex silently
+killed all room creation after the Talk upgrade until 2026-11-25). `talk_bridge_sync` (Celery beat, `TALK_BRIDGE_POLL_S`, default
 180 s, per-worker `task_session`) maps new conversations to rooms
 (`sync_rooms`) and posts unseen inbound messages into them
 (`inbound_sync`, watermark = `last_inbound_key`, newest-10 window,
