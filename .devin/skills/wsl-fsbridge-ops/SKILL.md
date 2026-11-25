@@ -271,6 +271,14 @@ previously needed a manual rebind or `wsl --shutdown`:
    pass finds suspects or stale containers it attempts this restart
    FIRST — it is the root-cause fix; rebind/recreate then land on a
    working translation layer. Best-effort: wsl.exe may be dead mid-flap.
+8. **Proactive proxy probe** (2026-11-25): step 7 only fires AFTER damage
+   is found — a wedged proxy kept poisoning mounts between passes while
+   every pass reported clean (no suspects + no stale containers yet).
+   Every pass now FIRST runs `proxy_probe()`: a ~1-2 s liveness check
+   (`docker run --rm -v /etc/hostname:/ph:ro alpine test -s /ph`) — a
+   fresh bind-mount of a known-nonempty file must materialize non-empty.
+   Fail → `restart_proxy()` → re-probe → TG `proxy-healed` /
+   `proxy-wedged` (escalates to the nightly `wsl --shutdown` task).
 
 Verified live 2026-11-23: detected + correctly skipped the
 `/var/lib/docker/containers` empty-source false-positive, removed 2 orphan
