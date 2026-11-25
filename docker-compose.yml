@@ -2756,7 +2756,7 @@ services:
     command:
       - sh
       - -c
-      - "while :; do sh \"$${COMPOSE_PROJECT_DIR:-/w}/scripts/compose-converge.sh\"; sleep 600; done"
+      - "while :; do sh \"$${COMPOSE_PROJECT_DIR:-/w}/scripts/compose-converge.sh\"; sh \"$${COMPOSE_PROJECT_DIR:-/w}/scripts/mail-path-probe.sh\"; sleep 600; done"
     healthcheck:
       test: ["CMD", "sh", "-c", "docker info >/dev/null 2>&1"]
       interval: 60s
@@ -2773,7 +2773,11 @@ services:
       - DB_CONNECTION_URI=${INFISICAL_DB_URI}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SITE_URL=${INFISICAL_SITE_URL:-http://localhost:8090}
-      - SMTP_HOST=${SMTP_HOST}
+      # Node c-ares bypasses /etc/hosts, so the mail.cloudless.gr extra_hosts
+      # pin used by the Python services can't help here — and public DNS still
+      # points at the dead WAN IP. Connect straight to the omv-ha LAN IP;
+      # SMTP_TLS_REJECT_UNAUTHORIZED=false already covers the cert-name gap.
+      - SMTP_HOST=${INFISICAL_SMTP_HOST:-${MAIL_HOST_LAN_IP:-192.168.1.130}}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USERNAME=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
