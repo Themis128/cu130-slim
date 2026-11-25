@@ -24,9 +24,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
 from skill_http import env, usage  # noqa: E402
 
-SMTP_HOST = env("SMTP_HOST") or "192.168.1.130"
+# The postfix relay listens on the LAN (192.168.1.130:587). .env sets
+# SMTP_HOST=mail.cloudless.gr which hangs on connect from this host — try
+# the LAN IP first, then the configured host as fallback.
+SMTP_HOST_CFG = env("SMTP_HOST") or "192.168.1.130"
+SMTP_HOSTS = list(dict.fromkeys(["192.168.1.130", SMTP_HOST_CFG]))
 SMTP_PORT = int(env("SMTP_PORT") or 587)
-IMAP_HOST = env("IMAP_HOST") or SMTP_HOST
+IMAP_HOST = env("IMAP_HOST") or SMTP_HOST_CFG
 IMAP_PORT = int(env("IMAP_PORT") or 993)
 MAIL_FROM = env("MAIL_FROM") or "tbaltzakis@cloudless.gr"
 SAVE_SENT = (env("SAVE_SENT") or "true").lower() != "false"
@@ -87,38 +91,45 @@ if attach and Path(attach).is_file():
 elif attach:
     print(f"  WARNING: Attachment file not found: {attach}", file=sys.stderr)
 
-try:
-    server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30)
-    server.ehlo()
-    server.starttls()
-    server.ehlo()
-    server.login(MAIL_FROM, password)
-    server.sendmail(MAIL_FROM, [to], msg.as_string())
-    server.quit()
-    print(f"SUCCESS: Email sent to {to}")
-    print(f"  From: {MAIL_FROM}")
-    print(f"  Subject: {subject}")
-    print(f"  Via: {SMTP_HOST}:{SMTP_PORT} (STARTTLS + SASL)")
-
-    if SAVE_SENT:
-        try:
-            imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
-            imap.login(MAIL_FROM, password)
-            sent_folder = None
-            for folder in ("Sent", "INBOX.Sent", "Sent Items", "INBOX/Sent"):
-                typ, data = imap.list(folder)
-                if typ == "OK" and data and data[0]:
-                    sent_folder = folder
-                    break
-            if not sent_folder:
-                imap.create("Sent")
-                sent_folder = "Sent"
-            imap.append(sent_folder, "\\Seen",
-                        imaplib.Time2Internaldate(0), msg.as_bytes())
-            imap.logout()
-            print(f"  Saved copy to: {sent_folder} (via IMAP)")
-        except Exception as e:
-            print(f"  WARNING: Could not save Sent copy: {e}", file=sys.stderr)
-except Exception as e:
-    print(f"ERROR: {e}", file=sys.stderr)
+last_err = None
+for smtp_host in SMTP_HOSTS:
+    try:
+        server = smtplib.SMTP(smtp_host, SMTP_PORT, timeout=15)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(MAIL_FROM, password)
+        server.sendmail(MAIL_FROM, [to], msg.as_string())
+        server.quit()
+        SMTP_HOST = smtp_host
+        break
+    except Exception as e:
+        last_err = e
+        print(f"  SMTP {smtp_host}:{SMTP_PORT} failed: {e}", file=sys.stderr)
+else:
+    print(f"ERROR: {last_err}", file=sys.stderr)
     sys.exit(1)
+print(f"SUCCESS: Email sent to {to}")
+print(f"  From: {MAIL_FROM}")
+print(f"  Subject: {subject}")
+print(f"  Via: {SMTP_HOST}:{SMTP_PORT} (STARTTLS + SASL)")
+
+if SAVE_SENT:
+    try:
+        imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+        imap.login(MAIL_FROM, password)
+        sent_folder = None
+        for folder in ("Sent", "INBOX.Sent", "Sent Items", "INBOX/Sent"):
+            typ, data = imap.list(folder)
+            if typ == "OK" and data and data[0]:
+                sent_folder = folder
+                break
+        if not sent_folder:
+            imap.create("Sent")
+            sent_folder = "Sent"
+        imap.append(sent_folder, "\\Seen",
+                    imaplib.Time2Internaldate(0), msg.as_bytes())
+        imap.logout()
+        print(f"  Saved copy to: {sent_folder} (via IMAP)")
+    except Exception as e:
+        print(f"  WARNING: Could not save Sent copy: {e}", file=sys.stderr)
