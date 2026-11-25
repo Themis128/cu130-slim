@@ -416,9 +416,7 @@ async def test_run_daily_report_same_day_dedupe_skips(monkeypatch):
     collect = AsyncMock()
     monkeypatch.setattr(R, "collect_metrics", collect)
     # naive captured_at = UTC-stored row written earlier today → dedupe hit
-    monkeypatch.setattr(
-        R, "_latest_snapshot", AsyncMock(return_value=SimpleNamespace(captured_at=datetime.now()))
-    )
+    monkeypatch.setattr(R, "_latest_snapshot", AsyncMock(return_value=SimpleNamespace(captured_at=datetime.now())))
     out = await R.run_daily_report()
     assert out["ok"] is True and out["skipped"] == "report already sent today"
     collect.assert_not_called()
@@ -432,9 +430,7 @@ async def test_run_daily_report_force_bypasses_same_day(monkeypatch):
     _patch_daily_run(monkeypatch, db)
     # tz-aware captured_at (covers the non-naive branch) still today →
     # dedupe would hit, but force=True must bypass it.
-    monkeypatch.setattr(
-        R, "_latest_snapshot", AsyncMock(return_value=SimpleNamespace(captured_at=datetime.now(UTC), spend_eur=0.0, clicks=0, engagements=0))
-    )
+    monkeypatch.setattr(R, "_latest_snapshot", AsyncMock(return_value=SimpleNamespace(captured_at=datetime.now(UTC), spend_eur=0.0, clicks=0, engagements=0)))
     monkeypatch.setattr(R, "_render_report_notebook", AsyncMock(return_value=None))
     monkeypatch.setattr(R, "build_org_section", AsyncMock(return_value=""))
     monkeypatch.setattr(R, "send_email_smtp", Mock())
