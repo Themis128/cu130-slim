@@ -30,7 +30,7 @@ from app.core.config import get_settings
 from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from app.models.talk_room import TalkRoom
-from app.services.nextcloud_talk import bot_reply, create_room, post_to_room
+from app.services.nextcloud_talk import bot_reply, create_room, post_to_room, rename_room
 
 logger = logging.getLogger(__name__)
 
@@ -582,16 +582,40 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
             ]
         if platform == "instagram":
             meta = account.meta_data or {}
-            ig_user_id = meta.get("ig_user_id") or meta.get("ig_business_id") or account.account_id
             client = _ig_client(account)
             data = await client.get_conversations(limit=MAX_SYNC_ROOMS)
             raw = data.get("data") if isinstance(data, dict) else data
             if not isinstance(raw, list):
                 return []
+            # Self-matching must cover every id shape the account row carries:
+            # account_id is often the APP-scoped id while conversation
+            # participants use the real IG user id, and the business_login lane
+            # labels participants `name` not `username` — a single-id/
+            # username-only exclusion
+            # matched neither and "the other participant" resolved to SELF
+            # (rooms named after the business account, recipient_id=self).
+            self_ids = {
+                str(x)
+                for x in (
+                    account.account_id,
+                    meta.get("ig_user_id"),
+                    meta.get("ig_business_id"),
+                )
+                if x
+            }
+            self_username = (getattr(account, "username", None) or "").strip().lower()
             out = []
             for c in raw:
                 parts = (c.get("participants") or {}).get("data") or []
-                other = next((p for p in parts if str(p.get("id")) != str(ig_user_id)), {})
+                other = next(
+                    (
+                        p
+                        for p in parts
+                        if str(p.get("id")) not in self_ids
+                        and (p.get("username") or p.get("name") or "").strip().lower() != self_username
+                    ),
+                    {},
+                )
                 out.append(
                     {
                         "thread_id": c.get("id", ""),
@@ -683,7 +707,13 @@ async def sync_rooms(team_id: uuid.UUID, session_factory=async_session_maker) ->
                         room.account_id = str(account.id)  # rebind after account reconnect
                     if conv["contact_name"] and room.contact_name != conv["contact_name"]:
                         room.contact_name = conv["contact_name"]
-                    if conv["recipient_id"] and not room.recipient_id:
+                        # the Nextcloud room title carries the contact too —
+                        # rename so re-resolved contacts don't stay mislabeled
+                        await rename_room(room.room_token, _room_name(conv["platform"], conv["contact_name"]))
+                    # recipient re-resolution must win over a stale value:
+                    # rooms mapped while self-exclusion was broken carry
+                    # recipient_id=self, which silently misroutes replies
+                    if conv["recipient_id"] and room.recipient_id != conv["recipient_id"]:
                         room.recipient_id = conv["recipient_id"]
                     mapped += 1
         await db.commit()

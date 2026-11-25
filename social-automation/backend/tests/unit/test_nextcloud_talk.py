@@ -961,3 +961,46 @@ def test_valid_room_token_accepts_legacy_and_numeric_newstyle():
     for bad in ("", None, "evil.com", "a/b", "../x", "Abc123xy", "x" * 17, "short"):
         assert not valid_room_token(bad or "")
 
+
+
+@pytest.mark.asyncio
+async def test_rename_room_success_failure_and_guardrails():
+    class _Client:
+        def __init__(self, *a, **kw):
+            self._resp = getattr(_Client, "resp", None)
+            self._raise = getattr(_Client, "raise_exc", False)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def put(self, url, data=None, auth=None, headers=None):
+            if self._raise:
+                raise RuntimeError("boom")
+            return self._resp
+
+    with patch.object(TALK, "get_settings", return_value=_settings()):
+        _Client.resp, _Client.raise_exc = _Resp(200), False
+        with patch.object(TALK.httpx, "AsyncClient", _Client):
+            assert await TALK.rename_room("abc123xy", "new name") is True
+        _Client.resp = _Resp(500)
+        with patch.object(TALK.httpx, "AsyncClient", _Client):
+            assert await TALK.rename_room("abc123xy", "new name") is False
+        _Client.raise_exc = True
+        with patch.object(TALK.httpx, "AsyncClient", _Client):
+            assert await TALK.rename_room("abc123xy", "new name") is False
+        # invalid tokens never reach the network — a client that witnesses
+        # any construction raises, so passing means the guard fired first
+        class _Witness:
+            def __init__(self, *a, **kw):
+                raise AssertionError("network attempted")
+
+        with patch.object(TALK.httpx, "AsyncClient", _Witness):
+            assert await TALK.rename_room("bad token!", "x") is False
+
+    # talk disabled -> False without any network
+    with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)):
+        with patch.object(TALK.httpx, "AsyncClient", _Witness):
+            assert await TALK.rename_room("abc123xy", "x") is False

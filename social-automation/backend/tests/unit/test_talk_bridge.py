@@ -832,6 +832,77 @@ async def test_conversation_list_page():
 
 
 @pytest.mark.asyncio
+async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_shapes():
+    """Regression: account_id is app-scoped while participants carry the real
+    IG user id — single-id exclusion resolved 'other' to SELF (rooms named
+    after the business account, recipient_id=self)."""
+    acct = _acct(
+        platform="instagram",
+        username="cloudless.gr",
+        account_id="28747382798219804",
+        meta_data={"login_type": "fb_onboarding"},
+    )
+
+    class _Client:
+        async def get_conversations(self, limit=0):
+            return {
+                "data": [
+                    # live-shape payload: exclusion works via username
+                    {
+                        "id": "t1",
+                        "participants": {
+                            "data": [
+                                {"username": "cloudless.gr", "id": "17841436821573754"},
+                                {"username": "daphne.965", "id": "1430297392652118"},
+                            ]
+                        },
+                    },
+                    # business_login lane shape: participants carry `name`,
+                    # not `username` — the username exclusion must read both
+                    {
+                        "id": "t3",
+                        "participants": {
+                            "data": [
+                                {"name": "cloudless.gr", "id": "17841436821573754"},
+                                {"name": "Kostas", "id": "555000111222333"},
+                            ]
+                        },
+                    },
+                    # no usernames anywhere: exclusion must fall back to the
+                    # real ig_user_id in meta — id-only lane
+                    {
+                        "id": "t2",
+                        "participants": {
+                            "data": [
+                                {"id": "17841436821573754"},
+                                {"id": "9000000000000001"},
+                            ]
+                        },
+                    },
+                ]
+            }
+
+    acct.meta_data = {"login_type": "fb_onboarding", "ig_user_id": "17841436821573754"}
+    with patch.object(TB, "_ig_client", lambda a: _Client()):
+        out = await TB._conversation_list(acct)
+    assert out[0]["contact_name"] == "daphne.965"
+    assert out[0]["recipient_id"] == "1430297392652118"
+    # fixture order is t1, t3, t2: t3 (name-field lane) must exclude self
+    assert out[1]["contact_name"] == "Kostas"
+    assert out[1]["recipient_id"] == "555000111222333"
+    # t2: self excluded purely by meta ig_user_id (account_id matches neither)
+    assert out[2]["recipient_id"] == "9000000000000001"
+
+    # live onboarding rows carry no ig_user_id in meta at all — t1 must
+    # still resolve via the username lane alone
+    acct.meta_data = {"login_type": "fb_onboarding"}
+    with patch.object(TB, "_ig_client", lambda a: _Client()):
+        out = await TB._conversation_list(acct)
+    assert out[0]["recipient_id"] == "1430297392652118"
+    assert out[1]["recipient_id"] == "555000111222333"
+
+
+@pytest.mark.asyncio
 async def test_conversation_list_personal_and_error():
     acct = _acct(account_type="user")
 
@@ -1806,7 +1877,7 @@ async def test_conversation_list_linkedin_urn_thread_id():
 
 @pytest.mark.asyncio
 async def test_sync_rooms_existing_room_unchanged_when_already_current():
-    """Existing room with same account, no new name, recipient already set → untouched."""
+    """Existing room re-resolves recipient when the API returns fresher data; contact/room untouched when unchanged."""
     acct = _acct()
     room = _room(account_id=str(acct.id), contact_name="Jane", recipient_id="psid-1")
     convs = [
@@ -1824,7 +1895,10 @@ async def test_sync_rooms_existing_room_unchanged_when_already_current():
     create.assert_not_called()
     assert room.account_id == str(acct.id)
     assert room.contact_name == "Jane"
-    assert room.recipient_id == "psid-1"  # never overwritten once mapped
+    # recipient re-resolution wins over a stale value — a resolved
+    # participant is fresher than what was mapped (heals recipient=self
+    # rooms); only an empty resolution never overwrites
+    assert room.recipient_id == "psid-other"
     assert db.commits == 1
 
 

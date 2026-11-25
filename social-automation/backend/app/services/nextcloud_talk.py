@@ -234,6 +234,28 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None, sil
 # `name`) is the create/update field; verified live against spreed 25.x.
 
 
+async def rename_room(token: str, name: str) -> bool:
+    """Rename a Talk room (PUT room); returns True on success. Never raises."""
+    if not talk_enabled():
+        return False
+    base = _base_url()
+    if not base or not valid_room_token(token):
+        return False
+    s = get_settings()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.put(
+                f"{base}{_OCS_V4}/room/{token}",
+                data={"roomName": name[:255]},
+                auth=(s.NEXTCLOUD_USERNAME, s.NEXTCLOUD_APP_PASSWORD),
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
+            )
+            return resp.status_code in (200, 201)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Talk room rename failed: %s", exc)
+        return False
+
+
 async def create_room(name: str, *, description: str = "", room_type: int = 3) -> str | None:
     """Create a Talk room; returns the room token or None. Never raises."""
     if not talk_enabled():
