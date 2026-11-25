@@ -35,6 +35,24 @@ from pathlib import Path
 TOKEN_DIR = Path(
     os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
 )
+# Additional token dirs to refresh — the WSL devin CLI and the Windows
+# mcp-remote each keep INDEPENDENT OAuth grants under their own
+# ~/.mcp-auth/mcp-remote-v1 (refresh_token rotation means a copied file
+# would kill the other side's grant). The root cron points SLACK_TOKEN_DIR
+# at the Windows dir; SLACK_EXTRA_TOKEN_DIRS covers the WSL side.
+EXTRA_TOKEN_DIRS = [
+    Path(p)
+    for p in os.environ.get("SLACK_EXTRA_TOKEN_DIRS", "").split(":")
+    if p.strip()
+]
+
+
+def _token_dirs() -> list[Path]:
+    dirs = [TOKEN_DIR, *EXTRA_TOKEN_DIRS]
+    seen: set[Path] = set()
+    return [d for d in dirs if d.is_dir() and not (d in seen or seen.add(d))]
+
+
 ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
 # The live stack runs from the standalone compose project — its .env is
 # what containers actually read, so every sync writes BOTH files.
@@ -101,13 +119,14 @@ INFISICAL_SYNC = os.environ.get(
 def _slack_token_files() -> list[tuple[float, Path]]:
     """Return (expires_at_ms, path) for token files holding Slack chat:write scope."""
     out: list[tuple[float, Path]] = []
-    for p in TOKEN_DIR.glob("*_tokens.json"):
-        try:
-            d = json.loads(p.read_text(encoding="utf-8-sig"))
-        except Exception:
-            continue
-        if "chat:write" in (d.get("scope") or ""):
-            out.append((float(d.get("expires_at") or 0), p))
+    for d in _token_dirs():
+        for p in d.glob("*_tokens.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8-sig"))
+            except Exception:
+                continue
+            if "chat:write" in (data.get("scope") or ""):
+                out.append((float(data.get("expires_at") or 0), p))
     return sorted(out, reverse=True)
 
 
@@ -466,10 +485,15 @@ def _pick_workspace_token(
 
 
 def _team_map() -> dict:
-    try:
-        return json.loads((TOKEN_DIR / "_team_map.json").read_text(encoding="utf-8-sig"))
-    except Exception:  # noqa: BLE001
-        return {}
+    merged: dict = {}
+    for d in _token_dirs():
+        try:
+            merged.update(
+                json.loads((d / "_team_map.json").read_text(encoding="utf-8-sig"))
+            )
+        except Exception:  # noqa: BLE001
+            continue
+    return merged
 
 
 def main() -> int:

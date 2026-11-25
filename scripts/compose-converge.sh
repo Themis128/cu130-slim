@@ -4,7 +4,7 @@
 # Only restarts services that are Exited/Created from a CORE allowlist —
 # never recreates healthy containers, never pulls.
 set -u
-CORE="social-api social-api-gateway social-worker-default social-worker-publishing social-worker-media social-worker-messenger celery-beat social-postgres redis social-cloudflared social-frontend"
+CORE="social-api social-api-gateway social-worker-default social-worker-publishing social-worker-media social-worker-messenger social-worker-meta celery-beat social-postgres redis social-cloudflared social-frontend"
 cd "$(dirname "$0")/.."
 
 # Deploy lock — another agent/human is deploying; hands off entirely
