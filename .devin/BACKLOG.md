@@ -4896,3 +4896,33 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (`has_session:false` → profile-picker loop). If escalations need the
   sidecar again, re-login via `POST /login` (FACEBOOK_USERNAME/
   PASSWORD + TOTP from META_TOTP_SECRET_AC) once the stack settles.
+
+## 2026-11-25 — Cross-repo dependabot sweep leftovers
+
+Swept every Themis128 repo for open PRs. Public repos are clean
+(devoptimizer 43 merged, figma-cloud-portfolio merged, matlab-nuxt-app
+cline pair #160/#162 closed + `@dependabot ignore this major version` —
+v3 is a different CLI generation and trips Snyk; cu130-slim #2644
+auto-merge armed).
+
+**Blocked — GitHub Actions billing (owner action required):**
+private-repo Actions fail account-wide with "job was not started because
+recent account payments have failed or your spending limit needs to be
+increased". Public repos unaffected (free minutes). Fix: GitHub →
+Settings → Billing & plans → Payment information (card / failed invoice /
+Actions budget). Once fixed, sweep these parked dependabot PRs:
+
+- `S3-WEBSITE-FRESH` — 25 open (#16–#41; several MAJOR bumps: vue-router
+  5, @nuxt/content 3, tailwindcss 4, @vueuse 15 — review before merge,
+  not all are safe auto-merges)
+- `your-portfolio` — 9 open (#41–#49; nodemailer 7→10 major, qs+express)
+- `ds_app` — 9 open (#6–#14; Java/Maven group + snowflake-jdbc 3→4 major)
+- `cloudless-gr-web` — 3 open (#49 dev-group, #51 jsdom 29→31 major,
+  #54 vitest patch)
+- `www` — 1 open (#17 production-deps group)
+
+**Also pending:**
+- Root `cu130-slim` compose project still runs ~25 duplicate containers
+  on stale bind-mounts alongside production `socialauto-standalone` —
+  decide whether to retire (`docker compose -p cu130-slim down` for the
+  duplicated backend services). pr-land-watch now deploys to standalone.
