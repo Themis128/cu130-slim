@@ -2024,6 +2024,33 @@ def test_worker_task_lock_failopen_when_client_down():
         assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
 
 
+def test_worker_task_lock_release_error_swallowed():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    class _FlakyReleaseRedis(_FakeLockRedis):
+        def get(self, key):
+            raise ConnectionError("redis blip during release")
+
+    redis = _FlakyReleaseRedis(acquired=True)
+    with (
+        patch.object(task_mod, "_lock_client", return_value=redis),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+
+
+def test_worker_task_lock_client_none_runs_unlocked():
+    from app.worker.tasks import talk_bridge as task_mod
+
+    with (
+        patch.object(task_mod, "_lock_client", return_value=None),
+        patch.object(task_mod, "run_async", _run_async_sync),
+        patch.object(task_mod, "bridge_enabled", return_value=False),
+    ):
+        assert task_mod.talk_bridge_sync() == {"skipped": "talk bridge disabled"}
+
+
 def test_lock_client_returns_none_on_import_failure(monkeypatch):
     from app.worker.tasks import talk_bridge as task_mod
 
