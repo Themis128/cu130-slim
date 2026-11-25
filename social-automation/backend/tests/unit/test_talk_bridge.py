@@ -879,6 +879,13 @@ async def test_conversation_list_instagram_excludes_self_by_username_and_all_id_
     # self excluded purely by meta ig_user_id (account_id matches neither)
     assert out[1]["recipient_id"] == "9000000000000001"
 
+    # live onboarding rows carry no ig_user_id in meta at all — t1 must
+    # still resolve via the username lane alone
+    acct.meta_data = {"login_type": "fb_onboarding"}
+    with patch.object(TB, "_ig_client", lambda a: _Client()):
+        out = await TB._conversation_list(acct)
+    assert out[0]["recipient_id"] == "1430297392652118"
+
 
 @pytest.mark.asyncio
 async def test_conversation_list_personal_and_error():
@@ -1855,7 +1862,7 @@ async def test_conversation_list_linkedin_urn_thread_id():
 
 @pytest.mark.asyncio
 async def test_sync_rooms_existing_room_unchanged_when_already_current():
-    """Existing room with same account, no new name, recipient already set → untouched."""
+    """Existing room re-resolves recipient when the API returns fresher data; contact/room untouched when unchanged."""
     acct = _acct()
     room = _room(account_id=str(acct.id), contact_name="Jane", recipient_id="psid-1")
     convs = [
@@ -1873,7 +1880,10 @@ async def test_sync_rooms_existing_room_unchanged_when_already_current():
     create.assert_not_called()
     assert room.account_id == str(acct.id)
     assert room.contact_name == "Jane"
-    assert room.recipient_id == "psid-1"  # never overwritten once mapped
+    # recipient re-resolution wins over a stale value — a resolved
+    # participant is fresher than what was mapped (heals recipient=self
+    # rooms); only an empty resolution never overwrites
+    assert room.recipient_id == "psid-other"
     assert db.commits == 1
 
 
