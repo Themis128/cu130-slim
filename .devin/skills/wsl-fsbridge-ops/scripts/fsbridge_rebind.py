@@ -19,7 +19,13 @@ Exited(127)/created casualties — compose-managed ones via
 `up -d --force-recreate --no-deps` (restart preserves the poisoned mount
 table; recreate re-materializes it — verified 2026-11-24), non-compose via
 `docker start`. Orphan empty hashes (no container refs) are lazily
-unmounted and removed.
+unmounted and removed. RUNNING containers on poisoned binds keep their
+stale mount namespace — VM-side rebind does NOT propagate into them
+(verified 2026-11-25: /notebooks hash rebound OK, workers still saw it
+empty). Every pass therefore also probes each running container's bind
+dests: source non-empty + dest empty = stale -> force-recreate (per-name
+cooldown via state["watch"]). This also closes the loop when a hash was
+rebound on a PREVIOUS pass and the clean probe no longer flags it.
 
 Probe + rebind both run INSIDE the docker-desktop VM via a privileged
 container + `nsenter -t 1` (pure docker CLI — no Windows interop needed,
@@ -233,7 +239,8 @@ def journal_hash_map() -> dict[str, str]:
     out = {}
     try:
         r = subprocess.run(
-            ["journalctl", "-u", "dd-user-distro-proxy.service", "--no-pager", "-o", "cat"],
+            ["journalctl", "-u", "dd-user-distro-proxy.service", "--no-pager",
+             "-o", "cat", "-n", "20000"],
             capture_output=True, text=True, timeout=30,
         )
         pat = re.compile(
@@ -381,6 +388,116 @@ def source_kind(src: str) -> str:
     return "dir"
 
 
+def container_bind_dests(name: str) -> list[tuple[str, str]]:
+    """[(dest_path, hash)] for a container's bind mounts — hash is the
+    hashed-bind-mount dir basename, or sha256(source) for raw sources."""
+    out: list[tuple[str, str]] = []
+    mounts = docker("inspect", "-f", "{{json .Mounts}}", name)
+    try:
+        for m in json.loads(mounts):
+            if m.get("Type") != "bind":
+                continue
+            src = m.get("Source", "")
+            if f"docker-desktop-bind-mounts/{DISTRO}/" in src:
+                h = src.rstrip("/").rsplit("/", 1)[-1]
+            else:
+                h = hashlib.sha256(src.encode()).hexdigest()
+            out.append((m.get("Destination", ""), h))
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def stale_running(learned: dict[str, str]) -> dict[str, list[str]]:
+    """Probe every RUNNING container's bind dests: where the Ubuntu-side
+    source is non-empty but the container's view of the dest is empty,
+    the container is running on a stale (poisoned) mount namespace —
+    the class the VM-side probe cannot see after the hash is rebound.
+    Returns {name: [empty dest paths]}. Sockets are skipped (size-0 is
+    normal) and unreadable sources defer to the VM-side guard."""
+    out: dict[str, list[str]] = {}
+    for name in docker("ps", "--format", "{{.Names}}").split():
+        checks: list[tuple[str, str]] = []
+        for dest, h in container_bind_dests(name):
+            src = learned.get(h)
+            if not src:
+                continue
+            kind = source_kind(src)
+            if kind == "sock":
+                continue
+            try:
+                if kind == "dir":
+                    if not os.path.isdir(src) or not os.listdir(src):
+                        continue  # legitimately empty source — not poison
+                elif not (os.path.isfile(src) and os.path.getsize(src) > 0):
+                    continue
+            except OSError:
+                continue  # unreadable source — VM-side guard owns it
+            checks.append((dest, kind))
+        if not checks:
+            continue
+        script = ";".join(
+            (
+                f'[ -s "{d}" ]'
+                if k == "file"
+                else f'[ -n "$(ls -A "{d}" 2>/dev/null)" ]'
+            )
+            + f' && echo "HAS {i}" || echo "EMPTY {i}"'
+            for i, (d, k) in enumerate(checks)
+        )
+        try:
+            r = subprocess.run(
+                ["docker", "exec", name, "sh", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        empties = [
+            checks[int(l.split()[1])][0]
+            for l in r.stdout.splitlines()
+            if l.startswith("EMPTY ") and l.split()[1].isdigit()
+        ]
+        if empties:
+            out[name] = empties
+    return out
+
+
+def recreate_stale_running(
+    stale: dict[str, list[str]], state: dict, now: float
+) -> int:
+    """Force-recreate running containers sitting on stale mounts. Per-name
+    cooldown/throttle persists in state['watch'] so a recreate that lands
+    on a still-dead bridge doesn't thrash; escalates after 3 tries."""
+    watch: dict = state.setdefault("watch", {})
+    for name in list(watch):
+        if name not in stale:
+            del watch[name]  # healed (or gone — casualty path owns it)
+    n_total = 0
+    for name in stale:
+        e = watch.setdefault(name, {"first": now, "tries": 0, "last_try": 0})
+        cooldown = 1800 if e.get("tries", 0) >= 3 else 300
+        if now - e.get("last_try", 0) < cooldown:
+            continue
+        e["last_try"] = now
+        e["tries"] = e.get("tries", 0) + 1
+        n_rec, dead = recreate_casualties([name])
+        n_total += n_rec
+        for cid in dead:
+            subprocess.run(
+                ["docker", "restart", cid],
+                capture_output=True, timeout=120,
+            )
+            log(f"stale-mount restart fallback (non-compose): {name}")
+        if e["tries"] >= 3:
+            alert(
+                "stale-mount",
+                f"fsbridge: {name} still on empty binds {stale[name]} after "
+                f"{e['tries']} recreates — bridge may still be dead",
+            )
+    _save_state(state)
+    return n_total
+
+
 def recreate_casualties(casualties: list[str]) -> tuple[int, list[str]]:
     """Recreate compose-managed casualties so bind mounts re-materialize
     from healed hashed sources. Returns (recreated_count, ids needing a
@@ -500,10 +617,27 @@ def main() -> int:
     if shape_bad:
         log(f"shape-suspect mounts (wrong/missing node): {[h[:12] for h in sorted(shape_bad)]}")
 
-    if not suspects:
-        return 0  # healthy — cheap exit
-
     now = time.time()
+
+    if not suspects:
+        # VM probe clean — but a container may still hold a stale mount
+        # namespace from a poison wave an earlier rebind already healed.
+        # Probe running containers' dests and recreate the stale ones.
+        stale = stale_running(learned)
+        if stale:
+            log(
+                f"{len(stale)} running containers on stale mounts: "
+                f"{sorted(stale)} — recreating"
+            )
+            n = recreate_stale_running(stale, state, now)
+            log(f"stale-watch: recreated {n} running containers")
+            alert(
+                "stale-healed",
+                f"fsbridge stale-watch: recreated {n} of {len(stale)} running "
+                f"containers on stale mounts: {', '.join(sorted(stale)[:10])}",
+            )
+        return 0
+
     last = state.get("last_rebind", 0)
     if now - last < MIN_INTERVAL:
         # still poisoned right after a heal attempt -> alert once, don't loop
@@ -609,6 +743,13 @@ def main() -> int:
                 f"plain-started {len(still_dead)} non-compose casualties: "
                 f"{r.stdout.strip()[:120]} {r.stderr.strip()[:120]}"
             )
+
+    # post-heal stale pass: running containers that reference rebound
+    # hashes keep the stale mount namespace — recreate them too.
+    stale = stale_running(learned)
+    if stale:
+        log(f"{len(stale)} running containers on stale mounts post-heal: {sorted(stale)}")
+        recreated += recreate_stale_running(stale, state, now)
 
     ok_n = sum(1 for l in out.splitlines() if l.startswith("OK"))
     skip_n = sum(1 for l in out.splitlines() if l.startswith("SKIP"))
