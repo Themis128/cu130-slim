@@ -41,9 +41,10 @@ _ROOM_TOKEN_RE = re.compile(r"^[a-z0-9]{8,16}$")
 def valid_room_token(token: str) -> bool:
     """Talk room tokens are lowercase alnum — 8 chars historically, 10-digit
     numeric on newer Nextcloud/Talk versions (observed live 2026-11-25 on
-    Nextcloud 34: tokens like 6961273562). Upper bound 16 matches the talk_rooms.room_token varchar(16) column — longer tokens could never be stored anyway. Bounded length keeps the SSRF
-    guard: nothing with slashes, dots, or host-like chars ever reaches a
-    request URL."""
+    Nextcloud 34: tokens like 6961273562). Upper bound 16 matches the
+    talk_rooms.room_token varchar(16) column — longer tokens could never be
+    stored anyway. Bounded length keeps the SSRF guard: nothing with slashes,
+    dots, or host-like chars ever reaches a request URL."""
     return bool(_ROOM_TOKEN_RE.match(token or ""))
 
 
