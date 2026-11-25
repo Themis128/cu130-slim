@@ -35,12 +35,15 @@ logger = logging.getLogger(__name__)
 
 _OCS = "/ocs/v2.php/apps/spreed/api/v1"
 _OCS_V4 = "/ocs/v2.php/apps/spreed/api/v4"
-_ROOM_TOKEN_RE = re.compile(r"^[a-z0-9]{8}$")
+_ROOM_TOKEN_RE = re.compile(r"^[a-z0-9]{8,20}$")
 
 
 def valid_room_token(token: str) -> bool:
-    """Talk room tokens are 8-char lowercase alnum — anything else never
-    reaches a request URL (SSRF guard for API-derived tokens)."""
+    """Talk room tokens are lowercase alnum — 8 chars historically, 10-digit
+    numeric on newer Nextcloud/Talk versions (observed live 2026-11-25 on
+    Nextcloud 34: tokens like 6961273562). Bounded length keeps the SSRF
+    guard: nothing with slashes, dots, or host-like chars ever reaches a
+    request URL."""
     return bool(_ROOM_TOKEN_RE.match(token or ""))
 
 

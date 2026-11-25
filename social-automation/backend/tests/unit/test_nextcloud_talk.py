@@ -949,3 +949,15 @@ async def test_bot_reply_unmapped_room_and_db_error_fail_closed():
     with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", _Client):
         assert await TALK.bot_reply("room-ops", "hi", db=db) is True
     assert db.queries == 0
+
+def test_valid_room_token_accepts_legacy_and_numeric_newstyle():
+    from app.services.nextcloud_talk import valid_room_token
+
+    # legacy 8-char lowercase alnum
+    assert valid_room_token("abc123xy")
+    # newer Nextcloud 34 numeric 10-digit tokens (observed live 2026-11-25)
+    assert valid_room_token("6961273562")
+    # SSRF guard: hostnames, paths, empties never pass
+    for bad in ("", None, "evil.com", "a/b", "../x", "Abc123xy", "x" * 21, "short"):
+        assert not valid_room_token(bad or "")
+
