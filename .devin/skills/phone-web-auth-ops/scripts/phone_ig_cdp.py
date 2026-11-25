@@ -206,10 +206,13 @@ def main():
     elif a.action == "cookies":
         r = tab.cmd("Network.getCookies",
                     {"urls": ["https://www.instagram.com/",
+                              "https://www.threads.net/",
                               "https://www.threads.com/"]})
         for c in r.get("result", {}).get("cookies", []):
-            print("%s\t%s\t%s" % (c.get("domain"), c.get("name"),
-                                    c.get("value", "")[:40]))
+            # presence + shape only — session cookie values are credentials
+            # and must not land in transcripts/logs even in part
+            v = c.get("value", "")
+            print("%s\t%s\tlen=%d" % (c.get("domain"), c.get("name"), len(v)))
 
 
 if __name__ == "__main__":
