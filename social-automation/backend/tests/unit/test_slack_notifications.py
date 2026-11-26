@@ -1262,6 +1262,7 @@ async def test_flush_requeue_failure_is_swallowed():
             return await self.inner.delete(*a)
 
         async def rpush(self, *a):
+            self.rpush_attempted = True
             raise RuntimeError("redis died mid-requeue")
 
         async def get(self, *a):
@@ -1273,10 +1274,13 @@ async def test_flush_requeue_failure_is_swallowed():
         async def aclose(self):
             pass
 
+    flaky = FlakyRedis()
+    flaky.rpush_attempted = False
     client = AsyncMock()
     client.send_message = AsyncMock(side_effect=RuntimeError("tg down"))
-    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=FlakyRedis()):
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=flaky):
         assert await sn.flush_digest_queue() == 0  # no raise
+    assert flaky.rpush_attempted  # the requeue was actually attempted
 
 
 @pytest.mark.asyncio
