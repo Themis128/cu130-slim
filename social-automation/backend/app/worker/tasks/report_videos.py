@@ -36,8 +36,45 @@ logger = logging.getLogger(__name__)
 _STALE_AFTER = timedelta(hours=6)
 # Total retry budget across re-dispatches.
 _MAX_RENDER_ATTEMPTS = 2
+# Infra-class failures (GPU lock, DB boot, ComfyUI/engine flaps, worker
+# loss) get their own budget — they are environment faults, not render
+# faults, and must not burn the genuine-attempt counter.
+_MAX_INFRA_RETRIES = 8
 # Don't resurrect content older than this — reports are perishable.
 _RETRY_WINDOW = timedelta(hours=48)
+
+# Substrings (lowercased) marking a render failure as infrastructure.
+# Kept narrow: prompt/content errors must still count as real attempts.
+_INFRA_MARKERS = (
+    "gpu media lock",
+    "media lock",
+    "gpu-arbiter",
+    "database system is starting up",
+    "connection refused",
+    "could not connect",
+    "connecterror",
+    "operationalerror",
+    "comfyui unreachable",
+    "comfyui connect",
+    "comfyui request",
+    "comfyui http",
+    "worker lost",
+    "workerlost",
+    "lost worker",
+    "timed out",
+    "timeout",
+    "softtimelimitexceeded",
+    "timelimitexceeded",
+    "broker",
+    "redis",
+)
+
+
+def _is_infra_reason(reason: str) -> bool:
+    r = reason.lower()
+    return any(m in r for m in _INFRA_MARKERS)
+
+
 # Machine drafts with no pending render older than this are superseded.
 _STALE_DRAFT_AFTER = timedelta(hours=72)
 _REPORT_SOURCES = {
@@ -104,10 +141,19 @@ def materialize_report_videos() -> dict:
             nonlocal retried, failed
             meta = dict(post.meta_data or {})
             attempts = int(meta.get("video_render_attempts") or 0)
+            infra_attempts = int(meta.get("video_render_infra_retries") or 0)
+            infra = _is_infra_reason(reason)
             created = post.created_at or datetime.now(UTC)
             if created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
-            if attempts < _MAX_RENDER_ATTEMPTS and datetime.now(UTC) - created < _RETRY_WINDOW:
+            within_window = datetime.now(UTC) - created < _RETRY_WINDOW
+            if infra:
+                budget_left = infra_attempts < _MAX_INFRA_RETRIES
+                counter_key, counter_val = "video_render_infra_retries", infra_attempts + 1
+            else:
+                budget_left = attempts < _MAX_RENDER_ATTEMPTS
+                counter_key, counter_val = "video_render_attempts", attempts + 1
+            if budget_left and within_window:
                 try:
                     new_task = _redispatch_video(post, meta)
                 except Exception as exc:  # noqa: BLE001
@@ -120,13 +166,19 @@ def materialize_report_videos() -> dict:
                             return
                         fm = dict(fresh.meta_data or {})
                         fm["pending_video_task"] = new_task
-                        fm["video_render_attempts"] = attempts + 1
+                        fm[counter_key] = counter_val
                         fm["video_render_dispatched_at"] = datetime.now(UTC).isoformat()
                         fm["last_render_error"] = reason[:200]
                         fresh.meta_data = fm
                         await dbx.commit()
                     retried += 1
-                    logger.info("video render retry %s for post %s (%s)", attempts + 1, post.id, reason[:80])
+                    logger.info(
+                        "video render retry (%s) %s for post %s (%s)",
+                        "infra" if infra else "attempt",
+                        counter_val,
+                        post.id,
+                        reason[:80],
+                    )
                     return
             await _mark_failed(post.id, reason)
             failed += 1

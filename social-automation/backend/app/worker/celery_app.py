@@ -166,7 +166,9 @@ celery_app.conf.update(
     # Auto-clean Redis result backend — prevents unbounded growth.
     result_expires=3600,
     # Redis visibility timeout must exceed the longest task time limit.
-    broker_transport_options={"visibility_timeout": 3600},
+    # 7200s: Wan2.2 renders get a 50-min hard limit plus queue/ComfyUI
+    # overhead — 3600s left too little margin for duplicate redelivery.
+    broker_transport_options={"visibility_timeout": 7200},
     # ── Global limits (overridden per-task via task_annotations) ──────────
     task_time_limit=3600,
     task_soft_time_limit=3000,

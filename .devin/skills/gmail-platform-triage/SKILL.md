@@ -49,3 +49,14 @@ python3 .devin/skills/gmail-platform-triage/scripts/gmail_platform_triage.py \
   counts — they are platform mail but produce no action; trashing them is
   cosmetic cleanup, do it in bulk only when asked.
 - Never print or commit token values — the script reads `.env` at runtime.
+
+## Scheduled watch — gmail_platform_watch.py
+
+Proactive platform-issue scanner (cron every 3h): scans the security +
+high-signal platform categories over a rolling window, keyword-filters for
+account-actionable events (locks, suspensions, webhook blocks, policy,
+unauthorized access — routine auth noise excluded), dedupes via
+~/.cache/gmail_platform_watch/seen.json, and alerts hits to Telegram #ops
+via tg_alert.py. --dry-run prints without alerting; --hours N widens the
+window. Read-only token suffices. Covers baltzakis.themis@gmail.com only —
+themis.baltzakis@gmail.com still has no OAuth grant.
