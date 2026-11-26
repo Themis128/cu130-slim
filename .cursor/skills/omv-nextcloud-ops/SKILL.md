@@ -205,8 +205,24 @@ STUN binding requests) and prints an honest pass/fail summary.
     `nas-auto-remediate --docker-health` restarts a persistently
     unhealthy bridge as a third tier. ntfy via the shared
     wedge-watchdog env file. Repo mirror: `host-scripts/`.
-  - Only real fixes for WAN loss itself: dual-WAN/4G failover on the
-    router, or an ISP ticket for the recurring CGNAT drops.
+- **Talk SIP dial-in** (linphone `cloudlessgr`, container
+  `talk-sip-bridge`, `/srv/dev-disk-by-uuid-…/talk-sip-bridge/`):
+  caller dials `sip:cloudlessgr@sip.linphone.org` → bridge answers
+  (`BRIDGE_CONFERENCE_NUMBERS=cloudlessgr`) → spoken IVR
+  (piper-synthesized WAVs in `./prompts`, mounted `/app/prompts`,
+  `BRIDGE_IVR_PROMPT_WAV` en+el comma-separated) → caller keys a
+  numeric meeting id → joined to that SIP-enabled room. **Caller who
+  keys nothing drops into `BRIDGE_DEFAULT_ROOM`** (= consult room
+  `3294636523`) via a local patch to `dialin_ivr.py`
+  (`fallback_token` param; re-apply with
+  `host-scripts/patch_ivr_fallback.py` if the bridge source is ever
+  re-cloned). Room tokens must be all-digits for DTMF — create
+  SIP-enabled rooms with `sipEnabled:2` at OCS create time so Talk
+  issues a numeric token. Local patches vs upstream: SHA-256 digest
+  auth in `sip_messages/sip_requests/sip_registrar/sip_call` +
+  IVR `fallback_token` — both only on omv host source, not upstream.
+- Only real fixes for WAN loss itself: dual-WAN/4G failover on the
+  router, or an ISP ticket for the recurring CGNAT drops.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
 
 ## nextcloud-integration
