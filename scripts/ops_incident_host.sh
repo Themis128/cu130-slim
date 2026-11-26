@@ -55,6 +55,10 @@ ON CONFLICT (fingerprint) DO UPDATE SET
                 ELSE ops_incidents.status END,
   resolved_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
                      ELSE ops_incidents.resolved_at END,
+  alerted_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
+                    ELSE ops_incidents.alerted_at END,
+  alerted_severity = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
+                          ELSE ops_incidents.alerted_severity END,
   severity = CASE
     WHEN ops_incidents.status = 'resolved'
          AND ops_incidents.resolved_at < now() - interval '24 hours' THEN EXCLUDED.severity

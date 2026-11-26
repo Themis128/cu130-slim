@@ -123,6 +123,17 @@ async def report_incident(
                 (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
                 else_=OpsIncident.status,
             ),
+            # ONLY a reopen-from-resolved resets the alert gate — a new episode
+            # earns exactly one fresh alert. Re-reports on a live (triaged)
+            # episode must never reset it, or chronic reporters loop forever.
+            "alerted_at": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                else_=OpsIncident.alerted_at,
+            ),
+            "alerted_severity": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                else_=OpsIncident.alerted_severity,
+            ),
             "resolved_at": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
                 else_=OpsIncident.resolved_at,
@@ -274,7 +285,7 @@ async def sweep(db: AsyncSession) -> dict:
         (
             await db.execute(
                 select(OpsIncident)
-                .where(OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED]))
+                .where(OpsIncident.status == IncidentStatus.OPEN)
                 .order_by(OpsIncident.first_seen)
                 .limit(MAX_OPEN_PER_SWEEP)
             )
@@ -342,7 +353,20 @@ async def sweep(db: AsyncSession) -> dict:
     return stats
 
 
+_SEV_RANK = {"info": 0, "ops": 1, "critical": 2}
+
+
+def _alert_due(inc: OpsIncident, severity: str) -> bool:
+    """Alert-once-per-episode gate: post only when never alerted this episode
+    or when the new severity outranks the severity we last alerted at."""
+    if inc.alerted_at is None:
+        return True
+    return _SEV_RANK.get(severity, 1) > _SEV_RANK.get(inc.alerted_severity or "", 0)
+
+
 async def _alert(inc: OpsIncident, severity: str) -> None:
+    if not _alert_due(inc, severity):
+        return
     try:
         from app.services.slack_notifications import send_telegram_alert
 
@@ -355,5 +379,7 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
             f"action: {inc.proposed_action or inc.action_taken or 'none'}" + (f" → {inc.action_result[:300]}" if inc.action_result else "")
         )
         await send_telegram_alert(severity, text)
+        inc.alerted_at = datetime.now(UTC)
+        inc.alerted_severity = severity
     except Exception as exc:
         logger.warning("ops-agent alert failed: %s", exc)
