@@ -2078,7 +2078,10 @@ async def _fetch_instagram_media_metrics(
         params={"access_token": token},
     )
     if resp.status_code != 200:
-        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {_meta_error_message(resp)}")
+        msg = _meta_error_message(resp)
+        if "does not exist" in msg:
+            return MetricBundle(notes="platform_deleted")
+        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {msg}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -2163,6 +2166,14 @@ async def sync_instagram_account(
                 continue
             covered.add(media_id)
             metrics = _insights_or_skip(media_id) or await _fetch_instagram_media_metrics(client, token, ig_user_id, media_id)
+            if metrics.notes == "platform_deleted":
+                # Media deleted upstream or inaccessible to this token —
+                # retire the target so future syncs skip it (Threads parity).
+                t.status = "deleted"
+                t.error_message = "Media deleted on Instagram"
+                await _resolve_stale_note(db, account.id, "instagram", media_id)
+                result.skipped += 1
+                continue
             await _persist_snapshot(
                 db,
                 account=account,
