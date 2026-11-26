@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Add professional links to ALL connected social accounts.
 Website: https://cloudless.gr
-Portfolio: https://baltzakisthemis.com
+Portfolio: https://portfolio.cloudless.gr
 WhatsApp: https://wa.me/306977777838"""
 
 import subprocess

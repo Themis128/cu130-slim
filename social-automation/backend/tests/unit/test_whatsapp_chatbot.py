@@ -729,3 +729,73 @@ async def test_reply_dmr_empty_then_cf_variants(monkeypatch, redis):
     await W.mark_disclosed("a1", "p4")
     reply = await W.generate_contextual_reply(**_reply_kwargs(phone="p4"))
     assert reply == "cf ok"
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_lead_capture_gate(monkeypatch, redis):
+    """Trigger/mid-flow DMs get the qualification flow instead of the bot."""
+    _pipeline_patches(monkeypatch)
+    from types import SimpleNamespace
+
+    import app.services.lead_capture as LC
+    import app.worker._async as TA
+
+    reply = SimpleNamespace(
+        text="What is your name?",
+        quick_replies=[{"title": "Solo"}, {"title": "SMB"}, {"payload": "x"}],
+    )
+    monkeypatch.setattr(LC, "handle_lead_capture_message", AsyncMock(return_value=reply))
+
+    class _TS:
+        async def __aenter__(self):
+            return Mock()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(TA, "task_session", lambda: _TS())
+    out = await W.process_inbound_message(
+        account_id=str(uuid.uuid4()),
+        team_id=str(uuid.uuid4()),
+        phone="p",
+        sender_name="S",
+        message_text="audit",
+        message_id="m1",
+        config={"enabled": True},
+        account_name="Cloudless",
+    )
+    assert out["intent"] == "lead_capture"
+    assert "What is your name?" in out["reply"]
+    assert "Solo · SMB" in out["reply"]  # quick-reply titles render as text menu
+    W.detect_intent.assert_not_awaited()  # bot path skipped
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_lead_capture_passthrough(monkeypatch, redis):
+    """No capture match (or missing team) → normal bot flow continues."""
+    _pipeline_patches(monkeypatch, intent="question", reply="bot reply")
+    import app.services.lead_capture as LC
+    import app.worker._async as TA
+
+    monkeypatch.setattr(LC, "handle_lead_capture_message", AsyncMock(return_value=None))
+
+    class _TS:
+        async def __aenter__(self):
+            return Mock()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(TA, "task_session", lambda: _TS())
+    out = await W.process_inbound_message(
+        account_id=str(uuid.uuid4()),
+        team_id=str(uuid.uuid4()),
+        phone="p",
+        sender_name="S",
+        message_text="how?",
+        message_id="m1",
+        config={"enabled": True},
+        account_name="Cloudless",
+    )
+    assert out["intent"] == "question"
+    assert out["reply"] == "bot reply"

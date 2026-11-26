@@ -536,6 +536,19 @@ async def notify_lead_created(lead: Lead) -> None:
         except Exception:
             logger.debug("Email lead notify failed (non-fatal)", exc_info=True)
 
+    # 1c) Telegram #intel — fastest owner channel; fingerprint-deduped.
+    if not is_test:
+        try:
+            from app.services.slack_notifications import send_telegram_alert
+
+            interest = lead.interest.value if lead.interest else "—"
+            await send_telegram_alert(
+                "intel",
+                f"New lead — {lead.name} ({lead.source.value})\nEmail: {lead.email} · Interest: {interest}",
+            )
+        except Exception:
+            logger.debug("Telegram lead notify failed (non-fatal)", exc_info=True)
+
     # 2) Generic webhook (optional) — ideal for n8n workflows.
     webhook_url = (getattr(settings, "LEAD_CREATED_WEBHOOK_URL", "") or "").strip()
     if webhook_url:

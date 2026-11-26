@@ -1877,9 +1877,10 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] **fleet cron probes → Worker Cron Triggers** — optional: move pure
   HTTP health probes into a CF Worker cron so they survive host sleep;
   TG alerting already available via bot API from worker.
-- [ ] **baltzakisthemis.com** — registrar clientHold at Amazon Registrar
-  (since 2026-10-22); lift hold in AWS console if domain wanted back.
-  Portfolio no longer depends on it (portfolio.cloudless.gr live).
+- [x] **baltzakisthemis.com** — DECLINED (2026-11-26, user decision):
+  domain left on registrar clientHold; not wanted back. All live refs
+  removed (prompts → LinkedIn, docs/env/DB → portfolio.cloudless.gr).
+  Portfolio canonical at portfolio.cloudless.gr.
 
 ## Report-delivery incident + watcher (2026-11-12 eve)
 
@@ -4928,15 +4929,11 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (PR #355); 2 green runs. Dependabot vuln surgery 142→10, 0 critical
   (PR #357). Repo secrets CLOUDFLARE_API_TOKEN/ACCOUNT_ID set; 8 dead
   AWS/AMPLIFY secrets removed.
-- **USER ACTION — domain rescue**: `baltzakisthemis.com` is on
-  `clientHold` at Amazon Registrar under the closed AWS account;
-  AWS deletes Amazon-Registrar domains ~30 days after suspension.
-  Path: AWS Support → Account and Billing → Domains → Registration
-  Issue (free; "can't sign in" path exists for closed accounts) →
-  request hold lift + transfer auth code → transfer to Cloudflare
-  Registrar → then attach custom domain to the Worker
-  (`wrangler.toml routes` or dashboard Worker → Domains).
-  Tracked: figma-cloud-portfolio issue #358.
+- **Domain rescue — DECLINED (2026-11-26, user decision)**: user does
+  not want `baltzakisthemis.com` back; let it lapse on clientHold.
+  Canonical portfolio is `portfolio.cloudless.gr`; all app/repo
+  references were removed or re-pointed. Close figma-cloud-portfolio
+  issue #358 as wont-do if still open.
 - **Deferred rebuild** (dead AWS features, options in issue #358):
   admin login (Cognito → Firebase Auth — secrets already in repo),
   chatbot (Bedrock → Workers AI or DMR), contact form (Lambda →

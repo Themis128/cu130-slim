@@ -103,7 +103,7 @@ docker compose exec -T social-api python /app/app/scripts/instagram_bio_generato
   --skills "Cloud Architect · Azure · AWS" \
   --experience "15+ yrs building systems" \
   --location "Athens" \
-  --links "cloudless.gr | baltzakisthemis.com" \
+  --links "cloudless.gr | portfolio.cloudless.gr" \
   --style bold-brand
 
 ## List all styles
@@ -123,7 +123,7 @@ docker compose exec -T social-api python /app/app/scripts/instagram_profile_upda
 ☁️ Cloud Architect · Azure · AWS
 💡 15+ yrs building systems
 📍 Athens → Worldwide
-↓ cloudless.gr | baltzakisthemis.com"
+↓ cloudless.gr | portfolio.cloudless.gr"
 
 ## Or using curl directly
 curl -s -X PATCH http://localhost:9223/profile/instagram \

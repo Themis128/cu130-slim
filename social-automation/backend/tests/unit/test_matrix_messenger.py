@@ -350,3 +350,45 @@ def test_run_async_falls_back_without_loop(monkeypatch):
         return 1
 
     assert MM._run_async(_coro()) == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_lead_capture_gate_intercepts_trigger(monkeypatch):
+    """A capture-flow DM is answered by the qualification flow, not the bot."""
+    import app.services.lead_capture as LC
+
+    acct = _account({"personal_messenger_auto_reply": {"enabled": True, "cooldown_seconds": 60}})
+    payload = {
+        "next_batch": "nb3",
+        "rooms": {"join": {"!room2:x": {"timeline": {"events": [_msg("@facebook_ghost:x", "audit", "$e10")]}}}},
+    }
+    client = _wire(monkeypatch, [acct], _Client(payload))
+    reply = SimpleNamespace(text="What is your name?", quick_replies=None)
+    monkeypatch.setattr(LC, "handle_lead_capture_message", AsyncMock(return_value=reply))
+    MM.store_message_memory.side_effect = [None, RuntimeError("chroma down")]  # non-fatal
+    out = await MM._poll_matrix_messenger_async()
+    assert out["replies_sent"] == 1
+    send_calls = [(u, k) for u, k in client.puts if "/send/m.room.message/" in u]
+    assert len(send_calls) == 1
+    assert send_calls[0][1]["json"]["body"] == "What is your name?"
+    MM.detect_intent.assert_not_awaited()  # bot path skipped
+    assert acct.meta_data["matrix_messenger_seen"]["!room2:x"] == "$e10"
+
+
+@pytest.mark.asyncio
+async def test_lead_capture_failure_falls_back_to_bot(monkeypatch):
+    """A crashing capture gate is non-fatal — bot persona still replies."""
+    import app.services.lead_capture as LC
+
+    acct = _account({"personal_messenger_auto_reply": {"enabled": True, "cooldown_seconds": 60}})
+    payload = {
+        "next_batch": "nb4",
+        "rooms": {"join": {"!room3:x": {"timeline": {"events": [_msg("@facebook_ghost:x", "hi", "$e11")]}}}},
+    }
+    client = _wire(monkeypatch, [acct], _Client(payload))
+    monkeypatch.setattr(LC, "handle_lead_capture_message", AsyncMock(side_effect=RuntimeError("db down")))
+    out = await MM._poll_matrix_messenger_async()
+    assert out["replies_sent"] == 1
+    send_calls = [u for u, _ in client.puts if "/send/m.room.message/" in u]
+    assert len(send_calls) == 1
+    MM.detect_intent.assert_awaited_once()  # bot path ran

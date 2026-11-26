@@ -209,7 +209,7 @@ assistant response:
 Hi! This is Themis automated assistant. Themis is a Software & Data Engineer
 with 15+ years in enterprise IT, MSc in Data Analytics, AWS certified, and
 currently open to opportunities. You can find his full CV at
-baltzakisthemis.com or LinkedIn: linkedin.com/in/baltzakis-themis. For
+linkedin.com/in/baltzakis-themis or portfolio.cloudless.gr. For
 specific questions, he will reply personally soon.
 ```
 
@@ -254,7 +254,7 @@ curl -X PUT "http://localhost:8083/api/v1/messenger/de7234c0-0209-4243-a08f-ce7b
     "enabled": true,
     "system_prompt": "...(see below)...",
     "model": "@cf/meta/llama-3.1-8b-instruct",
-    "fallback_text": "Thanks for your message! This is an automated assistant on behalf of Themis. He will get back to you personally soon. For business inquiries visit https://cloudless.gr, for CV/portfolio visit baltzakisthemis.com",
+    "fallback_text": "Thanks for your message! This is an automated assistant on behalf of Themis. He will get back to you personally soon. For business inquiries visit https://cloudless.gr, for CV/portfolio visit portfolio.cloudless.gr",
     "max_tokens": 250,
     "cooldown_seconds": 300,
     "temperature": 0.6
@@ -284,7 +284,7 @@ resume, portfolio), respond with:
 "Hi! This is Themis automated assistant. Themis is a Software & Data Engineer
 with 15+ years in enterprise IT, MSc in Data Analytics, AWS certified, and
 currently open to opportunities. You can find his full CV at
-baltzakisthemis.com or LinkedIn: linkedin.com/in/baltzakis-themis. For
+linkedin.com/in/baltzakis-themis or portfolio.cloudless.gr. For
 specific questions, he will reply personally soon."
 ```
 
@@ -302,7 +302,7 @@ The system prompt contains these CV-derived fields:
 | Experience | 15+ years (Boehringer Ingelheim, Skaramangas, Cisco/Estara, TITAN, JTI, Nielsen, AIA, Germanos/OTE) |
 | Current role | Infra & Software Tools Engineer at Boehringer Ingelheim + Founder of Cloudless.gr |
 | Languages | Greek (native), English (C1/C2) |
-| Website | baltzakisthemis.com |
+| Website | portfolio.cloudless.gr |
 | LinkedIn | linkedin.com/in/baltzakis-themis |
 | GitHub | github.com/Themis128 |
 
