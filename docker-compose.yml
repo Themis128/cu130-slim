@@ -773,7 +773,10 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      # cold boot = alembic + seed + uvicorn workers importing app.main;
+      # on the RAM-constrained host that chain takes minutes — a short grace
+      # lets autoheal kill the container mid-boot (2026-11-26 crash-loop)
+      start_period: 300s
     mem_limit: 640m
     memswap_limit: 2048m
     cpus: '2'
@@ -1241,7 +1244,7 @@ services:
       # sidecar re-auth (app/services/linkedin_reauth.py). Read-only; the
       # dir contains adbkey + adbkey.pub only.
       - ${LINKEDIN_ADB_KEY_DIR:-/home/tbaltzakis/.android}:/run/li-adb-keys:ro
-    command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-worker-healthcheck 300"
     extra_hosts:
       - host.docker.internal:host-gateway
       # mail.cloudless.gr has a valid LE cert but no public :587 —
