@@ -172,3 +172,6 @@ run_pw_e2e.sh
 
 # Serena MCP project state (per-machine)
 .serena/
+
+# mautrix-meta bridge runtime state (config, db, logs — contains tokens)
+matrix/
