@@ -2457,3 +2457,38 @@ headed; local retries=1, workers=4; user-space browser libs via
 - Safety: tests never publish real posts, send real messages, or touch profile
   pictures/banners. Account-scoped probes use bogus UUIDs; live-provider tests
   are limited to non-destructive reads (quota/status/validate).
+
+## Alert architecture (ops-agent phases 1-3)
+
+One incident = exactly one message, edited in place as its state evolves. The
+channels stay short enough that scrolling them is forensics, not operations.
+
+- **Phase 1 — alert-once-per-episode gate** (`ops_incidents.alerted_at`/`alerted_severity`):
+  a message posts once per episode, or once more when severity escalates.
+  Re-reports can never loop.
+- **Phase 2 — edit-in-place lifecycle**: resolution edits the original alert
+  to a ✅ one-liner; the message auto-deletes two hours later.
+- **Phase 3 — live-state, inhibition, digest batching**:
+  - *Pinned live-state*: one pinned message in the ops channel, edited every
+    sweep — what is broken right now (severity, age, recurrence, status). The
+    pin retries until confirmed (`ops:livestate-pinned` redis flag). The
+    all-clear body is deliberately worded to never match the incident
+    classifier in the telegram archive sync.
+  - *Inhibition windows*: `python scripts/ops_inhibit.py --hours 2` (run inside
+    the social-api container) declares a maintenance window in redis. While
+    active, non-critical sweep alerts are suppressed — the gate still stamps,
+    so lifting the window never replays the cascade. Critical-severity
+    incidents always fire, on any route. `--clear` lifts early, `--status`
+    shows the remaining window. Use before docker/host maintenance; the
+    live-state keeps full visibility with an ⏸ INHIBITED marker.
+  - *Digest batching*: `intel`/`digest` severity alerts never post standalone —
+    `send_telegram_alert_tracked` queues them in redis (`ops:digest-queue`);
+    the sweep flushes ONE batched message to the digest channel once per day
+    in the 06:00-UTC window. Failed delivery re-queues the items for the next
+    sweep; when redis is down the alert falls through to direct posting
+    rather than being dropped. Empty days still close the window so the
+    digest time never drifts.
+
+Channels: critical `-1004389402878`, ops `-1004429103353`, intel `-1004362141941`,
+digest `-1004363123500`. Telegram is the primary ops surface; Slack mirrors
+criticals only; ntfy carries P1 phone push.

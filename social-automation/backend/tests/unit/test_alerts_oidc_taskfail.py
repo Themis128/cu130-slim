@@ -71,7 +71,9 @@ async def test_alert_unknown_severity_falls_back_to_ops(tg):
 async def test_alert_no_token(tg, acc):
     tg.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     tg.setattr(WA, "task_session", _sess(acc))
-    assert await SN.send_telegram_alert("intel", "i") is False
+    # direct-post severities fail without a token; intel/digest batch to the
+    # redis digest queue instead (phase-3 architecture) and never need one
+    assert await SN.send_telegram_alert("ops", "i") is False
 
 
 @pytest.mark.asyncio

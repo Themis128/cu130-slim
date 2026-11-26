@@ -1068,3 +1068,222 @@ async def test_tracked_send_failure_leaves_dedup_unstamped():
         sent, _, _ = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is False
     assert stamped == []
+
+
+# ---------------- phase 3: digest batching at the funnel ----------------
+
+
+class _QueueRedis:
+    def __init__(self, items=None):
+        self.items = list(items or [])
+        self.deleted = []
+        self.sets = {}
+        self.closed = False
+
+    async def rpush(self, key, *vals):
+        self.items.extend(vals)
+        return len(self.items)
+
+    async def lrange(self, key, start, end):
+        return list(self.items)
+
+    async def delete(self, key):
+        self.deleted.append(key)
+        self.items.clear()
+        return 1
+
+    async def get(self, key):
+        return self.sets.get(key)
+
+    async def set(self, key, val):
+        self.sets[key] = val
+        return True
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_intel_is_batched_not_posted():
+    client = AsyncMock()
+    rq = _QueueRedis()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=rq):
+        sent, chat, mid = await sn.send_telegram_alert_tracked("intel", "some insight")
+    assert sent is True
+    assert mid is None  # batched — no message receipt
+    client.send_message.assert_not_awaited()
+    assert len(rq.items) == 1
+    assert "some insight" in rq.items[0]
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_ops_and_critical_bypass_digest_queue():
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 1})
+    rq = _QueueRedis()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=rq):
+        await sn.send_telegram_alert_tracked("ops", "ops alert")
+    assert len(rq.items) == 0
+    client.send_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_queue_sends_one_batched_message():
+    import json as _json
+
+    items = [_json.dumps({"sev": "intel", "text": f"insight-{i}", "ts": 1.0}) for i in range(3)]
+    rq = _QueueRedis(items=items)
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 5})
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 3
+    client.send_message.assert_awaited_once()
+    body = client.send_message.await_args.args[1]
+    assert "3 item(s)" in body
+    assert "insight-0" in body and "insight-2" in body
+    assert not rq.items  # queue cleared
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_queue_empty_is_noop():
+    rq = _QueueRedis()
+    client = AsyncMock()
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    client.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_digest_flushed_today_reads_stamp():
+    from datetime import UTC, datetime
+
+    rq = _QueueRedis()
+    rq.sets[sn.DIGEST_FLUSH_KEY] = datetime.now(UTC).date().isoformat()
+    with patch("redis.asyncio.from_url", return_value=rq):
+        assert await sn.digest_flushed_today() is True
+    rq2 = _QueueRedis()
+    with patch("redis.asyncio.from_url", return_value=rq2):
+        assert await sn.digest_flushed_today() is False
+
+
+@pytest.mark.asyncio
+async def test_flush_requeues_when_delivery_fails():
+    rq = _QueueRedis()
+    import json as _json
+
+    rq.items = [_json.dumps({"sev": "intel", "text": "report", "ts": 1})]
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("telegram down"))
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    assert len(rq.items) == 1  # re-queued — not dropped
+
+
+@pytest.mark.asyncio
+async def test_flush_requeues_when_no_client():
+    rq = _QueueRedis()
+    import json as _json
+
+    rq.items = [_json.dumps({"sev": "intel", "text": "report", "ts": 1})]
+    with _tg_patch(None), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    assert len(rq.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_flush_still_stamps_the_window():
+    rq = _QueueRedis()
+    rq.items = []
+    client = AsyncMock()
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    client.send_message.assert_not_awaited()
+    from datetime import UTC, datetime
+
+    assert rq.sets.get(sn.DIGEST_FLUSH_KEY) == datetime.now(UTC).date().isoformat()
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_falls_back_to_direct_post_when_queue_fails():
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 5})
+    with (
+        _tg_patch(client),
+        patch.object(sn, "queue_digest", new=AsyncMock(return_value=False)),
+        patch.object(sn, "_post_ntfy_alert", new=AsyncMock()),
+        patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")),
+    ):
+        ok, chat, mid = await sn.send_telegram_alert_tracked("intel", "report text")
+    assert ok is True
+    client.send_message.assert_awaited()  # direct post, not dropped
+
+
+@pytest.mark.asyncio
+async def test_queue_digest_redis_failure_returns_false():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.queue_digest("intel", "x") is False
+
+
+@pytest.mark.asyncio
+async def test_flush_redis_failure_returns_zero():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.flush_digest_queue() == 0
+
+
+@pytest.mark.asyncio
+async def test_flush_handles_unparseable_items():
+    rq = _QueueRedis(items=["not-json{{"])
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 1})
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 1
+    assert "not-json" in client.send_message.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_flush_requeue_failure_is_swallowed():
+    rq = _QueueRedis(items=['{"sev":"intel","text":"x","ts":1}'])
+
+    class FlakyRedis:
+        def __init__(self):
+            self.inner = rq
+            self.calls = 0
+
+        async def lrange(self, *a):
+            return await self.inner.lrange(*a)
+
+        async def delete(self, *a):
+            return await self.inner.delete(*a)
+
+        async def rpush(self, *a):
+            self.rpush_attempted = True
+            raise RuntimeError("redis died mid-requeue")
+
+        async def get(self, *a):
+            return None
+
+        async def set(self, *a):
+            return True
+
+        async def aclose(self):
+            pass
+
+    flaky = FlakyRedis()
+    flaky.rpush_attempted = False
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("tg down"))
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=flaky):
+        assert await sn.flush_digest_queue() == 0  # no raise
+    assert flaky.rpush_attempted  # the requeue was actually attempted
+
+
+@pytest.mark.asyncio
+async def test_digest_flushed_today_redis_failure_returns_false():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.digest_flushed_today() is False

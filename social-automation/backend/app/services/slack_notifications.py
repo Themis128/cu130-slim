@@ -509,6 +509,126 @@ async def _tg_client():
         return None
 
 
+# ── digest batching (alert-architecture phase 3) ──────────────────────────
+# Informational severities never post standalone — they queue in redis and
+# flush as ONE batched message on the daily digest pass. The interception
+# lives here in the funnel so no emitter needs to change.
+DIGEST_SEVERITIES = ("intel", "digest")
+DIGEST_QUEUE_KEY = "ops:digest-queue"
+DIGEST_FLUSH_KEY = "ops:digest-last-flush"
+
+
+async def queue_digest(severity: str, text: str) -> bool:
+    """Batch an informational alert into the daily digest queue."""
+    try:
+        import json as _json
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            import time as _time
+
+            await r.rpush(DIGEST_QUEUE_KEY, _json.dumps({"sev": severity, "text": text, "ts": _time.time()}))
+        finally:
+            await r.aclose()
+        return True
+    except Exception:
+        return False
+
+
+async def _stamp_digest_flush() -> None:
+    try:
+        from datetime import UTC, datetime
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            # UTC date — the flush window is UTC; a local-tz stamp at late-evening
+            # UTC (already tomorrow local) would skip the next morning's digest
+            await r.set(DIGEST_FLUSH_KEY, datetime.now(UTC).date().isoformat())
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+
+
+async def flush_digest_queue() -> int:
+    """Send the queued informational alerts as ONE batched digest message.
+    Returns the number of batched items (0 when the queue was empty)."""
+    import json as _json
+
+    raw: list = []
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.lrange(DIGEST_QUEUE_KEY, 0, -1)
+            if raw:
+                await r.delete(DIGEST_QUEUE_KEY)
+        finally:
+            await r.aclose()
+    except Exception:
+        return 0
+
+    if not raw:
+        # empty days still close the window — otherwise the flush time drifts
+        # to whenever the first late item arrives
+        await _stamp_digest_flush()
+        return 0
+
+    lines = []
+    for item in raw:
+        try:
+            entry = _json.loads(item)
+            lines.append(f"• [{entry.get('sev', 'intel')}] {str(entry.get('text', ''))[:400]}")
+        except Exception:
+            lines.append(f"• {str(item)[:400]}")
+    body = "📋 daily intel digest — %d item(s)\n\n" % len(lines) + "\n\n".join(lines)
+    client = await _tg_client()
+    delivered = False
+    if client is not None:
+        try:
+            await client.send_message(TG_CHANNELS["digest"], body[:4000])
+            delivered = True
+        except Exception:
+            delivered = False
+    if not delivered:
+        # delivery failed — put the items back so the next sweep retries
+        # instead of silently dropping the day's reports
+        try:
+            import redis.asyncio as aioredis
+
+            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            try:
+                await r.rpush(DIGEST_QUEUE_KEY, *raw)
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
+        return 0
+    await _stamp_digest_flush()
+    return len(lines)
+
+
+async def digest_flushed_today() -> bool:
+    try:
+        from datetime import UTC, datetime
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            val = await r.get(DIGEST_FLUSH_KEY)
+        finally:
+            await r.aclose()
+        return val == datetime.now(UTC).date().isoformat()
+    except Exception:
+        return False
+
+
 async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, str | None, int | None]:
     """send_telegram_alert returning a receipt — (sent, chat_id, message_id) of the
     primary channel message — so callers can edit/delete it in place later.
@@ -521,6 +641,14 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     # ntfy fanout first — dedup guards telegram spam, never the information
     # flow into the incident archive
     await _post_ntfy_alert(severity, text)
+
+    # informational severities batch into the daily digest — nothing
+    # informational ever posts standalone (phase-3 architecture)
+    if severity in DIGEST_SEVERITIES:
+        if await queue_digest(severity, text):
+            return True, None, None
+        # redis unavailable — fall through to direct posting rather than
+        # dropping the report entirely
 
     try:
         import redis.asyncio as aioredis

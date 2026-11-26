@@ -328,7 +328,13 @@ async def sweep(db: AsyncSession) -> dict:
         .all()
     )
     if not open_incs:
-        return stats  # auto-resolves already committed above
+        # auto-resolves already committed above — still maintain the pinned
+        # live-state (it must flip to all-clear) and the digest schedule
+        await _update_live_state(db, now)
+        flushed = await _flush_digest_if_due(now)
+        if flushed:
+            stats["digest_flushed"] = flushed
+        return stats
 
     containers = await _container_states()
 
@@ -392,11 +398,175 @@ async def sweep(db: AsyncSession) -> dict:
         stats["triaged"] += 1
         await db.commit()  # per-incident: release row locks before the next LLM call
 
+    await _update_live_state(db, now)
+    flushed = await _flush_digest_if_due(now)
+    if flushed:
+        stats["digest_flushed"] = flushed
     return stats
 
 
 RESOLVED_KEEP = timedelta(hours=2)  # resolved-alert grace window before auto-delete
 DELETE_BATCH = 20
+
+# ── phase-3 architecture: inhibition windows + pinned live-state ──────────
+INHIBIT_KEY = "ops:inhibited-until"  # redis unix-ts — non-critical alerts suppressed while set
+LIVESTATE_KEY = "ops:livestate-message-id"  # redis — pinned state message in the ops channel
+LIVESTATE_PINNED_KEY = "ops:livestate-pinned"  # redis — set once the pin confirmed; missing = retry pin every sweep
+DIGEST_HOUR_UTC = 6  # ~08:00 Europe/Athens — the daily digest flush window
+
+
+async def _redis():
+    import redis.asyncio as aioredis
+
+    from app.core.config import get_settings
+
+    return aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+
+
+async def _inhibited() -> bool:
+    """True while a declared maintenance/inhibition window is active —
+    cascade suppression: non-critical incidents stay visible in the pinned
+    live-state instead of flooding the channels."""
+    try:
+        r = await _redis()
+        try:
+            val = await r.get(INHIBIT_KEY)
+        finally:
+            await r.aclose()
+        return bool(val) and float(val) > datetime.now(UTC).timestamp()
+    except Exception:
+        return False  # inhibition failure must never suppress alerts
+
+
+async def _ensure_livestate_pinned(client, chat: str, mid: int) -> None:
+    """A pin that failed once must not stay failed forever — retry whenever the
+    pinned flag is missing. Transient Telegram rejections self-heal this way."""
+    try:
+        r = await _redis()
+        try:
+            if await r.get(LIVESTATE_PINNED_KEY):
+                return
+        finally:
+            await r.aclose()
+    except Exception:
+        return
+    try:
+        await client.pin_chat_message(chat, mid, disable_notification=True)
+    except Exception:
+        return
+    try:
+        r = await _redis()
+        try:
+            await r.set(LIVESTATE_PINNED_KEY, "1")
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+
+
+async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
+    """One pinned message in the ops channel, edited in place every sweep:
+    what is broken right now. Read it and know everything — the channel
+    history is forensics only."""
+    try:
+        rows = (
+            (
+                await db.execute(
+                    select(OpsIncident)
+                    .where(
+                        OpsIncident.status.in_(
+                            [IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]
+                        )
+                    )
+                    .order_by(OpsIncident.last_seen.desc())
+                    .limit(20)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        inhibited = await _inhibited()
+        header = f"\U0001f4cc ops live-state — {now:%Y-%m-%d %H:%M}Z"
+        if inhibited:
+            header += "  ⏸ INHIBITED (maintenance window)"
+        if not rows:
+            body = header + "\n\n\U0001f7e2 all clear — nothing broken right now"
+        else:
+            lines = []
+            for inc in rows:
+                age_h = (now - inc.first_seen).total_seconds() / 3600
+                icon = "\U0001f534" if inc.severity == IncidentSeverity.CRITICAL else "\U0001f7e1"
+                lines.append(f"{icon} {inc.title[:90]} — {inc.source}/{inc.kind}, {age_h:.0f}h, recur={inc.recurrence_count}, {inc.status.value}")
+            body = header + "\n\n" + "\n".join(lines)
+        body = body[:3900]
+
+        from app.services.slack_notifications import TG_CHANNELS, _tg_client
+
+        client = await _tg_client()
+        if client is None:
+            return False
+        chat = TG_CHANNELS["ops"]
+
+        existing = None
+        try:
+            r = await _redis()
+            try:
+                existing = await r.get(LIVESTATE_KEY)
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
+
+        if existing:
+            try:
+                await client.edit_message_text(chat, int(existing), body)
+                await _ensure_livestate_pinned(client, chat, int(existing))
+                return True
+            except Exception:
+                pass  # message gone or too old — fall through to fresh send+pin
+
+        msg = await client.send_message(chat, body, disable_notification=True)
+        mid = msg.get("message_id") if isinstance(msg, dict) else None
+        if isinstance(mid, int):
+            try:
+                await client.pin_chat_message(chat, mid, disable_notification=True)
+                pinned = True
+            except Exception as exc:
+                pinned = False
+                logger.warning("ops-agent live-state pin failed: %s", exc)
+            try:
+                r = await _redis()
+                try:
+                    await r.set(LIVESTATE_KEY, str(mid))
+                    # the old pin confirmation belongs to the replaced message —
+                    # clear it so a failed pin on the new one retries next sweep
+                    await r.delete(LIVESTATE_PINNED_KEY)
+                    if pinned:
+                        await r.set(LIVESTATE_PINNED_KEY, "1")
+                finally:
+                    await r.aclose()
+            except Exception:
+                pass
+            return True
+        return False
+    except Exception as exc:
+        logger.warning("ops-agent live-state update failed: %s", exc)
+        return False
+
+
+async def _flush_digest_if_due(now: datetime) -> int:
+    """Once a day in the digest hour, flush the batched informational queue."""
+    if now.hour < DIGEST_HOUR_UTC:
+        return 0
+    try:
+        from app.services.slack_notifications import digest_flushed_today, flush_digest_queue
+
+        if await digest_flushed_today():
+            return 0
+        return await flush_digest_queue()
+    except Exception as exc:
+        logger.warning("ops-agent digest flush failed: %s", exc)
+        return 0
 
 
 async def _edit_resolution_notice(inc: OpsIncident) -> None:
@@ -472,6 +642,13 @@ def _alert_due(inc: OpsIncident, severity: str) -> bool:
 
 async def _alert(inc: OpsIncident, severity: str) -> None:
     if not _alert_due(inc, severity):
+        return
+    # inhibition window: non-critical alerts are suppressed while maintenance
+    # is declared — the gate still stamps (a lifted window must not replay the
+    # cascade); visibility continues in the pinned live-state message
+    if severity != "critical" and inc.severity != IncidentSeverity.CRITICAL and await _inhibited():
+        inc.alerted_at = datetime.now(UTC)
+        inc.alerted_severity = severity
         return
     try:
         from app.services.slack_notifications import send_telegram_alert_tracked
