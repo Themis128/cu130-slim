@@ -602,6 +602,9 @@ services:
       - "0.0.0.0:9390:80"
     volumes:
       - ./nginx/metrics.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - default
+      - cu130-backend
     restart: unless-stopped
 
   # Cloudflare Tunnel connector for social.cloudless.gr — without it the
