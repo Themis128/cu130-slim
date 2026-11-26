@@ -26,7 +26,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import and_, case, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,9 +119,30 @@ async def report_incident(
             "recurrence_count": new_recur,
             "agent_attempts": reset_attempts,
             "first_seen": fresh_first_seen,
+            # reopen on: resolved (new episode) OR escalation to critical on a
+            # live episode never alerted at critical — sweep must re-triage it
+            # and the gate must allow exactly one critical alert
             "status": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
+                (and_(
+                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
+                        OpsIncident.status != IncidentStatus.OPEN,
+                        OpsIncident.alerted_severity.is_distinct_from("critical"),
+                    ), IncidentStatus.OPEN),
                 else_=OpsIncident.status,
+            ),
+            # Gate resets ONLY on reopen-from-resolved — a new episode earns
+            # one fresh alert. Critical escalation deliberately keeps the ops
+            # stamp: _alert_due ranks critical above it, so exactly one
+            # critical alert posts, and once stamped 'critical' the reopen
+            # condition above goes false — chronic critical reporters settle.
+            "alerted_at": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                else_=OpsIncident.alerted_at,
+            ),
+            "alerted_severity": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                else_=OpsIncident.alerted_severity,
             ),
             "resolved_at": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
@@ -273,8 +294,15 @@ async def sweep(db: AsyncSession) -> dict:
     open_incs = (
         (
             await db.execute(
-                select(OpsIncident)
-                .where(OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED]))
+                select(OpsIncident).where(
+                    or_(
+                        OpsIncident.status == IncidentStatus.OPEN,
+                        and_(
+                            OpsIncident.status == IncidentStatus.TRIAGED,
+                            OpsIncident.alerted_at.is_(None),
+                        ),
+                    )
+                )
                 .order_by(OpsIncident.first_seen)
                 .limit(MAX_OPEN_PER_SWEEP)
             )
@@ -288,6 +316,13 @@ async def sweep(db: AsyncSession) -> dict:
     containers = await _container_states()
 
     for inc in open_incs:
+        # retry lane: already-triaged incidents whose alert never landed only
+        # need the delivery re-attempted — re-running triage would burn an
+        # agent attempt per retry and march them toward false escalation
+        if inc.status == IncidentStatus.TRIAGED:
+            await _alert(inc, "critical" if inc.severity == IncidentSeverity.CRITICAL else "ops")
+            await db.commit()
+            continue
         try:
             async with asyncio.timeout(LLM_TIMEOUT_S):
                 verdict = await _llm_verdict(inc, containers, db)
@@ -342,7 +377,20 @@ async def sweep(db: AsyncSession) -> dict:
     return stats
 
 
+_SEV_RANK = {"info": 0, "ops": 1, "critical": 2}
+
+
+def _alert_due(inc: OpsIncident, severity: str) -> bool:
+    """Alert-once-per-episode gate: post only when never alerted this episode
+    or when the new severity outranks the severity we last alerted at."""
+    if inc.alerted_at is None:
+        return True
+    return _SEV_RANK.get(severity, 1) > _SEV_RANK.get(inc.alerted_severity or "", 0)
+
+
 async def _alert(inc: OpsIncident, severity: str) -> None:
+    if not _alert_due(inc, severity):
+        return
     try:
         from app.services.slack_notifications import send_telegram_alert
 
@@ -354,6 +402,13 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
             f"rca: {inc.rca[:600] or '(pending)'}\n"
             f"action: {inc.proposed_action or inc.action_taken or 'none'}" + (f" → {inc.action_result[:300]}" if inc.action_result else "")
         )
-        await send_telegram_alert(severity, text)
+        sent = await send_telegram_alert(severity, text)
+        if sent:
+            inc.alerted_at = datetime.now(UTC)
+            inc.alerted_severity = severity
+        else:
+            # delivery failed — leave the gate unstamped so a later sweep or
+            # escalation pass can retry instead of swallowing the alert
+            logger.warning("ops-agent alert send returned failure for %s", inc.fingerprint)
     except Exception as exc:
         logger.warning("ops-agent alert failed: %s", exc)

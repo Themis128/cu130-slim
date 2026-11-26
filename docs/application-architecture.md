@@ -1983,7 +1983,15 @@ publishers (watchdogs, git hooks, kuma, ops tasks)
   classifies new rows into fingerprint-deduped `ops_incidents`, and
   `ops_agent_sweep` runs documentation-grounded LLM RCA
   (`services/ops_runbooks.py`) → whitelisted reruns or Telegram
-  escalation. `export_datalake` ships the full archive to
+  escalation. Incident alerting follows an **alert-once-per-episode**
+  gate: `ops_incidents.alerted_at`/`alerted_severity` record the first
+  (and loudest) notification of each episode — re-reports on a live
+  episode refresh evidence silently, only a reopen-from-resolved or an
+  escalation to critical reopens triage and earns exactly one fresh
+  alert, and the sweep only triages OPEN incidents — already-triaged
+  incidents whose alert never landed re-enter as a pure delivery-retry
+  lane (no triage attempts spent). A failed Telegram delivery leaves
+  the gate unstamped so a later pass can retry. `export_datalake` ships the full archive to
   `lake/socialauto-telegram/messages.json`. ntfy archive reads use the
   dedicated read-only `archive-reader` account (`NTFY_READER_TOKEN`);
   Gmail reads use the OAuth refresh-token envs (`GMAIL_OAUTH_*`,

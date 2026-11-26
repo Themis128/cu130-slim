@@ -52,9 +52,15 @@ ON CONFLICT (fingerprint) DO UPDATE SET
   first_seen = CASE WHEN ops_incidents.status = 'resolved' THEN now()
                     ELSE ops_incidents.first_seen END,
   status = CASE WHEN ops_incidents.status = 'resolved' THEN 'open'
+                WHEN EXCLUDED.severity = 'critical' AND ops_incidents.status <> 'open'
+                     AND ops_incidents.alerted_severity IS DISTINCT FROM 'critical' THEN 'open'
                 ELSE ops_incidents.status END,
   resolved_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
                      ELSE ops_incidents.resolved_at END,
+  alerted_at = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
+                    ELSE ops_incidents.alerted_at END,
+  alerted_severity = CASE WHEN ops_incidents.status = 'resolved' THEN NULL
+                          ELSE ops_incidents.alerted_severity END,
   severity = CASE
     WHEN ops_incidents.status = 'resolved'
          AND ops_incidents.resolved_at < now() - interval '24 hours' THEN EXCLUDED.severity
