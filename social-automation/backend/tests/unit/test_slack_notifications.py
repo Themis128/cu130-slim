@@ -981,7 +981,11 @@ async def test_post_ops_closure_sends_without_dedup_or_ntfy():
     ntfy = AsyncMock()
     with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=ntfy):
         assert await sn.post_ops_closure("resolved: x") is True
-    client.send_message.assert_awaited_once()
+        # identical repeat closures within the dedup window must ALL reach the
+        # record channel (no dedup on closures) — and silently
+        assert await sn.post_ops_closure("resolved: x") is True
+    assert client.send_message.await_count == 2
+    assert client.send_message.await_args.kwargs.get("disable_notification") is True
     ntfy.assert_not_awaited()  # closures are record-keeping, not push-worthy
 
 

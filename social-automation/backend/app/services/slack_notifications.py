@@ -562,7 +562,7 @@ async def post_ops_closure(text: str) -> bool:
         client = await _tg_client()
         if client is None:
             return False
-        await client.send_message(TG_CHANNELS["ops"], text)
+        await client.send_message(TG_CHANNELS["ops"], text, disable_notification=True)
         return True
     except Exception:
         return False
