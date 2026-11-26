@@ -139,6 +139,19 @@ Side benefit: enrolling **Authentication app** TOTP in IG app →
 Accounts Center → 2FA kills the dead-SIM dependency — secret converged
 to `META_TOTP_SECRET{,_AC,_IG}` = `ZUSD…` on 2026-11-24.
 
+### `force_authentication` wall on the authorize URL (verified 2026-11-26)
+
+Even with a LIVE IG session, `instagram.com/oauth/authorize` can demand
+a fresh credential submit. `scripts/ig_phone_credential_login.py`
+handles it: finds the IG tab → fills `input[name=username]` /
+`input[name=password]` via click + `Input.insertText` (Bloks ignores
+synthetic value-sets) → real mouse click on "Log in" → polls past the
+wall. Exit 0 = advanced, 4 = still walled (bad creds / extra gate).
+
+For the consent+callback tail once the session is live (any platform),
+`phone-web-auth-ops/scripts/phone_oauth_drive.py --mint instagram2|threads`
+does navigate → consent-gate clicks → callback detect generically.
+
 ## Gotchas
 
 - **Two active instagram rows for the same account is a hazard** — the

@@ -149,6 +149,21 @@ env-configurable: `PHONE_CDP_PORT=9555` — 9222 is also used by the
 desktop debugging relay (cdp-bind-pattern), so forward the phone onto
 a free port when both run.
 
+## Tool — `scripts/phone_oauth_drive.py` + `threads_phone_drive.py`
+
+Generic OAuth consent driver for phone Chrome (verified 2026-11-26 for
+instagram2 + threads re-mints): `--mint <platform>` mints the authorize
+URL inside social-api, opens a fresh FOREGROUND tab (background tabs
+freeze CDP evals), clicks consent gates ("Continue As X" / Allow /
+GDPR continue), and exits 0 on the platform `…/callback?code=…`.
+
+`threads_phone_drive.py` is the Threads-specific variant for COLD
+threads sessions: clears threads-domain cookies (IG cookies survive —
+SSO needs them), scrapes the `oidc_url` out of threads.com/login HTML,
+runs the instagram.com SSO profile-card bridge, then hands off to the
+same consent+callback loop. Exit 3 = IG session dead → run
+`ig-business-login-ops/scripts/ig_phone_credential_login.py` first.
+
 ## Gotchas
 
 - Threads app CANNOT consume OAuth authorize URLs — opens feed. OAuth
