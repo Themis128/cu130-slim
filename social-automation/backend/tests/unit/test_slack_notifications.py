@@ -870,6 +870,7 @@ async def test_ntfy_alert_skips_when_unconfigured():
 class _FakeRedis:
     def __init__(self, exists=False):
         self._exists = exists
+        self.closed = False
 
     async def exists(self, key):
         return self._exists
@@ -878,7 +879,7 @@ class _FakeRedis:
         return True
 
     async def aclose(self):
-        return None
+        self.closed = True
 
 
 def _tg_patch(client):
@@ -1005,3 +1006,43 @@ async def test_post_ops_closure_error_swallowed():
     client.send_message = AsyncMock(side_effect=RuntimeError("down"))
     with _tg_patch(client):
         assert await sn.post_ops_closure("x") is False
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_closes_redis_clients():
+    fake = _FakeRedis()
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 1})
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=fake):
+        await sn.send_telegram_alert_tracked("ops", "hello")
+    assert fake.closed is True  # neither the check nor the stamp may leak the client
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_ntfy_fires_even_when_deduped():
+    """ntfy/archive fanout must not be starved by telegram dedup — the
+    incident archive feeds off repeats."""
+    client = AsyncMock()
+    ntfy = AsyncMock()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=ntfy), patch("redis.asyncio.from_url", return_value=_FakeRedis(exists=True)):
+        sent, _, _ = await sn.send_telegram_alert_tracked("ops", "hello")
+    assert sent is True
+    ntfy.assert_awaited_once()  # archive informed despite telegram suppression
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_failure_leaves_dedup_unstamped():
+    """A rejected send must not stamp dedup — the retry has to get through."""
+    stamped = []
+
+    class _SpyRedis(_FakeRedis):
+        async def setex(self, key, ttl, val):
+            stamped.append(key)
+            return True
+
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("rejected"))
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_SpyRedis()):
+        sent, _, _ = await sn.send_telegram_alert_tracked("ops", "hello")
+    assert sent is False
+    assert stamped == []

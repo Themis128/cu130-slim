@@ -517,6 +517,11 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
 
     DEDUP_WINDOW_S = 6 * 3600
     fp = hashlib.sha256(f"{severity}|{text}".encode()).hexdigest()[:16]
+
+    # ntfy fanout first — dedup guards telegram spam, never the information
+    # flow into the incident archive
+    await _post_ntfy_alert(severity, text)
+
     try:
         import redis.asyncio as aioredis
 
@@ -526,13 +531,10 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
         try:
             if await r.exists(f"alert-dedup:{fp}"):
                 return True, None, None  # already reported — silent ack
-            await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
         finally:
             await r.aclose()
     except Exception:
         pass  # dedup failure must not block the alert
-
-    await _post_ntfy_alert(severity, text)
 
     chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
     client = await _tg_client()
@@ -543,9 +545,24 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
         if severity == "critical":
             await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
         mid = msg.get("message_id") if isinstance(msg, dict) else None
-        return True, str(chat), int(mid) if isinstance(mid, int) else None
     except Exception:
         return False, None, None
+
+    # stamp dedup only AFTER successful delivery — stamping before the send
+    # would suppress the retry for the whole window when telegram rejects
+    try:
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+    return True, str(chat), int(mid) if isinstance(mid, int) else None
 
 
 async def send_telegram_alert(severity: str, text: str) -> bool:
