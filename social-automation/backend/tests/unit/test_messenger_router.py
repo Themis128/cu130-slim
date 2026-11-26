@@ -621,6 +621,40 @@ class TestReceiveWebhook:
         out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
         assert calls == [("pg-1", "u1", "hi")] and out["auto_replies_sent"] == 1
 
+    async def test_lead_capture_gate_intercepts_before_sidecar(self, monkeypatch):
+        """Trigger/mid-flow DMs are answered inline even when sidecar is up."""
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sc:9")
+        monkeypatch.setenv("MESSENGER_SIDECAR_URL", "http://sc:9")
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "audit", "postback_payload": "", "timestamp": 1},
+            ],
+        )
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", AsyncMock(return_value=True))
+        inline = AsyncMock()
+        monkeypatch.setattr(messenger, "_process_inline", inline)
+        posts = []
+
+        class FakeHTTP:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, json=None):
+                posts.append(url)
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert out["auto_replies_sent"] == 1
+        assert posts == []  # sidecar never saw the capture-flow DM
+        inline.assert_not_awaited()
+
     async def test_sidecar_dispatch_success(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)

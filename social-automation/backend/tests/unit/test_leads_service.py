@@ -567,3 +567,34 @@ class TestNotify:
         await L.notify_lead_created(_lead(email="owner@realbiz.gr", name="Real Owner"))
         post_slack.assert_awaited_once()
         send_email.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_telegram_intel_alert_fires(self, monkeypatch):
+        monkeypatch.setattr(L, "get_settings", lambda: self._settings())
+        tg = AsyncMock()
+        import app.services.slack_notifications as sn
+
+        monkeypatch.setattr(sn, "send_telegram_alert", tg)
+        lead = _lead(email="owner@realbiz.gr", name="Real Owner")
+        await L.notify_lead_created(lead)
+        tg.assert_awaited_once()
+        assert tg.await_args.args[0] == "intel"
+        assert "Real Owner" in tg.await_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_telegram_alert_failure_nonfatal(self, monkeypatch):
+        monkeypatch.setattr(L, "get_settings", lambda: self._settings())
+        import app.services.slack_notifications as sn
+
+        monkeypatch.setattr(sn, "send_telegram_alert", AsyncMock(side_effect=RuntimeError("tg down")))
+        await L.notify_lead_created(_lead(email="owner@realbiz.gr", name="Real Owner"))  # no raise
+
+    @pytest.mark.asyncio
+    async def test_telegram_skipped_for_test_lead(self, monkeypatch):
+        monkeypatch.setattr(L, "get_settings", lambda: self._settings())
+        tg = AsyncMock()
+        import app.services.slack_notifications as sn
+
+        monkeypatch.setattr(sn, "send_telegram_alert", tg)
+        await L.notify_lead_created(_lead(email="ci-test+run42@example.com", name="CI Test"))
+        tg.assert_not_awaited()
