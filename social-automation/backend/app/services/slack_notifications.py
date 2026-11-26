@@ -518,12 +518,17 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     DEDUP_WINDOW_S = 6 * 3600
     fp = hashlib.sha256(f"{severity}|{text}".encode()).hexdigest()[:16]
     try:
-        from app.worker._async import _redis
+        import redis.asyncio as aioredis
 
-        r = _redis()
-        if await r.exists(f"alert-dedup:{fp}"):
-            return True, None, None  # already reported — silent ack
-        await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
+        from app.core.config import get_settings
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            if await r.exists(f"alert-dedup:{fp}"):
+                return True, None, None  # already reported — silent ack
+            await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
+        finally:
+            await r.aclose()
     except Exception:
         pass  # dedup failure must not block the alert
 

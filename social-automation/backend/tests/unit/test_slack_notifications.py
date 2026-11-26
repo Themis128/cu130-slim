@@ -877,6 +877,9 @@ class _FakeRedis:
     async def setex(self, key, ttl, val):
         return True
 
+    async def aclose(self):
+        return None
+
 
 def _tg_patch(client):
     return patch.object(sn, "_tg_client", new=AsyncMock(return_value=client))
@@ -886,7 +889,7 @@ def _tg_patch(client):
 async def test_tracked_send_returns_receipt():
     client = AsyncMock()
     client.send_message = AsyncMock(return_value={"message_id": 777})
-    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("app.worker._async._redis", return_value=_FakeRedis(), create=True):
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_FakeRedis()):
         sent, chat, mid = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is True
     assert mid == 777
@@ -897,7 +900,7 @@ async def test_tracked_send_returns_receipt():
 async def test_tracked_send_critical_mirrors_to_ops():
     client = AsyncMock()
     client.send_message = AsyncMock(return_value={"message_id": 5})
-    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("app.worker._async._redis", return_value=_FakeRedis(), create=True):
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_FakeRedis()):
         sent, _, _ = await sn.send_telegram_alert_tracked("critical", "boom")
     assert sent is True
     assert client.send_message.await_count == 2  # severity channel + ops mirror
@@ -906,7 +909,7 @@ async def test_tracked_send_critical_mirrors_to_ops():
 @pytest.mark.asyncio
 async def test_tracked_send_deduped_returns_no_refs():
     client = AsyncMock()
-    redis_patch = patch("app.worker._async._redis", return_value=_FakeRedis(exists=True), create=True)
+    redis_patch = patch("redis.asyncio.from_url", return_value=_FakeRedis(exists=True))
     with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), redis_patch:
         sent, chat, mid = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is True
@@ -916,7 +919,7 @@ async def test_tracked_send_deduped_returns_no_refs():
 
 @pytest.mark.asyncio
 async def test_tracked_send_no_token_fails():
-    with _tg_patch(None), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("app.worker._async._redis", return_value=_FakeRedis(), create=True):
+    with _tg_patch(None), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_FakeRedis()):
         sent, chat, mid = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is False and chat is None and mid is None
 
@@ -925,7 +928,7 @@ async def test_tracked_send_no_token_fails():
 async def test_tracked_send_api_error_fails():
     client = AsyncMock()
     client.send_message = AsyncMock(side_effect=RuntimeError("api down"))
-    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("app.worker._async._redis", return_value=_FakeRedis(), create=True):
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_FakeRedis()):
         sent, _, _ = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is False
 
