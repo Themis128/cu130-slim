@@ -411,6 +411,7 @@ DELETE_BATCH = 20
 # ── phase-3 architecture: inhibition windows + pinned live-state ──────────
 INHIBIT_KEY = "ops:inhibited-until"  # redis unix-ts — non-critical alerts suppressed while set
 LIVESTATE_KEY = "ops:livestate-message-id"  # redis — pinned state message in the ops channel
+LIVESTATE_PINNED_KEY = "ops:livestate-pinned"  # redis — set once the pin confirmed; missing = retry pin every sweep
 DIGEST_HOUR_UTC = 6  # ~08:00 Europe/Athens — the daily digest flush window
 
 
@@ -435,6 +436,32 @@ async def _inhibited() -> bool:
         return bool(val) and float(val) > datetime.now(UTC).timestamp()
     except Exception:
         return False  # inhibition failure must never suppress alerts
+
+
+async def _ensure_livestate_pinned(client, chat: str, mid: int) -> None:
+    """A pin that failed once must not stay failed forever — retry whenever the
+    pinned flag is missing. Transient Telegram rejections self-heal this way."""
+    try:
+        r = await _redis()
+        try:
+            if await r.get(LIVESTATE_PINNED_KEY):
+                return
+        finally:
+            await r.aclose()
+    except Exception:
+        return
+    try:
+        await client.pin_chat_message(chat, mid, disable_notification=True)
+    except Exception:
+        return
+    try:
+        r = await _redis()
+        try:
+            await r.set(LIVESTATE_PINNED_KEY, "1")
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
 
 
 async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
@@ -463,7 +490,7 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
         if inhibited:
             header += "  ⏸ INHIBITED (maintenance window)"
         if not rows:
-            body = header + "\n\n\U0001f7e2 no active incidents"
+            body = header + "\n\n\U0001f7e2 all clear — nothing broken right now"
         else:
             lines = []
             for inc in rows:
@@ -493,6 +520,7 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
         if existing:
             try:
                 await client.edit_message_text(chat, int(existing), body)
+                await _ensure_livestate_pinned(client, chat, int(existing))
                 return True
             except Exception:
                 pass  # message gone or too old — fall through to fresh send+pin
@@ -502,12 +530,16 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
         if isinstance(mid, int):
             try:
                 await client.pin_chat_message(chat, mid, disable_notification=True)
+                pinned = True
             except Exception as exc:
+                pinned = False
                 logger.warning("ops-agent live-state pin failed: %s", exc)
             try:
                 r = await _redis()
                 try:
                     await r.set(LIVESTATE_KEY, str(mid))
+                    if pinned:
+                        await r.set(LIVESTATE_PINNED_KEY, "1")
                 finally:
                     await r.aclose()
             except Exception:
@@ -611,7 +643,7 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
     # inhibition window: non-critical alerts are suppressed while maintenance
     # is declared — the gate still stamps (a lifted window must not replay the
     # cascade); visibility continues in the pinned live-state message
-    if severity != "critical" and await _inhibited():
+    if severity != "critical" and inc.severity != IncidentSeverity.CRITICAL and await _inhibited():
         inc.alerted_at = datetime.now(UTC)
         inc.alerted_severity = severity
         return
