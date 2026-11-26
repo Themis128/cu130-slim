@@ -753,6 +753,14 @@ async def receive_webhook(
             )
 
         if message_type in ("text", "postback") and sender_psid:
+            # Lead-capture gate on the primary path too — the sidecar has no
+            # qualification flow, so trigger/mid-flow DMs are answered inline
+            # even when the sidecar is healthy.
+            if await _try_lead_capture_reply(
+                db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""
+            ):
+                processed += 1
+                continue
             # Dispatch to sidecar for async processing (if configured)
             if sidecar_url:
                 try:
@@ -920,6 +928,59 @@ async def _ingest_meta_leadgen(value: dict) -> bool:
         return False
 
 
+async def _try_lead_capture_reply(
+    db: AsyncSession,
+    page_id: str,
+    sender_psid: str,
+    message_text: str,
+    message_type: str,
+    postback_payload: str,
+) -> bool:
+    """Run the lead-capture state machine for a Page DM. Sends the flow's
+    reply and returns True when the message belongs to the capture flow
+    (trigger keyword/payload or an in-progress session); False → bot path."""
+    try:
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "facebook",
+                SocialAccount.account_id == page_id,
+                SocialAccount.account_type == "page",
+            )
+        )
+        account = result.scalar_one_or_none()
+        if not account:
+            return False
+
+        from app.models.lead import LeadSource
+        from app.services.lead_capture import handle_lead_capture_message
+
+        reply = await handle_lead_capture_message(
+            db,
+            team_id=account.team_id,
+            source=LeadSource.facebook_messenger,
+            social_account_id=account.id,
+            thread_id=sender_psid,
+            inbound_text=message_text or "",
+            postback_payload=postback_payload or "",
+            meta_data={
+                "page_id": page_id,
+                "message_type": message_type,
+            },
+        )
+        if not reply:
+            return False
+
+        client = _get_messenger_client(account)
+        if reply.quick_replies:
+            await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
+        else:
+            await client.send_text(sender_psid, reply.text)
+        return True
+    except Exception as exc:  # noqa: BLE001 — gate must never break dispatch
+        logger.debug("Lead capture gate failed (non-fatal): %s", _sanitize_log_text(str(exc)))
+        return False
+
+
 async def _process_inline(
     db: AsyncSession,
     page_id: str,
@@ -942,32 +1003,8 @@ async def _process_inline(
         return
 
     # Lead capture (scaffold): handle simple qualification flow before AI bot.
-    try:
-        from app.models.lead import LeadSource
-        from app.services.lead_capture import handle_lead_capture_message
-
-        reply = await handle_lead_capture_message(
-            db,
-            team_id=account.team_id,
-            source=LeadSource.facebook_messenger,
-            social_account_id=account.id,
-            thread_id=sender_psid,
-            inbound_text=message_text or "",
-            postback_payload=postback_payload or "",
-            meta_data={
-                "page_id": page_id,
-                "message_type": message_type,
-            },
-        )
-        if reply:
-            client = _get_messenger_client(account)
-            if reply.quick_replies:
-                await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
-            else:
-                await client.send_text(sender_psid, reply.text)
-            return
-    except Exception as exc:
-        logger.debug("Lead capture handler failed (non-fatal): %s", _sanitize_log_text(str(exc)))
+    if await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload):
+        return
 
     meta = account.meta_data or {}
     auto_reply = meta.get("messenger_auto_reply", {})

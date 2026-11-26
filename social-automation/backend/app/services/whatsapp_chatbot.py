@@ -792,6 +792,39 @@ async def process_inbound_message(
         result["reason"] = "thread_paused"
         return result
 
+    # 5b. Lead capture — qualification flow intercepts trigger/mid-flow DMs.
+    try:
+        from app.models.lead import LeadSource
+        from app.services.lead_capture import handle_lead_capture_message
+        from app.worker._async import task_session
+
+        team_uuid_lc = uuid.UUID(team_id) if team_id else None
+        if team_uuid_lc is not None:
+            async with task_session() as db:
+                lead_reply = await handle_lead_capture_message(
+                    db,
+                    team_id=team_uuid_lc,
+                    source=LeadSource.whatsapp_dm,
+                    social_account_id=uuid.UUID(account_id) if account_id else None,
+                    thread_id=phone,
+                    inbound_text=message_text or "",
+                    postback_payload="",
+                    meta_data={"channel": "whatsapp_dm"},
+                )
+            if lead_reply:
+                text_out = lead_reply.text
+                if lead_reply.quick_replies:
+                    titles = [qr.get("title", "") for qr in lead_reply.quick_replies if qr.get("title")]
+                    if titles:
+                        text_out += "\n\n" + " · ".join(titles)
+                await set_cooldown(account_id, phone, cooldown_seconds)
+                await store_message_memory(team_id, account_id, phone, "me", text_out)
+                result["reply"] = text_out
+                result["intent"] = "lead_capture"
+                return result
+    except Exception as exc:
+        logger.debug("WhatsApp lead capture failed (non-fatal): %s", exc)
+
     # 6. Detect message intent
     cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
     cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")

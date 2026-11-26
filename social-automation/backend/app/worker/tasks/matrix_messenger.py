@@ -241,6 +241,47 @@ async def _poll_matrix_messenger_async() -> dict:
                         logger.debug("Matrix lane: %s paused, skipping", room_id)
                         continue
 
+                    # Lead capture: trigger/mid-flow DMs get the qualification
+                    # flow instead of the bot persona. Recruiting keywords do
+                    # not overlap the triggers — recruiters keep the bot path.
+                    try:
+                        from app.models.lead import LeadSource
+                        from app.services.lead_capture import handle_lead_capture_message
+
+                        lead_reply = await handle_lead_capture_message(
+                            db,
+                            team_id=account.team_id,
+                            source=LeadSource.facebook_messenger,
+                            social_account_id=account.id,
+                            thread_id=thread_id,
+                            inbound_text=text,
+                            postback_payload="",
+                            meta_data={
+                                "channel": "personal_messenger",
+                                "room_id": room_id,
+                                "sender_mxid": sender,
+                            },
+                        )
+                        if lead_reply:
+                            txn = f"lead{_uuid.uuid4().hex}"
+                            await client.put(
+                                f"/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}",
+                                json={"msgtype": "m.text", "body": lead_reply.text},
+                                headers={"Authorization": f"Bearer {token}"},
+                            )
+                            await set_cooldown(account.id, thread_id, cooldown_seconds)
+                            seen[room_id] = event_id
+                            stats["replies_sent"] += 1
+                            try:
+                                await store_message_memory(account.team_id, account.id, thread_id, sender, text)
+                                await store_message_memory(account.team_id, account.id, thread_id, "assistant", lead_reply.text)
+                            except Exception:
+                                pass
+                            logger.info("Matrix lane: lead-capture reply in %s", room_id)
+                            continue
+                    except Exception as exc:
+                        logger.debug("Matrix lane: lead capture failed (non-fatal): %s", exc)
+
                     intent = await detect_intent(text, cf_token, cf_account, dmr_url)
                     brand_context = await retrieve_brand_context(text)
                     reply_text = await generate_contextual_reply(
