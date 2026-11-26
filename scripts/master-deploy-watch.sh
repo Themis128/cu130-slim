@@ -53,6 +53,18 @@ asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
 }
 
 CORE_RESTART="social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-worker-meta celery-beat"
+# Split by live-container ownership: api/beat/messenger run as
+# cu130-slim-project containers (the root compose also declares them),
+# so the standalone file can never create/recreate those names — a plain
+# `up -d` or --force-recreate over the full list dies on "name already in
+# use" mid-run, leaving <hash>_ replace= stubs and half-swapped workers.
+# Pull covers every tag (project-agnostic); recreates run per-owner.
+CORE_STANDALONE="social-worker-publishing social-worker-media social-worker-default social-worker-meta"
+CORE_ROOT="social-api celery-beat social-worker-messenger"
+# Services whose live containers the root cu130-slim project owns — excluded
+# from standalone `up -d` so compose/env changes cannot abort mid-deploy.
+ROOT_OWNED="social-api celery-beat social-worker-messenger messenger-sidecar facebook-browser-sidecar"
+ROOT_COMPOSE() { docker compose -f "$REPO_DIR/docker-compose.yml" --project-directory "$REPO_DIR" "$@"; }
 HEALTH_URL="${HEALTH_URL:-http://localhost:8083/health}"
 
 # ── deploy lock held by someone else → hands off ──────────────────────
@@ -223,8 +235,9 @@ if { [ "$compose_change" = 1 ] || [ "$app_code" = 1 ]; } && publish_busy; then
 fi
 
 if [ "$compose_change" = 1 ]; then
-  log "compose/env files changed — compose up -d"
-  COMPOSE up -d >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
+  log "compose/env files changed — compose up -d (root-owned services excluded)"
+  UP_SERVICES=$(COMPOSE config --services | grep -vxFf <(printf '%s\n' $ROOT_OWNED) | tr '\n' ' ')
+  COMPOSE up -d $UP_SERVICES >>"$DW_LOG" 2>&1 || ALERT "compose-up" ":rotating_light: master-deploy-watch: compose up -d failed after $new"
 fi
 if [ "$app_code" = 1 ]; then
   # The backend runs GHCR images (social-backend-api-latest /
@@ -233,7 +246,8 @@ if [ "$app_code" = 1 ]; then
   # pulls, not restarts. Pull the fresh tags and force-recreate.
   log "backend code changed — pull + force-recreate $CORE_RESTART"
   COMPOSE pull $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "pull" ":rotating_light: master-deploy-watch: compose pull failed after $new"
-  COMPOSE up -d --force-recreate $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
+  COMPOSE up -d --force-recreate $CORE_STANDALONE >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
+  ROOT_COMPOSE up -d --no-deps --pull never --force-recreate $CORE_ROOT >>"$DW_LOG" 2>&1 || ALERT "recreate-root" ":rotating_light: master-deploy-watch: root compose force-recreate failed after $new"
 fi
 
 # ── local-image services: rebuild when files under their build context
