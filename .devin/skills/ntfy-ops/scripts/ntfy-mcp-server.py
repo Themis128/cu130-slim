@@ -37,6 +37,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -84,7 +85,9 @@ def _req(method: str, path: str, data: bytes | None = None,
                 "Authorization",
                 "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode())
     for k, v in (headers or {}).items():
-        req.add_header(k, v)
+        # urllib encodes header values as latin-1; ntfy expects UTF-8 on the
+        # wire. Re-encode so Greek/emoji titles survive instead of crashing.
+        req.add_header(k, v.encode("utf-8").decode("latin-1"))
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             body = resp.read().decode()
@@ -95,12 +98,21 @@ def _req(method: str, path: str, data: bytes | None = None,
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+_SAFE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 def _ntfy_cli(*args: str, env: dict | None = None) -> dict:
+    for a in args:
+        if not _SAFE.match(a):
+            return {"error": f"unsafe characters in argument: {a!r}"}
     prefix = ""
     if env:
+        for k, v in env.items():
+            if not _SAFE.match(v):
+                return {"error": f"unsafe characters in env value for {k}"}
         prefix = "env " + " ".join(f"{k}={v}" for k, v in env.items()) + " "
     cmd = (
-        f"ssh -i ~/.ssh/omv_id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no "
+        f"ssh -i ~/.ssh/omv_id_rsa -o BatchMode=yes -o StrictHostKeyChecking=accept-new "
         f"-o ConnectTimeout=10 {SSH_HOST} "
         f"\"sudo k3s kubectl -n {NS} exec -i deploy/ntfy -- {prefix}ntfy {' '.join(args)}\""
     )

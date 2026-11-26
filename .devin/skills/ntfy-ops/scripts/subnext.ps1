@@ -1,3 +1,6 @@
+# REFERENCE SCRIPT — one-time GUI drive of the ntfy desktop app subscription flow.
+# Coordinates are fixed pixels for the MAXIMIZED window on this workstation (1920x1080);
+# sidebar Y depends on subscribed-topic count (pass per-row). Only run foregrounded + hands-off.
 param([string]$topic, [int]$subY)
 Add-Type @"
 using System;
@@ -15,7 +18,7 @@ public class UIZ {
 }
 "@
 $wshell = New-Object -ComObject wscript.shell
-$p = Get-Process | Where-Object { $_.MainWindowTitle -match 'ntfy|cloudless' } | Select-Object -First 1
+$p = Get-Process | Where-Object { $_.MainWindowTitle -match '^ntfy$|^\([0-9]+\) ntfy$' } | Select-Object -First 1
 if ($p) { [UIZ]::SetForegroundWindow($p.MainWindowHandle) | Out-Null }
 Start-Sleep -Milliseconds 400
 [UIZ]::Click(147, $subY)
