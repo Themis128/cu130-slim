@@ -803,12 +803,12 @@ async def test_edit_resolution_notice_critical_posts_ops_mirror():
     edit_mock = AsyncMock(return_value=True)
     send_mock = AsyncMock(return_value=True)
     with patch("app.services.slack_notifications.edit_telegram_alert", new=edit_mock), patch(
-        "app.services.slack_notifications.send_telegram_alert", new=send_mock
+        "app.services.slack_notifications.post_ops_closure", new=send_mock
     ):
         await oa._edit_resolution_notice(inc)
     edit_mock.assert_awaited_once()
     send_mock.assert_awaited_once()
-    assert send_mock.await_args.args[0] == "ops"
+    assert "resolved" in send_mock.await_args.args[0]
 
 
 @pytest.mark.asyncio
@@ -819,7 +819,7 @@ async def test_edit_resolution_notice_non_critical_no_mirror():
     inc.alerted_severity = "ops"
     send_mock = AsyncMock()
     with patch("app.services.slack_notifications.edit_telegram_alert", new=AsyncMock(return_value=True)), patch(
-        "app.services.slack_notifications.send_telegram_alert", new=send_mock
+        "app.services.slack_notifications.post_ops_closure", new=send_mock
     ):
         await oa._edit_resolution_notice(inc)
     send_mock.assert_not_awaited()
@@ -839,5 +839,7 @@ async def test_sweep_commits_cleared_refs_without_purge():
     commits_before = db.commits
     with patch("app.services.slack_notifications.delete_telegram_alert", new=AsyncMock(return_value=False)):
         await oa.sweep(db)
-    assert db.commits > commits_before
+    # stale-flip commit + cleared-refs commit — proves the ref clear persists
+    # even when every delete failed and no triage ran this sweep
+    assert db.commits >= commits_before + 2
     assert inc.alert_message_id is None

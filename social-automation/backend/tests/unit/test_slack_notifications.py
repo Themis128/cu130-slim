@@ -973,3 +973,27 @@ async def test_delete_telegram_alert_error_swallowed():
     client.delete_message = AsyncMock(side_effect=RuntimeError("gone"))
     with _tg_patch(client):
         assert await sn.delete_telegram_alert("-1001", 777) is False
+
+
+@pytest.mark.asyncio
+async def test_post_ops_closure_sends_without_dedup_or_ntfy():
+    client = AsyncMock()
+    ntfy = AsyncMock()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=ntfy):
+        assert await sn.post_ops_closure("resolved: x") is True
+    client.send_message.assert_awaited_once()
+    ntfy.assert_not_awaited()  # closures are record-keeping, not push-worthy
+
+
+@pytest.mark.asyncio
+async def test_post_ops_closure_no_client():
+    with _tg_patch(None):
+        assert await sn.post_ops_closure("x") is False
+
+
+@pytest.mark.asyncio
+async def test_post_ops_closure_error_swallowed():
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("down"))
+    with _tg_patch(client):
+        assert await sn.post_ops_closure("x") is False

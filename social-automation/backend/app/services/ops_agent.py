@@ -410,9 +410,9 @@ async def _edit_resolution_notice(inc: OpsIncident) -> None:
             # message is untracked so it can't be edited; close the record with the
             # one-liner instead of leaving the firing message looking live forever
             try:
-                from app.services.slack_notifications import send_telegram_alert
+                from app.services.slack_notifications import post_ops_closure
 
-                await send_telegram_alert("ops", text)
+                await post_ops_closure(text)
             except Exception as exc:
                 logger.warning("ops-agent ops-mirror resolution post failed: %s", exc)
     except Exception as exc:

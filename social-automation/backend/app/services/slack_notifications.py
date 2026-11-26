@@ -554,6 +554,20 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     return sent
 
 
+async def post_ops_closure(text: str) -> bool:
+    """Post a resolution closure to the ops record channel — bypasses dedup
+    (two same-title episodes closing within 6h must both close the record)
+    and the ntfy fanout (closures are record-keeping, not push-worthy)."""
+    try:
+        client = await _tg_client()
+        if client is None:
+            return False
+        await client.send_message(TG_CHANNELS["ops"], text)
+        return True
+    except Exception:
+        return False
+
+
 async def edit_telegram_alert(chat_id: str, message_id: int, text: str) -> bool:
     """Edit an alert message in place (resolution one-liner). Never raises."""
     try:
