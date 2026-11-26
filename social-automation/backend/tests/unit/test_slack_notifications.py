@@ -1157,10 +1157,10 @@ async def test_flush_digest_queue_empty_is_noop():
 
 @pytest.mark.asyncio
 async def test_digest_flushed_today_reads_stamp():
-    from datetime import date
+    from datetime import UTC, datetime
 
     rq = _QueueRedis()
-    rq.sets[sn.DIGEST_FLUSH_KEY] = date.today().isoformat()
+    rq.sets[sn.DIGEST_FLUSH_KEY] = datetime.now(UTC).date().isoformat()
     with patch("redis.asyncio.from_url", return_value=rq):
         assert await sn.digest_flushed_today() is True
     rq2 = _QueueRedis()
@@ -1203,9 +1203,9 @@ async def test_empty_flush_still_stamps_the_window():
         n = await sn.flush_digest_queue()
     assert n == 0
     client.send_message.assert_not_awaited()
-    from datetime import date
+    from datetime import UTC, datetime
 
-    assert rq.sets.get(sn.DIGEST_FLUSH_KEY) == date.today().isoformat()
+    assert rq.sets.get(sn.DIGEST_FLUSH_KEY) == datetime.now(UTC).date().isoformat()
 
 
 @pytest.mark.asyncio

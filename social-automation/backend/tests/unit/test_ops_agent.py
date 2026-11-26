@@ -911,9 +911,11 @@ class _LSRedis:
         self.stored = {}
 
     async def get(self, key):
+        if key in self.stored:
+            return self.stored[key]
         if key == "ops:livestate-message-id":
             return self.val
-        return self.stored.get(key)
+        return None
 
     async def set(self, key, v):
         self.stored[key] = v
@@ -1086,3 +1088,32 @@ async def test_pin_not_retried_when_already_confirmed():
     ):
         await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
     client.pin_chat_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_replacement_pin_failure_retries_next_sweep():
+    """message replaced + pin rejected → next sweep must retry the pin on the new id"""
+    rd = _LSRedis(val="99")
+    rd.stored["ops:livestate-pinned"] = "1"  # stale confirmation from the OLD message
+    client = AsyncMock()
+    client.edit_message_text = AsyncMock(side_effect=RuntimeError("message gone"))
+    client.send_message = AsyncMock(return_value={"message_id": 77})
+    client.pin_chat_message = AsyncMock(side_effect=RuntimeError("pin rejected"))
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert rd.stored.get("ops:livestate-message-id") == "77"
+    assert rd.stored.get("ops:livestate-pinned") is None  # stale confirmation cleared
+    # next sweep: edits the replacement and retries the pin
+    client2 = AsyncMock()
+    client2.edit_message_text = AsyncMock(return_value=True)
+    client2.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client2)),
+    ):
+        await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    client2.pin_chat_message.assert_awaited_once()
+    assert rd.stored.get("ops:livestate-pinned") == "1"
