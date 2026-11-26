@@ -257,6 +257,7 @@ async def test_sweep_triages_open_incident(monkeypatch):
     db = _Session(
         [
             _Result(rows=[]),  # stale
+            _Result(rows=[]),  # purge
             _Result(rows=[inc]),  # open
         ]
     )
