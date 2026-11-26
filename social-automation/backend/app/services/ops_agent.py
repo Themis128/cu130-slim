@@ -288,7 +288,20 @@ async def sweep(db: AsyncSession) -> dict:
         inc.action_result = (inc.action_result + " | " if inc.action_result else "") + "auto-resolved: no recurrence"
         stats["resolved_stale"] += 1
 
-    await db.commit()  # release auto-resolve locks before the LLM triage loop
+    await db.commit()  # release auto-resolve locks before any network call —
+    # a report landing mid-flip must reopen the row, not be swallowed by it
+    for inc in stale:
+        await _edit_resolution_notice(inc)
+
+    # 1b) grace-expired resolved alerts → delete the telegram message, clear refs
+    try:
+        purged, cleared = await _purge_resolved_alerts(db, now)
+        if purged:
+            stats["purged_alerts"] = purged
+        if cleared:
+            await db.commit()  # refs are cleared even on delete failure — persist that too
+    except Exception as exc:
+        logger.warning("ops-agent alert purge failed: %s", exc)
 
     # 2) triage open incidents, oldest first, capped per sweep
     open_incs = (
@@ -356,6 +369,7 @@ async def sweep(db: AsyncSession) -> dict:
             inc.resolved_at = now
             inc.action_result = "agent marked resolved per verdict"
             stats["resolved_stale"] += 1
+            await _edit_resolution_notice(inc)
             await db.commit()  # per-incident: release row locks before the next LLM call
             continue
         elif action == "escalate":
@@ -377,6 +391,68 @@ async def sweep(db: AsyncSession) -> dict:
     return stats
 
 
+RESOLVED_KEEP = timedelta(hours=2)  # resolved-alert grace window before auto-delete
+DELETE_BATCH = 20
+
+
+async def _edit_resolution_notice(inc: OpsIncident) -> None:
+    """One incident = one message: on resolve, edit the original alert in place
+    to a one-line resolution instead of posting a new message."""
+    if not inc.alert_chat_id or not inc.alert_message_id:
+        return
+    try:
+        from app.services.slack_notifications import edit_telegram_alert
+
+        text = f"\u2705 resolved: {inc.title} ({inc.source}/{inc.kind})"
+        await edit_telegram_alert(inc.alert_chat_id, inc.alert_message_id, text)
+        if inc.alerted_severity == "critical":
+            # criticals are mirrored into ops as the permanent record — the mirror
+            # message is untracked so it can't be edited; close the record with the
+            # one-liner instead of leaving the firing message looking live forever
+            try:
+                from app.services.slack_notifications import post_ops_closure
+
+                await post_ops_closure(text)
+            except Exception as exc:
+                logger.warning("ops-agent ops-mirror resolution post failed: %s", exc)
+    except Exception as exc:
+        logger.warning("ops-agent resolution edit failed: %s", exc)
+
+
+async def _purge_resolved_alerts(db: AsyncSession, now: datetime) -> tuple[int, int]:
+    """Auto-delete resolved incident alerts once the grace window passes —
+    the channel keeps only live incidents. Best-effort, capped per sweep."""
+    rows = (
+        (
+            await db.execute(
+                select(OpsIncident).where(
+                    OpsIncident.status == IncidentStatus.RESOLVED,
+                    OpsIncident.alert_message_id.is_not(None),
+                    OpsIncident.resolved_at < now - RESOLVED_KEEP,
+                ).limit(DELETE_BATCH)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return 0, 0
+    from app.services.slack_notifications import delete_telegram_alert
+
+    purged = 0
+    for inc in rows:
+        try:
+            if await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id):
+                purged += 1
+        except Exception as exc:
+            logger.warning("ops-agent alert delete failed for %s: %s", inc.fingerprint, exc)
+        # clear refs either way — a delete failure (message already gone /
+        # older than 48h api limit) must not retry forever
+        inc.alert_chat_id = None
+        inc.alert_message_id = None
+    return purged, len(rows)
+
+
 _SEV_RANK = {"info": 0, "ops": 1, "critical": 2}
 
 
@@ -392,7 +468,7 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
     if not _alert_due(inc, severity):
         return
     try:
-        from app.services.slack_notifications import send_telegram_alert
+        from app.services.slack_notifications import send_telegram_alert_tracked
 
         text = (
             f"[ops-agent/{severity}] {inc.title}\n"
@@ -402,10 +478,22 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
             f"rca: {inc.rca[:600] or '(pending)'}\n"
             f"action: {inc.proposed_action or inc.action_taken or 'none'}" + (f" → {inc.action_result[:300]}" if inc.action_result else "")
         )
-        sent = await send_telegram_alert(severity, text)
+        sent, chat_id, message_id = await send_telegram_alert_tracked(severity, text)
         if sent:
             inc.alerted_at = datetime.now(UTC)
             inc.alerted_severity = severity
+            if chat_id is not None and message_id is not None:
+                if inc.alert_message_id is not None and (inc.alert_chat_id, inc.alert_message_id) != (chat_id, message_id):
+                    # superseded alert (reopen new episode / severity escalation) —
+                    # delete the old message so only the live receipt survives
+                    try:
+                        from app.services.slack_notifications import delete_telegram_alert
+
+                        await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id)
+                    except Exception as exc:
+                        logger.warning("ops-agent superseded-alert delete failed: %s", exc)
+                inc.alert_chat_id = chat_id
+                inc.alert_message_id = message_id
         else:
             # delivery failed — leave the gate unstamped so a later sweep or
             # escalation pass can retry instead of swallowing the alert

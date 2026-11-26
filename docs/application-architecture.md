@@ -1991,7 +1991,17 @@ publishers (watchdogs, git hooks, kuma, ops tasks)
   alert, and the sweep only triages OPEN incidents — already-triaged
   incidents whose alert never landed re-enter as a pure delivery-retry
   lane (no triage attempts spent). A failed Telegram delivery leaves
-  the gate unstamped so a later pass can retry. `export_datalake` ships the full archive to
+  the gate unstamped so a later pass can retry. The alert itself is a
+**single Telegram message per incident episode** (`alert_chat_id`/
+`alert_message_id`): resolution edits it in place to a `✅ resolved:`
+one-liner (criticals additionally close their untracked ops mirror with
+the same one-liner, since ops is the permanent-record channel), a
+superseding alert (reopen or escalation) best-effort deletes the message
+it replaces, and every sweep auto-deletes resolved alerts once the 2h
+grace window passes — refs are cleared even when a delete fails so
+nothing retries forever. Operators therefore see only live incidents in
+the severity channels; resolved episodes leave a one-line edit that
+self-cleans. `export_datalake` ships the full archive to
   `lake/socialauto-telegram/messages.json`. ntfy archive reads use the
   dedicated read-only `archive-reader` account (`NTFY_READER_TOKEN`);
   Gmail reads use the OAuth refresh-token envs (`GMAIL_OAUTH_*`,
