@@ -25,6 +25,7 @@ from sqlalchemy import select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 from sqlalchemy.orm import selectinload  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.models.content import Post, PostStatus, PostTarget  # noqa: E402
 from app.models.social_account import SocialAccount  # noqa: E402
 from app.models.user import Team, User  # noqa: E402
