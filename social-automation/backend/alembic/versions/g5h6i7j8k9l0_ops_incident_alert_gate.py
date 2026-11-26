@@ -7,7 +7,7 @@ last alert. Existing non-open rows are backfilled as already-alerted so the
 deploy does not re-post a final burst for the currently-noisy incident set.
 
 Revision ID: g5h6i7j8k9l0
-Revises: c2d4e6f8a0b2
+Revises: t9a8b7c6d5e4
 Create Date: 2026-11-26 06:45:00.000000
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "g5h6i7j8k9l0"
-down_revision = "c2d4e6f8a0b2"
+down_revision = "t9a8b7c6d5e4"
 branch_labels = None
 depends_on = None
 

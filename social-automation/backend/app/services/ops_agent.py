@@ -26,7 +26,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import and_, case, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,29 +127,21 @@ async def report_incident(
                 (and_(
                         stmt.excluded.severity == IncidentSeverity.CRITICAL,
                         OpsIncident.status != IncidentStatus.OPEN,
-                        OpsIncident.alerted_severity != "critical",
+                        OpsIncident.alerted_severity.is_distinct_from("critical"),
                     ), IncidentStatus.OPEN),
                 else_=OpsIncident.status,
             ),
-            # Gate resets ONLY on reopen-from-resolved or escalation-to-critical
-            # — re-reports on a live episode never reset it, or chronic
-            # reporters loop forever.
+            # Gate resets ONLY on reopen-from-resolved — a new episode earns
+            # one fresh alert. Critical escalation deliberately keeps the ops
+            # stamp: _alert_due ranks critical above it, so exactly one
+            # critical alert posts, and once stamped 'critical' the reopen
+            # condition above goes false — chronic critical reporters settle.
             "alerted_at": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
-                (and_(
-                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
-                        OpsIncident.status != IncidentStatus.OPEN,
-                        OpsIncident.alerted_severity != "critical",
-                    ), None),
                 else_=OpsIncident.alerted_at,
             ),
             "alerted_severity": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
-                (and_(
-                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
-                        OpsIncident.status != IncidentStatus.OPEN,
-                        OpsIncident.alerted_severity != "critical",
-                    ), None),
                 else_=OpsIncident.alerted_severity,
             ),
             "resolved_at": case(
@@ -302,8 +294,15 @@ async def sweep(db: AsyncSession) -> dict:
     open_incs = (
         (
             await db.execute(
-                select(OpsIncident)
-                .where(OpsIncident.status == IncidentStatus.OPEN)
+                select(OpsIncident).where(
+                    or_(
+                        OpsIncident.status == IncidentStatus.OPEN,
+                        and_(
+                            OpsIncident.status == IncidentStatus.TRIAGED,
+                            OpsIncident.alerted_at.is_(None),
+                        ),
+                    )
+                )
                 .order_by(OpsIncident.first_seen)
                 .limit(MAX_OPEN_PER_SWEEP)
             )
