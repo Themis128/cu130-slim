@@ -205,6 +205,13 @@
         "LINKEDIN_ACCESS_TOKEN": "${LINKEDIN_ACCESS_TOKEN}",
         "LINKEDIN_API_VERSION": "202511"
       }
+    },
+    "ntfy": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/ntfy-ops/scripts/ntfy-mcp-server.py"
+      ],
+      "cwd": "/home/tbaltzakis/cu130-slim"
     }
   }
 }
