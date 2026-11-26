@@ -52,7 +52,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      # matched to the root compose + image CMD (2026-11-26 crash-loop):
+      # cold start = alembic + seed + worker imports takes minutes under
+      # memory pressure — the frontend waits on this health, so a short
+      # grace stalls the whole standalone stack
+      start_period: 300s
 
   social-frontend:
     image: ghcr.io/themis128/cu130-slim:social-frontend-latest

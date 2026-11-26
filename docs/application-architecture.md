@@ -260,6 +260,9 @@ src/services/api.ts
 
 ## Backend Architecture
 
+> **Runtime note**: the API runs `uvicorn --workers 4 --timeout-worker-healthcheck 300`, and the compose healthcheck uses `start_period: 300s` to match. Both windows were raised after the 2026-11-26 boot crash-loop incident: cold start = alembic + seed + workers importing `app.main`, and on the RAM-constrained Docker Desktop host that chain takes minutes under memory pressure — the 30s grace let autoheal kill the container mid-boot while uvicorn's own worker-healthcheck respawned slow workers inside it, compounding the loop. The image `CMD` (`social-automation/backend/Dockerfile`), the root compose `command:` override, and the compose healthcheck all carry the window; keep them in sync.
+
+
 ### API Modules (572 decorated endpoints across 43 route files — 560 in the OpenAPI schema; the remaining 12 are `email_public_router` public unsubscribe/track surfaces mounted with `include_in_schema=False`)
 
 ```
