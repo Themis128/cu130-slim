@@ -611,3 +611,28 @@ async def test_sweep_retry_lane_skips_triage():
         llm.assert_not_called()
         alert.assert_called_once()
     assert inc.agent_attempts == 0
+
+
+def test_sweep_query_selects_retry_lane():
+    """The sweep's triage query itself must include the retry lane —
+    TRIAGED + alerted_at NULL — not just OPEN incidents."""
+    import sqlalchemy
+
+    captured = []
+
+    class _CapSession(_Session):
+        async def execute(self, stmt):
+            try:
+                captured.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            except Exception:
+                captured.append(str(stmt))
+            return await super().execute(stmt)
+
+    import asyncio
+
+    db = _CapSession([_Result(), _Result(rows=[])])
+    with patch.object(oa, "_container_states", new=AsyncMock(return_value={})):
+        asyncio.run(oa.sweep(db))
+    triage_sql = captured[-1] if captured else ""
+    assert "alerted_at IS NULL" in triage_sql
+    assert sqlalchemy  # silence unused-import lint
