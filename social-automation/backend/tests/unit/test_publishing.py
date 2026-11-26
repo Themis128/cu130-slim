@@ -3,6 +3,7 @@
 import ast as _ast
 import json as _json
 import pathlib as _pathlib
+import sys
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -1553,6 +1554,7 @@ def test_media_validation_notebook_imports_base64():
     assert '"dim_axis": "width"' in src
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="gpu_serial uses Unix-only fcntl.flock (runs inside Linux containers)")
 def test_gpu_serial_script_imports_and_keeps_lock(tmp_path, monkeypatch):
     """Bugs 5+6: gpu_serial.py lacked `import argparse`, and the flock fd was
     closed on execvp (FD_CLOEXEC) so the lock never held across the child."""
