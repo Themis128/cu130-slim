@@ -7,9 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
 from slowapi.errors import RateLimitExceeded
-
 
 # ── app.core.limiter — _safe_check_request_limit wrapper ────────────────────
 
@@ -17,9 +15,7 @@ from slowapi.errors import RateLimitExceeded
 def test_safe_check_request_limit_passes_through_rate_limit_exceeded(monkeypatch):
     import app.core.limiter as L
 
-    sentinel = RateLimitExceeded(
-        SimpleNamespace(limit="1/second", error_message="slow down")
-    )
+    sentinel = RateLimitExceeded(SimpleNamespace(limit="1/second", error_message="slow down"))
     monkeypatch.setattr(L, "_orig_check_request_limit", lambda *a, **k: (_ for _ in ()).throw(sentinel))
     with pytest.raises(RateLimitExceeded) as ei:
         L._safe_check_request_limit(object(), object())
