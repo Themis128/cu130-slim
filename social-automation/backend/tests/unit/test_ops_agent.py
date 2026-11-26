@@ -938,7 +938,7 @@ async def test_live_state_sends_and_pins_when_no_existing():
         ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
     assert ok is True
     client.send_message.assert_awaited_once()
-    assert "no active incidents" in client.send_message.await_args.args[1]
+    assert "all clear" in client.send_message.await_args.args[1]
     client.pin_chat_message.assert_awaited_once()
     assert rd.stored.get("ops:livestate-message-id") == "42"
 
@@ -1036,3 +1036,52 @@ async def test_sweep_updates_live_state_even_with_no_open_incidents():
         stats = await oa.sweep(db)
     ls_mock.assert_awaited_once()
     assert stats["triaged"] == 0
+
+
+@pytest.mark.asyncio
+async def test_inhibition_never_suppresses_critical_incident_via_ops_route():
+    inc = _inc()
+    inc.severity = oa.IncidentSeverity.CRITICAL
+    inc.alerted_at = None
+    send_mock = AsyncMock(return_value=(True, "-1001", 1))
+    with (
+        patch.object(oa, "_inhibited", new=AsyncMock(return_value=True)),
+        patch("app.services.slack_notifications.send_telegram_alert_tracked", new=send_mock),
+    ):
+        await oa._alert(inc, "ops")  # escalation route — critical incident must still fire
+    send_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pin_retried_when_flag_missing():
+    rd = _LSRedis(val="99")  # livestate id stored, pinned flag absent
+    client = AsyncMock()
+    client.edit_message_text = AsyncMock(return_value=True)
+    client.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is True
+    client.pin_chat_message.assert_awaited_once()  # retried after the edit
+    assert rd.stored.get("ops:livestate-pinned") == "1"
+
+
+@pytest.mark.asyncio
+async def test_pin_not_retried_when_already_confirmed():
+    rd = _LSRedis(val="99")
+    rd.stored = {}
+
+    async def pinned_get(key):
+        return "1" if key == "ops:livestate-pinned" else "99"
+
+    rd.get = pinned_get
+    client = AsyncMock()
+    client.edit_message_text = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    client.pin_chat_message.assert_not_awaited()

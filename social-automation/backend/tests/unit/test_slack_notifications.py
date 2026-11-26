@@ -1080,8 +1080,8 @@ class _QueueRedis:
         self.sets = {}
         self.closed = False
 
-    async def rpush(self, key, val):
-        self.items.append(val)
+    async def rpush(self, key, *vals):
+        self.items.extend(vals)
         return len(self.items)
 
     async def lrange(self, key, start, end):
@@ -1166,3 +1166,58 @@ async def test_digest_flushed_today_reads_stamp():
     rq2 = _QueueRedis()
     with patch("redis.asyncio.from_url", return_value=rq2):
         assert await sn.digest_flushed_today() is False
+
+
+@pytest.mark.asyncio
+async def test_flush_requeues_when_delivery_fails():
+    rq = _QueueRedis()
+    import json as _json
+
+    rq.items = [_json.dumps({"sev": "intel", "text": "report", "ts": 1})]
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("telegram down"))
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    assert len(rq.items) == 1  # re-queued — not dropped
+
+
+@pytest.mark.asyncio
+async def test_flush_requeues_when_no_client():
+    rq = _QueueRedis()
+    import json as _json
+
+    rq.items = [_json.dumps({"sev": "intel", "text": "report", "ts": 1})]
+    with _tg_patch(None), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    assert len(rq.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_flush_still_stamps_the_window():
+    rq = _QueueRedis()
+    rq.items = []
+    client = AsyncMock()
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    client.send_message.assert_not_awaited()
+    from datetime import date
+
+    assert rq.sets.get(sn.DIGEST_FLUSH_KEY) == date.today().isoformat()
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_falls_back_to_direct_post_when_queue_fails():
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 5})
+    with (
+        _tg_patch(client),
+        patch.object(sn, "queue_digest", new=AsyncMock(return_value=False)),
+        patch.object(sn, "_post_ntfy_alert", new=AsyncMock()),
+        patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")),
+    ):
+        ok, chat, mid = await sn.send_telegram_alert_tracked("intel", "report text")
+    assert ok is True
+    client.send_message.assert_awaited()  # direct post, not dropped
