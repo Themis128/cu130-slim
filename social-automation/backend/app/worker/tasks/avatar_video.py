@@ -82,7 +82,9 @@ async def _run(**kw) -> dict:
         tid = uuid.UUID(kw["team_id"]) if kw["team_id"] else None
         if uid is None or tid is None:
             u = (await db.execute(select(User))).scalars().first()
-            tm = (await db.execute(select(TeamMember).where(TeamMember.user_id == u.id))).scalars().first()
+            tm = (await db.execute(select(TeamMember).where(TeamMember.user_id == u.id))).scalars().first() if u else None
+            if u is None or tm is None:
+                raise RuntimeError("avatar_video: cannot resolve user/team — pass user_id+team_id kwargs")
             uid, tid = u.id, tm.team_id
 
         async def _asset_bytes(asset_id: str | None):
