@@ -124,11 +124,14 @@ async def report_incident(
             # and the gate must allow exactly one critical alert
             "status": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
-                (and_(
+                (
+                    and_(
                         stmt.excluded.severity == IncidentSeverity.CRITICAL,
                         OpsIncident.status != IncidentStatus.OPEN,
                         OpsIncident.alerted_severity.is_distinct_from("critical"),
-                    ), IncidentStatus.OPEN),
+                    ),
+                    IncidentStatus.OPEN,
+                ),
                 else_=OpsIncident.status,
             ),
             # Gate resets ONLY on reopen-from-resolved — a new episode earns
@@ -307,7 +310,8 @@ async def sweep(db: AsyncSession) -> dict:
     open_incs = (
         (
             await db.execute(
-                select(OpsIncident).where(
+                select(OpsIncident)
+                .where(
                     or_(
                         OpsIncident.status == IncidentStatus.OPEN,
                         and_(
@@ -425,11 +429,13 @@ async def _purge_resolved_alerts(db: AsyncSession, now: datetime) -> tuple[int, 
     rows = (
         (
             await db.execute(
-                select(OpsIncident).where(
+                select(OpsIncident)
+                .where(
                     OpsIncident.status == IncidentStatus.RESOLVED,
                     OpsIncident.alert_message_id.is_not(None),
                     OpsIncident.resolved_at < now - RESOLVED_KEEP,
-                ).limit(DELETE_BATCH)
+                )
+                .limit(DELETE_BATCH)
             )
         )
         .scalars()

@@ -206,10 +206,10 @@ async def test_skips_non_ghost_and_seen_and_empty(monkeypatch):
         "next_batch": "nb",
         "rooms": {
             "join": {
-                "!own:x": {"timeline": {"events": [_msg("@me:x")]}},          # our own msg
+                "!own:x": {"timeline": {"events": [_msg("@me:x")]}},  # our own msg
                 "!seen:x": {"timeline": {"events": [_msg("@facebook_g:x", "hi", "$e1")]}},  # already seen
                 "!empty:x": {"timeline": {"events": [_msg("@facebook_g:x", "  ", "$e2")]}},  # empty body
-                "!nomsg:x": {"timeline": {"events": [{"type": "m.room.member"}]}},           # no msg event
+                "!nomsg:x": {"timeline": {"events": [{"type": "m.room.member"}]}},  # no msg event
             }
         },
     }
@@ -222,6 +222,7 @@ async def test_skips_non_ghost_and_seen_and_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_cooldown_paused_and_no_reply_gates(monkeypatch):
     acct = _account({"personal_messenger_auto_reply": {"enabled": True, "cooldown_seconds": 10}})
+
     def ghost(eid):
         return {"timeline": {"events": [_msg("@facebook_g:x", "hi", eid)]}}
 
