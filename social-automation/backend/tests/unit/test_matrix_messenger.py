@@ -49,12 +49,14 @@ class _Resp:
 class _Client:
     """Fake httpx.AsyncClient recording calls and serving canned /sync."""
 
-    def __init__(self, payload=None, *, get_exc=None, put_exc=None):
+    def __init__(self, payload=None, *, get_exc=None, put_exc=None, post_exc=None):
         self.payload = payload or {}
         self.get_exc = get_exc
         self.put_exc = put_exc
+        self.post_exc = post_exc
         self.gets = []
         self.puts = []
+        self.posts = []
 
     async def __aenter__(self):
         return self
@@ -72,6 +74,12 @@ class _Client:
         self.puts.append((url, kw))
         if self.put_exc:
             raise self.put_exc
+        return _Resp({})
+
+    async def post(self, url, **kw):
+        self.posts.append((url, kw))
+        if self.post_exc:
+            raise self.post_exc
         return _Resp({})
 
 
@@ -270,6 +278,36 @@ async def test_multiple_enabled_warns_uses_first(monkeypatch):
     assert out["accounts_checked"] == 1
     assert out["replies_sent"] == 1
     assert a1.meta_data["matrix_messenger_seen"] and "matrix_messenger_seen" not in a2.meta_data
+
+
+@pytest.mark.asyncio
+async def test_invite_rooms_auto_joined(monkeypatch):
+    acct = _account({"personal_messenger_auto_reply": {"enabled": True}})
+    payload = {
+        "next_batch": "nb",
+        "rooms": {
+            "invite": {"!newportal:x": {}, "!portal2:x": {}},
+            "join": {"!room1:x": {"timeline": {"events": [_msg("@facebook_g:x", "hi", "$e1")]}}},
+        },
+    }
+    client = _wire(monkeypatch, [acct], _Client(payload))
+    out = await MM._poll_matrix_messenger_async()
+    assert out["rooms_joined"] == 2
+    join_calls = sorted(u for u, _ in client.posts if u.endswith("/join"))
+    assert join_calls == [
+        "/_matrix/client/v3/rooms/!newportal:x/join",
+        "/_matrix/client/v3/rooms/!portal2:x/join",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_invite_join_failure_is_nonfatal(monkeypatch):
+    acct = _account({"personal_messenger_auto_reply": {"enabled": True}})
+    payload = {"next_batch": "nb", "rooms": {"invite": {"!p:x": {}}, "join": {}}}
+    _wire(monkeypatch, [acct], _Client(payload, post_exc=RuntimeError("no join")))
+    out = await MM._poll_matrix_messenger_async()
+    assert out.get("rooms_joined", 0) == 0
+    assert out["errors"] == 0
 
 
 # ── sync wrapper / _run_async ─────────────────────────────────────────
