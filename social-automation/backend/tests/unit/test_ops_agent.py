@@ -529,3 +529,85 @@ def test_runbook_context_matches_and_caps():
     # haystack includes detail field
     det = rb.runbook_context("x", "y", "", detail="error 530 on edge")
     assert "Tunnel" in det or "tunnel" in det
+
+
+# ---------------------------------------------------------- alert gate tests
+
+
+def test_alert_due_never_alerted():
+    inc = _inc()
+    inc.alerted_at = None
+    assert oa._alert_due(inc, "ops") is True
+
+
+def test_alert_due_same_severity_not_due():
+    inc = _inc()
+    inc.alerted_at = datetime.now(UTC)
+    inc.alerted_severity = "ops"
+    assert oa._alert_due(inc, "ops") is False
+
+
+def test_alert_due_escalation_is_due():
+    inc = _inc()
+    inc.alerted_at = datetime.now(UTC)
+    inc.alerted_severity = "ops"
+    assert oa._alert_due(inc, "critical") is True
+    assert oa._alert_due(inc, "info") is False
+
+
+@pytest.mark.asyncio
+async def test_alert_skips_when_not_due():
+    inc = _inc()
+    inc.alerted_at = datetime.now(UTC)
+    inc.alerted_severity = "critical"
+    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock()) as send:
+        await oa._alert(inc, "ops")
+        send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_alert_success_stamps_gate():
+    inc = _inc()
+    inc.alerted_at = None
+    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(return_value=True)):
+        await oa._alert(inc, "ops")
+    assert inc.alerted_at is not None
+    assert inc.alerted_severity == "ops"
+
+
+@pytest.mark.asyncio
+async def test_alert_failure_leaves_gate_unstamped():
+    inc = _inc()
+    inc.alerted_at = None
+    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(return_value=False)):
+        await oa._alert(inc, "ops")
+    assert inc.alerted_at is None
+    assert inc.alerted_severity is None
+
+
+@pytest.mark.asyncio
+async def test_alert_exception_leaves_gate_unstamped():
+    inc = _inc()
+    inc.alerted_at = None
+    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        await oa._alert(inc, "ops")
+    assert inc.alerted_at is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_retry_lane_skips_triage():
+    """A TRIAGED incident with unstamped gate re-enters sweep only to retry
+    delivery — no LLM verdict, no agent attempts burned."""
+    inc = _inc(status=IncidentStatus.TRIAGED)
+    inc.alerted_at = None
+    # sweep queries: [0]=stale autoresolve, [1]=retry-triage select
+    db = _Session([_Result(), _Result(rows=[inc])])
+    with (
+        patch.object(oa, "_llm_verdict", new=AsyncMock()) as llm,
+        patch.object(oa, "_alert", new=AsyncMock()) as alert,
+        patch.object(oa, "_container_states", new=AsyncMock(return_value={})),
+    ):
+        await oa.sweep(db)
+        llm.assert_not_called()
+        alert.assert_called_once()
+    assert inc.agent_attempts == 0
