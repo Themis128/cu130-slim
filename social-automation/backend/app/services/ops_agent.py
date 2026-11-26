@@ -119,19 +119,37 @@ async def report_incident(
             "recurrence_count": new_recur,
             "agent_attempts": reset_attempts,
             "first_seen": fresh_first_seen,
+            # reopen on: resolved (new episode) OR escalation to critical on a
+            # live episode never alerted at critical — sweep must re-triage it
+            # and the gate must allow exactly one critical alert
             "status": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
+                (and_(
+                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
+                        OpsIncident.status != IncidentStatus.OPEN,
+                        OpsIncident.alerted_severity != "critical",
+                    ), IncidentStatus.OPEN),
                 else_=OpsIncident.status,
             ),
-            # ONLY a reopen-from-resolved resets the alert gate — a new episode
-            # earns exactly one fresh alert. Re-reports on a live (triaged)
-            # episode must never reset it, or chronic reporters loop forever.
+            # Gate resets ONLY on reopen-from-resolved or escalation-to-critical
+            # — re-reports on a live episode never reset it, or chronic
+            # reporters loop forever.
             "alerted_at": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                (and_(
+                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
+                        OpsIncident.status != IncidentStatus.OPEN,
+                        OpsIncident.alerted_severity != "critical",
+                    ), None),
                 else_=OpsIncident.alerted_at,
             ),
             "alerted_severity": case(
                 (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                (and_(
+                        stmt.excluded.severity == IncidentSeverity.CRITICAL,
+                        OpsIncident.status != IncidentStatus.OPEN,
+                        OpsIncident.alerted_severity != "critical",
+                    ), None),
                 else_=OpsIncident.alerted_severity,
             ),
             "resolved_at": case(
@@ -378,8 +396,13 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
             f"rca: {inc.rca[:600] or '(pending)'}\n"
             f"action: {inc.proposed_action or inc.action_taken or 'none'}" + (f" → {inc.action_result[:300]}" if inc.action_result else "")
         )
-        await send_telegram_alert(severity, text)
-        inc.alerted_at = datetime.now(UTC)
-        inc.alerted_severity = severity
+        sent = await send_telegram_alert(severity, text)
+        if sent:
+            inc.alerted_at = datetime.now(UTC)
+            inc.alerted_severity = severity
+        else:
+            # delivery failed — leave the gate unstamped so a later sweep or
+            # escalation pass can retry instead of swallowing the alert
+            logger.warning("ops-agent alert send returned failure for %s", inc.fingerprint)
     except Exception as exc:
         logger.warning("ops-agent alert failed: %s", exc)
