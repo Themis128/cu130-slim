@@ -381,10 +381,7 @@ async def main() -> None:
     }
 
     fn = dispatch[args.command]
-    if asyncio.iscoroutinefunction(fn):
-        await fn(args)
-    else:
-        fn()
+    await fn(args)
 
 
 if __name__ == "__main__":

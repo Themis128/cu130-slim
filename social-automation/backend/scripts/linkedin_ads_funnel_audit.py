@@ -170,7 +170,7 @@ async def _espo_paid_leads() -> dict:
     if not espo.configured():
         return {"error": "ESPOCRM_* not configured"}
 
-    async def _count(attr: str, value: str) -> int | None:
+    async def _count(attr: str, value: str) -> int | str | None:
         try:
             rows = await espo.list_all(
                 "Lead",

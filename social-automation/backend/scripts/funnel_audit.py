@@ -150,7 +150,7 @@ async def audit() -> dict:
         sources[lead.get("source") or "(none)"] = sources.get(lead.get("source") or "(none)", 0) + 1
     trunc_note = " (list truncated at cap)" if truncated else ""
 
-    stages = [
+    stages: list[dict] = [
         {"stage": "audience", "count": reach, "note": f"followers, latest per account ({reach_30d_ago} 30d ago)"},
         # engaged is a post-activity proxy — never a person count; excluded
         # from weakest-transition comparison (unit mismatch, Devin Review)
