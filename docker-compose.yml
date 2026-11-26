@@ -343,6 +343,7 @@ services:
     memswap_limit: 12g
     cpus: '6'
   n8n:
+    profiles: ["dev"]
     image: n8nio/n8n:2.47.0
     container_name: n8n
     # Run as root: the ./n8n-data bind mount flips between uid 1000/1001
@@ -507,6 +508,7 @@ services:
   # Image version MUST match n8nio/n8n. The stock /etc/task-runners.json in
   # this image already allowlists crypto+moment builtins for our Code nodes.
   n8n-task-runner:
+    profiles: ["dev"]
     image: n8nio/runners:2.47.0
     pull_policy: if_not_present
     container_name: n8n-task-runner
@@ -545,6 +547,7 @@ services:
   # Same pattern as social-metrics (:9390 → social-api). Add a scrape
   # target for <host-lan-ip>:9392 in the Prometheus config.
   n8n-metrics:
+    profiles: ["dev"]
     image: nginx:1.27-alpine
     pull_policy: if_not_present
     container_name: n8n-metrics
@@ -805,6 +808,7 @@ services:
     restart: unless-stopped
 
   flower:
+    profiles: ["dev"]
     image: mher/flower:2.1.0
     container_name: flower
     networks:
@@ -891,6 +895,7 @@ services:
     cpus: '1'
     restart: unless-stopped
   social-postgres:
+    profiles: ["dev"]
     # PG16→17 migrated 2026-10-20 via pg_dumpall → new volume (old
     # cu130-slim_social_postgres_data kept intact as rollback).
     # n8n 2.43+ requires PG17 (PG16 was compat-only).
@@ -917,6 +922,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   redis:
+    profiles: ["dev"]
     image: redis:7-alpine
     container_name: redis
     networks:
@@ -943,6 +949,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
     pull_policy: always
     build:
@@ -1286,6 +1293,7 @@ services:
   # Prometheus on omv can't reach the loopback-bound API; this proxies ONLY
   # /metrics to a LAN port. Everything else 404s — no API surface exposed.
   social-metrics:
+    profiles: ["dev"]
     image: nginx:1.27-alpine
     pull_policy: if_not_present
     container_name: social-metrics
@@ -1351,6 +1359,7 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1402,6 +1411,7 @@ services:
     restart: unless-stopped
 
   social-worker-media:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1457,6 +1467,7 @@ services:
     restart: unless-stopped
 
   social-worker-default:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1507,6 +1518,7 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1558,6 +1570,7 @@ services:
     cpus: '4'
     restart: unless-stopped
   social-worker-meta:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1610,6 +1623,7 @@ services:
     cpus: '4'
     restart: unless-stopped
   celery-beat:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
@@ -1661,6 +1675,7 @@ services:
     cpus: '1'
     restart: unless-stopped
   cloudflared:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:cloudflared-latest
     pull_policy: always
     build:
@@ -1710,6 +1725,7 @@ services:
     restart: unless-stopped
 
   social-frontend:
+    profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-frontend-latest
     pull_policy: always
     build:
@@ -1754,6 +1770,7 @@ services:
   # as 8011 on the host for diagnostics.  Session files persist in a named
   # volume so Instagram login survives container restarts.
   instagram-private-api:
+    profiles: ["dev"]
     image: subzeroid/aiograpi-rest:latest
     build:
       context: ./instagram-private-api
@@ -1971,6 +1988,7 @@ services:
   # and Company Page management (about, logo, cover, specialties).
   # Browser session is injected via POST /session with storage_state.
   linkedin-browser-sidecar:
+    profiles: ["dev"]
     build:
       context: ./linkedin-browser-sidecar
       dockerfile: Dockerfile
@@ -2153,6 +2171,7 @@ services:
   # and website.  Also supports Page-mode posting via /page/* endpoints.
   # Browser session is injected via POST /session with storage_state.
   facebook-browser-sidecar:
+    profiles: ["dev"]
     build:
       context: ./facebook-browser-sidecar
       dockerfile: Dockerfile
@@ -2185,6 +2204,7 @@ services:
   # (AI auto-reply, conversation persistence) without blocking the main API.
   # Free, self-hosted — uses DMR (local GPU) primary with Cloudflare Workers AI fallback.
   messenger-sidecar:
+    profiles: ["dev"]
     build:
       context: ./messenger-sidecar
       dockerfile: Dockerfile
@@ -2767,6 +2787,7 @@ services:
       retries: 3
 
   infisical:
+    profiles: ["dev"]
     image: infisical/infisical:latest-postgres
     container_name: infisical
     restart: unless-stopped
