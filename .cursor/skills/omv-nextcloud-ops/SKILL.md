@@ -191,6 +191,20 @@ STUN binding requests) and prints an honest pass/fail summary.
     `docker restart`s the container — covers wedged cloudflared cases
     the built-in retry loop doesn't; 30-min cooldown, ntfy notice via
     the wedge-watchdog env file. Repo mirror: `host-scripts/`.
+  - **`sip-bridge-watchdog`** (systemd timer, every 2 min,
+    `/usr/local/sbin/sip_bridge_watchdog.py`): watches the
+    `talk-sip-bridge` linphone dial-in container via its control API
+    (`127.0.0.1:8765/status`). Heal ladder: unregistered → POST
+    `/toggle` off+on (forces a real REGISTER; 5-min toggle cooldown) →
+    after ~6 min still unregistered → `docker restart` (30-min
+    cooldown, **deferred while `active_call` is set** so live callers
+    aren't dropped). Container down → `docker compose up -d` on the
+    bridge compose (`/srv/dev-disk-by-uuid-…/talk-sip-bridge/compose.yml`).
+    The compose service also carries a `healthcheck` (same
+    `/status`→`registered` probe, 90 s start_period) so
+    `nas-auto-remediate --docker-health` restarts a persistently
+    unhealthy bridge as a third tier. ntfy via the shared
+    wedge-watchdog env file. Repo mirror: `host-scripts/`.
   - Only real fixes for WAN loss itself: dual-WAN/4G failover on the
     router, or an ISP ticket for the recurring CGNAT drops.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
