@@ -2809,7 +2809,52 @@ services:
       retries: 5
       start_period: 60s
 
+  # ── Matrix lane (mautrix-meta durable Messenger bridge) ────────────────
+  # Bridge-only homeserver: no federation, no host ports — only the bridge
+  # and the messenger worker reach it on cu130-backend. Replaces the
+  # browser-sidecar personal-Messenger lane, which dies on every Meta
+  # password change (E2EE-safe via the bridge's Armadillo protocol impl).
+  continuwuity:
+    image: ghcr.io/continuwuity/continuwuity:latest
+    container_name: continuwuity
+    networks:
+      - backend
+    environment:
+      CONTINUWUITY_SERVER_NAME: socialauto.internal
+      CONTINUWUITY_DATABASE_PATH: /var/lib/continuwuity
+      CONTINUWUITY_PORT: '6167'
+      CONTINUWUITY_ADDRESS: 0.0.0.0
+      CONTINUWUITY_ALLOW_FEDERATION: 'false'
+      CONTINUWUITY_ALLOW_REGISTRATION: 'true'
+      CONTINUWUITY_REGISTRATION_TOKEN: ${MATRIX_REGISTRATION_TOKEN:-}
+      CONTINUWUITY_ALLOW_CHECK_FOR_UPDATES: 'false'
+      CONTINUWUITY_MAX_REQUEST_SIZE: '20000000'
+      CONTINUWUITY_REPORT_STATS: 'false'
+    volumes:
+      - continuwuity_data:/var/lib/continuwuity
+    # No healthcheck: the image is distroless (no sh/wget) — any in-container
+    # check fails. Probe from outside: curl continuwuity:6167/_matrix/client/versions
+    mem_limit: 384m
+    memswap_limit: 768m
+    restart: unless-stopped
+    <<: *public-dns
+
+  mautrix-meta:
+    image: dock.mau.dev/mautrix/meta:latest
+    container_name: mautrix-meta
+    networks:
+      - backend
+    volumes:
+      - ./matrix/mautrix-meta:/data
+    depends_on:
+      - continuwuity
+    mem_limit: 384m
+    memswap_limit: 768m
+    restart: unless-stopped
+    <<: *public-dns
+
 volumes:
+  continuwuity_data: null
   ollama_models:
   chroma_data: null
   portainer_data: null

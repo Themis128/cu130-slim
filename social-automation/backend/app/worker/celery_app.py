@@ -58,6 +58,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.linkedin_token_check",
         "app.worker.tasks.personal_messenger",
+        "app.worker.tasks.matrix_messenger",
         "app.worker.tasks.linkedin_messenger",
         "app.worker.tasks.threads_messenger",
         "app.worker.tasks.twitter_messenger",
@@ -460,6 +461,7 @@ celery_app.conf.update(
         "app.worker.tasks.media_heal.run_media_heal_sweep": {"queue": "publishing"},
         "app.worker.tasks.media_integrity.run_media_integrity_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
+        "app.worker.tasks.matrix_messenger.poll_matrix_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
         "app.worker.tasks.twitter_messenger.poll_twitter_messenger": {"queue": "messenger"},
@@ -1322,6 +1324,14 @@ celery_app.conf.update(
         "poll-personal-messenger": {
             "task": "app.worker.tasks.personal_messenger.poll_personal_messenger",
             "schedule": 120.0,  # every 2 minutes
+            "options": {"queue": "messenger"},
+        },
+        # Poll Matrix rooms bridged from personal Messenger (mautrix-meta
+        # on continuwuity) for new messages and send AI auto-replies via
+        # the Matrix client API — protocol-level lane, no browser needed.
+        "poll-matrix-messenger": {
+            "task": "app.worker.tasks.matrix_messenger.poll_matrix_messenger",
+            "schedule": 60.0,  # every minute
             "options": {"queue": "messenger"},
         },
         # Poll LinkedIn DM conversations for new messages and send AI
