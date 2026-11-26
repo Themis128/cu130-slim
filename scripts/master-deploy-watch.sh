@@ -246,7 +246,14 @@ if [ "$app_code" = 1 ]; then
   # pulls, not restarts. Pull the fresh tags and force-recreate.
   log "backend code changed — pull + force-recreate $CORE_RESTART"
   COMPOSE pull $CORE_RESTART >>"$DW_LOG" 2>&1 || ALERT "pull" ":rotating_light: master-deploy-watch: compose pull failed after $new"
-  COMPOSE up -d --force-recreate $CORE_STANDALONE >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
+  # Stop+rm by NAME before create — clears any foreign-owned holder of the
+  # pinned container_name (the root cu130-slim project / a C:-side compose
+  # run can claim them again; --force-recreate fresh-creates first and dies
+  # on "name already in use" when that happens). Celery drains via SIGTERM
+  # and the defer gate already guarantees no publish/render in flight.
+  docker stop $CORE_STANDALONE >>"$DW_LOG" 2>&1 || true
+  docker rm $CORE_STANDALONE >>"$DW_LOG" 2>&1 || true
+  COMPOSE up -d $CORE_STANDALONE >>"$DW_LOG" 2>&1 || ALERT "recreate" ":rotating_light: master-deploy-watch: compose up --force-recreate failed after $new"
   ROOT_COMPOSE up -d --no-deps --pull never --force-recreate $CORE_ROOT >>"$DW_LOG" 2>&1 || ALERT "recreate-root" ":rotating_light: master-deploy-watch: root compose force-recreate failed after $new"
 fi
 
