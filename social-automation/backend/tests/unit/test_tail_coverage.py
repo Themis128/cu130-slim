@@ -6,6 +6,7 @@ export glue. Stubs sit at module boundaries; the code runs for real.
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -559,6 +560,7 @@ async def test_reports_invalid_notebook_filter(monkeypatch, tmp_path):
     assert len(res["reports"]) == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.symlink requires privileges on Windows")
 @pytest.mark.asyncio
 async def test_get_report_file_symlink_escape(monkeypatch, tmp_path):
     from app.api import reports as rep_api

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -192,6 +193,7 @@ async def test_analytics_interval(settings):
     assert (await g.reserve_analytics_slot()).ok
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="FileGuardStore.lock() uses Unix-only fcntl (runs inside Linux containers)")
 @pytest.mark.asyncio
 async def test_file_store_roundtrip(tmp_path, settings):
     store = x_web.FileGuardStore(str(tmp_path / "state.json"))
