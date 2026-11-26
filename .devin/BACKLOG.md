@@ -5008,30 +5008,30 @@ Still open — all waiting on Meta, nothing left to automate client-side:
 - **TOTP secret fixed**: META_TOTP_SECRET had display spaces — stripped in
   .env; heal script TOTP lane works now.
 
-## 2026-11-26 — LinkedIn BF 2026 ads: promo credit exhausted, campaign over
+## 2026-11-26 — deep static sweep + suite (Devin session)
 
-- **BF campaign spent the entire credit.** Campaign group "Black Friday 2026"
-  (`1253575956`, ad acct `512642510`): ad set `932221876` (VIDEO, 10 ads,
-  Nov 24–27) spent **€26.69** — ~21% over its €22 lifetime cap (the
-  documented LinkedIn overshoot). Credit was €26.97 (`LINKEDIN_ADS_CREDIT_EUR`,
-  as of 2026-11-23) → **~€0.28 remaining**. Result: 2,573 impressions,
-  **0 clicks**.
-- **Both ad sets PAUSED = correct end state.** `932037146` (image set, 17
-  ads, Nov 25–30) never delivered (`CAMPAIGN_START_DATE_HOLD` the whole
-  window, €0 spend, still €22 cap + €10/day). Resume of `932221876` is
-  rejected by LinkedIn itself: `totalBudget 22 cannot be lower than 26.69`
-  (spend > cap → nothing left to serve). Do NOT activate either set —
-  any spend now bills the card. `LINKEDIN_ADS_ALLOWED_ACTIVE=932037146`
-  already allowlisted; guard stays quiet while paused.
-- **If more BF ads are wanted**: needs new promo credit in Campaign
-  Manager, or explicit owner approval for card spend. API floors:
-  `dailyBudget` ≥ €10 and `totalBudget` ≥ `dailyBudget` (PATCH order:
-  daily first). Campaign window ends 2026-11-27 regardless.
-- **Organic BF posts still rolling**: published on cloudless-gr page
-  (Nov 22 + Nov 24 posts live); Nov 26 posts `f5b8493d`/`5957eac4` were
-  wedged ~2h in `publish_queue` stale locks after the Docker Desktop crash
-  — self-healed via the >15min stale-lock reclaim once workers came back.
-- **Docker Desktop crashed mid-session** ("unable to start"); relaunched
-  `C:\Users\tbaltzakis\AppData\Local\Programs\DockerDesktop\Docker Desktop.exe`,
-  engine back in ~30s, `social-api` needed a manual `docker start`
-  (stuck in `Created`).
+Landed: PRs #2679 (carousel DMR timeouts + font fallback + pyrightconfig),
+#2681 (ops-agent alert lifecycle — parallel session), #2682 (3 Unix-only
+test skips: fcntl×2 + symlink priv — Windows dev hosts only), #2683
+(matrix-messenger bridge lane + coverage tests), #2684 (research endpoints
+TeamId fix — real 500s; avatar_video null-guard), #2685 (mypy gate extended
+to backend/scripts — 86 ops CLIs now covered, zero real errors found).
+
+Full basedpyright sweep of app/ (451 files, 410 diagnostics) + scripts/
+(86 files, 112 diagnostics): all triaged — 2 real bugs (fixed in #2684),
+rest is stub noise (SQLAlchemy Mapped["X"] forward refs, celery .delay,
+PIL/redis/ORM async stubs). Unit suite 10,074 tests green; coverage gate
+99.0% line / 95.3% branch enforced.
+
+Leftovers (optional, low value):
+- [ ] Coverage thin-spots below repo average: dmr_health.py 70%,
+  funnel_reports.py 79%, notify_archive.py 85%, avatar_video/task modules
+  recently added. Aggregate gate passes; per-module hardening optional.
+- [ ] Cosmetic: 37 SQLAlchemy Mapped["X"] forward refs flag
+  reportUndefinedVariable under basedpyright — TYPE_CHECKING imports
+  would silence but zero runtime benefit.
+- [ ] scripts/ mypy gate uses global --ignore-missing-imports; tightening
+  to per-module overrides would surface future missing-dep bugs.
+- [ ] Windows dev-host suite: 3 Unix-only tests now skip'd on win32 —
+  gpu_serial/x_web FileGuardStore lock are container-only paths; if a
+  Windows dev run of those services is ever needed, port locks to msvcrt.

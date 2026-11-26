@@ -38,7 +38,7 @@ REQUIRED_PROBES = [
     ("email-routing", "GET", "/zones/7025298073d6a5c645a6ad9add0cbf0e/email/routing/rules"),
     ("workers", "GET", "/accounts/fb7dc7b69b662480cd5961a4d1913c78/workers/scripts"),
 ]
-ENV_KEYS = ["CLOUDFLARE_API_TOKEN"]
+ENV_KEYS = {"CLOUDFLARE_API_TOKEN"}
 
 
 def _api(method: str, path: str, token: str) -> tuple[int, dict]:

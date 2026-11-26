@@ -128,7 +128,7 @@ async def _attribution() -> dict:
 
 
 async def _probe_surfaces() -> dict:
-    out = {}
+    out: dict = {}
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
         for label, url in CAPTURE_SURFACES.items():
             try:

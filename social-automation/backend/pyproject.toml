@@ -172,6 +172,13 @@ module = ["app.models.*"]
 disable_error_code = ["name-defined"]
 
 [[tool.mypy.overrides]]
+# Audit/ops scripts shape JSON rows as ad-hoc dict unions (int | str | list)
+# and index them by column name; union-attr/index noise dominates there.
+# Real classes (call-arg, operator, return-value, dict-item) stay gated.
+module = ["scripts.*"]
+disable_error_code = ["union-attr", "index"]
+
+[[tool.mypy.overrides]]
 # Third-party packages without complete typing support:
 # - aiofiles: no inline types / stubs installed
 # - numpy: ships PEP-695 `type` statement stubs incompatible with python_version 3.11 target

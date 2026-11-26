@@ -34,7 +34,7 @@ async def _teams() -> list:
     from app.models.user import Team
 
     async with async_session_maker() as db:
-        return (await db.execute(select(Team))).scalars().all()
+        return list((await db.execute(select(Team))).scalars().all())
 
 
 async def cmd_sync(team_id: str | None) -> None:
