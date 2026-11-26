@@ -150,6 +150,13 @@ class Settings(BaseSettings):
     # can stall ~20min when the runner is wedged — that must never park a
     # publishing worker. Timeout degrades to "vision unavailable" fail-open.
     PUBLISH_MEDIA_QA_TIMEOUT_S: float = 90.0
+    # Budget for the advisory SEO analysis in the carousel pipeline. The
+    # underlying DMR call can stall behind model loads for tens of minutes;
+    # SEO scoring must never park the pipeline.
+    SEO_ANALYZE_TIMEOUT_S: float = 60.0
+    # Same hazard for the carousel pipeline's advisory media-quality pass
+    # (NLP + spellcheck + SEO through DMR).
+    CAROUSEL_QUALITY_TIMEOUT_S: float = 120.0
     # Total wall-clock budget for ALL semantic checks in one publish. The
     # per-image timeout alone can exceed the per-item publish deadline
     # (120s on most platforms): N images × 90s >> deadline → the outer

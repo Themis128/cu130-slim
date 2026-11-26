@@ -9,6 +9,7 @@ def _sanitize_caption(c):
     return sanitize_post_text(c)
 
 
+import asyncio  # noqa: E402
 import base64  # noqa: E402
 import io  # noqa: E402
 import logging  # noqa: E402
@@ -121,15 +122,24 @@ _FALLBACK = {
     "bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "regular": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 }
+# Extra candidates for non-Linux hosts (Windows dev machines).
+_FALLBACK_EXTRA = {
+    "bold": ["C:\\Windows\\Fonts\\arialbd.ttf"],
+    "regular": ["C:\\Windows\\Fonts\\arial.ttf"],
+}
 
 
 def _font(size: int, weight: str = "regular"):
     path = _FONT_FILES.get(weight, _FONT_FILES["regular"])
     if os.path.exists(path):
         return ImageFont.truetype(path, size)
-    fb = _FALLBACK.get("bold" if weight == "bold" else "regular", _FALLBACK["regular"])
-    if os.path.exists(fb):
-        return ImageFont.truetype(fb, size)
+    key = "bold" if weight == "bold" else "regular"
+    for fb in [_FALLBACK[key], *_FALLBACK_EXTRA[key]]:
+        if os.path.exists(fb):
+            try:
+                return ImageFont.truetype(fb, size)
+            except OSError:
+                continue
     return ImageFont.load_default()
 
 
@@ -699,7 +709,7 @@ def compose_ad_creative(
     draw.line([(0, height - fh), (width, height - fh)], fill=accent, width=1)
     foot_f = _font(max(14, int(20 * s)), "bold")
     draw.text((pad, height - fh + int(8 * s)), domain, font=foot_f, fill=accent)
-    url = "www." + domain.lstrip("www.")
+    url = "www." + domain.removeprefix("www.")
     uw = int(draw.textlength(url, font=_font(max(13, int(18 * s)))))
     draw.text(
         (width - pad - uw, height - fh + int(10 * s)),
@@ -1253,18 +1263,21 @@ async def run_cloudless_carousel_pipeline(
                 slide_texts.append(slide["highlight"])
         combined_text = " ".join(slide_texts) + " " + (caption or "")
 
-        quality_result = await apply_media_quality(
-            caption=combined_text,
-            alt_text=ai_title,
-            tags=carousel_asset.tags or [],
-            platform=account.platform,
-            db=db,
-            team_id=team.id,
-            provider_name="dmr",
-            run_nlp=True,
-            run_spellcheck=True,
-            run_seo=True,
-        )
+        async with asyncio.timeout(
+            float(getattr(settings, "CAROUSEL_QUALITY_TIMEOUT_S", 120.0) or 120.0)
+        ):
+            quality_result = await apply_media_quality(
+                caption=combined_text,
+                alt_text=ai_title,
+                tags=carousel_asset.tags or [],
+                platform=account.platform,
+                db=db,
+                team_id=team.id,
+                provider_name="dmr",
+                run_nlp=True,
+                run_spellcheck=True,
+                run_seo=True,
+            )
         await persist_media_quality_metadata(carousel_asset, quality_result, db)
         logger.info(f"[n8n-pipeline] Quality metadata persisted to carousel asset {carousel_asset.id}")
     except Exception as exc:
@@ -1284,12 +1297,15 @@ async def run_cloudless_carousel_pipeline(
         try:
             from app.services import seo as _seo_service
 
-            seo_result = await _seo_service.analyze_seo(
-                text=full_caption,
-                platform=account.platform,
-                db=db,
-                team_id=team.id,
-            )
+            async with asyncio.timeout(
+                float(getattr(settings, "SEO_ANALYZE_TIMEOUT_S", 60.0) or 60.0)
+            ):
+                seo_result = await _seo_service.analyze_seo(
+                    text=full_caption,
+                    platform=account.platform,
+                    db=db,
+                    team_id=team.id,
+                )
             seo_score = (seo_result or {}).get("score", {}) or {}
             logger.info(f"[n8n-pipeline] SEO score: {seo_score.get('overall', '?')}/100")
             break
@@ -1385,8 +1401,6 @@ async def run_cloudless_carousel_pipeline(
         return result
 
     # Optional brief poll (disabled by default for n8n so the webhook returns 200 quickly)
-    import asyncio
-
     for _ in range(40):
         await asyncio.sleep(3)
         refreshed = (await db.execute(select(Post).options(selectinload(Post.targets)).where(Post.id == post.id))).scalar_one()

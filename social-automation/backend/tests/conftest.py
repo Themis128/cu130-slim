@@ -26,6 +26,8 @@ if not os.environ.get("MESSENGER_REDIS_URL"):
 # Unit tests exercise the publish semantic-QA gate for real; the host's DMR
 # vision chain can stall for tens of minutes behind model loads, so bound it.
 os.environ.setdefault("PUBLISH_MEDIA_QA_TIMEOUT_S", "3")
+os.environ.setdefault("SEO_ANALYZE_TIMEOUT_S", "3")
+os.environ.setdefault("CAROUSEL_QUALITY_TIMEOUT_S", "3")
 
 # tests/integration/conftest.py loads the repo's real .env into os.environ
 # (setdefault) before unit-test modules import Settings. When a developer .env
