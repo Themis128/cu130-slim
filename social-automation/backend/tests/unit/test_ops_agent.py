@@ -632,11 +632,12 @@ def test_sweep_query_selects_retry_lane():
 
     import asyncio
 
-    db = _CapSession([_Result(), _Result(rows=[])])
+    db = _CapSession([_Result(), _Result(rows=[]), _Result(rows=[])])
     with patch.object(oa, "_container_states", new=AsyncMock(return_value={})):
         asyncio.run(oa.sweep(db))
-    triage_sql = captured[-1] if captured else ""
-    assert "alerted_at IS NULL" in triage_sql
+    gate_queries = [s for s in captured if "alerted_at IS NULL" in s]
+    assert gate_queries, captured  # the sweep must include the retry lane somewhere
+    triage_sql = gate_queries[0]
     # the retry lane must specifically qualify TRIAGED incidents, not just OPEN
     assert "'triaged'" in triage_sql.lower()
     assert sqlalchemy  # silence unused-import lint
