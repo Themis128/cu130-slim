@@ -1907,16 +1907,12 @@ async def test_ig_media_metrics_unit():
 @pytest.mark.asyncio
 async def test_ig_media_metrics_platform_deleted():
     client = _Client()
-    client.get = AsyncMock(
-        return_value=_resp(
-            400,
-            {
-                "error": {
-                    "message": "Unsupported get request. Object with ID '1_2' does not exist, cannot be loaded due to missing permissions, or does not support this operation."
-                }
-            },
-        )
+    long_msg = (
+        "Unsupported get request. Object with ID '1_2' does not exist, "
+        "cannot be loaded due to missing permissions, or does not support "
+        "this operation."
     )
+    client.get = AsyncMock(return_value=_resp(400, {"error": {"message": long_msg}}))
     m = await A._fetch_instagram_media_metrics(client, "tok", "u1", "m1")
     assert m.notes == "platform_deleted"
 
