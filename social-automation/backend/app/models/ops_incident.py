@@ -12,7 +12,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -77,5 +77,9 @@ class OpsIncident(Base):
     # (new episode) or severity increased since alerted_severity.
     alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     alerted_severity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # edit-in-place lifecycle: the telegram message this incident posted,
+    # edited to a resolution one-liner on resolve and deleted after the grace window
+    alert_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    alert_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)

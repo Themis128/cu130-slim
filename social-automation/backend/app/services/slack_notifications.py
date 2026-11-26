@@ -484,36 +484,14 @@ async def _post_ntfy_alert(severity: str, text: str) -> None:
         logger.debug("ntfy alert fan-out failed (non-fatal)", exc_info=True)
 
 
-async def send_telegram_alert(severity: str, text: str) -> bool:
-    """Route an alert to the severity's private admin channel.
-    'critical' also posts to ops (continue-matching — complete record).
-
-    Dedup: the same alert text (fingerprint = severity + text) sends at most
-    once per DEDUP_WINDOW_S — a heal reporting 'token invalid' every 30min
-    alerts once, then stays quiet until the state changes."""
-    import hashlib
-
-    DEDUP_WINDOW_S = 6 * 3600
-    fp = hashlib.sha256(f"{severity}|{text}".encode()).hexdigest()[:16]
-    try:
-        from app.worker._async import _redis
-
-        r = _redis()
-        if await r.exists(f"alert-dedup:{fp}"):
-            return True  # already reported — silent ack
-        await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
-    except Exception:
-        pass  # dedup failure must not block the alert
-
-    await _post_ntfy_alert(severity, text)
-
+async def _tg_client():
+    """Bot client — DB token first, env fallback so P1 'db down' alerts still deliver."""
     from sqlalchemy import select
 
     from app.models.social_account import SocialAccount
     from app.services.telegram_agent import TelegramAPIClient, _bot_token
     from app.worker._async import task_session
 
-    chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
     token = ""
     try:
         async with task_session() as db:
@@ -524,12 +502,76 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     if not token:
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
-        return False
+        return None
     try:
-        client = TelegramAPIClient(token)
-        await client.send_message(chat, text)
+        return TelegramAPIClient(token)
+    except Exception:
+        return None
+
+
+async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, str | None, int | None]:
+    """send_telegram_alert returning a receipt — (sent, chat_id, message_id) of the
+    primary channel message — so callers can edit/delete it in place later.
+    Dedup-suppressed or failed sends return (True/False, None, None)."""
+    import hashlib
+
+    DEDUP_WINDOW_S = 6 * 3600
+    fp = hashlib.sha256(f"{severity}|{text}".encode()).hexdigest()[:16]
+    try:
+        from app.worker._async import _redis
+
+        r = _redis()
+        if await r.exists(f"alert-dedup:{fp}"):
+            return True, None, None  # already reported — silent ack
+        await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
+    except Exception:
+        pass  # dedup failure must not block the alert
+
+    await _post_ntfy_alert(severity, text)
+
+    chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
+    client = await _tg_client()
+    if client is None:
+        return False, None, None
+    try:
+        msg = await client.send_message(chat, text)
         if severity == "critical":
             await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+        mid = msg.get("message_id") if isinstance(msg, dict) else None
+        return True, str(chat), int(mid) if isinstance(mid, int) else None
+    except Exception:
+        return False, None, None
+
+
+async def send_telegram_alert(severity: str, text: str) -> bool:
+    """Route an alert to the severity's private admin channel.
+    'critical' also posts to ops (continue-matching — complete record).
+
+    Dedup: the same alert text (fingerprint = severity + text) sends at most
+    once per DEDUP_WINDOW_S — a heal reporting 'token invalid' every 30min
+    alerts once, then stays quiet until the state changes."""
+    sent, _, _ = await send_telegram_alert_tracked(severity, text)
+    return sent
+
+
+async def edit_telegram_alert(chat_id: str, message_id: int, text: str) -> bool:
+    """Edit an alert message in place (resolution one-liner). Never raises."""
+    try:
+        client = await _tg_client()
+        if client is None:
+            return False
+        await client.edit_message_text(chat_id, message_id, text)
         return True
+    except Exception:
+        return False
+
+
+async def delete_telegram_alert(chat_id: str, message_id: int) -> bool:
+    """Delete an alert message (post-resolution grace cleanup). Never raises."""
+    try:
+        client = await _tg_client()
+        if client is None:
+            return False
+        return bool(await client.delete_message(chat_id, message_id))
     except Exception:
         return False

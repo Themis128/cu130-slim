@@ -422,10 +422,11 @@ async def test_alert_sends_telegram_and_swallows_errors(monkeypatch):
 
     async def _fake_send(sev, text):
         sent.append((sev, text))
+        return True, None, None
 
     import app.services.slack_notifications as sn
 
-    monkeypatch.setattr(sn, "send_telegram_alert", _fake_send)
+    monkeypatch.setattr(sn, "send_telegram_alert_tracked", _fake_send)
     inc = _inc(rca="root cause", proposed_action="", action_taken="", action_result="done")
     await oa._alert(inc, "ops")
     assert sent and sent[0][0] == "ops"
@@ -434,7 +435,7 @@ async def test_alert_sends_telegram_and_swallows_errors(monkeypatch):
     async def _boom(sev, text):
         raise RuntimeError("tg down")
 
-    monkeypatch.setattr(sn, "send_telegram_alert", _boom)
+    monkeypatch.setattr(sn, "send_telegram_alert_tracked", _boom)
     await oa._alert(inc, "ops")  # must not raise
 
 
@@ -560,7 +561,7 @@ async def test_alert_skips_when_not_due():
     inc = _inc()
     inc.alerted_at = datetime.now(UTC)
     inc.alerted_severity = "critical"
-    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock()) as send:
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock()) as send:
         await oa._alert(inc, "ops")
         send.assert_not_called()
 
@@ -569,7 +570,7 @@ async def test_alert_skips_when_not_due():
 async def test_alert_success_stamps_gate():
     inc = _inc()
     inc.alerted_at = None
-    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(return_value=True)):
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "123", 456))):
         await oa._alert(inc, "ops")
     assert inc.alerted_at is not None
     assert inc.alerted_severity == "ops"
@@ -579,7 +580,7 @@ async def test_alert_success_stamps_gate():
 async def test_alert_failure_leaves_gate_unstamped():
     inc = _inc()
     inc.alerted_at = None
-    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(return_value=False)):
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(False, None, None))):
         await oa._alert(inc, "ops")
     assert inc.alerted_at is None
     assert inc.alerted_severity is None
@@ -589,7 +590,7 @@ async def test_alert_failure_leaves_gate_unstamped():
 async def test_alert_exception_leaves_gate_unstamped():
     inc = _inc()
     inc.alerted_at = None
-    with patch("app.services.slack_notifications.send_telegram_alert", new=AsyncMock(side_effect=RuntimeError("boom"))):
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(side_effect=RuntimeError("boom"))):
         await oa._alert(inc, "ops")
     assert inc.alerted_at is None
 
@@ -644,3 +645,116 @@ def test_build_prompt_matches_container_by_suffix():
     inc = _inc(target="social-api")
     prompt = oa._build_prompt(inc, {"cu130-social-api": {"status": "Up", "state": "running"}})
     assert "cu130-social-api" in prompt
+
+
+@pytest.mark.asyncio
+async def test_alert_stores_message_refs():
+    inc = _inc()
+    inc.alerted_at = None
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "-1001", 777))):
+        await oa._alert(inc, "ops")
+    assert inc.alert_chat_id == "-1001"
+    assert inc.alert_message_id == 777
+
+
+@pytest.mark.asyncio
+async def test_alert_deduped_send_keeps_no_refs():
+    inc = _inc()
+    inc.alerted_at = None
+    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, None, None))):
+        await oa._alert(inc, "ops")
+    assert inc.alerted_at is not None
+    assert inc.alert_chat_id is None
+    assert inc.alert_message_id is None
+
+
+@pytest.mark.asyncio
+async def test_edit_resolution_notice_edits_when_refs_present():
+    inc = _inc()
+    inc.alert_chat_id = "-1001"
+    inc.alert_message_id = 777
+    mock = AsyncMock(return_value=True)
+    with patch("app.services.slack_notifications.edit_telegram_alert", new=mock):
+        await oa._edit_resolution_notice(inc)
+    mock.assert_awaited_once()
+    args = mock.await_args.args
+    assert args[0] == "-1001"
+    assert args[1] == 777
+    assert "resolved" in args[2]
+
+
+@pytest.mark.asyncio
+async def test_edit_resolution_notice_skips_without_refs():
+    inc = _inc()
+    inc.alert_chat_id = None
+    inc.alert_message_id = None
+    mock = AsyncMock()
+    with patch("app.services.slack_notifications.edit_telegram_alert", new=mock):
+        await oa._edit_resolution_notice(inc)
+    mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_edit_resolution_notice_swallows_errors():
+    inc = _inc()
+    inc.alert_chat_id = "-1001"
+    inc.alert_message_id = 777
+    with patch("app.services.slack_notifications.edit_telegram_alert", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        await oa._edit_resolution_notice(inc)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_purge_resolved_alerts_deletes_and_clears_refs():
+    inc = _inc()
+    inc.status = IncidentStatus.RESOLVED
+    inc.resolved_at = datetime.now(UTC) - timedelta(hours=3)
+    inc.alert_chat_id = "-1001"
+    inc.alert_message_id = 777
+    db = _Session([_Result(rows=[inc])])
+    mock = AsyncMock(return_value=True)
+    with patch("app.services.slack_notifications.delete_telegram_alert", new=mock):
+        purged = await oa._purge_resolved_alerts(db, datetime.now(UTC))
+    assert purged == 1
+    mock.assert_awaited_once_with("-1001", 777)
+    assert inc.alert_chat_id is None
+    assert inc.alert_message_id is None
+
+
+@pytest.mark.asyncio
+async def test_purge_resolved_alerts_no_rows_is_noop():
+    db = _Session([_Result(rows=[])])
+    with patch("app.services.slack_notifications.delete_telegram_alert", new=AsyncMock()) as mock:
+        purged = await oa._purge_resolved_alerts(db, datetime.now(UTC))
+    assert purged == 0
+    mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_purge_resolved_alerts_delete_failure_still_clears_refs():
+    inc = _inc()
+    inc.status = IncidentStatus.RESOLVED
+    inc.resolved_at = datetime.now(UTC) - timedelta(hours=3)
+    inc.alert_chat_id = "-1001"
+    inc.alert_message_id = 777
+    db = _Session([_Result(rows=[inc])])
+    mock = AsyncMock(side_effect=RuntimeError("api down"))
+    with patch("app.services.slack_notifications.delete_telegram_alert", new=mock):
+        purged = await oa._purge_resolved_alerts(db, datetime.now(UTC))
+    assert purged == 0
+    assert inc.alert_message_id is None  # cleared despite failure — no retry forever
+
+
+@pytest.mark.asyncio
+async def test_sweep_auto_resolve_edits_notice():
+    inc = _inc()
+    inc.status = IncidentStatus.TRIAGED
+    inc.last_seen = datetime.now(UTC) - timedelta(hours=3)
+    inc.alert_chat_id = "-1001"
+    inc.alert_message_id = 777
+    # first execute: stale list; second: purge rows; third+: open incidents
+    db = _Session([_Result(rows=[inc]), _Result(rows=[]), _Result(rows=[])])
+    edit_mock = AsyncMock(return_value=True)
+    with patch("app.services.slack_notifications.edit_telegram_alert", new=edit_mock):
+        await oa.sweep(db)
+    edit_mock.assert_awaited_once()
+    assert inc.status == IncidentStatus.RESOLVED
