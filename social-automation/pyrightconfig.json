@@ -1,0 +1,15 @@
+{
+  "executionEnvironments": [
+    {
+      "root": "backend",
+      "extraPaths": [
+        "C:/Program Files/Python312",
+        "C:/Program Files/Python312/Lib/site-packages",
+        "C:/Users/tbaltzakis/AppData/Roaming/Python/Python312/site-packages",
+        "backend"
+      ]
+    }
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false
+}
