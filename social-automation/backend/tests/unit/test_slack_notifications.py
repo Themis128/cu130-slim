@@ -1068,3 +1068,101 @@ async def test_tracked_send_failure_leaves_dedup_unstamped():
         sent, _, _ = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is False
     assert stamped == []
+
+
+# ---------------- phase 3: digest batching at the funnel ----------------
+
+
+class _QueueRedis:
+    def __init__(self, items=None):
+        self.items = list(items or [])
+        self.deleted = []
+        self.sets = {}
+        self.closed = False
+
+    async def rpush(self, key, val):
+        self.items.append(val)
+        return len(self.items)
+
+    async def lrange(self, key, start, end):
+        return list(self.items)
+
+    async def delete(self, key):
+        self.deleted.append(key)
+        self.items.clear()
+        return 1
+
+    async def get(self, key):
+        return self.sets.get(key)
+
+    async def set(self, key, val):
+        self.sets[key] = val
+        return True
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_intel_is_batched_not_posted():
+    client = AsyncMock()
+    rq = _QueueRedis()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=rq):
+        sent, chat, mid = await sn.send_telegram_alert_tracked("intel", "some insight")
+    assert sent is True
+    assert mid is None  # batched — no message receipt
+    client.send_message.assert_not_awaited()
+    assert len(rq.items) == 1
+    assert "some insight" in rq.items[0]
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_ops_and_critical_bypass_digest_queue():
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 1})
+    rq = _QueueRedis()
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=rq):
+        await sn.send_telegram_alert_tracked("ops", "ops alert")
+    assert len(rq.items) == 0
+    client.send_message.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_queue_sends_one_batched_message():
+    import json as _json
+
+    items = [_json.dumps({"sev": "intel", "text": f"insight-{i}", "ts": 1.0}) for i in range(3)]
+    rq = _QueueRedis(items=items)
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 5})
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 3
+    client.send_message.assert_awaited_once()
+    body = client.send_message.await_args.args[1]
+    assert "3 item(s)" in body
+    assert "insight-0" in body and "insight-2" in body
+    assert not rq.items  # queue cleared
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_queue_empty_is_noop():
+    rq = _QueueRedis()
+    client = AsyncMock()
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 0
+    client.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_digest_flushed_today_reads_stamp():
+    from datetime import date
+
+    rq = _QueueRedis()
+    rq.sets[sn.DIGEST_FLUSH_KEY] = date.today().isoformat()
+    with patch("redis.asyncio.from_url", return_value=rq):
+        assert await sn.digest_flushed_today() is True
+    rq2 = _QueueRedis()
+    with patch("redis.asyncio.from_url", return_value=rq2):
+        assert await sn.digest_flushed_today() is False

@@ -848,3 +848,191 @@ async def test_sweep_commits_cleared_refs_without_purge():
     # even when every delete failed and no triage ran this sweep
     assert db.commits >= commits_before + 2
     assert inc.alert_message_id is None
+
+
+# ---------------- phase 3: inhibition + live-state + digest flush ----------------
+
+
+@pytest.mark.asyncio
+async def test_alert_suppressed_during_inhibition_but_stamps_gate():
+    inc = _inc()
+    inc.alerted_at = None
+    send_mock = AsyncMock()
+    with (
+        patch.object(oa, "_inhibited", new=AsyncMock(return_value=True)),
+        patch("app.services.slack_notifications.send_telegram_alert_tracked", new=send_mock),
+    ):
+        await oa._alert(inc, "ops")
+    send_mock.assert_not_awaited()
+    assert inc.alerted_at is not None  # gate stamped — lifting must not replay the cascade
+    assert inc.alerted_severity == "ops"
+
+
+@pytest.mark.asyncio
+async def test_alert_critical_still_fires_during_inhibition():
+    inc = _inc()
+    inc.alerted_at = None
+    send_mock = AsyncMock(return_value=(True, "-1001", 1))
+    with (
+        patch.object(oa, "_inhibited", new=AsyncMock(return_value=True)),
+        patch("app.services.slack_notifications.send_telegram_alert_tracked", new=send_mock),
+    ):
+        await oa._alert(inc, "critical")
+    send_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inhibited_redis_truth_table():
+    class R:
+        def __init__(self, val):
+            self.val = val
+
+        async def get(self, key):
+            return self.val
+
+        async def aclose(self):
+            pass
+
+    future = str((datetime.now(UTC) + timedelta(hours=1)).timestamp())
+    past = str((datetime.now(UTC) - timedelta(hours=1)).timestamp())
+    with patch.object(oa, "_redis", new=AsyncMock(return_value=R(future))):
+        assert await oa._inhibited() is True
+    with patch.object(oa, "_redis", new=AsyncMock(return_value=R(past))):
+        assert await oa._inhibited() is False
+    with patch.object(oa, "_redis", new=AsyncMock(return_value=R(None))):
+        assert await oa._inhibited() is False
+    with patch.object(oa, "_redis", new=AsyncMock(side_effect=RuntimeError("redis down"))):
+        assert await oa._inhibited() is False  # redis failure must never suppress alerts
+
+
+class _LSRedis:
+    def __init__(self, val=None):
+        self.val = val
+        self.stored = {}
+
+    async def get(self, key):
+        return self.val
+
+    async def set(self, key, v):
+        self.stored[key] = v
+        return True
+
+    async def aclose(self):
+        pass
+
+
+def _livestate_db(rows):
+    return _Session([_Result(rows=rows)])
+
+
+@pytest.mark.asyncio
+async def test_live_state_sends_and_pins_when_no_existing():
+    rd = _LSRedis(val=None)
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 42})
+    client.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is True
+    client.send_message.assert_awaited_once()
+    assert "no active incidents" in client.send_message.await_args.args[1]
+    client.pin_chat_message.assert_awaited_once()
+    assert rd.stored.get("ops:livestate-message-id") == "42"
+
+
+@pytest.mark.asyncio
+async def test_live_state_edits_existing_message():
+    rd = _LSRedis(val="99")
+    client = AsyncMock()
+    client.edit_message_text = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([_inc()]), datetime.now(UTC))
+    assert ok is True
+    client.edit_message_text.assert_awaited_once()
+    client.send_message.assert_not_awaited()
+    body = client.edit_message_text.await_args.args[2]
+    assert "live-state" in body
+
+
+@pytest.mark.asyncio
+async def test_live_state_resends_when_edit_fails():
+    rd = _LSRedis(val="99")
+    client = AsyncMock()
+    client.edit_message_text = AsyncMock(side_effect=RuntimeError("message gone"))
+    client.send_message = AsyncMock(return_value={"message_id": 77})
+    client.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is True
+    client.send_message.assert_awaited_once()
+    assert rd.stored.get("ops:livestate-message-id") == "77"
+
+
+@pytest.mark.asyncio
+async def test_live_state_marks_inhibited_window():
+    rd = _LSRedis(val=None)
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 50})
+    client.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch.object(oa, "_inhibited", new=AsyncMock(return_value=True)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert "INHIBITED" in client.send_message.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_live_state_no_client_returns_false():
+    rd = _LSRedis()
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=None)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_once_per_day_in_window():
+    in_window = datetime.now(UTC).replace(hour=23, minute=30)
+    if in_window.hour < oa.DIGEST_HOUR_UTC:
+        in_window = in_window.replace(hour=oa.DIGEST_HOUR_UTC)
+    with (
+        patch("app.services.slack_notifications.digest_flushed_today", new=AsyncMock(return_value=False)),
+        patch("app.services.slack_notifications.flush_digest_queue", new=AsyncMock(return_value=3)),
+    ):
+        assert await oa._flush_digest_if_due(in_window) == 3
+    with patch("app.services.slack_notifications.digest_flushed_today", new=AsyncMock(return_value=True)):
+        assert await oa._flush_digest_if_due(in_window) == 0
+
+
+@pytest.mark.asyncio
+async def test_flush_digest_skipped_before_window():
+    if oa.DIGEST_HOUR_UTC == 0:
+        pytest.skip("no early hour exists when the window opens at midnight")
+    early = datetime.now(UTC).replace(hour=oa.DIGEST_HOUR_UTC - 1, minute=30)
+    assert await oa._flush_digest_if_due(early) == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_updates_live_state_even_with_no_open_incidents():
+    ls_mock = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_update_live_state", new=ls_mock),
+        patch.object(oa, "_flush_digest_if_due", new=AsyncMock(return_value=0)),
+    ):
+        db = _Session([_Result(rows=[]), _Result(rows=[])])  # stale=∅, open=∅
+        stats = await oa.sweep(db)
+    ls_mock.assert_awaited_once()
+    assert stats["triaged"] == 0

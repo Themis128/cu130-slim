@@ -509,6 +509,100 @@ async def _tg_client():
         return None
 
 
+# ── digest batching (alert-architecture phase 3) ──────────────────────────
+# Informational severities never post standalone — they queue in redis and
+# flush as ONE batched message on the daily digest pass. The interception
+# lives here in the funnel so no emitter needs to change.
+DIGEST_SEVERITIES = ("intel", "digest")
+DIGEST_QUEUE_KEY = "ops:digest-queue"
+DIGEST_FLUSH_KEY = "ops:digest-last-flush"
+
+
+async def queue_digest(severity: str, text: str) -> bool:
+    """Batch an informational alert into the daily digest queue."""
+    try:
+        import json as _json
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            import time as _time
+
+            await r.rpush(DIGEST_QUEUE_KEY, _json.dumps({"sev": severity, "text": text, "ts": _time.time()}))
+        finally:
+            await r.aclose()
+        return True
+    except Exception:
+        return False
+
+
+async def flush_digest_queue() -> int:
+    """Send the queued informational alerts as ONE batched digest message.
+    Returns the number of batched items (0 when the queue was empty)."""
+    import json as _json
+
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.lrange(DIGEST_QUEUE_KEY, 0, -1)
+            if not raw:
+                return 0
+            await r.delete(DIGEST_QUEUE_KEY)
+        finally:
+            await r.aclose()
+    except Exception:
+        return 0
+
+    lines = []
+    for item in raw:
+        try:
+            entry = _json.loads(item)
+            lines.append(f"• [{entry.get('sev', 'intel')}] {str(entry.get('text', ''))[:400]}")
+        except Exception:
+            lines.append(f"• {str(item)[:400]}")
+    body = "📋 daily intel digest — %d item(s)\n\n" % len(lines) + "\n\n".join(lines)
+    client = await _tg_client()
+    if client is None:
+        return 0
+    try:
+        await client.send_message(TG_CHANNELS["digest"], body[:4000])
+    except Exception:
+        return 0
+    # stamp the flush date — once per day even if the sweep runs every 5min
+    try:
+        from datetime import date
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await r.set(DIGEST_FLUSH_KEY, date.today().isoformat())
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+    return len(lines)
+
+
+async def digest_flushed_today() -> bool:
+    try:
+        from datetime import date
+
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            val = await r.get(DIGEST_FLUSH_KEY)
+        finally:
+            await r.aclose()
+        return val == date.today().isoformat()
+    except Exception:
+        return False
+
+
 async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, str | None, int | None]:
     """send_telegram_alert returning a receipt — (sent, chat_id, message_id) of the
     primary channel message — so callers can edit/delete it in place later.
@@ -521,6 +615,12 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     # ntfy fanout first — dedup guards telegram spam, never the information
     # flow into the incident archive
     await _post_ntfy_alert(severity, text)
+
+    # informational severities batch into the daily digest — nothing
+    # informational ever posts standalone (phase-3 architecture)
+    if severity in DIGEST_SEVERITIES:
+        await queue_digest(severity, text)
+        return True, None, None
 
     try:
         import redis.asyncio as aioredis
