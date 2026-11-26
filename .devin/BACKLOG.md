@@ -4975,3 +4975,35 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (Developer options) or plug USB + `adb tcpip 5555`.
 - **greptile MCP** `ok-auth-required` — transient; `get_me` verified
   healthy (cloudless-gr org, ADMIN). No action needed.
+
+## 2026-11-26 — Meta Account lock: tokens re-minted but lock checkpoint still pending
+
+- **Meta Account lock (Nov 25) still ACTIVE for new web sessions.** Phone FB
+  app feed works (trusted session exempt) but cold-start shows
+  "secure your account" checkpoint → Continue → **Change password** screen
+  ("Once you confirm, we'll log you out of other devices and unlink
+  recently linked accounts"). No skip path; ADB cannot complete it
+  (taps route to launcher / app backgrounds mid-flow).
+- **PENDING HUMAN GATE**: user must decide — enter existing Meta Account
+  password (may be accepted, but triggers other-device logout) or set a new
+  one (then update Infisical META_ACCOUNT_PASSWORD + .env everywhere).
+  User declined autonomous password change.
+- **Token state**: whatsapp/Themistoklis Baltzakis re-minted LIVE via
+  wa_oauth_drive.py through recovered :9229 session (live phones=1);
+  facebook×2, instagram/cloudless.gr, threads/t_baltzakis probed active
+  then RE-REVOKED when lock re-engaged — expect FALSE-ACTIVE until unlock
+  completes, then heal crons re-mint automatically.
+- **Recovered sessions**: :9229 chrome-debug-profile logged in via
+  fb_recover_drive.py (email code lane, approved on phone) + cookie jar at
+  ~/.local/state/fb-debug-session/cookies.json (365 cookies). Session now
+  checkpointed until lock lifts. facebook-browser-sidecar got cookie
+  transplant → checkpoint 828281030927956.
+- **social-api crash-loop FIXED**: limiter.py default_limits removed +
+  compose edit — verify committed. Uncommitted at time of writing.
+- **Docker Desktop**: crashed ~7x during session (vmcompute StopPending
+  wedge, self-cleared). C: was 0GB → cleaned ~44GB (docker prune 25.5G,
+  CI _work 13.4G, pnpm/npm caches). sparseVhd+discard reclaiming.
+- **WhatsApp phone**: re-registered via "Access WhatsApp using Facebook?"
+  (Meta Account path, bypassed SMS). Updated 2.26.45.99→2.26.46.82.
+- **TOTP secret fixed**: META_TOTP_SECRET had display spaces — stripped in
+  .env; heal script TOTP lane works now.
