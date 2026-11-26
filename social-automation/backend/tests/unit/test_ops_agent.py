@@ -635,4 +635,6 @@ def test_sweep_query_selects_retry_lane():
         asyncio.run(oa.sweep(db))
     triage_sql = captured[-1] if captured else ""
     assert "alerted_at IS NULL" in triage_sql
+    # the retry lane must specifically qualify TRIAGED incidents, not just OPEN
+    assert "'triaged'" in triage_sql.lower()
     assert sqlalchemy  # silence unused-import lint
