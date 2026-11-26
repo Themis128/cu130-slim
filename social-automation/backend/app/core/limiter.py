@@ -1,5 +1,6 @@
 import os
 import uuid
+from types import SimpleNamespace
 
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -40,7 +41,10 @@ def _safe_check_request_limit(request, endpoint_func, in_middleware=True):
         raise
     except Exception as exc:
         raise RateLimitExceeded(
-            detail=f"rate limit check unavailable: {type(exc).__name__}"
+            SimpleNamespace(
+                limit="unavailable",
+                error_message=f"rate limit check unavailable: {type(exc).__name__}",
+            )
         ) from exc
 
 
