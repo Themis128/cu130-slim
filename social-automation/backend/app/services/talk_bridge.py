@@ -547,9 +547,9 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
             client = MessengerAPIClient(access_token=token, page_id=account.account_id)
             convs = await client.get_conversations(platform="messenger", limit=MAX_SYNC_ROOMS)
             out = []
-            for c in convs:
+            for c in convs or []:
                 parts = c.get("participants") or {}
-                plist = parts.get("data") if isinstance(parts, dict) else parts or []
+                plist = (parts.get("data") or []) if isinstance(parts, dict) else parts or []
                 other = next((p for p in plist if str(p.get("id")) != str(account.account_id)), {})
                 out.append(
                     {
