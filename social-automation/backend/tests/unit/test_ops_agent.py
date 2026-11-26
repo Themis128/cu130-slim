@@ -773,8 +773,9 @@ async def test_alert_replaces_superseded_message():
     inc.alert_chat_id = "-1001"
     inc.alert_message_id = 555
     delete_mock = AsyncMock(return_value=True)
-    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "-1002", 999))), patch(
-        "app.services.slack_notifications.delete_telegram_alert", new=delete_mock
+    with (
+        patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "-1002", 999))),
+        patch("app.services.slack_notifications.delete_telegram_alert", new=delete_mock),
     ):
         await oa._alert(inc, "critical")
     delete_mock.assert_awaited_once_with("-1001", 555)
@@ -788,8 +789,9 @@ async def test_alert_supersede_delete_failure_still_replaces():
     inc.alerted_at = None
     inc.alert_chat_id = "-1001"
     inc.alert_message_id = 555
-    with patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "-1002", 999))), patch(
-        "app.services.slack_notifications.delete_telegram_alert", new=AsyncMock(side_effect=RuntimeError("gone"))
+    with (
+        patch("app.services.slack_notifications.send_telegram_alert_tracked", new=AsyncMock(return_value=(True, "-1002", 999))),
+        patch("app.services.slack_notifications.delete_telegram_alert", new=AsyncMock(side_effect=RuntimeError("gone"))),
     ):
         await oa._alert(inc, "critical")
     assert inc.alert_message_id == 999
@@ -803,8 +805,9 @@ async def test_edit_resolution_notice_critical_posts_ops_mirror():
     inc.alerted_severity = "critical"
     edit_mock = AsyncMock(return_value=True)
     send_mock = AsyncMock(return_value=True)
-    with patch("app.services.slack_notifications.edit_telegram_alert", new=edit_mock), patch(
-        "app.services.slack_notifications.post_ops_closure", new=send_mock
+    with (
+        patch("app.services.slack_notifications.edit_telegram_alert", new=edit_mock),
+        patch("app.services.slack_notifications.post_ops_closure", new=send_mock),
     ):
         await oa._edit_resolution_notice(inc)
     edit_mock.assert_awaited_once()
@@ -819,8 +822,9 @@ async def test_edit_resolution_notice_non_critical_no_mirror():
     inc.alert_message_id = 777
     inc.alerted_severity = "ops"
     send_mock = AsyncMock()
-    with patch("app.services.slack_notifications.edit_telegram_alert", new=AsyncMock(return_value=True)), patch(
-        "app.services.slack_notifications.post_ops_closure", new=send_mock
+    with (
+        patch("app.services.slack_notifications.edit_telegram_alert", new=AsyncMock(return_value=True)),
+        patch("app.services.slack_notifications.post_ops_closure", new=send_mock),
     ):
         await oa._edit_resolution_notice(inc)
     send_mock.assert_not_awaited()

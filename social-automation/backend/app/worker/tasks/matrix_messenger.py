@@ -154,10 +154,7 @@ async def _poll_matrix_messenger_async() -> dict:
                 SocialAccount.status == "active",
             )
         )
-        enabled = [
-            a for a in result.scalars().all()
-            if (a.meta_data or {}).get("personal_messenger_auto_reply", {}).get("enabled")
-        ]
+        enabled = [a for a in result.scalars().all() if (a.meta_data or {}).get("personal_messenger_auto_reply", {}).get("enabled")]
         if not enabled:
             return stats
         if len(enabled) > 1:

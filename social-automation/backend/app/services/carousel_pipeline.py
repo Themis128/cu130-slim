@@ -1264,9 +1264,7 @@ async def run_cloudless_carousel_pipeline(
                 slide_texts.append(slide["highlight"])
         combined_text = " ".join(slide_texts) + " " + (caption or "")
 
-        async with asyncio.timeout(
-            float(getattr(settings, "CAROUSEL_QUALITY_TIMEOUT_S", 120.0) or 120.0)
-        ):
+        async with asyncio.timeout(float(getattr(settings, "CAROUSEL_QUALITY_TIMEOUT_S", 120.0) or 120.0)):
             quality_result = await apply_media_quality(
                 caption=combined_text,
                 alt_text=ai_title,
@@ -1298,9 +1296,7 @@ async def run_cloudless_carousel_pipeline(
         try:
             from app.services import seo as _seo_service
 
-            async with asyncio.timeout(
-                float(getattr(settings, "SEO_ANALYZE_TIMEOUT_S", 60.0) or 60.0)
-            ):
+            async with asyncio.timeout(float(getattr(settings, "SEO_ANALYZE_TIMEOUT_S", 60.0) or 60.0)):
                 seo_result = await _seo_service.analyze_seo(
                     text=full_caption,
                     platform=account.platform,
