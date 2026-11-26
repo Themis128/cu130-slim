@@ -2,7 +2,7 @@
 """Full Instagram account setup: login, generate bio, update profile, verify.
 Usage: full-setup.py --username t_baltzakis --name "Cloudless" --title "Founder @ "
   --skills "Cloud Architect · Azure · AWS" --experience "15+ yrs building systems"
-  --location "Athens" --links "cloudless.gr | baltzakisthemis-portfolio.baltzakis-themis.workers.dev" --style bold-brand"""
+  --location "Athens" --links "cloudless.gr | portfolio.cloudless.gr" --style bold-brand"""
 
 import subprocess
 import sys

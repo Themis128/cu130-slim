@@ -12,7 +12,7 @@ Usage:
     # Generate a specific style
     python instagram_bio_generator.py --name "Themistoklis" --title "Founder @ Cloudless" \\
         --skills "Azure,AWS,Cloud Architecture" --location "Athens" \\
-        --links "cloudless.gr,baltzakisthemis-portfolio.baltzakis-themis.workers.dev" --style bold-brand
+        --links "cloudless.gr,portfolio.cloudless.gr" --style bold-brand
 
     # List all styles
     python instagram_bio_generator.py --list-styles
@@ -141,7 +141,7 @@ def generate_bio(
         skills: Skills line (e.g., "Cloud Architect · Azure · AWS")
         experience: Experience line (e.g., "15+ yrs building systems")
         location: Location (e.g., "Athens")
-        links: Links (e.g., "cloudless.gr | baltzakisthemis-portfolio.baltzakis-themis.workers.dev")
+        links: Links (e.g., "cloudless.gr | portfolio.cloudless.gr")
         style: Bio style name from STYLES dict
 
     Returns:
