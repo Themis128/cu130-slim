@@ -316,6 +316,13 @@ async def sweep(db: AsyncSession) -> dict:
     containers = await _container_states()
 
     for inc in open_incs:
+        # retry lane: already-triaged incidents whose alert never landed only
+        # need the delivery re-attempted — re-running triage would burn an
+        # agent attempt per retry and march them toward false escalation
+        if inc.status == IncidentStatus.TRIAGED:
+            await _alert(inc, "critical" if inc.severity == IncidentSeverity.CRITICAL else "ops")
+            await db.commit()
+            continue
         try:
             async with asyncio.timeout(LLM_TIMEOUT_S):
                 verdict = await _llm_verdict(inc, containers, db)

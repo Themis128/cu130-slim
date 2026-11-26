@@ -1988,8 +1988,10 @@ publishers (watchdogs, git hooks, kuma, ops tasks)
   (and loudest) notification of each episode — re-reports on a live
   episode refresh evidence silently, only a reopen-from-resolved or an
   escalation to critical reopens triage and earns exactly one fresh
-  alert, and the sweep only processes OPEN incidents. A failed Telegram
-  delivery leaves the gate unstamped so a later pass can retry. `export_datalake` ships the full archive to
+  alert, and the sweep only triages OPEN incidents — already-triaged
+  incidents whose alert never landed re-enter as a pure delivery-retry
+  lane (no triage attempts spent). A failed Telegram delivery leaves
+  the gate unstamped so a later pass can retry. `export_datalake` ships the full archive to
   `lake/socialauto-telegram/messages.json`. ntfy archive reads use the
   dedicated read-only `archive-reader` account (`NTFY_READER_TOKEN`);
   Gmail reads use the OAuth refresh-token envs (`GMAIL_OAUTH_*`,
