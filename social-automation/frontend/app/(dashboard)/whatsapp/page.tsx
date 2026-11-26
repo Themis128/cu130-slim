@@ -740,7 +740,7 @@ function BusinessProfileCard({ accountId }: { accountId: string }) {
                 <Input
                   value={websites}
                   onChange={(e) => setWebsites(e.target.value)}
-                  placeholder="https://cloudless.gr, https://baltzakisthemis.com"
+                  placeholder="https://cloudless.gr, https://baltzakisthemis-portfolio.baltzakis-themis.workers.dev"
                   className="mt-1"
                 />
               </div>

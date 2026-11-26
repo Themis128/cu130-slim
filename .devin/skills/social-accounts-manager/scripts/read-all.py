@@ -50,7 +50,7 @@ async def main():
             print(f'  Phone: {{d.get("phone")}}')
             desc = d.get('description','')
             print(f'  Description has cloudless.gr: {{"cloudless.gr" in desc}}')
-            print(f'  Description has portfolio: {{"baltzakisthemis" in desc}}')
+            print(f'  Description has portfolio: {{"baltzakisthemis-portfolio" in desc}}')
             print(f'  Description has WhatsApp: {{"wa.me" in desc}}')
 
 asyncio.run(main())
@@ -74,7 +74,7 @@ if p:
     print(f"  About: {about[:80]}")
     print(f'  Website: {p.get("website")}')
     print(f'  About has cloudless.gr: {"cloudless.gr" in about}')
-    print(f'  About has portfolio: {"baltzakisthemis" in about}')
+    print(f'  About has portfolio: {"baltzakisthemis-portfolio" in about}')
 else:
     print("  (sidecar not available)")
 

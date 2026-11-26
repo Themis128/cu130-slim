@@ -44,7 +44,7 @@ connected social accounts using the correct method per platform.
 
 ```
 Website:     https://cloudless.gr
-Portfolio:   https://baltzakisthemis.com
+Portfolio:   https://baltzakisthemis-portfolio.baltzakis-themis.workers.dev
 WhatsApp:    https://wa.me/306977777838
 LinkedIn:    https://www.linkedin.com/company/cloudless-gr
 ```
