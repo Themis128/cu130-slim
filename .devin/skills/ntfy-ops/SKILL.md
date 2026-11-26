@@ -81,3 +81,32 @@ python ntfy_ops.py token archive-reader        # → tk_… into .env
 The `alert-relay` publisher stays write-only by design — do not grant it
 read. The cloudless.gr workflow `ntfy-reader-token.yml` automates the
 same mint over the omv runner for rotation without local SSH.
+
+## MCP server (added 2026-11-26)
+
+`scripts/ntfy-mcp-server.py` — stdlib-only stdio MCP server, registered as
+`ntfy` in `.devin/mcp_config.json`. 8 tools: ntfy_health, ntfy_publish,
+ntfy_read, ntfy_users, ntfy_grant, ntfy_token, ntfy_passwd,
+ntfy_app_setup_help. Read/publish auth: `NTFY_TOKEN` bearer wins, else basic
+auth `NTFY_USER`/`NTFY_PASSWORD` (falls back to repo .env `NTFY_PC_PASSWORD`).
+New trap burned in: **Cloudflare blocks `Python-urllib/*` UA with HTTP
+403/1010** — the server always sets a custom UA; any future urllib client
+must too.
+
+## Windows desktop app lane (verified 2026-11-26)
+
+- The ntfy web/desktop app stores subscriptions in **browser-local storage —
+  there is no server-side subscription registry**. No API/MCP can
+  pre-populate the app; subscription is an inherently client-side act.
+- The `pc` user (rw on the 4 ops topics) was created for the PC app; password
+  in repo .env `NTFY_PC_PASSWORD`.
+- GUI-drive scripts live on the workstation `C:\Users\tbaltzakis\devin-scripts\`
+  (`subpass.ps1`, `subnext.ps1`, `screencap.ps1`, `uiclick.ps1`): raise +
+  maximize window, click sidebar "Subscribe to topic", SendKeys topic, click
+  SUBSCRIBE. Coordinates are window-rect ratios for the maximized window.
+- **Synthetic input cannot steal focus** from a window the user is typing
+  in — drive only when the app window is foregrounded and hands-off, or the
+  keystrokes leak into whatever has focus (happened live: text landed in the
+  Devin input box).
+- Chrome shows a "Save password?" popup after the app login — dismiss, the
+  app caches its own session.
