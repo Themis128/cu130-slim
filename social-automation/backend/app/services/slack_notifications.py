@@ -537,41 +537,7 @@ async def queue_digest(severity: str, text: str) -> bool:
         return False
 
 
-async def flush_digest_queue() -> int:
-    """Send the queued informational alerts as ONE batched digest message.
-    Returns the number of batched items (0 when the queue was empty)."""
-    import json as _json
-
-    try:
-        import redis.asyncio as aioredis
-
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
-        try:
-            raw = await r.lrange(DIGEST_QUEUE_KEY, 0, -1)
-            if not raw:
-                return 0
-            await r.delete(DIGEST_QUEUE_KEY)
-        finally:
-            await r.aclose()
-    except Exception:
-        return 0
-
-    lines = []
-    for item in raw:
-        try:
-            entry = _json.loads(item)
-            lines.append(f"• [{entry.get('sev', 'intel')}] {str(entry.get('text', ''))[:400]}")
-        except Exception:
-            lines.append(f"• {str(item)[:400]}")
-    body = "📋 daily intel digest — %d item(s)\n\n" % len(lines) + "\n\n".join(lines)
-    client = await _tg_client()
-    if client is None:
-        return 0
-    try:
-        await client.send_message(TG_CHANNELS["digest"], body[:4000])
-    except Exception:
-        return 0
-    # stamp the flush date — once per day even if the sweep runs every 5min
+async def _stamp_digest_flush() -> None:
     try:
         from datetime import date
 
@@ -584,6 +550,64 @@ async def flush_digest_queue() -> int:
             await r.aclose()
     except Exception:
         pass
+
+
+async def flush_digest_queue() -> int:
+    """Send the queued informational alerts as ONE batched digest message.
+    Returns the number of batched items (0 when the queue was empty)."""
+    import json as _json
+
+    raw: list = []
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.lrange(DIGEST_QUEUE_KEY, 0, -1)
+            if raw:
+                await r.delete(DIGEST_QUEUE_KEY)
+        finally:
+            await r.aclose()
+    except Exception:
+        return 0
+
+    if not raw:
+        # empty days still close the window — otherwise the flush time drifts
+        # to whenever the first late item arrives
+        await _stamp_digest_flush()
+        return 0
+
+    lines = []
+    for item in raw:
+        try:
+            entry = _json.loads(item)
+            lines.append(f"• [{entry.get('sev', 'intel')}] {str(entry.get('text', ''))[:400]}")
+        except Exception:
+            lines.append(f"• {str(item)[:400]}")
+    body = "📋 daily intel digest — %d item(s)\n\n" % len(lines) + "\n\n".join(lines)
+    client = await _tg_client()
+    delivered = False
+    if client is not None:
+        try:
+            await client.send_message(TG_CHANNELS["digest"], body[:4000])
+            delivered = True
+        except Exception:
+            delivered = False
+    if not delivered:
+        # delivery failed — put the items back so the next sweep retries
+        # instead of silently dropping the day's reports
+        try:
+            import redis.asyncio as aioredis
+
+            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            try:
+                await r.rpush(DIGEST_QUEUE_KEY, *raw)
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
+        return 0
+    await _stamp_digest_flush()
     return len(lines)
 
 
@@ -619,8 +643,10 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     # informational severities batch into the daily digest — nothing
     # informational ever posts standalone (phase-3 architecture)
     if severity in DIGEST_SEVERITIES:
-        await queue_digest(severity, text)
-        return True, None, None
+        if await queue_digest(severity, text):
+            return True, None, None
+        # redis unavailable — fall through to direct posting rather than
+        # dropping the report entirely
 
     try:
         import redis.asyncio as aioredis
