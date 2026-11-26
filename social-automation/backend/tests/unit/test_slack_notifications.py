@@ -1010,12 +1010,34 @@ async def test_post_ops_closure_error_swallowed():
 
 @pytest.mark.asyncio
 async def test_tracked_send_closes_redis_clients():
-    fake = _FakeRedis()
+    fakes = [_FakeRedis(), _FakeRedis()]
     client = AsyncMock()
     client.send_message = AsyncMock(return_value={"message_id": 1})
-    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=fake):
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", side_effect=fakes):
         await sn.send_telegram_alert_tracked("ops", "hello")
-    assert fake.closed is True  # neither the check nor the stamp may leak the client
+    # check client and stamp client are distinct connections — both must close
+    assert all(f.closed for f in fakes)
+    assert len(fakes) == 2
+
+
+@pytest.mark.asyncio
+async def test_tracked_send_critical_mirror_failure_keeps_primary_receipt():
+    """A failing ops mirror must not discard the critical-channel receipt —
+    otherwise the retry duplicates the primary and strands the first copy."""
+    client = AsyncMock()
+    calls = []
+
+    async def _send(chat, text, **kw):
+        calls.append(chat)
+        if chat == sn.TG_CHANNELS["ops"] and len(calls) > 1:
+            raise RuntimeError("ops channel down")
+        return {"message_id": 42}
+
+    client.send_message = AsyncMock(side_effect=_send)
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("redis.asyncio.from_url", return_value=_FakeRedis()):
+        sent, chat, mid = await sn.send_telegram_alert_tracked("critical", "boom")
+    assert sent is True
+    assert mid == 42  # primary receipt survives the mirror failure
 
 
 @pytest.mark.asyncio

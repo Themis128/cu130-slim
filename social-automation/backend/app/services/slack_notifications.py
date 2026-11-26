@@ -543,7 +543,10 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     try:
         msg = await client.send_message(chat, text)
         if severity == "critical":
-            await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+            try:
+                await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+            except Exception:
+                pass  # mirror is best-effort — never sacrifice the primary receipt
         mid = msg.get("message_id") if isinstance(msg, dict) else None
     except Exception:
         return False, None, None
