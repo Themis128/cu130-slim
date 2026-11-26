@@ -419,7 +419,7 @@ async def _edit_resolution_notice(inc: OpsIncident) -> None:
         logger.warning("ops-agent resolution edit failed: %s", exc)
 
 
-async def _purge_resolved_alerts(db: AsyncSession, now: datetime) -> int:
+async def _purge_resolved_alerts(db: AsyncSession, now: datetime) -> tuple[int, int]:
     """Auto-delete resolved incident alerts once the grace window passes —
     the channel keeps only live incidents. Best-effort, capped per sweep."""
     rows = (
