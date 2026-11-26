@@ -4953,14 +4953,16 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   `cloudless-pipeline-assets`, zero lost, no GPU regen needed**.
   media-heal retries can stand down; the 5 `media_heal_alerted` posts
   were media-semantics issues, unrelated.
-- **FB session invalidated (190)** — both facebook rows +
-  messenger/call-ingest lanes fail on OAuthException 190
-  ("user changed password or session invalidated for security
-  reasons"). Debug-Chrome FB session also logged out (no `c_user`);
-  SMS-2FA code went to the phone — ADB dead. **Human gate**: log in on a
-  trusted device / approve the Meta login alert, then re-drive.
-  threads/IG-lane tokens verified live; pending FB targets will fail
-  until re-auth.
+- **FB session invalidated (190) — RESOLVED**: debug-Chrome session
+  recovered (heal-cron code logins landed — c_user+xs live). OAuth
+  consent driven via CDP relay → fresh user token exchanged on the
+  callback, both `facebook` rows `active` + live-verified via
+  account_truth MATCH. Sidecars up; 3 pending FB targets resume on the
+  next publisher cycle. Notes: `META_BACKUP_CODES` are stale (rejected),
+  emailed-code lane unreliable (Meta sends alerts but not the code),
+  password+2FA picker flow works but Meta rate-limits after ~5 attempts.
+  `threads` row `cloudless.gr` still `revoked` (separate lane).
+  cdp_relay.py TARGETS was missing :9222 — patched + restarted.
 - **DMR incident (RESOLVED)**: `ai/qwen3:8b-q4_K_M` entry was epoch-0/partial
   and a ~6.5 GiB `.incomplete` blob (larger than the real object) made
   every re-pull 416. `restart-runner` then removed the runner container
