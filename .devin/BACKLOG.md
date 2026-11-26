@@ -5007,3 +5007,31 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (Meta Account path, bypassed SMS). Updated 2.26.45.99→2.26.46.82.
 - **TOTP secret fixed**: META_TOTP_SECRET had display spaces — stripped in
   .env; heal script TOTP lane works now.
+
+## 2026-11-26 — LinkedIn BF 2026 ads: promo credit exhausted, campaign over
+
+- **BF campaign spent the entire credit.** Campaign group "Black Friday 2026"
+  (`1253575956`, ad acct `512642510`): ad set `932221876` (VIDEO, 10 ads,
+  Nov 24–27) spent **€26.69** — ~21% over its €22 lifetime cap (the
+  documented LinkedIn overshoot). Credit was €26.97 (`LINKEDIN_ADS_CREDIT_EUR`,
+  as of 2026-11-23) → **~€0.28 remaining**. Result: 2,573 impressions,
+  **0 clicks**.
+- **Both ad sets PAUSED = correct end state.** `932037146` (image set, 17
+  ads, Nov 25–30) never delivered (`CAMPAIGN_START_DATE_HOLD` the whole
+  window, €0 spend, still €22 cap + €10/day). Resume of `932221876` is
+  rejected by LinkedIn itself: `totalBudget 22 cannot be lower than 26.69`
+  (spend > cap → nothing left to serve). Do NOT activate either set —
+  any spend now bills the card. `LINKEDIN_ADS_ALLOWED_ACTIVE=932037146`
+  already allowlisted; guard stays quiet while paused.
+- **If more BF ads are wanted**: needs new promo credit in Campaign
+  Manager, or explicit owner approval for card spend. API floors:
+  `dailyBudget` ≥ €10 and `totalBudget` ≥ `dailyBudget` (PATCH order:
+  daily first). Campaign window ends 2026-11-27 regardless.
+- **Organic BF posts still rolling**: published on cloudless-gr page
+  (Nov 22 + Nov 24 posts live); Nov 26 posts `f5b8493d`/`5957eac4` were
+  wedged ~2h in `publish_queue` stale locks after the Docker Desktop crash
+  — self-healed via the >15min stale-lock reclaim once workers came back.
+- **Docker Desktop crashed mid-session** ("unable to start"); relaunched
+  `C:\Users\tbaltzakis\AppData\Local\Programs\DockerDesktop\Docker Desktop.exe`,
+  engine back in ~30s, `social-api` needed a manual `docker start`
+  (stuck in `Created`).
