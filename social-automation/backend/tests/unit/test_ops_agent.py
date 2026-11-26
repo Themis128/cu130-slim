@@ -642,5 +642,5 @@ def test_sweep_query_selects_retry_lane():
 
 def test_build_prompt_matches_container_by_suffix():
     inc = _inc(target="social-api")
-    prompt = oa._build_prompt(inc, {"cu130-social-api-1": {"status": "Up", "state": "running"}})
-    assert "cu130-social-api-1" in prompt
+    prompt = oa._build_prompt(inc, {"cu130-social-api": {"status": "Up", "state": "running"}})
+    assert "cu130-social-api" in prompt
