@@ -473,11 +473,7 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
             (
                 await db.execute(
                     select(OpsIncident)
-                    .where(
-                        OpsIncident.status.in_(
-                            [IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]
-                        )
-                    )
+                    .where(OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]))
                     .order_by(OpsIncident.last_seen.desc())
                     .limit(20)
                 )
