@@ -1207,8 +1207,10 @@ async def test_flush_window_empty_stamp_path():
     from datetime import datetime as _dt
 
     in_window = _dt.now(_U).replace(hour=max(oa.DIGEST_HOUR_UTC, 7), minute=15)
+    flush_mock = AsyncMock(return_value=0)
     with (
         patch("app.services.slack_notifications.digest_flushed_today", new=AsyncMock(return_value=False)),
-        patch("app.services.slack_notifications.flush_digest_queue", new=AsyncMock(return_value=0)),
+        patch("app.services.slack_notifications.flush_digest_queue", new=flush_mock),
     ):
         assert await oa._flush_digest_if_due(in_window) == 0
+    flush_mock.assert_awaited_once()  # the flush really ran — zero came from an empty queue, not a skip
