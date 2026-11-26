@@ -906,7 +906,8 @@ async def test_tracked_send_critical_mirrors_to_ops():
 @pytest.mark.asyncio
 async def test_tracked_send_deduped_returns_no_refs():
     client = AsyncMock()
-    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), patch("app.worker._async._redis", return_value=_FakeRedis(exists=True), create=True):
+    redis_patch = patch("app.worker._async._redis", return_value=_FakeRedis(exists=True), create=True)
+    with _tg_patch(client), patch.object(sn, "_post_ntfy_alert", new=AsyncMock()), redis_patch:
         sent, chat, mid = await sn.send_telegram_alert_tracked("ops", "hello")
     assert sent is True
     assert chat is None and mid is None
