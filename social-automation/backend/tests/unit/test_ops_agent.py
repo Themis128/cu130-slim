@@ -1177,3 +1177,38 @@ async def test_ensure_pinned_pin_failure_swallowed():
     with patch.object(oa, "_redis", new=AsyncMock(return_value=rd)):
         await oa._ensure_livestate_pinned(client, "-1001", 5)  # must not raise
     assert rd.stored.get("ops:livestate-pinned") is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_records_digest_flush_count():
+    with (
+        patch.object(oa, "_update_live_state", new=AsyncMock(return_value=True)),
+        patch.object(oa, "_flush_digest_if_due", new=AsyncMock(return_value=4)),
+    ):
+        db = _Session([_Result(rows=[]), _Result(rows=[])])
+        stats = await oa.sweep(db)
+    assert stats.get("digest_flushed") == 4
+
+
+@pytest.mark.asyncio
+async def test_live_state_outer_exception_returns_false():
+    class BoomSession:
+        async def execute(self, stmt):
+            raise RuntimeError("db exploded")
+
+    with patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=None)):
+        ok = await oa._update_live_state(BoomSession(), datetime.now(UTC))
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_flush_window_empty_stamp_path():
+    from datetime import UTC as _U
+    from datetime import datetime as _dt
+
+    in_window = _dt.now(_U).replace(hour=max(oa.DIGEST_HOUR_UTC, 7), minute=15)
+    with (
+        patch("app.services.slack_notifications.digest_flushed_today", new=AsyncMock(return_value=False)),
+        patch("app.services.slack_notifications.flush_digest_queue", new=AsyncMock(return_value=0)),
+    ):
+        assert await oa._flush_digest_if_due(in_window) == 0
