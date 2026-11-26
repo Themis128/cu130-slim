@@ -1116,4 +1116,5 @@ async def test_replacement_pin_failure_retries_next_sweep():
     ):
         await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
     client2.pin_chat_message.assert_awaited_once()
+    assert client2.pin_chat_message.await_args.args[1] == 77  # the replacement, not the old message
     assert rd.stored.get("ops:livestate-pinned") == "1"
