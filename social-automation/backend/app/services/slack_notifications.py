@@ -539,13 +539,15 @@ async def queue_digest(severity: str, text: str) -> bool:
 
 async def _stamp_digest_flush() -> None:
     try:
-        from datetime import date
+        from datetime import UTC, datetime
 
         import redis.asyncio as aioredis
 
         r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
-            await r.set(DIGEST_FLUSH_KEY, date.today().isoformat())
+            # UTC date — the flush window is UTC; a local-tz stamp at late-evening
+            # UTC (already tomorrow local) would skip the next morning's digest
+            await r.set(DIGEST_FLUSH_KEY, datetime.now(UTC).date().isoformat())
         finally:
             await r.aclose()
     except Exception:
@@ -613,7 +615,7 @@ async def flush_digest_queue() -> int:
 
 async def digest_flushed_today() -> bool:
     try:
-        from datetime import date
+        from datetime import UTC, datetime
 
         import redis.asyncio as aioredis
 
@@ -622,7 +624,7 @@ async def digest_flushed_today() -> bool:
             val = await r.get(DIGEST_FLUSH_KEY)
         finally:
             await r.aclose()
-        return val == date.today().isoformat()
+        return val == datetime.now(UTC).date().isoformat()
     except Exception:
         return False
 

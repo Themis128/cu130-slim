@@ -911,11 +911,17 @@ class _LSRedis:
         self.stored = {}
 
     async def get(self, key):
-        return self.val
+        if key == "ops:livestate-message-id":
+            return self.val
+        return self.stored.get(key)
 
     async def set(self, key, v):
         self.stored[key] = v
         return True
+
+    async def delete(self, key):
+        self.stored.pop(key, None)
+        return 1
 
     async def aclose(self):
         pass
@@ -1071,12 +1077,7 @@ async def test_pin_retried_when_flag_missing():
 @pytest.mark.asyncio
 async def test_pin_not_retried_when_already_confirmed():
     rd = _LSRedis(val="99")
-    rd.stored = {}
-
-    async def pinned_get(key):
-        return "1" if key == "ops:livestate-pinned" else "99"
-
-    rd.get = pinned_get
+    rd.stored["ops:livestate-pinned"] = "1"
     client = AsyncMock()
     client.edit_message_text = AsyncMock(return_value=True)
     with (

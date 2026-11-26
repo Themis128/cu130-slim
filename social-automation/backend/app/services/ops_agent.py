@@ -538,6 +538,9 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
                 r = await _redis()
                 try:
                     await r.set(LIVESTATE_KEY, str(mid))
+                    # the old pin confirmation belongs to the replaced message —
+                    # clear it so a failed pin on the new one retries next sweep
+                    await r.delete(LIVESTATE_PINNED_KEY)
                     if pinned:
                         await r.set(LIVESTATE_PINNED_KEY, "1")
                 finally:
