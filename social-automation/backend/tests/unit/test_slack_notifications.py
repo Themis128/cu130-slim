@@ -1221,3 +1221,65 @@ async def test_tracked_send_falls_back_to_direct_post_when_queue_fails():
         ok, chat, mid = await sn.send_telegram_alert_tracked("intel", "report text")
     assert ok is True
     client.send_message.assert_awaited()  # direct post, not dropped
+
+
+@pytest.mark.asyncio
+async def test_queue_digest_redis_failure_returns_false():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.queue_digest("intel", "x") is False
+
+
+@pytest.mark.asyncio
+async def test_flush_redis_failure_returns_zero():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.flush_digest_queue() == 0
+
+
+@pytest.mark.asyncio
+async def test_flush_handles_unparseable_items():
+    rq = _QueueRedis(items=["not-json{{"])
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 1})
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=rq):
+        n = await sn.flush_digest_queue()
+    assert n == 1
+    assert "not-json" in client.send_message.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_flush_requeue_failure_is_swallowed():
+    rq = _QueueRedis(items=['{"sev":"intel","text":"x","ts":1}'])
+
+    class FlakyRedis:
+        def __init__(self):
+            self.inner = rq
+            self.calls = 0
+
+        async def lrange(self, *a):
+            return await self.inner.lrange(*a)
+
+        async def delete(self, *a):
+            return await self.inner.delete(*a)
+
+        async def rpush(self, *a):
+            raise RuntimeError("redis died mid-requeue")
+
+        async def get(self, *a):
+            return None
+
+        async def set(self, *a):
+            return True
+
+        async def aclose(self):
+            pass
+
+    client = AsyncMock()
+    client.send_message = AsyncMock(side_effect=RuntimeError("tg down"))
+    with _tg_patch(client), patch("redis.asyncio.from_url", return_value=FlakyRedis()):
+        assert await sn.flush_digest_queue() == 0  # no raise
+
+
+@pytest.mark.asyncio
+async def test_digest_flushed_today_redis_failure_returns_false():
+    with patch("redis.asyncio.from_url", side_effect=RuntimeError("no redis")):
+        assert await sn.digest_flushed_today() is False

@@ -1119,3 +1119,61 @@ async def test_replacement_pin_failure_retries_next_sweep():
     client2.pin_chat_message.assert_awaited_once()
     assert client2.pin_chat_message.await_args.args[1] == 77  # the replacement, not the old message
     assert rd.stored.get("ops:livestate-pinned") == "1"
+
+
+@pytest.mark.asyncio
+async def test_inhibited_bad_timestamp_returns_false():
+    class R:
+        async def get(self, key):
+            return "not-a-timestamp"
+
+        async def aclose(self):
+            pass
+
+    with patch.object(oa, "_redis", new=AsyncMock(return_value=R())):
+        assert await oa._inhibited() is False
+
+
+@pytest.mark.asyncio
+async def test_live_state_redis_failure_still_updates():
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value={"message_id": 42})
+    client.pin_chat_message = AsyncMock(return_value=True)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(side_effect=RuntimeError("redis down"))),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is True  # redis failure must not block the state surface
+    client.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_live_state_non_dict_send_returns_false():
+    rd = _LSRedis()
+    client = AsyncMock()
+    client.send_message = AsyncMock(return_value=None)
+    with (
+        patch.object(oa, "_redis", new=AsyncMock(return_value=rd)),
+        patch("app.services.slack_notifications._tg_client", new=AsyncMock(return_value=client)),
+    ):
+        ok = await oa._update_live_state(_livestate_db([]), datetime.now(UTC))
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_ensure_pinned_redis_failure_is_noop():
+    client = AsyncMock()
+    with patch.object(oa, "_redis", new=AsyncMock(side_effect=RuntimeError("redis down"))):
+        await oa._ensure_livestate_pinned(client, "-1001", 5)  # must not raise
+    client.pin_chat_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_pinned_pin_failure_swallowed():
+    rd = _LSRedis()
+    client = AsyncMock()
+    client.pin_chat_message = AsyncMock(side_effect=RuntimeError("pin rejected"))
+    with patch.object(oa, "_redis", new=AsyncMock(return_value=rd)):
+        await oa._ensure_livestate_pinned(client, "-1001", 5)  # must not raise
+    assert rd.stored.get("ops:livestate-pinned") is None
