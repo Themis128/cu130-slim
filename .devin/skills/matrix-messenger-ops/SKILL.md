@@ -62,3 +62,19 @@ browser lane's `personal_messenger_seen`).
 - RAM budget: continuwuity ~100-150MB, mautrix-meta ~150-250MB.
 - Browser-sidecar lane still runs in parallel (kept for
   profile/page ops); the two `seen` maps don't clash.
+- **Portal invites need an explicit join** (fixed in poll task): the
+  bridge invites `@socialauto` but never joins it — `rooms_seen:0`
+  forever. Poll auto-joins `rooms.invite` each cycle; one-off
+  backfill = fresh `/sync` (no since) → POST `/rooms/{id}/join` per
+  invite (42 done 2026-11-26).
+- **continuwuity is distroless** — no shell/wget, any exec healthcheck
+  fails; probe via `docker exec <worker> python -c "httpx.get('http://continuwuity:6167/_matrix/client/versions')"`.
+- **fsbridge poison → `/data` looked empty**, bridge rewrote a default
+  config (log: "Homeserver domain is not set"); staged view can show a
+  *stale* config (`example.com`) — rebind the hashed mount in the
+  docker-desktop VM, then `docker restart mautrix-meta`. Session/
+  registration/sqlite live in `matrix/mautrix-meta/` (gitignored —
+  the WSL copy is authoritative for the running bridge; C: copy was
+  the restore source after a WSL wipe).
+- **Containers bind-mount the WSL checkout**, not C: — every file
+  edit must land in `\wsl.localhost\Ubuntu-24.04\home\tbaltzakis\cu130-slim`.
