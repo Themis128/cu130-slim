@@ -104,16 +104,19 @@ def test_no_pending_posts():
     }
 
 
-def test_stale_post_fails():
+def test_stale_post_retries_as_infra_not_attempt():
+    """A >6h undispatched result is a lost/wedged task — infra class, so it
+    must not burn the genuine video_render_attempts budget."""
     p = _post(
         created_at=datetime.now(UTC) - timedelta(hours=7),
         meta_data={"pending_video_task": "task-1", "video_render_attempts": 2},
     )
-    out = _task([p])
-    assert out["failed"] == 1
-    assert p.status.name == "FAILED" or str(p.status) == "PostStatus.FAILED"
-    assert "pending_video_task" not in p.meta_data
-    assert "timed out" in p.failure_reason
+    with patch.object(RV, "_redispatch_video", return_value="new-task-id"):
+        out = _task([p])
+    assert out["retried"] == 1 and out["failed"] == 0
+    assert p.meta_data["video_render_attempts"] == 2
+    assert p.meta_data["video_render_infra_retries"] == 1
+    assert p.meta_data["pending_video_task"] == "new-task-id"
 
 
 def test_naive_created_at_still_checked():
@@ -121,8 +124,9 @@ def test_naive_created_at_still_checked():
         created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=7),
         meta_data={"pending_video_task": "task-1", "video_render_attempts": 2},
     )
-    out = _task([p])
-    assert out["failed"] == 1
+    with patch.object(RV, "_redispatch_video", return_value="new-task-id"):
+        out = _task([p])
+    assert out["retried"] == 1
 
 
 def test_result_not_ready_is_pending():
@@ -337,9 +341,50 @@ def test_dispatched_at_naive_old_is_timed_out():
             "video_render_dispatched_at": naive_old.isoformat(),
         }
     )
-    out = _task([p])
-    assert out["failed"] == 1
-    assert "timed out" in p.failure_reason
+    with patch.object(RV, "_redispatch_video", return_value="new-task-id"):
+        out = _task([p])
+    assert out["retried"] == 1  # infra-class stale dispatch → free retry
+    assert p.meta_data["video_render_infra_retries"] == 1
+
+
+def test_infra_budget_exhausted_fails():
+    p = _post(
+        meta_data={
+            "pending_video_task": "task-1",
+            "video_render_attempts": 2,
+            "video_render_infra_retries": RV._MAX_INFRA_RETRIES,
+        }
+    )
+    out = _task([p], res=_Res(ready=True, ok=False, result="gpu media lock timeout"))
+    assert out["failed"] == 1 and out["retried"] == 0
+    assert "gpu media lock" in p.failure_reason
+
+
+def test_infra_failure_does_not_burn_attempts():
+    p = _post(meta_data={"pending_video_task": "task-1", "video_render_attempts": 2})
+    with patch.object(RV, "_redispatch_video", return_value="new-task-id"):
+        cm = _session(_db(rows=[p], get_map={p.id: p}), _db(get_map={p.id: p}))
+        with (
+            patch.object(RV, "run_async", _drain),
+            patch.object(RV, "task_session", cm),
+            patch(
+                "app.worker.celery_app.celery_app.AsyncResult",
+                return_value=_Res(ready=True, ok=False, result="gpu media lock not acquired"),
+            ),
+        ):
+            out = RV.materialize_report_videos()
+    assert out["retried"] == 1 and out["failed"] == 0
+    assert p.meta_data["video_render_attempts"] == 2  # untouched
+    assert p.meta_data["video_render_infra_retries"] == 1
+
+
+def test_is_infra_reason_classification():
+    assert RV._is_infra_reason("video render timed out (>6h)")
+    assert RV._is_infra_reason("gpu media lock not acquired within 600s")
+    assert RV._is_infra_reason("database system is starting up")
+    assert RV._is_infra_reason("ComfyUI unreachable: connection refused")
+    assert not RV._is_infra_reason("prompt rejected: invalid parameters")
+    assert not RV._is_infra_reason("boom")
 
 
 # ── happy-path scheduled_at already set ─────────────────────────────────────
