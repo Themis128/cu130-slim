@@ -103,7 +103,10 @@ must too.
 - GUI-drive scripts live on the workstation `C:\Users\tbaltzakis\devin-scripts\`
   (`subpass.ps1`, `subnext.ps1`, `screencap.ps1`, `uiclick.ps1`): raise +
   maximize window, click sidebar "Subscribe to topic", SendKeys topic, click
-  SUBSCRIBE. Coordinates are window-rect ratios for the maximized window.
+  SUBSCRIBE. Coordinates are FIXED PIXELS for the maximized window on the
+  1920x1080 workstation display (sidebar Y depends on subscribed-topic
+  count) — workstation-specific reference scripts, re-measure on any other
+  display before use.
 - **Synthetic input cannot steal focus** from a window the user is typing
   in — drive only when the app window is foregrounded and hands-off, or the
   keystrokes leak into whatever has focus (happened live: text landed in the
