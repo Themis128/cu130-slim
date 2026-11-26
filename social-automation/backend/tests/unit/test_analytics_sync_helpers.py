@@ -1217,6 +1217,25 @@ async def test_sync_ig_discovery_error(_ig_patches):
     assert any("media discovery HTTP 500" in e for e in r.errors)
 
 
+@pytest.mark.asyncio
+async def test_sync_ig_platform_deleted_retires_target(_ig_patches, monkeypatch):
+    stale = AsyncMock()
+    monkeypatch.setattr(A, "_resolve_stale_note", stale)
+    monkeypatch.setattr(
+        A,
+        "_fetch_instagram_media_metrics",
+        AsyncMock(return_value=A.MetricBundle(notes="platform_deleted")),
+    )
+    tgt = _target("dead1")
+    db = _DB(results=[[tgt]])
+    r = await A.sync_instagram_account(db, _ig_acc())
+    assert tgt.status == "deleted"
+    assert tgt.error_message == "Media deleted on Instagram"
+    stale.assert_awaited()
+    assert stale.await_args.args[2:] == ("instagram", "dead1")
+    assert r.skipped >= 1
+
+
 # ── sync_threads_account ──────────────────────────────────────────────
 
 
@@ -1883,6 +1902,23 @@ async def test_ig_media_metrics_unit():
     client.get = AsyncMock(return_value=_resp(500, {"error": {"message": "x"}}))
     m = await A._fetch_instagram_media_metrics(client, "tok", "u1", "m1")
     assert "HTTP 500" in m.notes
+
+
+@pytest.mark.asyncio
+async def test_ig_media_metrics_platform_deleted():
+    client = _Client()
+    client.get = AsyncMock(
+        return_value=_resp(
+            400,
+            {
+                "error": {
+                    "message": "Unsupported get request. Object with ID '1_2' does not exist, cannot be loaded due to missing permissions, or does not support this operation."
+                }
+            },
+        )
+    )
+    m = await A._fetch_instagram_media_metrics(client, "tok", "u1", "m1")
+    assert m.notes == "platform_deleted"
 
 
 @pytest.mark.asyncio
