@@ -275,7 +275,11 @@ async def test_multiple_enabled_warns_uses_first(monkeypatch):
 
 
 def test_poll_task_wrapper(monkeypatch):
-    monkeypatch.setattr(MM, "_run_async", lambda coro: {"ok": True})
+    def _fake(coro):
+        coro.close()
+        return {"ok": True}
+
+    monkeypatch.setattr(MM, "_run_async", _fake)
     assert MM.poll_matrix_messenger() == {"ok": True}
 
 
