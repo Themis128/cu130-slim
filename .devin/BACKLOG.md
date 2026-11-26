@@ -1877,10 +1877,9 @@ funnel-events+postiz-ai-proxy+cloudless.gr.
 - [ ] **fleet cron probes → Worker Cron Triggers** — optional: move pure
   HTTP health probes into a CF Worker cron so they survive host sleep;
   TG alerting already available via bot API from worker.
-- [x] **baltzakisthemis.com** — DECLINED (2026-11-26, user decision):
-  domain left on registrar clientHold; not wanted back. All live refs
-  removed (prompts → LinkedIn, docs/env/DB → portfolio.cloudless.gr).
-  Portfolio canonical at portfolio.cloudless.gr.
+- [ ] **baltzakisthemis.com** — registrar clientHold at Amazon Registrar
+  (since 2026-10-22); lift hold in AWS console if domain wanted back.
+  Portfolio no longer depends on it (portfolio.cloudless.gr live).
 
 ## Report-delivery incident + watcher (2026-11-12 eve)
 
@@ -4929,11 +4928,15 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (PR #355); 2 green runs. Dependabot vuln surgery 142→10, 0 critical
   (PR #357). Repo secrets CLOUDFLARE_API_TOKEN/ACCOUNT_ID set; 8 dead
   AWS/AMPLIFY secrets removed.
-- **Domain rescue — DECLINED (2026-11-26, user decision)**: user does
-  not want `baltzakisthemis.com` back; let it lapse on clientHold.
-  Canonical portfolio is `portfolio.cloudless.gr`; all app/repo
-  references were removed or re-pointed. Close figma-cloud-portfolio
-  issue #358 as wont-do if still open.
+- **USER ACTION — domain rescue**: `baltzakisthemis.com` is on
+  `clientHold` at Amazon Registrar under the closed AWS account;
+  AWS deletes Amazon-Registrar domains ~30 days after suspension.
+  Path: AWS Support → Account and Billing → Domains → Registration
+  Issue (free; "can't sign in" path exists for closed accounts) →
+  request hold lift + transfer auth code → transfer to Cloudflare
+  Registrar → then attach custom domain to the Worker
+  (`wrangler.toml routes` or dashboard Worker → Domains).
+  Tracked: figma-cloud-portfolio issue #358.
 - **Deferred rebuild** (dead AWS features, options in issue #358):
   admin login (Cognito → Firebase Auth — secrets already in repo),
   chatbot (Bedrock → Workers AI or DMR), contact form (Lambda →
@@ -4950,14 +4953,16 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   `cloudless-pipeline-assets`, zero lost, no GPU regen needed**.
   media-heal retries can stand down; the 5 `media_heal_alerted` posts
   were media-semantics issues, unrelated.
-- **FB session invalidated (190)** — both facebook rows +
-  messenger/call-ingest lanes fail on OAuthException 190
-  ("user changed password or session invalidated for security
-  reasons"). Debug-Chrome FB session also logged out (no `c_user`);
-  SMS-2FA code went to the phone — ADB dead. **Human gate**: log in on a
-  trusted device / approve the Meta login alert, then re-drive.
-  threads/IG-lane tokens verified live; pending FB targets will fail
-  until re-auth.
+- **FB session invalidated (190) — RESOLVED**: debug-Chrome session
+  recovered (heal-cron code logins landed — c_user+xs live). OAuth
+  consent driven via CDP relay → fresh user token exchanged on the
+  callback, both `facebook` rows `active` + live-verified via
+  account_truth MATCH. Sidecars up; 3 pending FB targets resume on the
+  next publisher cycle. Notes: `META_BACKUP_CODES` are stale (rejected),
+  emailed-code lane unreliable (Meta sends alerts but not the code),
+  password+2FA picker flow works but Meta rate-limits after ~5 attempts.
+  `threads` row `cloudless.gr` still `revoked` (separate lane).
+  cdp_relay.py TARGETS was missing :9222 — patched + restarted.
 - **DMR incident (RESOLVED)**: `ai/qwen3:8b-q4_K_M` entry was epoch-0/partial
   and a ~6.5 GiB `.incomplete` blob (larger than the real object) made
   every re-pull 416. `restart-runner` then removed the runner container
@@ -4972,63 +4977,3 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (Developer options) or plug USB + `adb tcpip 5555`.
 - **greptile MCP** `ok-auth-required` — transient; `get_me` verified
   healthy (cloudless-gr org, ADMIN). No action needed.
-
-## 2026-11-26 — Meta Account lock: tokens re-minted but lock checkpoint still pending
-
-- **Meta Account lock (Nov 25) still ACTIVE for new web sessions.** Phone FB
-  app feed works (trusted session exempt) but cold-start shows
-  "secure your account" checkpoint → Continue → **Change password** screen
-  ("Once you confirm, we'll log you out of other devices and unlink
-  recently linked accounts"). No skip path; ADB cannot complete it
-  (taps route to launcher / app backgrounds mid-flow).
-- **PENDING HUMAN GATE**: user must decide — enter existing Meta Account
-  password (may be accepted, but triggers other-device logout) or set a new
-  one (then update Infisical META_ACCOUNT_PASSWORD + .env everywhere).
-  User declined autonomous password change.
-- **Token state**: whatsapp/Themistoklis Baltzakis re-minted LIVE via
-  wa_oauth_drive.py through recovered :9229 session (live phones=1);
-  facebook×2, instagram/cloudless.gr, threads/t_baltzakis probed active
-  then RE-REVOKED when lock re-engaged — expect FALSE-ACTIVE until unlock
-  completes, then heal crons re-mint automatically.
-- **Recovered sessions**: :9229 chrome-debug-profile logged in via
-  fb_recover_drive.py (email code lane, approved on phone) + cookie jar at
-  ~/.local/state/fb-debug-session/cookies.json (365 cookies). Session now
-  checkpointed until lock lifts. facebook-browser-sidecar got cookie
-  transplant → checkpoint 828281030927956.
-- **social-api crash-loop FIXED**: limiter.py default_limits removed +
-  compose edit — verify committed. Uncommitted at time of writing.
-- **Docker Desktop**: crashed ~7x during session (vmcompute StopPending
-  wedge, self-cleared). C: was 0GB → cleaned ~44GB (docker prune 25.5G,
-  CI _work 13.4G, pnpm/npm caches). sparseVhd+discard reclaiming.
-- **WhatsApp phone**: re-registered via "Access WhatsApp using Facebook?"
-  (Meta Account path, bypassed SMS). Updated 2.26.45.99→2.26.46.82.
-- **TOTP secret fixed**: META_TOTP_SECRET had display spaces — stripped in
-  .env; heal script TOTP lane works now.
-
-## 2026-11-26 — deep static sweep + suite (Devin session)
-
-Landed: PRs #2679 (carousel DMR timeouts + font fallback + pyrightconfig),
-#2681 (ops-agent alert lifecycle — parallel session), #2682 (3 Unix-only
-test skips: fcntl×2 + symlink priv — Windows dev hosts only), #2683
-(matrix-messenger bridge lane + coverage tests), #2684 (research endpoints
-TeamId fix — real 500s; avatar_video null-guard), #2685 (mypy gate extended
-to backend/scripts — 86 ops CLIs now covered, zero real errors found).
-
-Full basedpyright sweep of app/ (451 files, 410 diagnostics) + scripts/
-(86 files, 112 diagnostics): all triaged — 2 real bugs (fixed in #2684),
-rest is stub noise (SQLAlchemy Mapped["X"] forward refs, celery .delay,
-PIL/redis/ORM async stubs). Unit suite 10,074 tests green; coverage gate
-99.0% line / 95.3% branch enforced.
-
-Leftovers (optional, low value):
-- [ ] Coverage thin-spots below repo average: dmr_health.py 70%,
-  funnel_reports.py 79%, notify_archive.py 85%, avatar_video/task modules
-  recently added. Aggregate gate passes; per-module hardening optional.
-- [ ] Cosmetic: 37 SQLAlchemy Mapped["X"] forward refs flag
-  reportUndefinedVariable under basedpyright — TYPE_CHECKING imports
-  would silence but zero runtime benefit.
-- [ ] scripts/ mypy gate uses global --ignore-missing-imports; tightening
-  to per-module overrides would surface future missing-dep bugs.
-- [ ] Windows dev-host suite: 3 Unix-only tests now skip'd on win32 —
-  gpu_serial/x_web FileGuardStore lock are container-only paths; if a
-  Windows dev run of those services is ever needed, port locks to msvcrt.
