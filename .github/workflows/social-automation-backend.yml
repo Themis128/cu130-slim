@@ -125,7 +125,7 @@ jobs:
       - name: Run type checking
         run: |
           cd social-automation/backend
-          mypy app --ignore-missing-imports
+          mypy app scripts --ignore-missing-imports
 
       - name: Run worker linting
         run: |
