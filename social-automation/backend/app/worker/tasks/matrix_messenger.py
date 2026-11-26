@@ -199,6 +199,19 @@ async def _poll_matrix_messenger_async() -> dict:
                 logger.info("Matrix lane: bootstrap sync complete (since=%s), no replies", next_batch)
                 return stats
 
+            # Auto-accept portal invites — mautrix-meta invites the bridge user
+            # to new portal rooms; timelines only appear once membership is join.
+            invited = (sync.get("rooms") or {}).get("invite") or {}
+            for invite_room_id in invited:
+                try:
+                    await client.post(
+                        f"/_matrix/client/v3/rooms/{invite_room_id}/join",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    stats["rooms_joined"] = stats.get("rooms_joined", 0) + 1
+                except Exception as exc:
+                    logger.warning("Matrix lane: join %s failed: %s", invite_room_id, exc)
+
             joined = (sync.get("rooms") or {}).get("join") or {}
             cooldown_seconds = auto_reply.get("cooldown_seconds", 300)
 
