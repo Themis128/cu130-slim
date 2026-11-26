@@ -5007,3 +5007,31 @@ Still open — all waiting on Meta, nothing left to automate client-side:
   (Meta Account path, bypassed SMS). Updated 2.26.45.99→2.26.46.82.
 - **TOTP secret fixed**: META_TOTP_SECRET had display spaces — stripped in
   .env; heal script TOTP lane works now.
+
+## 2026-11-26 — deep static sweep + suite (Devin session)
+
+Landed: PRs #2679 (carousel DMR timeouts + font fallback + pyrightconfig),
+#2681 (ops-agent alert lifecycle — parallel session), #2682 (3 Unix-only
+test skips: fcntl×2 + symlink priv — Windows dev hosts only), #2683
+(matrix-messenger bridge lane + coverage tests), #2684 (research endpoints
+TeamId fix — real 500s; avatar_video null-guard), #2685 (mypy gate extended
+to backend/scripts — 86 ops CLIs now covered, zero real errors found).
+
+Full basedpyright sweep of app/ (451 files, 410 diagnostics) + scripts/
+(86 files, 112 diagnostics): all triaged — 2 real bugs (fixed in #2684),
+rest is stub noise (SQLAlchemy Mapped["X"] forward refs, celery .delay,
+PIL/redis/ORM async stubs). Unit suite 10,074 tests green; coverage gate
+99.0% line / 95.3% branch enforced.
+
+Leftovers (optional, low value):
+- [ ] Coverage thin-spots below repo average: dmr_health.py 70%,
+  funnel_reports.py 79%, notify_archive.py 85%, avatar_video/task modules
+  recently added. Aggregate gate passes; per-module hardening optional.
+- [ ] Cosmetic: 37 SQLAlchemy Mapped["X"] forward refs flag
+  reportUndefinedVariable under basedpyright — TYPE_CHECKING imports
+  would silence but zero runtime benefit.
+- [ ] scripts/ mypy gate uses global --ignore-missing-imports; tightening
+  to per-module overrides would surface future missing-dep bugs.
+- [ ] Windows dev-host suite: 3 Unix-only tests now skip'd on win32 —
+  gpu_serial/x_web FileGuardStore lock are container-only paths; if a
+  Windows dev run of those services is ever needed, port locks to msvcrt.
