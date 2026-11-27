@@ -36,7 +36,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -61,10 +61,19 @@ MAX_TREND_ACTIONS = 2
 _EXPIRY_WARN_DAYS = 7.0
 
 # Score weights — followers dominate reach, engagement rate dominates
-# quality, trend alignment is the market-adjustment term.
+# quality, trend alignment is the market-adjustment term, and the
+# datalake platform_focus signal (best-converting funnel platform) is
+# the conversion-feedback term. Additive bonus: scores may exceed 1.0,
+# only ordering matters.
 _W_FOLLOWERS = 0.45
 _W_ENGAGEMENT = 0.35
 _W_TREND = 0.20
+_W_FOCUS = 0.30
+
+# platform_focus events needed inside the lookback window for a full
+# focus boost — the insights sweep emits one per day, so ~3 means the
+# same platform has been the best converter all week.
+_FOCUS_FULL_COUNT = 3
 
 TREND_CLASSES = ("opportunity", "early_window")
 
@@ -103,6 +112,9 @@ class BrainSnapshot:
     generated_at: datetime
     channels: dict[str, ChannelState] = field(default_factory=dict)
     trends: list[dict] = field(default_factory=list)
+    # platform → 0..1 focus boost from recent datalake platform_focus
+    # actions (the best-converting funnel platform gets weighted up).
+    focus_platforms: dict[str, float] = field(default_factory=dict)
 
 
 # ── collection ────────────────────────────────────────────────────────
@@ -254,6 +266,36 @@ async def _hot_trends(db: AsyncSession, since: datetime) -> list[dict]:
     ]
 
 
+async def _recent_focus(db: AsyncSession, team_id, since: datetime) -> dict[str, float]:
+    """platform → focus boost from recent ``platform_focus`` datalake actions.
+
+    The insights sweep emits one platform_focus action per run naming the
+    best-converting funnel platform; ``datalake_executor`` records each as
+    a ``datalake_actions`` AnalyticsEvent. Repeated focus on the same
+    platform inside the lookback window saturates at 1.0.
+    """
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT meta_data->>'key' AS platform, count(*) AS n "
+                    "FROM analytics_events WHERE team_id=:t AND event_type='datalake_actions' "
+                    "AND meta_data->>'action_type'='platform_focus' "
+                    "AND occurred_at >= :s GROUP BY 1"
+                ),
+                {"t": team_id, "s": since},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return {
+        str(r["platform"]).lower(): min(1.0, int(r["n"]) / _FOCUS_FULL_COUNT)
+        for r in rows
+        if r["platform"]
+    }
+
+
 async def collect_snapshot(db: AsyncSession, team: Team, now: datetime | None = None) -> BrainSnapshot:
     now = now or datetime.now(UTC)
     since = now - timedelta(days=LOOKBACK_DAYS)
@@ -263,6 +305,7 @@ async def collect_snapshot(db: AsyncSession, team: Team, now: datetime | None = 
     outcomes = await _post_outcomes_7d(db, team.id, since)
     followers = await _latest_followers(db, team.id)
     trends = await _hot_trends(db, since)
+    focus = await _recent_focus(db, team.id, since)
 
     # Channels = union of every surface that knows about an account.
     platforms: dict[str, ChannelState] = {}
@@ -306,6 +349,7 @@ async def collect_snapshot(db: AsyncSession, team: Team, now: datetime | None = 
         generated_at=now,
         channels=platforms,
         trends=trends,
+        focus_platforms=focus,
     )
 
 
@@ -316,10 +360,15 @@ def _norm(v: float, cap: float) -> float:
     return min(max(v, 0.0), 1.0) if cap > 0 else 0.0
 
 
-def _channel_score(state: ChannelState, trend_boost: float) -> float:
+def _channel_score(state: ChannelState, trend_boost: float, focus_boost: float = 0.0) -> float:
     followers_term = _norm(math.log10(max(state.followers or 0, 1) + 1) / 5.0, 1.0)
     er_term = _norm(state.engagement_rate_7d / 10.0, 1.0)
-    return _W_FOLLOWERS * followers_term + _W_ENGAGEMENT * er_term + _W_TREND * trend_boost
+    return (
+        _W_FOLLOWERS * followers_term
+        + _W_ENGAGEMENT * er_term
+        + _W_TREND * trend_boost
+        + _W_FOCUS * focus_boost
+    )
 
 
 def _top_trends(trends: list[dict], n: int) -> list[dict]:
@@ -353,8 +402,12 @@ def decide(snapshot: BrainSnapshot) -> list[BrainDecision]:
         top = trends[0]
         trend_boost = _norm(math.log10(max(int(top.get("traffic") or 0), 1) + 1) / 4.0, 1.0)
 
+    focus = snapshot.focus_platforms or {}
     scored = sorted(
-        ((_channel_score(s, trend_boost), s) for _, s in healthy),
+        (
+            (_channel_score(s, trend_boost, focus.get(s.platform, 0.0)), s)
+            for _, s in healthy
+        ),
         key=lambda pair: pair[0],
         reverse=True,
     )
@@ -555,10 +608,14 @@ async def _llm_adjust(
             state = snapshot.channels.get(plat)
             if not state:
                 continue
+            focus_note = ""
+            fb = (snapshot.focus_platforms or {}).get(plat, 0.0)
+            if fb:
+                focus_note = f" focus={fb:.2f}"
             channel_lines.append(
                 f"- {plat}: followers={state.followers or '?'} "
                 f"er7d={state.engagement_rate_7d:.1f} posts7d={state.posts_7d} "
-                f"published7d={state.published_7d} failed7d={state.failed_7d}"
+                f"published7d={state.published_7d} failed7d={state.failed_7d}{focus_note}"
             )
         trend_lines = "\n".join(f"- {t.get('query')} ({t.get('classification')}, traffic={t.get('traffic')})" for t in snapshot.trends[:5]) or "(none)"
         fit_lines = "\n".join(f"- {plat}: {_fit_line(plat) or 'no fit data'}" for plat in sorted({d.platform for d in candidates}))
