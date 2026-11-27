@@ -131,9 +131,9 @@ skips stack-ops-managed names, falling back to resurrect-all when
 stack-ops is down (safe: nothing is asleep then). Its port-proxy healing
 restarting `stack-ops` on a dead proxy port is a *correct* remedy (rebind).
 
-WSL memory: `.wslconfig` uses `autoMemoryReclaim=dropCache` — the known-
-bad combo is Docker Desktop Resource Saver + `gradual`. Keep `dropCache`;
-see `windows-host-ops` skill.
+WSL memory: `.wslconfig` uses `autoMemoryReclaim=gradual` since 2026-11-07 —
+`dropCache` caused 4 engine crashes in one day (immediate reclaim wedged the
+vsock layer under load). Keep `gradual`; see `windows-host-ops` skill.
 
 ## Failure modes & troubleshooting
 

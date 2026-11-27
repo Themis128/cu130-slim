@@ -163,8 +163,9 @@ Known non-task flash sources (audited + remediated 2026-11-14):
 - **vsock degradation**: `wsl.exe`/interop calls intermittently fail with
   `UtilAcceptVsock`/`accept4` errors; tasks may log `0x800704E0` once and recover.
   Persistent breakage → `wsl --shutdown` (kills Docker Desktop + all sessions — plan it).
-- **Docker Desktop bounces** under memory pressure: WSL capped at ~19–20GB,
-  dropcache reclaim, 16GB swap — watch `WSL-Memory-Watchdog` results.
+- **Docker Desktop bounces** under memory pressure: WSL capped at 9GB
+  (2026-11-15, see memory architecture section), `autoMemoryReclaim=gradual`,
+  32GB swap on D: — watch `WSL-Memory-Watchdog` results.
 - **Docker-WSL-Sync resurrects sleepers**: the task starts every Exited
   `unless-stopped` container every 30min — it now queries stack-ops
   `/status` (localhost:8787) and skips managed containers. If stack-ops is
@@ -490,3 +491,93 @@ Fix: pin delegation to conhost — create `HKCU\Console\%%Startup` with
 `DelegationConsole` + `DelegationTerminal` =
 `{00000000-0000-0000-0000-000000000000}`. wslhost consoles then stay hidden;
 WT still works as an app. This host is pinned as of 2026-11-22.
+
+## Memory architecture + pressure automation (2026-11-27)
+
+Full audit of the 32GB RAM constraint on OFFICE — the documentation of what
+exists, what is tuned, and where the ceiling is.
+
+### Hardware ceiling
+
+- Lenovo 82RF (LNVNB161216), i9-12900H, **2 slots, both occupied** by
+  16GB DDR5-4800 Micron SODIMMs (MTC8C1084S1SC48BA1). 32GB is Lenovo's
+  validated max; the CPU supports 64GB. The upgrade path is
+  **2x32GB DDR5-4800 SODIMM replacing both sticks** (e.g. Crucial
+  CT2K32G48C40S5) — no free slots exist.
+- Structural demand: host baseline ~19-20GB + WSL fleet wants ~24GB
+  (measured: 9GB physical cap + ~15GB swap in use inside the VM). With 32GB
+  total the machine is permanently oversubscribed; software can only absorb
+  pressure, never remove it.
+
+### The guard stack (all live, all automatic — never duplicate it)
+
+| Guard | Cadence | Escalation ladder |
+|---|---|---|
+| `DevOptimizer-DMR-RAM-Guard` | 5 min | free<2.8GB evicts non-pinned DMR models; <1.0GB evicts pinned too |
+| `\DevOptimizer\Host-Guard` | 5 min | avail<2.5GB guest drop_caches; VRAM>85% model unload; <1.2GB critical: bounce WSL/Docker unless Devin.exe open |
+| `\DevOptimizer\WSL-Memory-Watchdog` | 30 min | swap 80% warn / 90% cache-drop / 95% restart docker-desktop distro (2h cooldown) |
+| `DockerEngineRescue` | 3 min | dead engine probe -> `wsl --shutdown` -> relaunch DD -> verify (15-min debounce) |
+
+Scope boundary: `DockerEngineRescue` acts only when the engine itself is
+dead (`docker.exe info` fails) — it never restarts containers. Container-level
+resurrection stays with `compose-watchdog.sh` / `Docker-WSL-Sync` per the
+deploy-lock rules in AGENTS.md; after the engine verify the normal container
+lanes recover the fleet, so the two never act on the same layer.
+
+Scripts live in `D:\DevOptimizer\scripts\` (host-guard.ps1, dmr-ram-guard.ps1,
+check-wsl-memory-pressure.ps1, wsl-guardian.ps1) and
+`C:\Users\tbaltzakis\devin-scripts\` (docker-engine-rescue.ps1).
+**Before writing any new memory/pressure automation, read these first** —
+a parallel governor was mistakenly started 2026-11-27 and deleted; the
+existing ladder already covers every tier.
+
+### .wslconfig state (C:\Users\tbaltzakis\.wslconfig)
+
+- `memory=9GB` — the documented optimum for 32GB. History: 14->20->14->12->10->9,
+  each raise re-starved the host (0.3-1.2GB free crises). **Do not raise the
+  cap on 32GB** — raising it re-creates the starvation crashes.
+- `swap=32GB` on `D:\wsl-sys\swap.vhdx`; `processors=8`;
+  `autoMemoryReclaim=gradual` (dropCache caused 4 engine crashes 2026-11-07);
+  `sparseVhd=true` — strictly this only makes NEW vhds sparse, but the
+  docker_data.vhdx shrinkage after prunes is empirically observed
+  (230->182GB overnight 2026-11-26/27, oscillates 182-230GB with fleet churn).
+  Never compact it manually — the space returns on its own over hours;
+  `vmIdleTimeout=-1` (idle shutdown killed IDE sessions); `virtiofs` REMOVED
+  (breaks docker-desktop bootstrap).
+- `guiApplications=false` (2026-11-27): no Linux GUI apps in use — drops the
+  WSLg stack (weston/RDP/pulseaudio), ~100-300MB permanent savings. Takes
+  effect on next WSL VM restart. Backup `.wslconfig.bak-20261127-gui`;
+  revert if any x11 lane ever breaks.
+
+### Pagefile lane + the gotcha
+
+- Host pagefile sat on C: at ~28.7GB allocated (peak real usage only ~2.2GB).
+  Move to D: armed via `devin-scripts\pagefile-explicit.ps1` — takes effect
+  on reboot after the user clicks the UAC consent.
+- **Gotcha**: `'D:\pagefile.sys 0 0'` (system-managed size) **silently falls
+  back to C:** at boot — Windows will not system-manage a pagefile on a
+  non-boot volume. The reliable form is explicit sizes:
+  `'D:\pagefile.sys 8192 32768'` (registry `HKLM\SYSTEM\CurrentControlSet\
+  Control\Session Manager\Memory Management\PagingFiles`, MultiString).
+  `Win32_PageFileSetting` WMI is empty even when configured — read the
+  registry, not WMI.
+- **Post-reboot verification**: the registry records what was REQUESTED, not
+  what Windows actually uses. After any reboot following a pagefile change,
+  verify with `Get-CimInstance Win32_PageFileUsage` — the config here requests
+  ONLY `D:\pagefile.sys`, so if the active list still contains a C: entry the
+  fallback gotcha fired (Windows rejected the D: request and re-created its
+  default). Note the entry list alone does not say WHY D: was rejected —
+  re-apply the explicit-size form and re-verify.
+
+### 2026-11-26 crash-chain resolution (reference incident)
+
+Chain: RAM pressure -> C: near-zero (0.4GB) -> Docker Desktop cannot write ->
+engine dies -> data-disk stuck `device or resource busy` on next bootstrap.
+Fixes landed: ~35GB docker prune + DMR dead-model removal + IDE caches (C:
+0.4GB -> ~37-50GB free), Intel DSA broken stack removed (32 errors/day),
+pagefile move armed, DockerEngineRescue installed. Zero crashes since the
+00:30 reboot. Win11 system-file integrity verified clean (SFC/DISM, zero
+corruption) — the instability was never Windows itself; residual crash risk
+is the Docker Desktop 4.100.1 x Insider 26H2 (build 26340) interaction,
+absorbed by the rescue watchdog until either the RAM upgrade or leaving
+the Insider channel.
