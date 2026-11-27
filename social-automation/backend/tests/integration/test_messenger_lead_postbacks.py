@@ -253,7 +253,7 @@ async def test_sidecar_dispatch_includes_postback_payload(client, db):
 
     async def _spy_capture(db, pid, psid, text, mtype, payload):
         received.append((psid, payload))
-        return False  # let the normal flow continue
+        return None  # not-in-flow — lets the normal bot path continue
 
     with patch("app.api.messenger._try_lead_capture_reply", _spy_capture):
         resp = await _post_webhook(client, body)

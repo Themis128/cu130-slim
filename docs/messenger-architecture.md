@@ -495,6 +495,20 @@ Bot Builder UI with a Resume button.
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## Webhook reliability contract (2026-11-27)
+
+- **Echo events** (`is_echo`, `message_echoes` field) are skipped in the
+  parser — the echo sender is the PAGE, and replying targets the page id
+  which Graph rejects with `(#100) No matching user found`.
+- **Dedupe**: every inbound `message_mid` is marked in Redis (24h) before
+  processing — covers both the lead-capture gate and the auto-reply path.
+- **Failure recovery**: when a reply fails to send, the marker is cleared
+  AND the webhook returns HTTP 500. Meta redelivers; the redelivery
+  replays only the failures because successful events keep their markers.
+- The sidecar `/process` dispatch lane is removed — inline is the single
+  reply path (the sidecar acked fire-and-forget while being unable to
+  authenticate to social-api, which produced zero customer replies).
+
 ## Data Flow: Page Message (Webhook → Auto-Reply)
 
 ```
