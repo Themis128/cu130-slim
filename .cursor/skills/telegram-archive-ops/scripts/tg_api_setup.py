@@ -77,7 +77,7 @@ def _ui_xml() -> str:
 def _latest_web_code() -> str | None:
     """Newest 'log in on my.telegram.org ... login code: XXXX' message in the service chat."""
     xml = _ui_xml()
-    codes = re.findall(r"my\.telegram\.org[\s\S]{0,400}?login code:\s*(?:&#10;|\n)?\s*([A-Za-z0-9]{6,20})", xml)
+    codes = re.findall(r"my\.telegram\.org[\s\S]{0,400}?login code:\s*(?:&#10;|\n)?\s*([A-Za-z0-9_-]{6,20})", xml)
     return codes[-1] if codes else None
 
 
