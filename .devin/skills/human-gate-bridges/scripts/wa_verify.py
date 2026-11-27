@@ -59,15 +59,19 @@ def adb_code() -> str | None:
 
 
 PHONE_IP = os.environ.get("PHONE_ADB_IP", "192.168.1.77")
+# Termux sshd is only reachable over the tailnet (Tailscale iface) — the
+# LAN IP times out on :8022. ~/.ssh/config maps 100.84.31.85 → port 8022,
+# user u0_a357, key id_ed25519_phone, so a bare `ssh <host>` works.
+PHONE_SSH_HOST = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
 
 
 def termux_code() -> str | None:
-    """Termux SSH lane — termux-sms-list over :8022 (needs READ_SMS grant once)."""
+    """Termux SSH lane — termux-sms-list over tailnet :8022 (needs READ_SMS grant once)."""
     try:
         r = subprocess.run(
-            ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=no", "-i", KEY,
-             f"u0_a357@{PHONE_IP}", "termux-sms-list -l 5"],
+            ["ssh", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no",
+             PHONE_SSH_HOST, "termux-sms-list -l 5"],
             capture_output=True, text=True, timeout=12)
         rows = [l for l in r.stdout.splitlines() if re.search(
             r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]

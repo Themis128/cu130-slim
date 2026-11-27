@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-TERMUX = "ssh -p 8022 -o ConnectTimeout=8 -o StrictHostKeyChecking=no u0_a357@192.168.1.77"
+TERMUX = "ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no 100.84.31.85"
 
 
 def _adb_bin():

@@ -31,8 +31,7 @@ ADBS = [
     "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
     "adb",
 ]
-PHONE_IP = os.environ.get("PHONE_ADB_IP", "192.168.1.77")
-SSH_KEY = os.path.expanduser("~/.ssh/id_rsa_win")
+PHONE_IP = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
 
 # LinkedIn verification SMS: 6-8 digit code, sender/body mentions LinkedIn.
 LI_CODE_RE = re.compile(r"\b(\d{6,8})\b")
@@ -99,7 +98,7 @@ def termux_li_code() -> str | None:
     try:
         r = subprocess.run(
             ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=no", "-i", SSH_KEY,
+             "-o", "StrictHostKeyChecking=no",
              f"u0_a357@{PHONE_IP}", "termux-sms-list -l 10"],
             capture_output=True, text=True, timeout=15)
         for row in _sms_rows(r.stdout)[:5]:

@@ -6,7 +6,7 @@ description: Access the Galaxy S22+ — ADB/uiautomator control + Termux SSH. `s
 # phone-access
 
 Galaxy S22+ access layer. ADB + uiautomator2 drive the UI; Termux SSH
-(`ssh -p 8022 u0_a357@192.168.1.77`) handles notification, clipboard, SMS,
+(`ssh 100.84.31.85` — tailnet sshd :8022, `u0_a357`; LAN `192.168.1.77` is unreachable from WSL) handles notification, clipboard, SMS,
 and file ops.
 
 ## Scripts

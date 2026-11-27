@@ -212,6 +212,40 @@ def adb_code(since_ms: int = 0) -> str | None:
     return None
 
 
+def termux_code(since_ms: int = 0) -> str | None:
+    """ADB-free fallback: termux-sms-list over tailnet sshd (:8022 via
+    ~/.ssh/config host 100.84.31.85). Same sender+age filters as adb_code."""
+    import datetime
+    host = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
+    try:
+        out = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no", host,
+             "termux-sms-list -l 15"],
+            capture_output=True, text=True, timeout=15).stdout
+        msgs = json.loads(out)
+    except Exception:
+        return None
+    sender_re = re.compile(r"instagram|facebook|meta|threads", re.I)
+    for msg in msgs if isinstance(msgs, list) else []:
+        addr = str(msg.get("address") or msg.get("number") or "")
+        body = str(msg.get("body") or "")
+        if not sender_re.search(addr + " " + body):
+            continue
+        if since_ms:
+            try:
+                dt = datetime.datetime.strptime(
+                    str(msg.get("received") or ""), "%Y-%m-%d %H:%M:%S")
+                if int(dt.timestamp() * 1000) < since_ms:
+                    continue
+            except ValueError:
+                pass
+        c = CODE_RE.search(body)
+        if c:
+            return c.group(1)
+    return None
+
+
 def poll_code_or_link(since_ms: int = 0) -> tuple[str | None, str | None]:
     """Poll all lanes; return (code, link) whichever arrives first."""
     deadline = time.time() + 240
@@ -236,7 +270,7 @@ def poll_code_or_link(since_ms: int = 0) -> tuple[str | None, str | None]:
         if link and link not in seen:
             seen.add(link)
             return None, link
-        code = adb_code(since_ms)
+        code = adb_code(since_ms) or termux_code(since_ms)
         if code and code not in seen:
             seen.add(code)
             return code, None

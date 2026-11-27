@@ -37,8 +37,8 @@ ADB_CANDIDATES = [
     "adb",
     "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
 ]
-TERMUX_SSH = ("ssh -p 8022 -o ConnectTimeout=8 "
-              "-o StrictHostKeyChecking=no u0_a357@192.168.1.77")
+TERMUX_SSH = ("ssh -o ConnectTimeout=8 "
+              "-o StrictHostKeyChecking=no 100.84.31.85")
 PROVISION = ("/home/tbaltzakis/cu130-slim/.devin/skills/viber-ops/scripts/"
              "viber_provision.py")
 # Viber auth tokens look like UUIDs or long hex; be permissive then verify.

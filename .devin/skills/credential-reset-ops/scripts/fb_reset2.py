@@ -204,9 +204,10 @@ def termux_code(since_ts: float = 0) -> str | None:
     try:
         key = os.path.expanduser("~/.ssh/id_rsa_win")
         r = subprocess.run(
-            ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=no", "-i", key,
-             "u0_a357@192.168.1.77", "termux-sms-list -l 8"],
+            ["ssh", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no",
+             os.environ.get("PHONE_SSH_HOST", "100.84.31.85"),
+             "termux-sms-list -l 8"],
             capture_output=True, text=True, timeout=15)
         for row in r.stdout.splitlines():
             if re.search(r"facebook|meta|authmsg", row, re.I):
