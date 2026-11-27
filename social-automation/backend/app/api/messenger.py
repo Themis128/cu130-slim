@@ -989,7 +989,6 @@ async def _try_lead_capture_reply(
         return None
 
 
-
 async def _clear_mid_marker(message_mid: str) -> None:
     """Drop the dedupe marker so a redelivery can retry a failed reply."""
     try:

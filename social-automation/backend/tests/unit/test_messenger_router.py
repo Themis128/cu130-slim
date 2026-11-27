@@ -713,8 +713,15 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
-                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+                {
+                    "page_id": "pg-1",
+                    "sender_psid": "u1",
+                    "message_type": "text",
+                    "message_text": "hi",
+                    "postback_payload": "",
+                    "message_id": "mid-1",
+                    "timestamp": 1,
+                },
             ],
         )
         cleared = []
@@ -747,8 +754,15 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
-                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+                {
+                    "page_id": "pg-1",
+                    "sender_psid": "u1",
+                    "message_type": "text",
+                    "message_text": "hi",
+                    "postback_payload": "",
+                    "message_id": "mid-1",
+                    "timestamp": 1,
+                },
             ],
         )
         calls = []
@@ -776,8 +790,15 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
-                     "postback_payload": "", "message_id": "mid-9", "timestamp": 1},
+                {
+                    "page_id": "pg-1",
+                    "sender_psid": "u1",
+                    "message_type": "text",
+                    "message_text": "hi",
+                    "postback_payload": "",
+                    "message_id": "mid-9",
+                    "timestamp": 1,
+                },
             ],
         )
         cleared = []
@@ -827,7 +848,6 @@ class TestReceiveWebhook:
 
         monkeypatch.setattr("app.services.messenger_chatbot._get_redis", boom)
         await messenger._clear_mid_marker("mid-x")  # must not raise
-
 
 
 # ---------------------------------------------------------------------------
@@ -1427,7 +1447,6 @@ class TestCoverageTails:
         monkeypatch.setattr(messenger, "decrypt_token", Mock(side_effect=ValueError("not encrypted")))
         c = messenger._get_messenger_client(acct)
         assert c.kw["access_token"] == "notEA" and c.kw["page_id"] == "pg-1"
-
 
     async def test_lead_capture_send_failure_returns_false(self, monkeypatch):
         acct = _page()

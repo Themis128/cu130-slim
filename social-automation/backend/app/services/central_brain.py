@@ -289,11 +289,7 @@ async def _recent_focus(db: AsyncSession, team_id, since: datetime) -> dict[str,
         .mappings()
         .all()
     )
-    return {
-        str(r["platform"]).lower(): min(1.0, int(r["n"]) / _FOCUS_FULL_COUNT)
-        for r in rows
-        if r["platform"]
-    }
+    return {str(r["platform"]).lower(): min(1.0, int(r["n"]) / _FOCUS_FULL_COUNT) for r in rows if r["platform"]}
 
 
 async def collect_snapshot(db: AsyncSession, team: Team, now: datetime | None = None) -> BrainSnapshot:
@@ -363,12 +359,7 @@ def _norm(v: float, cap: float) -> float:
 def _channel_score(state: ChannelState, trend_boost: float, focus_boost: float = 0.0) -> float:
     followers_term = _norm(math.log10(max(state.followers or 0, 1) + 1) / 5.0, 1.0)
     er_term = _norm(state.engagement_rate_7d / 10.0, 1.0)
-    return (
-        _W_FOLLOWERS * followers_term
-        + _W_ENGAGEMENT * er_term
-        + _W_TREND * trend_boost
-        + _W_FOCUS * focus_boost
-    )
+    return _W_FOLLOWERS * followers_term + _W_ENGAGEMENT * er_term + _W_TREND * trend_boost + _W_FOCUS * focus_boost
 
 
 def _top_trends(trends: list[dict], n: int) -> list[dict]:
@@ -404,10 +395,7 @@ def decide(snapshot: BrainSnapshot) -> list[BrainDecision]:
 
     focus = snapshot.focus_platforms or {}
     scored = sorted(
-        (
-            (_channel_score(s, trend_boost, focus.get(s.platform, 0.0)), s)
-            for _, s in healthy
-        ),
+        ((_channel_score(s, trend_boost, focus.get(s.platform, 0.0)), s) for _, s in healthy),
         key=lambda pair: pair[0],
         reverse=True,
     )
