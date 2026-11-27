@@ -7,6 +7,7 @@ Commands:
   media-orphans [--pattern REGEX] [--older-than-hours H] [--apply]
   queue-status
   queue-requeue <post_id_prefix> [--delay-minutes M] [--apply]
+  zombie-targets [--apply]
   fixtures [--apply]
   accounts
 """
@@ -173,6 +174,47 @@ async def fixtures(args):
             print("dry-run — pass --apply to archive")
 
 
+async def zombie_targets(args):
+    """pending post_targets on dead posts with no open queue row -> skipped.
+
+    Signature: posts.status IN ('failed','archived') while post_targets stay
+    'pending' — they re-appear in every sweep as work that can never finish.
+    A pending/processing publish_queue row means a retry is in flight —
+    those targets are live, not zombies, and are left alone.
+    """
+    apply_ = _flag(args, "--apply")
+    async with async_session_maker() as db:
+        dead_posts = (await db.execute(
+            select(Post.id).where(Post.status.in_(["failed", "archived"]))
+        )).scalars().all()
+        open_posts = set((await db.execute(
+            select(PublishQueue.post_id).where(
+                PublishQueue.status.in_(["pending", "processing"]))
+        )).scalars().all())
+        zombie_ids = set(dead_posts) - open_posts
+        rows = (await db.execute(
+            select(PostTarget, SocialAccount.platform)
+            .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+            .where(PostTarget.post_id.in_(zombie_ids), PostTarget.status == "pending")
+        )).all() if zombie_ids else []
+        print(f"zombie pending targets on dead posts: {len(rows)}")
+        for t, plat in rows[:50]:
+            print(f"  target={t.id} post={str(t.post_id)[:8]} {plat}")
+        if apply_ and rows:
+            ids = [t.id for t, _ in rows]
+            await db.execute(
+                update(PostTarget).where(PostTarget.id.in_(ids)).values(
+                    status="skipped",
+                    error_message="skipped by janitor zombie-targets: post is "
+                                  "failed/archived with no open queue row",
+                )
+            )
+            await db.commit()
+            print(f"SKIPPED {len(ids)} targets")
+        elif rows:
+            print("dry-run — pass --apply to skip")
+
+
 async def accounts(_args):
     async with async_session_maker() as db:
         rows = (await db.execute(select(SocialAccount))).scalars().all()
@@ -192,6 +234,8 @@ async def main():
         await queue_status(rest)
     elif cmd == "queue-requeue":
         await queue_requeue(rest)
+    elif cmd == "zombie-targets":
+        await zombie_targets(rest)
     elif cmd == "fixtures":
         await fixtures(rest)
     elif cmd == "accounts":

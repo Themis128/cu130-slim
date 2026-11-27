@@ -11,8 +11,9 @@ default; every write requires `--apply`.
 | `media-orphans` | `media_assets` not referenced by any `posts.media_ids`, older than N hours, optional filename `--pattern` | `is_archived → true` |
 | `queue-status` | `publish_queue` rows not `completed`, grouped counts + open rows | report only |
 | `queue-requeue` | Latest `failed` queue row for a post prefix | reset to `pending` at `now + --delay-minutes` (default 60), `attempts=0` |
+| `zombie-targets` | `post_targets.status='pending'` on failed/archived posts **with no open queue row** | `status → skipped` |
 | `accounts` | `social_accounts` whose status isn't active/connected/ok | report only |
-| `sweep` | fixtures + branded-* orphans + queue-status + accounts in one pass | `--apply` archives fixtures+orphans |
+| `sweep` | fixtures + branded-* orphans + zombie-targets + queue-status + accounts in one pass | `--apply` archives fixtures+orphans, skips zombie targets |
 
 ## When to use
 
