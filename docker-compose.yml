@@ -98,6 +98,10 @@ x-worker-env: &worker-env
   - LINKEDIN_ADS_ALLOWED_ACTIVE=${LINKEDIN_ADS_ALLOWED_ACTIVE:-}
   - FACEBOOK_BROWSER_SIDECAR_URL=http://stack-ops:9226
   - MESSENGER_SIDECAR_URL=http://stack-ops:9230
+  # Token fallbacks — DB social_accounts is canonical; env is last-resort
+  # for healers when the DB is unreachable (drift-watched by call_audit).
+  - WHATSAPP_ACCESS_TOKEN=${WHATSAPP_ACCESS_TOKEN:-}
+  - FB_PAGE_TOKEN=${FB_PAGE_TOKEN:-}
   - INSTAGRAM_PRIVATE_API_URL=http://stack-ops:8000
   - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://stack-ops:1080}
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
@@ -1043,6 +1047,7 @@ services:
       - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID:-}
       - WHATSAPP_BUSINESS_ACCOUNT_ID=${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
       - WHATSAPP_APP_ID=${WHATSAPP_APP_ID:-}
+      - FB_PAGE_TOKEN=${FB_PAGE_TOKEN:-}
       - TELEGRAM_WEBHOOK_BASE=${TELEGRAM_WEBHOOK_BASE:-https://social.cloudless.gr/api/v1}
       - THREADS_CLIENT_ID=${THREADS_CLIENT_ID}
       - THREADS_CLIENT_SECRET=${THREADS_CLIENT_SECRET}
