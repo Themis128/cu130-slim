@@ -84,7 +84,8 @@ async def test_repair_d1_pk(monkeypatch):
     # table missing but _pre_repair leftover survives → restore it and
     # carry on with the normal repair in the same call
     monkeypatch.setattr(
-        S.d1_client, "query_all",
+        S.d1_client,
+        "query_all",
         AsyncMock(side_effect=[[], [], [{"name": "id", "type": "TEXT", "notnull": 1}]]),
     )
     ex3 = AsyncMock()
