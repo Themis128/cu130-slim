@@ -168,13 +168,17 @@ async def _whatsapp() -> str:
     try:
         async with task_session() as db:
             acc = (
-                await db.execute(
-                    select(SocialAccount).where(
-                        SocialAccount.platform == "whatsapp",
-                        SocialAccount.status == "active",
+                (
+                    await db.execute(
+                        select(SocialAccount).where(
+                            SocialAccount.platform == "whatsapp",
+                            SocialAccount.status == "active",
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if acc and acc.access_token_enc:
                 tok = decrypt_token(bytes(acc.access_token_enc))
     except Exception:

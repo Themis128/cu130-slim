@@ -54,12 +54,7 @@ def _wa_token() -> str:
     async def _fetch() -> str:
         e = create_async_engine(os.environ["DATABASE_URL"])
         async with e.connect() as c:
-            r = await c.execute(
-                text(
-                    "select access_token_enc from social_accounts "
-                    "where platform='whatsapp' and status='active' limit 1"
-                )
-            )
+            r = await c.execute(text("select access_token_enc from social_accounts where platform='whatsapp' and status='active' limit 1"))
             row = r.fetchone()
         await e.dispose()
         return decrypt_token(row.access_token_enc) if row else ""

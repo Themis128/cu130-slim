@@ -35,6 +35,8 @@ SCOPES = (
     "instagram_basic,instagram_content_publish,pages_show_list,"
     "pages_read_engagement,pages_manage_posts"
 )
+
+
 def _log_path() -> Path:
     # /app/uploads is root-owned in the social-api image — fall back to /tmp
     # so the chain transcript survives instead of crashing the first write
