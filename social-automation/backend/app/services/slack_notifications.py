@@ -519,6 +519,8 @@ async def _archive_channel_post(channel: str, msg_id: int | None, text: str) -> 
     """
     if not isinstance(msg_id, int):
         return
+    if channel in TG_CHANNELS:  # bare key -> canonical archiver slug
+        channel = f"cloudless-{channel}"
     try:
         from datetime import UTC, datetime
 
@@ -696,14 +698,15 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
     except Exception:
         pass  # dedup failure must not block the alert
 
-    chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
+    chan_key = severity if severity in TG_CHANNELS else "ops"
+    chat = TG_CHANNELS[chan_key]
     client = await _tg_client()
     if client is None:
         return False, None, None
     try:
         msg = await client.send_message(chat, text)
         mid = msg.get("message_id") if isinstance(msg, dict) else None
-        await _archive_channel_post(severity, mid, text)
+        await _archive_channel_post(chan_key, mid, text)
         if severity == "critical":
             try:
                 _m = await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")

@@ -76,23 +76,26 @@ def _pg():
     return None
 
 
-def resolved_msg_ids(con, chat_id: str) -> set[int]:
+def _incident_sets(con):
+    """{chan_key: (resolved_mids, live_mids)} — msg ids are per-channel so
+    the sets must be too. A mid is resolved-deletable if a resolved incident
+    either ingested it (detail.channel/detail.msg_id) or posted it outbound
+    (alert_chat_id/alert_message_id)."""
+    chat_by_id = {str(cid): name for name, (cid, _) in CHANNELS.items()}
     rows = con.execute(
-        "SELECT alert_message_id FROM ops_incidents "
-        "WHERE alert_chat_id=%s AND status='resolved' AND alert_message_id IS NOT NULL",
-        (chat_id,)).fetchall()
-    return {int(r[0]) for r in rows}
-
-
-def incident_msg_ids(con, chat_id: str) -> set[int]:
-    """Every msg_id that ever became an incident — used by the stale rule
-    to keep posts whose incident is still open/escalated/triaged."""
-    rows = con.execute(
-        "SELECT alert_message_id, status FROM ops_incidents "
-        "WHERE alert_chat_id=%s AND alert_message_id IS NOT NULL",
-        (chat_id,)).fetchall()
-    openish = {int(r[0]) for r in rows if r[1] != 'resolved'}
-    return openish
+        "SELECT status, alert_chat_id, alert_message_id, "
+        "detail->>'msg_id', detail->>'channel' FROM ops_incidents",
+    ).fetchall()
+    res, live = {}, {}
+    for status, achat, amid, smid, schan in rows:
+        tgt = res if status == 'resolved' else live
+        if amid and achat in chat_by_id:
+            tgt.setdefault(chat_by_id[achat], set()).add(int(amid))
+        if smid and schan:
+            ck = schan.removeprefix('cloudless-')
+            if ck in CHANNELS:
+                tgt.setdefault(ck, set()).add(int(smid))
+    return res, live
 
 
 def archived_msg_ids(con, channel: str) -> set[int]:
@@ -126,11 +129,12 @@ async def main():
     stale = now - timedelta(hours=STALE_H)
 
     total = {"scanned": 0, "deleted": 0, "kept": 0}
+    res_sets, live_sets = _incident_sets(con)
     async with TelegramClient(str(SESSION), api_id, api_hash) as c:
         for name, (chat_id, klass) in CHANNELS.items():
             entity = await c.get_entity(chat_id)
-            resolved = resolved_msg_ids(con, str(chat_id))
-            openish = incident_msg_ids(con, str(chat_id))
+            resolved = res_sets.get(name, set())
+            openish = live_sets.get(name, set())
             archived = archived_msg_ids(con, f"cloudless-{name}")
             del_ids, scanned, kept = [], 0, 0
             async for m in c.iter_messages(entity):
