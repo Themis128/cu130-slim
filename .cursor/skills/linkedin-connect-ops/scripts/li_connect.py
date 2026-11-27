@@ -7,10 +7,12 @@ path is NOT used.
 
 Usage:
   python li_connect.py status
-  python li_connect.py connect <profile-url> [<profile-url> ...]
-  python li_connect.py connect <url> --note "short note"
-  python li_connect.py connect <url> --dry-run
-  python li_connect.py connect <url> --cdp http://192.168.1.23:9229
+  python li_connect.py pending                          # sent + received invites
+  python li_connect.py connect <profile-url> [...]      # send requests
+  python li_connect.py connect <url> --note "..."       # with note
+  python li_connect.py connect <url> --dry-run          # resolve + report only
+  python li_connect.py withdraw "Name Substring" [...]  # withdraw sent invites
+  python li_connect.py <cmd> --cdp http://192.168.1.23:9229
 """
 import argparse
 import json
@@ -201,20 +203,29 @@ def resolve_profile(cdp, slug):
     rel = ((prof.get("memberRelationship") or {}).get("memberRelationshipUnion") or {})
     dist = None
     inv_state = None
+    inv_detail = None
     for k, v in rel.items():
         if isinstance(v, dict):
             if "memberDistance" in v:
                 dist = v.get("memberDistance")
             iu = v.get("invitationUnion") or {}
-            for ik in iu:
-                if ik != "noInvitation":
-                    inv_state = ik
+            for ik, iv in iu.items():
+                if ik == "noInvitation":
+                    continue
+                inv_state = ik
+                if isinstance(iv, dict):
+                    inv_detail = iv.get("invitationState") or iv.get("state")
+    # WITHDRAWN/DECLINED/EXPIRED invites don't block a fresh request
+    if inv_detail and str(inv_detail).upper() in ("WITHDRAWN", "DECLINED", "EXPIRED", "CANCELLED"):
+        inv_state = None
+        inv_detail = None
     return {
         "ok": True,
         "urn": prof.get("entityUrn"),
         "name": ((prof.get("firstName") or "") + " " + (prof.get("lastName") or "")).strip(),
         "distance": dist,
         "invitation_state": inv_state,
+        "invitation_detail": inv_detail,
         "headline": (prof.get("headline") or "")[:120],
     }
 
@@ -274,6 +285,103 @@ def send_invite(cdp, urn, note=None):
     return st, detail
 
 
+INVITE_CARDS_JS = """
+JSON.stringify([...document.querySelectorAll('main a[href*="/in/"]')].map(a=>{
+  let card=a;
+  for(let i=0;i<8&&card;i++){card=card.parentElement;
+    if(card&&(card.innerText||'').length<900&&(card.innerText||'').includes((a.innerText||'').trim().split(' ')[0])) break;}
+  return {href:a.href.split('?')[0], text:(card?card.innerText:'').replace(/\\s+/g,' ').slice(0,300)};
+}).filter((v,i,arr)=>arr.findIndex(x=>x.href===v.href)===i))
+"""
+
+
+def scrape_invites(cdp, which):
+    cdp.nav(LI_ORIGIN + "/mynetwork/invitation-manager/" + ("sent/" if which == "sent" else ""), wait=9)
+    cdp.ev("window.scrollTo(0,document.body.scrollHeight)")
+    time.sleep(2)
+    try:
+        cdp.reattach()
+    except Exception:
+        pass
+    raw = cdp.ev(INVITE_CARDS_JS)
+    try:
+        cards = json.loads(raw) if isinstance(raw, str) else []
+    except Exception:
+        cards = []
+    seen, out = set(), []
+    for c in cards:
+        if c["href"] in seen:
+            continue
+        seen.add(c["href"])
+        out.append(c)
+    return out
+
+
+def cmd_pending(cdp):
+    for which in ("received", "sent"):
+        print(f"=== {which.upper()} ===")
+        cards = scrape_invites(cdp, which)
+        if not cards:
+            print("(none)")
+        for c in cards:
+            print(f"- {c['text'][:200]}\n  {c['href']}")
+        print()
+    return 0
+
+
+WITHDRAW_BY_SLUG_JS = """
+(()=>{
+  const spans=[...document.querySelectorAll('span')].filter(e=>e.children.length===0&&(e.innerText||'').trim()==='Withdraw');
+  for(const s of spans){
+    let card=s.parentElement,slug=null;
+    for(let i=0;i<12&&card;i++){
+      const a=card.querySelector('a[href*="/in/"]');
+      if(a){slug=(a.href.split('/in/')[1]||'').split('/')[0].split('?')[0];break;}
+      card=card.parentElement;
+    }
+    if(slug===SLUG){
+      const btn=s.closest('button,[role="button"],a')||s.parentElement;
+      btn.click();
+      return 'clicked:'+slug;
+    }
+  }
+  return 'not-found';
+})()
+"""
+
+
+def cmd_withdraw(cdp, targets):
+    """Withdraw sent invites. Each target is an /in/ profile URL or slug —
+    NEVER a display name (DOM name matching withdrew the wrong card once)."""
+    cdp.nav(LI_ORIGIN + "/mynetwork/invitation-manager/sent/", wait=9)
+    cdp.ev("window.scrollTo(0,document.body.scrollHeight)")
+    time.sleep(2)
+    try:
+        cdp.reattach()
+    except Exception:
+        pass
+    for target in targets:
+        slug = slug_from_url(target) or target.strip("/").split("/")[-1]
+        res = cdp.ev(WITHDRAW_BY_SLUG_JS.replace("SLUG", json.dumps(slug)))
+        print(f"{slug}: {res}")
+        if "clicked" not in str(res):
+            continue
+        time.sleep(2)
+        try:
+            cdp.reattach()
+        except Exception:
+            pass
+        conf = cdp.ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^withdraw$/i.test((x.innerText||'').trim())); if(b){b.click(); return 'confirmed'} return 'no-dialog'})()""")
+        print(f"  dialog: {conf}")
+        time.sleep(3)
+        cdp.nav(LI_ORIGIN + "/mynetwork/invitation-manager/sent/", wait=7)
+        try:
+            cdp.reattach()
+        except Exception:
+            pass
+    return 0
+
+
 def cmd_status(cdp):
     tid = cdp.li_tab_id()
     if not tid:
@@ -328,7 +436,7 @@ def cmd_connect(cdp, urls, note, dry_run):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["status", "connect"])
+    ap.add_argument("cmd", choices=["status", "connect", "pending", "withdraw"])
     ap.add_argument("urls", nargs="*")
     ap.add_argument("--note", default=None)
     ap.add_argument("--dry-run", action="store_true")
@@ -338,6 +446,12 @@ def main():
     cdp = CDP(base).ensure_tab()
     if args.cmd == "status":
         return cmd_status(cdp)
+    if args.cmd == "pending":
+        return cmd_pending(cdp)
+    if args.cmd == "withdraw":
+        if not args.urls:
+            ap.error("withdraw needs at least one profile URL or /in/ slug")
+        return cmd_withdraw(cdp, args.urls)
     if not args.urls:
         ap.error("connect needs at least one profile URL")
     return cmd_connect(cdp, args.urls, args.note, args.dry_run)
