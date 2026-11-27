@@ -731,6 +731,7 @@ async def receive_webhook(
             leadgen_failed += 1
 
     processed = 0
+    reply_failed = 0
 
     for event in events:
         page_id = event.get("page_id")
@@ -766,17 +767,30 @@ async def receive_webhook(
             # by the qualification flow, not the general auto-reply.
             cap = await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or "")
             if cap is not None:
-                if cap is False and marked:
-                    await _clear_mid_marker(message_mid)
+                if cap is False:
+                    reply_failed += 1
+                    if marked:
+                        await _clear_mid_marker(message_mid)
                 processed += 1
                 continue
             ok = await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
-            if ok is False and marked:
-                # Reply never sent — release the marker so Meta's redelivery
-                # can recover it instead of being dedupe-skipped for 24h.
-                await _clear_mid_marker(message_mid)
+            if ok is False:
+                reply_failed += 1
+                if marked:
+                    # Release the marker so Meta's redelivery can recover the
+                    # reply instead of being dedupe-skipped for 24h.
+                    await _clear_mid_marker(message_mid)
             processed += 1
 
+    if reply_failed:
+        # Acknowledge NOTHING when a reply never went out: a 500 makes Meta
+        # redeliver, and the cleared dedupe markers let the redelivery
+        # actually process. Already-processed events are protected by their
+        # own markers, so the retry only replays the failures.
+        raise HTTPException(
+            status_code=500,
+            detail=f"{reply_failed} repl{'y' if reply_failed == 1 else 'ies'} failed to send — Meta will retry",
+        )
     if leadgen_failed:
         raise HTTPException(
             status_code=500,
