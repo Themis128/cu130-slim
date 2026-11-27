@@ -81,6 +81,44 @@ def _latest_web_code() -> str | None:
     return codes[-1] if codes else None
 
 
+TERMUX_HOST = os.environ.get("TG_TERMUX_HOST", "100.84.31.85")
+TERMUX_PORT = os.environ.get("TG_TERMUX_PORT", "8022")
+
+
+def _latest_web_code_termux() -> str | None:
+    """Same code via Termux SSH notification list — no adb needed (survives
+    wireless-debugging flaps). Requires Termux:API + notification access."""
+    r = subprocess.run(
+        ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no",
+         "-p", TERMUX_PORT, TERMUX_HOST, "termux-notification-list"],
+        capture_output=True, text=True, timeout=20)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        notifs = json.loads(r.stdout)
+    except ValueError:
+        return None
+    codes = []
+    for n in notifs:
+        if "telegram" not in (n.get("packageName") or ""):
+            continue
+        body = n.get("content") or ""
+        m = re.search(r"my\.telegram\.org[\s\S]{0,400}?login code:\s*\n?\s*([A-Za-z0-9_-]{6,20})", body)
+        if m:
+            codes.append((n.get("when") or "", m.group(1)))
+    return codes[-1][1] if codes else None
+
+
+def _latest_web_code_any() -> str | None:
+    try:
+        c = _latest_web_code()
+        if c:
+            return c
+    except Exception:
+        pass
+    return _latest_web_code_termux()
+
+
 def _extract_creds(html: str) -> tuple[str | None, str | None]:
     id_m = re.search(r'for="app_id"[\s\S]{0,200}?<strong>(\d+)</strong>', html)
     if not id_m:
@@ -150,10 +188,10 @@ def main() -> int:
             print("no --code; pass --phone-adb or TG_WEB_CODE", file=sys.stderr)
             return 1
         deadline = time.time() + args.wait
-        last = _latest_web_code()
+        last = _latest_web_code_any()
         while time.time() < deadline:
             time.sleep(4)
-            c = _latest_web_code()
+            c = _latest_web_code_any()
             if c and c != last:
                 code = c
                 break

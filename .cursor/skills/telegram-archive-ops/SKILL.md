@@ -74,11 +74,16 @@ canonical names for the four infra channels.
     --phone +30XXXXXXXXX          # TG_PHONE env also works
 ```
 
-The helper prefers USB-C ADB (user directive) and falls back to the
-tailnet wireless session (`100.84.31.85:5555`), starts `login`, waits for Telegram's code
-notification via `dumpsys notification`, feeds it back, and handles the
+The helper prefers USB-C ADB (user directive), falls back to the
+tailnet wireless session (`100.84.31.85:5555`), and finally to the
+**Termux SSH lane** (`ssh -p8022 $TG_TERMUX_HOST termux-notification-list`,
+default host `100.84.31.85`) — the Termux lane needs no adb at all and
+survives wireless-debugging flaps. It waits for Telegram's code
+notification, feeds it back, and handles the
 2FA prompt if `TG_2FA_PASSWORD`/`--password` is set. Manual fallback:
 run `telegram_archive.py login` and type the code yourself.
+`tg_api_setup.py --phone-adb` reads my.telegram.org web codes the same
+way (uiautomator → Termux notifications fallback).
 
 The session is per-user-account — it reads every channel/dialog that
 account belongs to, including the private Cloudless channels.
@@ -118,7 +123,12 @@ Telegram. Full message history also lands in the datalake at
    (`docker ps`, healthchecks, ntfy) before acting — archived alerts
    are historical, verify before "fixing".
 3. Write responses through the bot: `tg_alert.py "P2 …"`.
-4. Never edit/delete channel messages; archive is read-only by design.
+4. `tg_channel_janitor.py` (daily cron 04:30) closes the loop — the
+   owner session deletes posts the sweep marked `resolved`, known
+   noise signatures (>2h), rollup-channel posts (>6h), and stale posts
+   (>24h) that have no live incident and are already in the datalake.
+   Keeps: open/escalated/triaged incidents, 📌 live-state pins, fresh
+   alerts. The channel is an inbox; Postgres is the audit trail.
 
 ## Gotchas
 

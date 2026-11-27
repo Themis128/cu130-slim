@@ -35,6 +35,11 @@ ARCHIVE = REPO / "scripts/telegram_archive.py"
 # serials can use either server. TG_ADB_EXE overrides the Windows path.
 USB_SERIAL = os.environ.get("TG_ADB_USB", "")
 DEFAULT_ADB = os.environ.get("TG_ADB_TARGET", "100.84.31.85:5555")
+# Fallback lane: Termux SSH on the phone (survives wireless-debugging flaps —
+# it does not need adb at all). termux-notification-list needs the
+# Termux:API app + Notification access granted once.
+TERMUX_HOST = os.environ.get("TG_TERMUX_HOST", "100.84.31.85")
+TERMUX_PORT = os.environ.get("TG_TERMUX_PORT", "8022")
 WIN_ADB_CANDIDATES = [
     os.environ.get("TG_ADB_EXE", ""),
     "/mnt/c/Users/tbaltzakis/Android/Sdk/platform-tools/adb.exe",
@@ -122,6 +127,45 @@ def fetch_login_code(serial, timeout_s=180):
     return None
 
 
+def _termux_notifications(timeout=15):
+    out = sh(["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no",
+              "-p", TERMUX_PORT, TERMUX_HOST, "termux-notification-list"],
+             timeout=timeout)
+    if out.returncode != 0 or not out.stdout.strip():
+        return []
+    import json
+    try:
+        return json.loads(out.stdout)
+    except Exception:
+        return []
+
+
+def _termux_up():
+    r = sh(["nc", "-z", "-w2", TERMUX_HOST, TERMUX_PORT], timeout=5)
+    return r.returncode == 0
+
+
+def fetch_login_code_termux(timeout_s=180):
+    """Poll termux-notification-list for the Telegram service message.
+    App sign-in codes arrive as 'Login code: NNNNN'; my.telegram.org web
+    codes as 'This is your login code:\\nXXXXXX'."""
+    deadline = time.time() + timeout_s
+    seen = set()
+    while time.time() < deadline:
+        for n in _termux_notifications():
+            if "telegram" not in (n.get("packageName") or ""):
+                continue
+            body = n.get("content") or ""
+            m = re.search(r"[Ll]ogin code:\s*\n?([A-Za-z0-9_-]{5,20})", body)
+            code = m.group(1) if m else None
+            if code and code not in seen:
+                seen.add(code)
+                time.sleep(2)
+                return code
+        time.sleep(3)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--phone", default=os.environ.get("TG_PHONE", ""))
@@ -133,8 +177,16 @@ def main():
     if not args.phone:
         sys.exit("--phone or TG_PHONE required (E.164, e.g. +30XXXXXXXXX)")
 
-    serial = ensure_adb(args.adb)
-    print(f"[adb] {serial} connected ({'usb' if ':' not in serial else 'network'})")
+    try:
+        serial = ensure_adb(args.adb)
+        print(f"[adb] {serial} connected ({'usb' if ':' not in serial else 'network'})")
+        lane = "adb"
+    except SystemExit:
+        if _termux_up():
+            serial, lane = None, "termux"
+            print(f"[termux] no adb device — using ssh {TERMUX_HOST}:{TERMUX_PORT} notification lane")
+        else:
+            raise
 
     py = str(VENV_PY) if VENV_PY.exists() else sys.executable
     proc = subprocess.Popen(
@@ -164,7 +216,9 @@ def main():
             sys.stdout.flush()
             if not code_sent and "code from Telegram" in buf:
                 print("\n[phone] waiting for Telegram login code notification…")
-                code = fetch_login_code(serial, timeout_s=args.timeout)
+                code = (fetch_login_code(serial, timeout_s=args.timeout)
+                        if lane == "adb" else
+                        fetch_login_code_termux(timeout_s=args.timeout))
                 if not code:
                     sys.exit("\n[phone] no code seen in notifications — check the phone manually")
                 print(f"[phone] code captured: {code}")
