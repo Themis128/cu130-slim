@@ -309,15 +309,32 @@ def check_fsbridge():
             except OSError:
                 empty += 1
     # Container-side casualty count — the part that actually hurts.
+    # Only containers stuck AND mounting a hashed bind dir count: Created/
+    # Exited(127) orphans from compose races coexist with legitimately-empty
+    # hashed dirs (mlruns, pipeline-assets) and must not read as POISONED.
     ps = sh("docker ps -a --format '{{.Names}}|{{.Status}}'", timeout=25)
-    stuck = 0
+    stuck_names = []
     for line in (ps or "").splitlines():
         if "|" not in line:
             continue
-        status = line.split("|", 1)[1]
+        name, status = line.split("|", 1)
         if ("Exited (127)" in status or status.startswith("Created")
                 or "Restarting" in status):
-            stuck += 1
+            stuck_names.append(name.strip())
+    stuck = 0
+    for name in stuck_names:
+        m = sh(f"docker inspect {name} --format "
+               "'{{range .Mounts}}{{.Source}} {{end}}'", timeout=15)
+        if not (m and "docker-desktop-bind-mounts" in m):
+            continue
+        # Bare 'Created' with no State.Error = compose recreate-race orphan
+        # (never attempted a start) — not a dead-mount casualty.
+        st = sh(f"docker inspect {name} --format '{{.State.Status}}|"
+                "{{.State.Error}}'", timeout=15) or ""
+        status, _, err = st.partition("|")
+        if status.strip() == "created" and not err.strip():
+            continue
+        stuck += 1
     poisoned = stuck > 0 and empty > 0
     return {
         "ok": not poisoned,
