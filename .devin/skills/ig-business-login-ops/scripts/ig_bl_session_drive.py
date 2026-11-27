@@ -209,7 +209,9 @@ def inject_cookies_and_drive(cdp: str, auth_url: str, cookies: dict, wait_s: int
     return None
 
 
-def verify_business_login() -> bool:
+def verify_business_login() -> bool | None:
+    """True = token healthy, False = token answered VERIFY_FAIL (dead),
+    None = probe never ran (api_python/docker/DB error — inconclusive)."""
     code = r'''
 import asyncio, json, urllib.request, urllib.error
 from sqlalchemy import select
@@ -238,7 +240,7 @@ asyncio.run(main())
             print(line)
             return "VERIFY_FAIL" not in line
     print(out[-300:])
-    return False
+    return None
 
 
 def main():
@@ -249,7 +251,8 @@ def main():
     args = ap.parse_args()
 
     if args.skip_drive:
-        sys.exit(0 if verify_business_login() else 1)
+        v = verify_business_login()
+        sys.exit(0 if v else (3 if v is None else 1))
 
     cdp = args.cdp or ("http://" + _ws_ip() + ":9229")
     print("[*] CDP:", cdp)
@@ -264,7 +267,7 @@ def main():
         time.sleep(8)  # let callback exchange finish
         ok = verify_business_login()
         print("[+] business_login verified" if ok else "[!] verify failed — check social-api logs")
-        sys.exit(0 if ok else 1)
+        sys.exit(0 if ok else (3 if ok is None else 1))
     sys.exit(2)
 
 

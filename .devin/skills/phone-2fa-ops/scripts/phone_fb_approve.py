@@ -115,7 +115,7 @@ def find_approvals():
     return sorted(found.items(), key=lambda kv: -kv[1])
 
 
-TRANSIENT = {"no-dialog", "no-card", "no-tab", "no-button"}
+TRANSIENT = {"no-dialog", "no-card", "no-tab", "no-button", "no-device"}
 
 
 def dump_ui():
@@ -214,6 +214,11 @@ def approve(aid):
     dev = device_text(xml)
     if DENY_HINT_RE.search(dev):
         return "deny-hint", dev
+    if not dev:
+        # Partial card render — no device line to verify against.
+        # Retry next cycle while the approval is still fresh rather
+        # than mark it seen-refused forever.
+        return "no-device", dev
     if not ALLOW_RE.search(dev):
         return "not-allowlisted", dev
     xy = node_bounds(xml, r"Yes, it")

@@ -52,6 +52,7 @@ STATE_DIR = HOME / ".local/state/ig-bl-watch"
 STATE_FILE = STATE_DIR / "state.json"
 LOG_FILE = HOME / "logs/ig-bl-lane-watch.log"
 DEFAULT_MIN_INTERVAL = 6 * 3600  # 6h between re-mint attempts
+INCONCLUSIVE_ALERT_AT = 12  # alert when probe-infra blindness persists this many runs
 
 
 def _log(msg: str) -> None:
@@ -151,19 +152,26 @@ def _ensure_ig_session(cdp: str) -> bool:
     return False
 
 
-def _probe() -> bool:
-    """True when the business_login token answers graph.instagram.com/me."""
+def _probe() -> bool | None:
+    """True = token healthy, False = VERIFY_FAIL (dead), None = probe
+    never ran (api_python/docker/DB error — inconclusive, NOT dead)."""
     if not DRIVE.is_file():
         _log(f"drive script missing: {DRIVE}")
-        return False
-    r = subprocess.run(
-        [sys.executable, str(DRIVE), "--skip-drive"],
-        capture_output=True, text=True, timeout=180,
-    )
-    ok = r.returncode == 0
+        return None
+    try:
+        r = subprocess.run(
+            [sys.executable, str(DRIVE), "--skip-drive"],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception as e:
+        _log(f"probe inconclusive — subprocess error: {e}")
+        return None
     tail = (r.stdout + r.stderr).strip().splitlines()
-    _log(f"probe rc={r.returncode} {'HEALTHY' if ok else 'DEAD'}" + (f" | {tail[-1][:160]}" if tail else ""))
-    return ok
+    tag = "HEALTHY" if r.returncode == 0 else ("INCONCLUSIVE" if r.returncode == 3 else "DEAD")
+    _log(f"probe rc={r.returncode} {tag}" + (f" | {tail[-1][:160]}" if tail else ""))
+    if r.returncode == 3:
+        return None
+    return r.returncode == 0
 
 
 def _phone_reachable() -> bool:
@@ -235,12 +243,28 @@ def main() -> int:
     ap.add_argument("--cdp", default=None, help="CDP base, default http://<host-ip>:9229")
     args = ap.parse_args()
 
-    if _probe():
+    probe = _probe()
+    if probe:
         st = _state()
         if st.get("dead"):
             _alert("IG business_login lane healed — token probe green again.")
             _log("lane recovered")
-        _save_state({"dead": False, "checked_at": time.time()})
+        _save_state({"dead": False, "checked_at": time.time(), "inconclusive_streak": 0})
+        return 0
+
+    if probe is None:
+        # Probe infra broken (api_python/docker/DB) — token unverified.
+        # Never mark dead on an inconclusive probe; alert only when the
+        # blindness itself persists long enough to matter.
+        st = _state()
+        streak = int(st.get("inconclusive_streak") or 0) + 1
+        _save_state({**st, "inconclusive_streak": streak, "checked_at": time.time()})
+        _log(f"probe inconclusive — streak {streak}")
+        if streak == INCONCLUSIVE_ALERT_AT:
+            _alert(
+                f"IG business_login probe inconclusive {streak} runs in a row — "
+                "probe infra broken (social-api/docker/DB), token state unverified."
+            )
         return 0
 
     st = _state()
@@ -257,12 +281,12 @@ def main() -> int:
         _log(f"CDP unreachable: {cdp} — trying phone-Chrome lane")
         if not _phone_reachable():
             _alert(f"IG business_login token dead AND CDP chrome unreachable at {cdp} AND phone ADB unreachable — manual re-auth needed.")
-            _save_state({**st, "dead": True, "checked_at": now})
+            _save_state({**st, "dead": True, "inconclusive_streak": 0, "checked_at": now})
             return 1
         codes = _backup_codes_left()
         _log(f"phone reachable, {codes} backup code(s) left")
         rc = _phone_reauth()
-        _save_state({**st, "dead": True, "last_drive_at": now, "checked_at": now, "last_rc": rc, "lane": "phone"})
+        _save_state({**st, "dead": True, "inconclusive_streak": 0, "last_drive_at": now, "checked_at": now, "last_rc": rc, "lane": "phone"})
         if rc == 0 and _probe():
             _alert("IG business_login lane auto-healed via PHONE Chrome re-mint (CDP was down).")
             _save_state({"dead": False, "checked_at": time.time()})
@@ -281,7 +305,7 @@ def main() -> int:
             "IG business_login token dead and no usable IG browser session "
             "(login wall, no saved profile) — manual login required."
         )
-        _save_state({**st, "dead": True, "checked_at": now})
+        _save_state({**st, "dead": True, "inconclusive_streak": 0, "checked_at": now})
         return 1
 
     _log(f"lane dead — driving re-mint via {DRIVE.name} on {cdp}")
@@ -291,7 +315,7 @@ def main() -> int:
     )
     out = (r.stdout + r.stderr).strip()
     _log(f"drive rc={r.returncode} | {out[-400:]}")
-    _save_state({**st, "dead": True, "last_drive_at": now, "checked_at": now, "last_rc": r.returncode})
+    _save_state({**st, "dead": True, "inconclusive_streak": 0, "last_drive_at": now, "checked_at": now, "last_rc": r.returncode})
 
     if r.returncode == 0 and _probe():
         _alert("IG business_login lane auto-healed — token re-minted via session drive.")
