@@ -1033,17 +1033,17 @@ async def _process_inline(
     account = result.scalars().first()
     if not account:
         logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(str(page_id or "")))
-        return
+        return None
 
     # Lead capture (scaffold): handle simple qualification flow before AI bot.
     cap = await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload)
     if cap is not None:
-        return
+        return None
 
     meta = account.meta_data or {}
     auto_reply = meta.get("messenger_auto_reply", {})
     if not auto_reply.get("enabled", False):
-        return
+        return None
 
     try:
         await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
