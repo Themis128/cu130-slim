@@ -1413,6 +1413,34 @@ class TestCoverageTails:
         c = messenger._get_messenger_client(acct)
         assert c.kw["access_token"] == "notEA" and c.kw["page_id"] == "pg-1"
 
+
+    async def test_lead_capture_send_failure_returns_false(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        reply = SimpleNamespace(text="hi", quick_replies=None)
+        monkeypatch.setattr(
+            "app.services.lead_capture.handle_lead_capture_message",
+            AsyncMock(return_value=reply),
+        )
+
+        class FailClient:
+            async def send_text(self, *a, **kw):
+                raise ConnectionError("graph down")
+
+        monkeypatch.setattr(messenger, "_get_messenger_client", lambda account: FailClient())
+        out = await messenger._try_lead_capture_reply(db, "pg-1", "u1", "hi", "text", "")
+        assert out is False
+
+    async def test_lead_capture_outer_exception_returns_none(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        monkeypatch.setattr(
+            "app.services.lead_capture.handle_lead_capture_message",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        out = await messenger._try_lead_capture_reply(db, "pg-1", "u1", "hi", "text", "")
+        assert out is None
+
     async def test_upsert_icebreaker_early_returns(self):
         db = FakeDB()
         # unmappable payload → returns before the account lookup
