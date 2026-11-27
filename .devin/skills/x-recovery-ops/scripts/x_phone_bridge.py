@@ -79,11 +79,14 @@ def adb_code() -> str | None:
 
 
 def termux_code() -> str | None:
+    # sshd is tailnet-only on the phone — ~/.ssh/config maps the tailnet IP
+    # to port 8022 + key id_ed25519_phone, so a bare host works.
+    host = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
     try:
         r = subprocess.run(
-            ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=no", "-i", KEY,
-             f"u0_a357@{PHONE_IP}", "termux-sms-list -l 8"],
+            ["ssh", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no",
+             host, "termux-sms-list -l 8"],
             capture_output=True, text=True, timeout=15)
         return _code_from_lines(r.stdout.splitlines())
     except Exception:

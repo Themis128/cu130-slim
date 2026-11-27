@@ -320,8 +320,11 @@ def termux_sms_code(timeout_s: int = 30) -> str | None:
     local key as fallback). Meta/WhatsApp sender lines only.
     """
     import re
-    host = os.environ.get("PHONE_TAILNET_IP", "100.84.31.85")
+    host = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
+    # Canonical phone key is id_ed25519_phone (mapped in ~/.ssh/config);
+    # the older id_rsa_win path only exists on the Windows side.
     key_candidates = [
+        str(HOME / ".ssh/id_ed25519_phone"),
         str(HOME / ".ssh/id_rsa_win"),
         str(HOME / ".ssh/omv_id_rsa"),
         str(Path("/mnt/c/Users/tbaltzakis/.ssh/id_rsa")),
@@ -331,7 +334,7 @@ def termux_sms_code(timeout_s: int = 30) -> str | None:
             continue
         try:
             out = subprocess.run(
-                ["ssh", "-p", "8022", "-o", "BatchMode=yes",
+                ["ssh", "-o", "BatchMode=yes",
                  "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no",
                  "-i", key, f"u0_a357@{host}", "termux-sms-list -l 8"],
                 capture_output=True, text=True, timeout=timeout_s,

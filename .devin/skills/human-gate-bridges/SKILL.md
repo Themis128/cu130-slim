@@ -24,7 +24,7 @@ credentials never need pasting.
 Calls `request_code` (Graph API, SMS by default), then polls **three**
 sources for the 6-digit code: the Galaxy S22+ SMS inbox via ADB
 (`content://sms/inbox`), **Termux SSH** `termux-sms-list` over
-`192.168.1.77:8022` (`u0_a357`, key `~/.ssh/id_rsa_win` — works when
+`100.84.31.85` (tailnet; `192.168.1.77` also resolves via `~/.ssh/config` → port 8022, key `~/.ssh/id_ed25519_phone` — works when
 network-ADB is dead; needs `READ_SMS` granted to Termux:API once
 on-device), **and** the mailbox via doveadm (SMS→email forward covers
 phone-off). Submits `verify_code`. Last resort: `wa_verify.py <code>` —

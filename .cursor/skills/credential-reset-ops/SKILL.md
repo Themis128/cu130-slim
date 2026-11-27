@@ -28,7 +28,7 @@ Chain (all via the facebook sidecar `:9226` + the phone code lanes):
 2. Request the code (`Send code`/`Continue`)
 3. Poll the code — **3 lanes** (same as `wa_verify.py`):
    - ADB `content://sms/inbox` (Meta/AUTHMSG senders only)
-   - Termux-SSH `termux-sms-list` @ `192.168.1.77:8022`
+   - Termux-SSH `termux-sms-list` @ `100.84.31.85` (tailnet :8022 via ssh config)
    - Gmail `security@facebookmail.com` via `gmail-token.json`
 4. Enter code → set new password → `FB_PASSWORD` written to `.env`
 

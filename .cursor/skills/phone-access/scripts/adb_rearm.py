@@ -9,7 +9,7 @@ Try order:
      so the user only has to flip the toggle
   4. Poll until `adb devices` shows a device (user flips it), then exit.
 
-Usage: adb_rearm.py [--ip 192.168.1.77] [--wait 180]
+Usage: adb_rearm.py [--ip 100.84.31.85] [--wait 180]
 """
 import argparse
 import subprocess
@@ -30,7 +30,7 @@ def devices():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ip", default="192.168.1.77")
+    ap.add_argument("--ip", default="100.84.31.85")
     ap.add_argument("--wait", type=int, default=180)
     a = ap.parse_args()
 

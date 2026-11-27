@@ -156,31 +156,57 @@ def totp(seed):
         return None
 
 
+def _code_from_text(out, pats):
+    for p in pats:
+        m = re.search(p, out, re.I)
+        if m:
+            return m.group(1) if m.lastindex else m.group(0)
+    return None
+
+
+def termux_code(pats):
+    """ADB-free lane: Termux sshd on the tailnet (:8022 via ~/.ssh/config).
+
+    termux-sms-list covers the SMS inbox; termux-notification-list covers
+    the notification shade (the dumpsys-notification equivalent)."""
+    host = os.environ.get("PHONE_SSH_HOST", "100.84.31.85")
+    for cmd in ("termux-sms-list -l 8", "termux-notification-list"):
+        try:
+            out = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=8",
+                 "-o", "StrictHostKeyChecking=no", host, cmd],
+                capture_output=True, text=True, timeout=20).stdout
+        except Exception:
+            continue
+        code = _code_from_text(out, pats)
+        if code:
+            return code
+    return None
+
+
 def phone_sms_code():
     """Newest Meta/Instagram code from phone SMS + notifications."""
+    pats = [r"(\d{6}) is your", r"code[^\d]{0,20}(\d{6})",
+            r"(\d{8})"]
     devs = subprocess.run(["adb", "devices"], capture_output=True,
                           text=True, timeout=15).stdout
     dev = next((l.split()[0] for l in devs.splitlines()
                 if "device" in l and "offline" not in l), None)
-    if not dev:
-        return None
-    pats = [r"(\d{6}) is your", r"code[^\d]{0,20}(\d{6})",
-            r"(\d{8})"]
-    for src in (
-        f"adb -s {dev} shell content query --uri content://sms/inbox "
-        "--projection body --sort 'date DESC'",
-        f"adb -s {dev} shell dumpsys notification --noredact",
-    ):
-        try:
-            out = subprocess.run(src.split(), capture_output=True,
-                                 text=True, timeout=30).stdout
-        except Exception:
-            continue
-        for p in pats:
-            m = re.search(p, out, re.I)
-            if m:
-                return m.group(1) if m.lastindex else m.group(0)
-    return None
+    if dev:
+        for src in (
+            f"adb -s {dev} shell content query --uri content://sms/inbox "
+            "--projection body --sort 'date DESC'",
+            f"adb -s {dev} shell dumpsys notification --noredact",
+        ):
+            try:
+                out = subprocess.run(src.split(), capture_output=True,
+                                     text=True, timeout=30).stdout
+            except Exception:
+                continue
+            code = _code_from_text(out, pats)
+            if code:
+                return code
+    return termux_code(pats)
 
 
 def backup_codes():

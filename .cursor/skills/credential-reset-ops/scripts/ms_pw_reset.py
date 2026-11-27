@@ -85,9 +85,10 @@ def adb_code():
 def termux_code():
     try:
         r = subprocess.run(
-            ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=no", "-i", KEY,
-             f"u0_a357@{PHONE_IP}", "termux-sms-list -l 5"],
+            ["ssh", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no",
+             os.environ.get("PHONE_SSH_HOST", "100.84.31.85"),
+             "termux-sms-list -l 5"],
             capture_output=True, text=True, timeout=12)
         rows = [row for row in r.stdout.splitlines() if re.search(
             r'microsoft|accountprotection|AUTHMSG', row, re.I)]
