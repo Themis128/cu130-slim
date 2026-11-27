@@ -71,7 +71,16 @@ def fetch(topic, since, tok):
     raise last_err or RuntimeError("no ntfy base reachable")
 
 
+def _retry_after(e) -> float:
+    try:
+        return float(e.headers.get("Retry-After") or 0)
+    except Exception:
+        return 0.0
+
+
 def delete(topic, mid, tok):
+    """Delete one message. On 429 honor Retry-After with capped
+    exponential backoff; returns True / last error."""
     last = None
     for base in BASES:
         for attempt in range(5):
@@ -81,7 +90,8 @@ def delete(topic, mid, tok):
             except urllib.error.HTTPError as e:
                 last = e
                 if e.code == 429:
-                    time.sleep(3 + attempt * 3)
+                    wait = _retry_after(e) or min(60, 10 * (2 ** attempt))
+                    time.sleep(wait)
                     continue
                 break
             except Exception as e:
@@ -136,14 +146,20 @@ def main():
         return
 
     ok = fail = 0
-    for topic, mid, _ in targets:
+    pace = 1.0
+    for idx, (topic, mid, _) in enumerate(targets, 1):
         res = delete(topic, mid, tok)
         if res is True:
             ok += 1
+            pace = max(1.0, pace * 0.9)  # decay back toward 1s on success
         else:
             fail += 1
             print(f"  FAIL {topic}/{mid}: {res}", file=sys.stderr)
-        time.sleep(1.0)  # stay under ntfy's burst limit
+            if isinstance(res, urllib.error.HTTPError) and res.code == 429:
+                pace = min(15.0, pace * 1.5)  # slow down when the server pushes back
+        if idx % 25 == 0:
+            print(f"  ...{idx}/{len(targets)} deleted={ok} failed={fail} pace={pace:.1f}s", flush=True)
+        time.sleep(pace)  # adaptive — ntfy 429s under sustained deletes
     print(f"deleted {ok}, failed {fail}")
 
 
