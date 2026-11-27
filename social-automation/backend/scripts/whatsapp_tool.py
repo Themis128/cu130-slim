@@ -208,7 +208,7 @@ def cmd_webhook() -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("status", "templates", "waba", "webhook", "request_code", "register"):
         sub.add_parser(name)

@@ -35,7 +35,21 @@ SCOPES = (
     "instagram_basic,instagram_content_publish,pages_show_list,"
     "pages_read_engagement,pages_manage_posts"
 )
-LOG = Path("/app/uploads/meta-infra-log.jsonl")
+def _log_path() -> Path:
+    # /app/uploads is root-owned in the social-api image — fall back to /tmp
+    # so the chain transcript survives instead of crashing the first write
+    # (2026-11-27: PermissionError on open("a") killed the run mid-chain).
+    p = Path(os.environ.get("META_INFRA_LOG", "/app/uploads/meta-infra-log.jsonl"))
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a"):
+            pass
+        return p
+    except OSError:
+        return Path("/tmp") / p.name
+
+
+LOG = _log_path()
 
 
 def g(path, token, params=None, post=None):
