@@ -759,35 +759,14 @@ async def receive_webhook(
             if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
                 processed += 1
                 continue
-            # Dispatch to sidecar for async processing (if configured)
-            if sidecar_url:
-                try:
-                    import httpx
-
-                    async with httpx.AsyncClient(timeout=5) as client:
-                        await client.post(
-                            f"{sidecar_url}/process",
-                            json={
-                                "page_id": page_id,
-                                "sender_psid": sender_psid,
-                                "recipient_id": page_id,
-                                "message_text": message_text,
-                                "message_type": message_type,
-                                "postback_payload": postback_payload,
-                                "message_mid": message_mid,
-                                "timestamp": event.get("timestamp", 0),
-                            },
-                        )
-                    processed += 1
-                except Exception as e:
-                    logger.warning("Sidecar dispatch failed, falling back to inline: %s", e)
-                    # Fall back to inline processing
-                    await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
-                    processed += 1
-            else:
-                # No sidecar — process inline
-                await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
-                processed += 1
+            # Always process inline. The sidecar /process lane was dropped:
+            # it acks via asyncio.create_task (fire-and-forget), so a successful
+            # dispatch skipped inline — but the sidecar cannot authenticate to
+            # social-api (no admin creds provisioned), meaning zero customer
+            # replies. Inline has the same AI generation + send with direct DB
+            # access and no extra auth/network dependency.
+            await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
+            processed += 1
 
     if leadgen_failed:
         raise HTTPException(
