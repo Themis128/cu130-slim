@@ -685,6 +685,7 @@ Current chain (oldest → newest, 39 revisions):
 22. [Lead-gen readiness audit](docs/superpowers/guides/22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, 30d lead volume (Meta lead-gen model)
 24. [Funnel email layout](docs/superpowers/guides/24-funnel-email-layout.md) — `funnel_email.render_funnel_html`: one branded multipart layout for every funnel/lifecycle email
 25. [Offer countdown token](docs/superpowers/guides/25-offer-countdown.md) — `{countdown}` live days/hours/minutes expansion at publish (posts, cross-posts, campaign emails)
+26. [Call-surface automation](docs/call-surfaces-automation.md) — `/call` drift audit (3 lanes), u2 phone bio setters, PIN unlock, TOTP-unattended Meta OAuth, BM verification watcher
 
 ## Current plans
 
@@ -784,6 +785,7 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 
 ## Proactivity principle — platform-side rejections
 
+- **Always be proactive** (user directive 2026-11-26): when a task leaves adjacent work undone (failing checks, stale branches, missing configs, unverified deploys, half-propagated changes), investigate and fix it without being asked — then report. Don't wait for "address the leftovers" prompts. Verify real state before declaring done.
 - **Always be proactive about platform-side rejections** (LinkedIn content moderation, Meta/Threads rate limits, API rejections). They cannot be pre-verified — treat them as expected, not exceptional.
 - **Before publish**: verify what IS knowable — token expiry + publish scopes, media public-URL reachability, per-account dedup, correct-media gate. This is the only class of failure you can prevent.
 - **After publish**: a failure is not done when it retries — it is done when it is *classified* and *surfaced*. The path exists (retry ×3 → failed → failure-learning signature → Slack digest + remediation proposals at ≥3x/7d). Never leave a failed post silent: confirm the signature landed and, for recurring signatures, write the remediation note before being asked.
@@ -880,6 +882,23 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
     sessionid). Profile picker now lists BOTH cloudless.gr + t_baltzakis.
   - Meta Business Support wizard still stalls pre-submit; issue text
     for missing WhatsApp/SMS codes archived under fb-escalations/.
+- **2026-11-27 — Meta surface automation complete**:
+  - **TOTP works on the FB web-login challenge** ("Try another way" →
+    "Authentication app") — distinct from the Meta Account wall above
+    which really is WhatsApp/SMS/backup only. `META_TOTP_SECRET` /
+    `_AC` / `_IG` (container env) now power `meta_oauth_drive.py`
+    GATE_2FA self-serve (inline RFC-6238, zero deps) → full
+    mint→login→2FA→consent→callback chain is unattended.
+  - **BM `cloudless.gr` 1558125105019725 verification SUBMITTED →
+    "In review"** — driven via playwright persistent profile; legal
+    name/address entered in GREEK to match docs (auto-check does
+    literal text match; Latin fails). NBG bank statement (name) +
+    Telekom phone bill (Utility Bill → address/phone). Status watched
+    daily by `call_audit.py bm_verification`. On `verified` the
+    `meta-infra-retry` beat clears the #100 system-user gate.
+  - **Phone PIN unlock scripted**: `PHONE_UNLOCK_PIN` in secret store;
+    `profile_ops.unlock_pin(d)` verified on locked/dozing device.
+  - `docs/call-surfaces-automation.md` = the whole layer.
 - **2026-11-23 Meta Account `baltzakis_t` + deletion directive**:
   Meta mailed "We updated you to a Meta Account on Instagram" — a Meta
   Account named **`baltzakis_t`** exists containing IG profile

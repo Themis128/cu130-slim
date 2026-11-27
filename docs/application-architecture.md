@@ -1021,7 +1021,7 @@ Beat Schedule:
 | Facebook Graph | v26.0 | `graph.facebook.com` | URL path |
 | Instagram Graph | v26.0 | `graph.facebook.com` | URL path |
 | Instagram Business Login | v26.0 | `graph.instagram.com` | URL path |
-| LinkedIn REST | 202608 | `api.linkedin.com/rest` | `Linkedin-Version` header |
+| LinkedIn REST | 202610 | `api.linkedin.com/rest` | `Linkedin-Version` header (must be an ACTIVE monthly version — 202511 returns 426) |
 | Twitter/X | v2 | `api.x.com/2` | URL path |
 | TikTok | v2 | `open.tiktokapis.com/v2` | URL path |
 | Threads | v1.0 | `graph.threads.net/v1.0` | URL path |
@@ -1029,6 +1029,13 @@ Beat Schedule:
 | Messenger | v26.0 | `graph.facebook.com` | URL path |
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
+
+> **Surface-automation layer (2026-11-27):** profile fields APIs can't reach
+> are written via a phone-UI lane (uiautomator2 on the Galaxy S22+, PIN
+> unlock scripted) and watched by a daily drift audit (`CallSurfacesAudit`
+> schtasks → Telegram ops on drift, incl. BM `verification_status`).
+> Meta OAuth re-auth is fully unattended via env-held TOTP secrets.
+> See `docs/call-surfaces-automation.md`.
 
 ## Docker Compose Stack (38 services + 1 blue/green slot)
 

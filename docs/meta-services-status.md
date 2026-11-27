@@ -1,9 +1,10 @@
 # Meta Services — Status & Unresolvable Issues
 
-**Last updated:** 2026-09-14
+**Last updated:** 2026-11-27
 **Meta App ID:** 1936126137016578
 **Instagram App ID:** 1462851805249610
 **Public domain:** social.cloudless.gr
+**Business Manager:** `cloudless.gr` (1558125105019725) — **verification IN REVIEW** (submitted 2026-11-27, ~2 business days)
 
 ---
 
@@ -18,9 +19,11 @@
 | 5 | Facebook Page | graph.facebook.com v26.0 | ✅ Working | Page token, posting, messaging |
 | 6 | Facebook User | graph.facebook.com v26.0 | ✅ Working | User token, page discovery |
 | 7 | Messenger (Page) | graph.facebook.com v26.0 | ✅ Working | Send API, webhook, AI auto-reply |
-| 8 | WhatsApp Cloud API | graph.facebook.com v26.0 | ❌ Not registered | Phone number needs SMS verification |
+| 8 | WhatsApp Cloud API | graph.facebook.com v26.0 | ✅ Working | User token re-authed 2026-11-27; business profile set |
 | 9 | Meta App Review | developers.facebook.com | ⏳ Not submitted | Standard Access only (admin-only) |
 | 10 | Meta Rate Limits | developers.facebook.com | ✅ OK (~5% used) | Monitoring only, not configurable |
+| 11 | BM Verification | business.facebook.com | ⏳ In review | Submitted 2026-11-27 — unblocks system-user mint (#100) |
+| 12 | Meta OAuth + 2FA | sidecar/CDP drive | ✅ Automated | TOTP self-serve (META_TOTP_SECRET*), zero human clicks |
 
 ---
 
@@ -236,6 +239,42 @@ State table: `.devin/skills/whatsapp-ops/SKILL.md` §Meta rate limits.
 
 ---
 
+### Issue 4b: Business Manager Verification — IN REVIEW (2026-11-27)
+
+**Status:** SUBMITTED — `verification_status: pending` (was `pending_need_more_info`)
+**Portfolio:** `cloudless.gr` BM `1558125105019725`
+**Review ETA:** ~2 business days from 2026-11-27
+
+**Why it matters:** the #100 system-user capability gate (WhatsApp/ad
+provisioning via `meta_infra_retry` beat, error subcode 2859015) clears once
+the BM is verified. The daily 10:00 beat re-runs the full provisioning chain
+automatically — no human step needed on approval.
+
+**Submission (driven live via playwright MCP persistent profile):**
+- Business type: Sole Proprietorship → "Not yet registered"
+- Legal name: `ΜΠΑΛΤΖΑΚΗΣ ΘΕΜΙΣΤΟΚΛΗΣ` — **Greek, matching docs byte-for-byte**
+  (Meta's doc auto-check does literal text detection; a Latin name entry
+  fails against Greek-language documents)
+- Address: `ΘΕΡΜΟΠΥΛΩΝ 15, 19400 ΚΟΡΩΠΙ` (matches EFKA/tax + phone bill)
+- Name doc: NBG VISA statement as *Business Bank Statement*
+- Address/phone doc: Telekom mobile bill as *Utility Bill*
+  (name + `194 00 ΚΟΡΩΠΙ` + line 6977777838 matching the entered number)
+- Connection: Domain verification — cloudless.gr already a verified domain
+- Canonical docs: `Documents\mpaltzakis-correspondence\οικονομικά-αποδεικτικά-ΑΦΙ\`
+
+**Watcher:** `call_audit.py` api lane polls `verification_status` daily
+(09:15 `CallSurfacesAudit`); PASS on `pending`/`verified`, FAIL → Telegram
+ops alert on `pending_need_more_info`/`rejected`.
+
+**Full wizard playbook** (reCAPTCHA Enterprise pass, doc-type dropdowns,
+setInputFiles upload, stale-attachment gotcha): `meta-oauth-drive` SKILL.md
+"Business verification wizard" section.
+
+**If rejected again:** likely needs a doc where legal name = the portfolio
+name, or a second admin + passkey per Security Center's own recommendations.
+
+---
+
 ### Issue 5: Meta App Review — Not Submitted
 
 **Status:** REQUIRES MANUAL SUBMISSION (cannot be automated)
@@ -260,7 +299,7 @@ The Meta app is in Live mode but has NOT completed App Review for Advanced Acces
 
 **Why it can't be automated:**
 - App Review requires screencast videos showing how the app uses each permission
-- Requires business verification (legal documents)
+- Requires business verification — **IN REVIEW since 2026-11-27** (Issue 4b)
 - Requires privacy policy and terms of service URLs
 - Review takes 5-14 business days
 - Meta reviewers manually test the app
@@ -365,10 +404,11 @@ All Meta-related environment variables in `/home/tbaltzakis/cu130-slim/.env`:
 | # | Action | Type | Blocks? |
 |---|--------|------|---------|
 | 1 | Approve WhatsApp message templates on WABA 1717901383017723 | Meta review (pending) | Business-initiated sends |
-| 2 | Mint system-user token for WHATSAPP_ACCESS_TOKEN | Manual (Business Settings) | Token expiry ~2027-02 |
-| 3 | Submit Meta App Review (if multi-tenant needed) | Manual (dashboard) | External user onboarding |
-| 4 | Update instagrapi when upstream fixes login | Dependency | Private API fallback |
-| 5 | Monitor Meta rate limits | Automated (dashboard) | N/A |
+| 2 | BM verification review completes | Meta review (~2bd from 11-27) | System-user mint, #100 gate |
+| 3 | Mint system-user token for WHATSAPP_ACCESS_TOKEN | Automated (meta-infra-retry beat post-verification) | Token expiry ~2027-02 |
+| 4 | Submit Meta App Review (if multi-tenant needed) | Manual (dashboard) | External user onboarding |
+| 5 | Update instagrapi when upstream fixes login | Dependency | Private API fallback |
+| 6 | Monitor Meta rate limits | Automated (dashboard) | N/A |
 
 ---
 
