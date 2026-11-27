@@ -5075,12 +5075,17 @@ decision: socialauto-standalone is canonical):
   have regressed the API).
 
 Follow-ups:
-- [ ] Migrate the 5 shared-infra services into standalone compose with
-  dual-homing (they live on cu130-db/cu130-backend; root consumers —
-  mautic, metabase — reach them there; root compose already bridges via
-  the external `socialauto-standalone_default` network and dual-homes
-  social-api as precedent). Maintenance window + per-service consumer map.
-- [ ] Volume-label mismatch: standalone `social-postgres-data` vs
-  `cu130-slim_social_postgres_data_v17` warning on every standalone
-  compose run — align the volume definition (external or rename).
-- [ ] watch: prefixed stragglers converge on the next full recovery pass.
+- [x] Migrate the 5 shared-infra services into standalone compose with
+  dual-homing — DONE 2026-11-28 01:35 (PR #2741: runtime-truth defs, env
+  fidelity verified 5/5, controlled recreate, all consumers verified:
+  public 200, infisical /api/status Ok, gateway healthz, flower 401,
+  n8n-metrics metrics, postgres SELECT 1; owner-watch flipped to
+  standalone expectation, run CLEAN). The 4 orphans had no compose source
+  of truth at all — the re-home also fixed the unrecreatable-if-dead gap.
+- [x] Volume-label mismatch: the standalone volume map already pinned
+  `social-postgres-data` → external `cu130-slim_social_postgres_data_v17`;
+  the residual warning is only about the legacy
+  `socialauto-standalone_social-postgres-data` volume sitting unused —
+  cosmetic, no action.
+- [x] watch: prefixed stragglers converged (media/publishing/meta/
+  task-runner recreated bare under standalone, 2026-11-28 01:08-01:35).
