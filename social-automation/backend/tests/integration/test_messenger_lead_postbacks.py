@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -246,7 +247,16 @@ async def test_sidecar_dispatch_includes_postback_payload(client, db):
             calls.append({"url": url, "json": json})
             return _FakeResp()
 
-    # Inline-only processing (sidecar dispatch removed): the postback payload
-    # is delivered through _process_inline / the lead-capture gate internally.
-    resp = await _post_webhook(client, body)
+    # Inline-only processing (sidecar dispatch removed): assert the postback
+    # payload actually reaches the inline/lead-capture lane, not just a 200.
+    received: list[tuple] = []
+
+    async def _spy_capture(db, pid, psid, text, mtype, payload):
+        received.append((psid, payload))
+        return False  # let the normal flow continue
+
+    with patch("app.api.messenger._try_lead_capture_reply", _spy_capture):
+        resp = await _post_webhook(client, body)
     assert resp.status_code == 200
+    assert received, "Expected the postback to reach the inline processing lane"
+    assert received[0] == (sender_psid, "LEAD_CLOUD")

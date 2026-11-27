@@ -752,21 +752,26 @@ async def receive_webhook(
             )
 
         if message_type in ("text", "postback") and sender_psid:
-            # Lead-capture gate on the primary path too — the sidecar has no
-            # qualification flow, so trigger/mid-flow DMs are answered inline
-            # even when the sidecar is healthy.
+            # Dedupe first — covers BOTH the lead-capture gate and the
+            # auto-reply path. Meta redelivers events when the ack is slow
+            # (AI inference can exceed the delivery deadline); without this
+            # the customer gets a duplicate reply per redelivery. Inline is
+            # the single reply path (the sidecar dispatch lane was dropped).
+            marked = False
+            if message_mid:
+                if await _is_duplicate_mid(message_mid):
+                    continue
+                marked = True
+            # Lead-capture gate first — trigger/mid-flow DMs are answered
+            # by the qualification flow, not the general auto-reply.
             if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
                 processed += 1
                 continue
-            # Inline is the single reply path (sidecar dispatch dropped:
-            # fire-and-forget ack skipped inline but the sidecar cannot
-            # authenticate -> zero replies). Dedupe by message_mid first:
-            # Meta redelivers events when the ack is slow (AI inference can
-            # exceed the delivery deadline), and without this the customer
-            # gets a duplicate reply per redelivery.
-            if message_mid and await _is_duplicate_mid(message_mid):
-                continue
-            await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
+            ok = await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
+            if ok is False and marked:
+                # Reply never sent — release the marker so Meta's redelivery
+                # can recover it instead of being dedupe-skipped for 24h.
+                await _clear_mid_marker(message_mid)
             processed += 1
 
     if leadgen_failed:
@@ -960,6 +965,17 @@ async def _try_lead_capture_reply(
 
 
 
+async def _clear_mid_marker(message_mid: str) -> None:
+    """Drop the dedupe marker so a redelivery can retry a failed reply."""
+    try:
+        from app.services.messenger_chatbot import _get_redis
+
+        r = await _get_redis()
+        await r.delete(f"messenger:seen_mid:{message_mid}")
+    except Exception:
+        pass
+
+
 async def _is_duplicate_mid(message_mid: str) -> bool:
     """Return True if this Meta message id was already processed (Redis, 24h)."""
     try:
@@ -979,8 +995,9 @@ async def _process_inline(
     message_text: str,
     message_type: str,
     postback_payload: str = "",
-) -> None:
-    """Process a message inline (fallback when sidecar is unavailable)."""
+) -> bool | None:
+    """Process a message inline. Returns False when the reply send failed
+    (so the caller can release the dedupe marker for redelivery)."""
     result = await db.execute(
         select(SocialAccount).where(
             SocialAccount.platform == "facebook",
@@ -1004,12 +1021,14 @@ async def _process_inline(
 
     try:
         await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
+        return True
     except Exception as e:
         logger.error(
             "Auto-reply failed for page_id=%s: %s",
             _sanitize_log_text(str(page_id or "")),
             _sanitize_log_text(str(e)),
         )
+        return False
 
 
 async def _generate_and_send_auto_reply(
