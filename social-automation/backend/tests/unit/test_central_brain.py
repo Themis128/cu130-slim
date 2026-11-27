@@ -31,12 +31,17 @@ from app.worker.tasks import central_brain as cb_task
 NOW = datetime(2026, 11, 8, 6, 30, tzinfo=UTC)
 
 
-def _snap(channels: dict[str, ChannelState], trends: list[dict] | None = None) -> BrainSnapshot:
+def _snap(
+    channels: dict[str, ChannelState],
+    trends: list[dict] | None = None,
+    focus_platforms: dict[str, float] | None = None,
+) -> BrainSnapshot:
     return BrainSnapshot(
         team_id=uuid.uuid4(),
         generated_at=NOW,
         channels=channels,
         trends=trends or [],
+        focus_platforms=focus_platforms or {},
     )
 
 
@@ -104,6 +109,19 @@ class TestDecide:
         channels = {f"plat{i}": _state(f"plat{i}", followers=100 * i, engagement_rate_7d=1.0) for i in range(MAX_POST_ACTIONS + 4)}
         posts = [d for d in decide(_snap(channels)) if d.kind == "post"]
         assert len(posts) == MAX_POST_ACTIONS
+
+    def test_platform_focus_boost_reorders_channels(self):
+        # facebook has clearly worse base stats but is the best-converting
+        # funnel platform — the focus boost must lift it to the top.
+        snap = _snap(
+            {
+                "linkedin": _state("linkedin", followers=5000, engagement_rate_7d=8.0, posts_7d=6),
+                "facebook": _state("facebook", followers=1000, engagement_rate_7d=3.0, posts_7d=1),
+            },
+            focus_platforms={"facebook": 1.0},
+        )
+        posts = [d for d in decide(snap) if d.kind == "post"]
+        assert posts[0].platform == "facebook"
 
     def test_majority_failure_channel_becomes_health(self):
         snap = _snap(
@@ -198,6 +216,9 @@ class _Exec:
     def scalars(self):
         return self
 
+    def mappings(self):
+        return self
+
     def unique(self):
         return self
 
@@ -248,7 +269,7 @@ class TestCollectSnapshot:
         ]
         followers = [("linkedin", 5000), ("tiktok", 800)]
         trends = [SimpleNamespace(query="ai agents", source="gtrends", geo="GR", classification="opportunity", traffic=95, period_key="2026-11-08")]
-        snap = await collect_snapshot(_DB(devapps, engagement, posts, followers, trends), team, now=NOW)
+        snap = await collect_snapshot(_DB(devapps, engagement, posts, followers, trends, []), team, now=NOW)
 
         li = snap.channels["linkedin"]
         assert li.username == "cloudless"
@@ -267,7 +288,7 @@ class TestCollectSnapshot:
     @pytest.mark.asyncio
     async def test_empty_sources_produce_empty_snapshot(self):
         team = SimpleNamespace(id=uuid.uuid4())
-        snap = await collect_snapshot(_DB([], [], [], [], []), team, now=NOW)
+        snap = await collect_snapshot(_DB([], [], [], [], [], []), team, now=NOW)
         assert snap.channels == {}
         assert snap.trends == []
 
@@ -276,6 +297,7 @@ class TestRunForTeam:
     def _db_with_healthy_channel(self):
         return _DB(
             [_devapp("linkedin", "acc-1", ok=True, insights={"followers": 900})],
+            [],
             [],
             [],
             [],
@@ -323,6 +345,7 @@ class TestRunForTeam:
         # instagram ok=False → health decision only, no post actions
         db = _DB(
             [_devapp("instagram", "acc-1", ok=False, error="banned")],
+            [],
             [],
             [],
             [],
@@ -485,6 +508,7 @@ class TestParseLLMDecisions:
         team = SimpleNamespace(id=uuid.uuid4())
         db = _DB(
             [_devapp("linkedin", "acc-1", ok=True, insights={"followers": 900})],
+            [],
             [],
             [],
             [],
