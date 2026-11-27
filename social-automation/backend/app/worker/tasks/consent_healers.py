@@ -162,7 +162,25 @@ async def _linkedin_snapshot() -> str:
 
 async def _whatsapp() -> str:
     cid = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "")
-    tok = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
+    # DB row is canonical — env WHATSAPP_ACCESS_TOKEN drifts stale after
+    # re-auth sweeps (2026-11-27: env 190/460 while DB token was live).
+    tok = ""
+    try:
+        async with task_session() as db:
+            acc = (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "whatsapp",
+                        SocialAccount.status == "active",
+                    )
+                )
+            ).scalars().first()
+            if acc and acc.access_token_enc:
+                tok = decrypt_token(bytes(acc.access_token_enc))
+    except Exception:
+        pass
+    if not tok:
+        tok = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
     if not (cid and tok):
         return "skip"
     async with httpx.AsyncClient(timeout=15) as c:

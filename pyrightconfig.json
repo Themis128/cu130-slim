@@ -1,0 +1,10 @@
+{
+  "executionEnvironments": [{
+    "root": "social-automation/backend",
+    "extraPaths": ["social-automation/backend"]
+  }],
+  "venvPath": "social-automation/backend",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": false
+}
