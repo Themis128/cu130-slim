@@ -25,6 +25,18 @@ bridge_sessions.py seed-x      # auth_token + ct0 → x.com cookies
 bridge_sessions.py eval <js>   # raw /session/evaluate
 ```
 
+## Getting the script into social-api
+
+The script is **not** baked into the social-api image — copy it in first,
+and re-copy after every stack recreate (the `/tmp` copy dies with the
+container):
+
+```bash
+docker cp .devin/skills/bridge-session-ops/scripts/bridge_sessions.py \
+  social-api:/tmp/bridge_sessions.py
+docker exec social-api python /tmp/bridge_sessions.py status
+```
+
 ## Session sources
 
 - **X** — `X_WEB_AUTH_TOKEN` + `X_WEB_CT0` in `.env` are the real session

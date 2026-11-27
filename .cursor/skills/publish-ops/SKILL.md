@@ -563,3 +563,63 @@ WHERE post_id='<post_id>' AND status='processing' AND locked_at < now() - interv
 A worker picks it up on the next `process_publish_queue` beat (~30s).
 Never blind-reset while a task may still be mid-flight — the idempotency
 check is the `platform_post_id`, not the queue row.
+
+## Post-`failed` recovery (verified 2026-11-26)
+
+### Re-queue a failed post — INSERT a new queue row
+
+A `failed` post has **no** queue row to reset — create one. Every NOT NULL
+column must be explicit:
+
+```sql
+INSERT INTO publish_queue (id, post_id, team_id, status, attempts,
+                           scheduled_at, priority, created_at, updated_at)
+SELECT gen_random_uuid(), p.id, p.team_id, 'pending', 0,
+       now(), 5, now(), now()
+FROM posts p WHERE p.id = '<post_id>';
+```
+
+`post_targets.status` for that post should be reset to `'pending'` at the
+same time — the dispatcher iterates pending targets, not the queue row
+alone.
+
+### Zombie pending targets on dead posts
+
+Signature: `posts.status='failed'` while its `post_targets` rows stay
+`pending` — they re-appear in every sweep as work that can never finish.
+Find them:
+
+```sql
+SELECT t.post_id, sa.platform, t.status
+FROM post_targets t
+JOIN posts p ON p.id = t.post_id
+JOIN social_accounts sa ON sa.id = t.social_account_id
+WHERE p.status = 'failed' AND t.status = 'pending';
+```
+
+Fix = re-queue the post (recipe above) *or* mark the targets `skipped`
+if the post is intentionally dead. Never leave them — they inflate the
+pending count and confuse digests.
+
+### `video render failed: [Errno -2] Name or service not known`
+
+DNS failure **inside** the media/render container during a stack bounce —
+the render tried to resolve a sibling service while compose was mid-recreate.
+Transient: re-queue once `docker ps` is stable. Not a content problem, not
+a TikTok problem — do not touch tokens.
+
+### `Deferred #N until … X web daily cap reached (4/5 posts in 24h)`
+
+Not an error. The X web publish lane caps at 5 posts/24h; overflow is
+deferred to the next slot (≈05:30 UTC) and retries automatically. Do NOT
+manually re-queue — you burn cap on duplicate work. If a deferred target
+is `pending` with this in `error_message`, it is healthy.
+
+### Scheduling a draft through the platform (not SQL)
+
+`POST /api/v1/content/posts/{id}/schedule?scheduled_at=<ISO>&team_id=<team>`
+flips `draft → scheduled` and the beat sweeps it at the due time. Mint a
+token inside social-api (`create_access_token({'sub': user_id})`) and call
+the API — do not UPDATE posts.status/scheduled_at directly, which skips
+audit + response normalization. `socialauto-publish` has the full recipe;
+`schedule-post.py` wraps it.

@@ -54,6 +54,10 @@ automatically by reading `.env` for `SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWOR
 | POST | `/posts/{id}/duplicate` | Duplicate a post as a new draft |
 | GET | `/posts/calendar` | Calendar view of scheduled posts |
 
+The schedule call takes `scheduled_at` (ISO-8601) and `team_id` as **query
+params**, not a JSON body: `POST /posts/{id}/schedule?scheduled_at=…&team_id=…`.
+It flips `draft → scheduled`; the beat sweeps it at the due time.
+
 ## Post creation body
 
 ```json
@@ -165,6 +169,10 @@ status flag:
 - LinkedIn carousel posts use the Documents API (PDF upload).
 - TikTok requires video media for direct publishing.
 - Instagram requires a media asset (image or video) for publishing.
+- **Media-required gate**: drafts with empty `media_ids` get their
+  media-required targets (IG, TikTok, FB/Threads media posts) marked
+  `skipped` at publish time — a "pending" target on a media-less draft
+  will never publish. Attach media first, then schedule.
 - Never print or commit `.env` secrets.
 
 ## Quality pipeline
