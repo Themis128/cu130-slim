@@ -163,19 +163,39 @@ class SyncService:
         PK-less table. Returns True when the repaired table is live.
         """
         try:
+            new_table = f"{table}_repaired"
+            old_table = f"{table}_pre_repair"
             info = await d1_client.query_all(f"PRAGMA table_info({table})")
             if not info:
-                return False
+                # Table missing entirely — a previous repair died mid-swap.
+                # Finish whichever half survived instead of refusing forever.
+                rinfo = await d1_client.query_all(f"PRAGMA table_info({new_table})")
+                oinfo = await d1_client.query_all(f"PRAGMA table_info({old_table})")
+                if rinfo:
+                    await d1_client.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+                    self._d1_pk_cache[table] = True
+                    logger.info("Recovered D1 table %s from leftover %s", table, new_table)
+                    return True
+                if oinfo:
+                    await d1_client.execute(f"ALTER TABLE {old_table} RENAME TO {table}")
+                    logger.info("Restored D1 table %s from leftover %s", table, old_table)
+                    info = oinfo
+                else:
+                    return False
             col_defs = ", ".join(f"{c['name']} {c['type'] or 'TEXT'}{' NOT NULL' if c.get('notnull') else ''}" for c in info)
             col_names = ", ".join(c["name"] for c in info)
             pk_str = ", ".join(pk_cols)
-            new_table = f"{table}_repaired"
 
-            await d1_client.execute(f"CREATE TABLE IF NOT EXISTS {new_table} ({col_defs}, PRIMARY KEY ({pk_str}))")
+            await d1_client.execute(f"DROP TABLE IF EXISTS {new_table}")
+            await d1_client.execute(f"CREATE TABLE {new_table} ({col_defs}, PRIMARY KEY ({pk_str}))")
             # DISTINCT + ORDER BY rowid keeps one copy per PK (dedupe)
             await d1_client.execute(f"INSERT OR REPLACE INTO {new_table} SELECT {col_names} FROM {table} GROUP BY {pk_str}")
-            await d1_client.execute(f"DROP TABLE {table}")
+            # Rename the original aside before promoting the repair so a
+            # mid-swap failure leaves a recoverable copy, not a void.
+            await d1_client.execute(f"DROP TABLE IF EXISTS {old_table}")
+            await d1_client.execute(f"ALTER TABLE {table} RENAME TO {old_table}")
             await d1_client.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+            await d1_client.execute(f"DROP TABLE {old_table}")
             self._d1_pk_cache[table] = True
             logger.info("Repaired D1 table %s: added PK (%s) and deduplicated", table, pk_str)
             return True
