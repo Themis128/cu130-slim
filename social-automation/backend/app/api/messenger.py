@@ -756,9 +756,7 @@ async def receive_webhook(
             # Lead-capture gate on the primary path too — the sidecar has no
             # qualification flow, so trigger/mid-flow DMs are answered inline
             # even when the sidecar is healthy.
-            if await _try_lead_capture_reply(
-                db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""
-            ):
+            if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
                 processed += 1
                 continue
             # Dispatch to sidecar for async processing (if configured)
