@@ -6,10 +6,12 @@ Closes the architecture loop unattended:
   → THIS script deletes what the loop has resolved.
 
 Delete rules (per channel):
-  ops/critical  — post whose ops_incidents row (alert_chat_id + alert_message_id)
-                  is status='resolved', OR matches a pure-noise signature and is
-                  older than NOISE_GRACE_H (InfoInhibitor, skip rollups, publish
-                  confirmations — they never create incidents).
+  ops/critical  — post linked to a status='resolved' ops_incidents row via
+                  EITHER alert_chat_id+alert_message_id (the sweep's outbound
+                  alert) OR detail.channel+detail.msg_id (the source post that
+                  spawned the incident), OR matches a pure-noise signature and
+                  is older than NOISE_GRACE_H (InfoInhibitor, skip rollups,
+                  publish confirmations — they never create incidents).
   digest/intel  — every post older than DIGEST_GRACE_H (rollups/confirmations,
                   never actionable).
 Everything else (open/escalated/triaged incidents, unmatched alerts, pins)
@@ -76,26 +78,43 @@ def _pg():
     return None
 
 
-def _incident_sets(con):
-    """{chan_key: (resolved_mids, live_mids)} — msg ids are per-channel so
-    the sets must be too. A mid is resolved-deletable if a resolved incident
-    either ingested it (detail.channel/detail.msg_id) or posted it outbound
-    (alert_chat_id/alert_message_id)."""
-    chat_by_id = {str(cid): name for name, (cid, _) in CHANNELS.items()}
+def _norm_chat(s) -> str:
+    """'-1004429103353' and '4429103353' describe the same channel."""
+    return re.sub(r"^-?100", "", str(s or ""))
+
+
+def incident_sets(con) -> tuple[dict[str, set[int]], dict[str, set[int]]]:
+    """Per-channel resolved/openish msg_id sets, joined on BOTH linkages:
+    alert_chat_id+alert_message_id (the sweep's outbound alert post) and
+    detail.channel+detail.msg_id (the source post that spawned the incident).
+    A mid lands in openish if ANY of its incidents is unresolved — the stale
+    and resolved rules both consult openish so live work is never deleted."""
     rows = con.execute(
-        "SELECT status, alert_chat_id, alert_message_id, "
-        "detail->>'msg_id', detail->>'channel' FROM ops_incidents",
-    ).fetchall()
-    res, live = {}, {}
-    for status, achat, amid, smid, schan in rows:
-        tgt = res if status == 'resolved' else live
-        if amid and achat in chat_by_id:
-            tgt.setdefault(chat_by_id[achat], set()).add(int(amid))
-        if smid and schan:
-            ck = schan.removeprefix('cloudless-')
-            if ck in CHANNELS:
-                tgt.setdefault(ck, set()).add(int(smid))
-    return res, live
+        "SELECT alert_chat_id, alert_message_id, status, "
+        "detail->>'msg_id', detail->>'channel' FROM ops_incidents").fetchall()
+    resolved = {n: set() for n in CHANNELS}
+    openish = {n: set() for n in CHANNELS}
+    chat_map = {_norm_chat(cid): n for n, (cid, _) in CHANNELS.items()}
+    for achat, amid, status, dmid, dchan in rows:
+        targets = set()
+        if achat and _norm_chat(achat) in chat_map:
+            targets.add(chat_map[_norm_chat(achat)])
+        if dchan:
+            n = str(dchan).removeprefix("cloudless-")
+            if n in CHANNELS:
+                targets.add(n)
+        if not targets:
+            continue
+        mids = set()
+        for raw in (amid, dmid):
+            if raw:
+                try:
+                    mids.add(int(raw))
+                except (TypeError, ValueError):
+                    pass
+        for n in targets:
+            (resolved if status == "resolved" else openish)[n] |= mids
+    return resolved, openish
 
 
 def archived_msg_ids(con, channel: str) -> set[int]:
@@ -128,13 +147,14 @@ async def main():
     rollup_grace = now - timedelta(hours=DIGEST_GRACE_H)
     stale = now - timedelta(hours=STALE_H)
 
+    resolved_all, openish_all = incident_sets(con)
+
     total = {"scanned": 0, "deleted": 0, "kept": 0}
-    res_sets, live_sets = _incident_sets(con)
     async with TelegramClient(str(SESSION), api_id, api_hash) as c:
         for name, (chat_id, klass) in CHANNELS.items():
             entity = await c.get_entity(chat_id)
-            resolved = res_sets.get(name, set())
-            openish = live_sets.get(name, set())
+            resolved = resolved_all[name] - openish_all[name]
+            openish = openish_all[name]
             archived = archived_msg_ids(con, f"cloudless-{name}")
             del_ids, scanned, kept = [], 0, 0
             async for m in c.iter_messages(entity):
