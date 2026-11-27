@@ -5045,3 +5045,42 @@ Leftovers (optional, low value):
 - [ ] Windows dev-host suite: 3 Unix-only tests now skip'd on win32 —
   gpu_serial/x_web FileGuardStore lock are container-only paths; if a
   Windows dev run of those services is ever needed, port locks to msvcrt.
+
+## 2026-11-28 — compose name-steal cascade root-caused + converged (standalone canonical)
+
+Full chain of the night: WSL vsock flaps (CLO-20) → docker-recovery
+standalone pass aborted in 1s on a `celery-beat` container-name conflict
+(foreign-project holder) → social-api stayed down → stack-watchdog's
+root-dir fallback recreated it under project `cu130-slim` (name steal) →
+watchdog bare-name loop false-alarmed 2h+ on hash-prefixed workers →
+owner-watch flagged the stolen core every 15 min.
+
+Fixed + landed (home-ops commits 584583a/6b6cb3d/237fdae/4a21e1f, owner
+decision: socialauto-standalone is canonical):
+
+- stack-watchdog: label-based container resolver + fallback retargeted to
+  `deploy/socialauto-standalone` (no more root-project steals).
+- compose-owner-watch: per-name expected-project map (tripwire alive again
+  after the treadmill auto-stash ate the script — restored from stash
+  commit 944f8c4); the 5 shared-infra services standalone does not define
+  (infisical/postgres/flower/social-api-gateway/n8n-metrics) accepted as
+  cu130-slim-owned for now.
+- docker-recovery: foreign-name HANDOVER pre-pass — foreign holders of
+  standalone names are removed before the standalone compose up, so
+  recovery converges instead of aborting on conflicts.
+- Converge executed 2026-11-28 01:08: foreign social-api/celery-beat/
+  facebook-browser-sidecar recreated under standalone + prefixed
+  media/publishing/meta/task-runner renamed bare. Standalone `.env`
+  refreshed from root first (was 5 days staler, 624 vs 656 keys — would
+  have regressed the API).
+
+Follow-ups:
+- [ ] Migrate the 5 shared-infra services into standalone compose with
+  dual-homing (they live on cu130-db/cu130-backend; root consumers —
+  mautic, metabase — reach them there; root compose already bridges via
+  the external `socialauto-standalone_default` network and dual-homes
+  social-api as precedent). Maintenance window + per-service consumer map.
+- [ ] Volume-label mismatch: standalone `social-postgres-data` vs
+  `cu130-slim_social_postgres_data_v17` warning on every standalone
+  compose run — align the volume definition (external or rename).
+- [ ] watch: prefixed stragglers converge on the next full recovery pass.
