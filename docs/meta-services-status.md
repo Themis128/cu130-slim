@@ -105,6 +105,7 @@ The Instagram account `@cloudless.gr` is NOT linked to any Facebook Page at the 
 **What was tried:**
 - `GET /{page_id}?fields=instagram_business_account` → empty (still empty 2026-11-27)
 - `GET /{page_id}/instagram_accounts` → **NOW returns `17841436821573754`** (was empty — propagated after the IG-app "Confirm Connection" on 2026-11-27)
+- **2026-11-27 fix drive part 2**: `instagram_reauth.py` (unattended FB-sidecar OAuth) reactivated `fb_onboarding` row `d2215106` → **active** (token type=PAGE, carries `instagram_content_publish`; publish still #10 until IBA propagates — watcher `ig_page_link` added to call_audit api lane)
 - **2026-11-27 fix drive**: IG app → cloudless.gr → Edit profile → Facebook → Review connection → Confirm Connection → m.facebook.com CustomTab login. FB identity = **phone `306977777838` + `FACEBOOK_PASSWORD`** (gmail creds log into a no-profile Meta Account; hotmail creds stale). 2FA = "Notification on another device" → approve in the logged-in FB app on the same phone (push lands in FB notifications; WhatsApp-code lane unusable — WA app itself mid-verification). Page token now READS the IG node (`followers_count:17, username:cloudless.gr`); POST /media still #10 until `instagram_business_account` propagates.
 - `GET /{page_id}/page_backed_instagram_accounts` → empty
 - `POST /{page_id}/page_backed_instagram_accounts` → permission denied
