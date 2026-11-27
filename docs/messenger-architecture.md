@@ -217,7 +217,7 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 
 ## Bot Architecture (messenger_chatbot.py)
 
-The bot engine is shared between Page webhook processing (sidecar) and
+The bot engine is shared between Page webhook processing (inline since 2026-11-27 — the sidecar dispatch was dropped) and
 personal polling (Celery). It provides intent detection, conversation
 memory, brand RAG, per-thread cooldowns, human handoff, and bot disclosure.
 
@@ -506,8 +506,8 @@ to Facebook Page        (POST, 5s)          /webhook             /process
      │                    │  2. POST event      │                    │
      │                    │───────────────────▶│                    │
      │                    │                    │  3. Verify HMAC    │
-     │                    │                    │  4. Dispatch       │
-     │                    │                    │───────────────────▶│
+     │                    │                    │  4. Process inline │
+     │                    │                    │  (sidecar removed) │
      │                    │  5. Return 200     │                    │
      │                    │◀───────────────────│                    │
      │                    │                    │                    │

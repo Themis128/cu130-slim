@@ -655,10 +655,9 @@ class TestReceiveWebhook:
         assert posts == []  # sidecar never saw the capture-flow DM
         inline.assert_not_awaited()
 
-    async def test_sidecar_dispatch_success(self, monkeypatch):
+    async def test_events_process_inline(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
-        monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sc:9")
         monkeypatch.setattr(
             messenger,
             "parse_webhook_event",
@@ -666,22 +665,14 @@ class TestReceiveWebhook:
                 {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "timestamp": 1},
             ],
         )
-        posts = []
+        calls = []
 
-        class FakeHTTP:
-            async def __aenter__(self):
-                return self
+        async def proc(db, page_id, psid, text, mtype, payload):
+            calls.append(psid)
 
-            async def __aexit__(self, *a):
-                return False
-
-            async def post(self, url, json=None):
-                posts.append((url, json["sender_psid"]))
-                return SimpleNamespace(status_code=200)
-
-        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        monkeypatch.setattr(messenger, "_process_inline", proc)
         out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
-        assert posts == [("http://sc:9/process", "u1")] and out["auto_replies_sent"] == 1
+        assert calls == ["u1"] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_failure_falls_back_inline(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")

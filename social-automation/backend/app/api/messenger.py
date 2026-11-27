@@ -758,12 +758,14 @@ async def receive_webhook(
             if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
                 processed += 1
                 continue
-            # Always process inline. The sidecar /process lane was dropped:
-            # it acks via asyncio.create_task (fire-and-forget), so a successful
-            # dispatch skipped inline — but the sidecar cannot authenticate to
-            # social-api (no admin creds provisioned), meaning zero customer
-            # replies. Inline has the same AI generation + send with direct DB
-            # access and no extra auth/network dependency.
+            # Inline is the single reply path (sidecar dispatch dropped:
+            # fire-and-forget ack skipped inline but the sidecar cannot
+            # authenticate -> zero replies). Dedupe by message_mid first:
+            # Meta redelivers events when the ack is slow (AI inference can
+            # exceed the delivery deadline), and without this the customer
+            # gets a duplicate reply per redelivery.
+            if message_mid and await _is_duplicate_mid(message_mid):
+                continue
             await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
             processed += 1
 
@@ -957,6 +959,19 @@ async def _try_lead_capture_reply(
         return False
 
 
+
+async def _is_duplicate_mid(message_mid: str) -> bool:
+    """Return True if this Meta message id was already processed (Redis, 24h)."""
+    try:
+        from app.services.messenger_chatbot import _get_redis
+
+        r = await _get_redis()
+        key = f"messenger:seen_mid:{message_mid}"
+        return not await r.set(key, "1", nx=True, ex=86400)
+    except Exception:
+        return False  # Redis down — prefer a rare duplicate over a dropped reply
+
+
 async def _process_inline(
     db: AsyncSession,
     page_id: str,
@@ -973,7 +988,7 @@ async def _process_inline(
             SocialAccount.account_type == "page",
         )
     )
-    account = result.scalar_one_or_none()
+    account = result.scalars().first()
     if not account:
         logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(str(page_id or "")))
         return
@@ -1358,7 +1373,9 @@ async def update_personal_auto_reply(
 
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
-    meta["personal_messenger_auto_reply"] = config.model_dump()
+    existing = meta.get("personal_messenger_auto_reply", {})
+    merged = {**existing, **config.model_dump()}
+    meta["personal_messenger_auto_reply"] = merged
     account.meta_data = meta
     # Force SQLAlchemy to detect the JSONB mutation
     from sqlalchemy.orm.attributes import flag_modified
