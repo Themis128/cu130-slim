@@ -563,9 +563,11 @@ existing ladder already covers every tier.
   registry, not WMI.
 - **Post-reboot verification**: the registry records what was REQUESTED, not
   what Windows actually uses. After any reboot following a pagefile change,
-  verify the ACTIVE path with `Get-CimInstance Win32_PageFileUsage` — if it
-  still shows C:, the fallback gotcha fired and the sizes were not explicit
-  enough.
+  verify with `Get-CimInstance Win32_PageFileUsage` — the config here requests
+  ONLY `D:\pagefile.sys`, so if the active list still contains a C: entry the
+  fallback gotcha fired (Windows rejected the D: request and re-created its
+  default). Note the entry list alone does not say WHY D: was rejected —
+  re-apply the explicit-size form and re-verify.
 
 ### 2026-11-26 crash-chain resolution (reference incident)
 
