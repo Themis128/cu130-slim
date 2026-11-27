@@ -39,10 +39,42 @@ def _need(name: str) -> str:
     return val
 
 
+def _wa_token() -> str:
+    """WhatsApp token: the active DB social_accounts row is canonical —
+    the .env WHATSAPP_ACCESS_TOKEN drifts stale after re-auth sweeps
+    (2026-11-27: env died 190/460 while the DB token was live). Env is
+    the last-resort fallback when no DB row exists."""
+    import asyncio
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy import text
+    from app.core.security import decrypt_token
+
+    async def _fetch() -> str:
+        e = create_async_engine(os.environ["DATABASE_URL"])
+        async with e.connect() as c:
+            r = await c.execute(
+                text(
+                    "select access_token_enc from social_accounts "
+                    "where platform='whatsapp' and status='active' limit 1"
+                )
+            )
+            row = r.fetchone()
+        await e.dispose()
+        return decrypt_token(row.access_token_enc) if row else ""
+
+    try:
+        tok = asyncio.run(_fetch())
+    except Exception:
+        tok = ""
+    if tok:
+        return tok
+    return _need("WHATSAPP_ACCESS_TOKEN")
+
+
 def _init() -> None:
     from facebook_business.api import FacebookAdsApi
 
-    FacebookAdsApi.init(access_token=_need("WHATSAPP_ACCESS_TOKEN"), crash_log=False)
+    FacebookAdsApi.init(access_token=_wa_token(), crash_log=False)
 
 
 def _graph_get(path: str, **params) -> dict:
@@ -53,7 +85,7 @@ def _graph_get(path: str, **params) -> dict:
     resp = requests.get(
         f"https://graph.facebook.com/v26.0/{path.lstrip('/')}",
         params=params,
-        headers={"Authorization": f"Bearer {_need('WHATSAPP_ACCESS_TOKEN')}"},
+        headers={"Authorization": f"Bearer {_wa_token()}"},
         timeout=15,
     )
     data = resp.json()
@@ -68,7 +100,7 @@ def _graph_post(path: str, **params) -> dict:
     resp = requests.post(
         f"https://graph.facebook.com/v26.0/{path.lstrip('/')}",
         data=params,
-        headers={"Authorization": f"Bearer {_need('WHATSAPP_ACCESS_TOKEN')}"},
+        headers={"Authorization": f"Bearer {_wa_token()}"},
         timeout=15,
     )
     data = resp.json()

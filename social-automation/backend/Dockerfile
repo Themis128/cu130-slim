@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir -e ".[worker]" && \
 # login encryption key now comes from launcher/sync. The historical
 # Pillow<13 pin that forced --no-deps no longer exists (3.x wants
 # Pillow>=13), but --no-deps is retained to avoid dep churn.
-RUN pip install --no-cache-dir "instagrapi==3.2.19" --no-deps && \
+RUN pip install --no-cache-dir "instagrapi==3.2.22" --no-deps && \
     pip install --no-cache-dir "PySocks>=1.7.1" "pycryptodomex>=3.23.0"
 
 # ── Runtime layers shared by the api and every worker — everything except
@@ -86,7 +86,7 @@ FROM builder AS builder-api
 # The venv must live at its final path — console scripts hardcode the shebang.
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir -e . && \
-    /opt/venv/bin/pip install --no-cache-dir "instagrapi==3.2.19" --no-deps && \
+    /opt/venv/bin/pip install --no-cache-dir "instagrapi==3.2.22" --no-deps && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
     find /opt/venv/lib/python*/site-packages \
     -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true

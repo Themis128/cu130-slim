@@ -96,15 +96,17 @@
 
 ### Issue 1: Instagram Facebook Login — Error #10 (Page-Instagram Linkage Missing)
 
-**Status:** CANNOT BE RESOLVED via API
+**Status:** PARTIALLY RESOLVED (2026-11-27) — app-side link confirmed + propagated to `instagram_accounts`; `instagram_business_account` propagation pending (Meta lag, recheck ~48h)
 **Workaround:** Use Business Login instead (working)
 
 **Description:**
 The Instagram account `@cloudless.gr` is NOT linked to any Facebook Page at the Graph API level. Both Facebook Pages (`Cloudless.gr` and `cloudless.gr`) return no `instagram_business_account` field. The Meta Business Suite UI shows the Instagram account linked, but the Graph API does not see the link.
 
 **What was tried:**
-- `GET /{page_id}?fields=instagram_business_account` → empty
-- `GET /{page_id}/instagram_accounts` → empty
+- `GET /{page_id}?fields=instagram_business_account` → empty (still empty 2026-11-27)
+- `GET /{page_id}/instagram_accounts` → **NOW returns `17841436821573754`** (was empty — propagated after the IG-app "Confirm Connection" on 2026-11-27)
+- **2026-11-27 fix drive part 2**: `instagram_reauth.py` (unattended FB-sidecar OAuth) reactivated `fb_onboarding` row `d2215106` → **active** (token type=PAGE, carries `instagram_content_publish`; publish still #10 until IBA propagates — watcher `ig_page_link` added to call_audit api lane)
+- **2026-11-27 fix drive**: IG app → cloudless.gr → Edit profile → Facebook → Review connection → Confirm Connection → m.facebook.com CustomTab login. FB identity = **phone `306977777838` + `FACEBOOK_PASSWORD`** (gmail creds log into a no-profile Meta Account; hotmail creds stale). 2FA = "Notification on another device" → approve in the logged-in FB app on the same phone (push lands in FB notifications; WhatsApp-code lane unusable — WA app itself mid-verification). Page token now READS the IG node (`followers_count:17, username:cloudless.gr`); POST /media still #10 until `instagram_business_account` propagates.
 - `GET /{page_id}/page_backed_instagram_accounts` → empty
 - `POST /{page_id}/page_backed_instagram_accounts` → permission denied
 - Business Manager `owned_instagram_accounts` → empty
@@ -125,8 +127,14 @@ The Instagram account is in a different Business Manager (`2432271077303446`) th
 
 ### Issue 2: Instagram Private API (instagrapi) — Login Broken
 
-**Status:** CANNOT BE RESOLVED without instagrapi upstream fix
-**Version installed:** 2.18.20
+**Status:** CANNOT BE RESOLVED without instagrapi upstream fix — **CONFIRMED AGAIN 2026-11-27 at latest versions**
+**Version installed:** 3.2.22 (social-api) / aiograpi 2.1.22 (instagram-private-api sidecar)
+
+**2026-11-27 re-verification:**
+- instagrapi 3.2.19→3.2.22 hot-patch + `ClientNeedsUpgradeError` persists → block is credential/IP-level at IG's edge, NOT library-version (matches the 2026-09-28 dead-end note)
+- sidecar rebuilt from local `instagram-private-api/Dockerfile` (was running raw upstream `subzeroid/aiograpi-rest` v6.0.0/aiograpi 1.0.9 — the override had never applied); now aiograpi 2.1.22 → same `ClientNeedsUpgradeError` on `/auth/login`
+- ALL 8 stored sessions in `/data/db.json` + `ig_session.json` → 401 `ClientUnauthorizedError` (dead)
+- Sidecar recreated clean; stale hash-prefixed duplicate removed
 
 **Description:**
 The `instagrapi` library (unofficial Instagram private mobile API) can no longer log in to Instagram. All login attempts fail with:
@@ -403,7 +411,7 @@ All Meta-related environment variables in `/home/tbaltzakis/cu130-slim/.env`:
 
 | # | Action | Type | Blocks? |
 |---|--------|------|---------|
-| 1 | Approve WhatsApp message templates on WABA 1717901383017723 | Meta review (pending) | Business-initiated sends |
+| 1 | ~~Approve WhatsApp message templates on WABA 1717901383017723~~ | **DONE 2026-11-27 — 4 templates APPROVED** (`cloudless_alert`×2 MARKETING, `cloudless_followup`×2 UTILITY) | Business-initiated sends |
 | 2 | BM verification review completes | Meta review (~2bd from 11-27) | System-user mint, #100 gate |
 | 3 | Mint system-user token for WHATSAPP_ACCESS_TOKEN | Automated (meta-infra-retry beat post-verification) | Token expiry ~2027-02 |
 | 4 | Submit Meta App Review (if multi-tenant needed) | Manual (dashboard) | External user onboarding |
