@@ -628,8 +628,126 @@ services:
       - social-api
     restart: unless-stopped
 
+  # --- shared-infra re-home (2026-11-28, owner decision: standalone canonical).
+  # These 5 were orphaned cu130-slim-labeled containers with NO compose source
+  # of truth (4 of 5 absent from both files — recreated from runtime inspect).
+  # Dual-homed: cu130-db/cu130-backend keep root-network consumers (mautic,
+  # metabase) working; the default (socialauto-standalone_default) network
+  # makes them native. Secret values live in .env (INFISICAL_*/POSTGRES_*/
+  # FLOWER_* keys); INFISICAL_ENCRYPTION_KEY/AUTH_SECRET/SITE_URL matched the
+  # vault snapshot.
+  infisical:
+    image: infisical/infisical:latest-postgres
+    container_name: infisical
+    restart: unless-stopped
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["./standalone-entrypoint.sh"]
+    environment:
+      - DB_CONNECTION_URI=${INFISICAL_DB_CONNECTION_URI}
+      - REDIS_URL=${INFISICAL_REDIS_URL}
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
+      - SITE_URL=${INFISICAL_SITE_URL}
+      - POSTHOG_API_KEY=${INFISICAL_POSTHOG_API_KEY}
+      - CAPTCHA_SITE_KEY=${INFISICAL_CAPTCHA_SITE_KEY}
+      - SMTP_HOST=192.168.1.130
+      - SMTP_PORT=587
+      - SMTP_SECURE=true
+      - "SMTP_TLS_REJECT_UNAUTHORIZED=false"
+      - SMTP_FROM_NAME=Cloudless Infisical
+      - SMTP_FROM_ADDRESS=noreply@cloudless.gr
+      - SMTP_USERNAME=tbaltzakis@cloudless.gr
+      - SMTP_PASSWORD=${INFISICAL_SMTP_PASSWORD}
+      - NODE_ENV=production
+      - STANDALONE_BUILD=true
+      - STANDALONE_MODE=true
+      - NODE_OPTIONS=--max-old-space-size=1024
+      - HOST=0.0.0.0
+      - PORT=8080
+      - HTTPS_ENABLED=false
+      - TELEMETRY_ENABLED=true
+    networks: [cu130-db, default]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/status || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=metabase
+      - POSTGRES_DB=metabase
+      - POSTGRES_PASSWORD=${POSTGRES_METABASE_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [cu130-db, default]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  flower:
+    image: mher/flower:2.1.0
+    container_name: flower
+    restart: unless-stopped
+    command: ["celery", "flower"]
+    environment:
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH}
+      - FLOWER_DATA_DIR=/data
+      - PYTHONPATH=/data
+    volumes:
+      - flower_data:/data
+    networks: [cu130-backend, cu130-db, default]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,urllib.error; urllib.request.urlopen('http://localhost:5555/', timeout=5)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  social-api-gateway:
+    image: nginx:1.27-alpine
+    container_name: social-api-gateway
+    restart: unless-stopped
+    command: ["nginx", "-g", "daemon off;"]
+    # conf.d + upstream volumes hold the blue/green switch — external so the
+    # deploy scripts' rewrites survive re-homing.
+    volumes:
+      - agw-conf:/etc/nginx/conf.d
+      - agw-upstream:/etc/nginx/upstream
+    networks: [cu130-backend, default]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  n8n-metrics:
+    image: nginx:1.27-alpine
+    container_name: n8n-metrics
+    restart: unless-stopped
+    command: ["nginx", "-g", "daemon off;"]
+    volumes:
+      - n8n-conf:/etc/nginx/conf.d
+    networks: [cu130-backend, default]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/metrics | head -1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 networks:
   cu130-backend:
+    external: true
+  cu130-db:
     external: true
 
 volumes:
@@ -645,3 +763,13 @@ volumes:
   instagram_sessions:
     external: true
     name: cu130-slim_instagram_sessions
+  postgres_data:
+    external: true
+    name: cu130-slim_postgres_data
+  agw-conf:
+    external: true
+  agw-upstream:
+    external: true
+  n8n-conf:
+    external: true
+  flower_data:
