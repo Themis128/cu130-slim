@@ -160,6 +160,29 @@ whole Pi cluster for production):
 - [ ] at that point the Pi cluster reverts to its natural role:
       camera relay, edge sensors, light workers
 
+### Phase 5 — virtual desktop / Windows VM (future, requires x86)
+
+Once x86 hardware with a hypervisor exists (Phase 4), two VM lanes open
+that neither k3s nor ARM can serve:
+
+- **Windows VM** — a small Server/Win11 guest for the lanes that are
+  irreversibly Windows-bound if they ever need to leave the workstation:
+  nothing today qualifies (the browser lanes need a real display +
+  residential fingerprint, which a datacenter VM actively worsens), but
+  it future-proofs against OFFICE hardware failure — the rescue path is
+  "boot the VM, restore the lane configs", not "buy a laptop same-day".
+  Size: 4-8GB RAM, 2-4 vcpu, GPU-less.
+- **Virtual desktop VM** — a persistent remote desktop (Windows or
+  Linux+xfce) reachable over the tailnet from anywhere, so the user can
+  drive browser lanes, IDEs and the phone-adb surface without the
+  workstation being physically powered. This is the modern
+  desktop-as-infrastructure pattern: the workstation becomes optional
+  hardware rather than a single point of presence.
+- Honest caveat: neither VM helps the GPU lanes — DMR/ComfyUI need the
+  physical GPU. A VM host with GPU passthrough is possible on x86
+  (Proxmox + VFIO) but is a deliberate hardware purchase decision, not
+  a migration step.
+
 ## 5. What explicitly does NOT migrate
 
 - DMR model serving + ComfyUI: GPU-bound, stays on OFFICE (the only GPU)
