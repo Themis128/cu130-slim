@@ -731,7 +731,7 @@ async def receive_webhook(
             leadgen_failed += 1
 
     processed = 0
-    sidecar_url = settings.MESSENGER_SIDECAR_URL or os.getenv("MESSENGER_SIDECAR_URL", "")
+    reply_failed = 0
 
     for event in events:
         page_id = event.get("page_id")
@@ -753,42 +753,44 @@ async def receive_webhook(
             )
 
         if message_type in ("text", "postback") and sender_psid:
-            # Lead-capture gate on the primary path too — the sidecar has no
-            # qualification flow, so trigger/mid-flow DMs are answered inline
-            # even when the sidecar is healthy.
-            if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
+            # Dedupe first — covers BOTH the lead-capture gate and the
+            # auto-reply path. Meta redelivers events when the ack is slow
+            # (AI inference can exceed the delivery deadline); without this
+            # the customer gets a duplicate reply per redelivery. Inline is
+            # the single reply path (the sidecar dispatch lane was dropped).
+            marked = False
+            if message_mid:
+                if await _is_duplicate_mid(message_mid):
+                    continue
+                marked = True
+            # Lead-capture gate first — trigger/mid-flow DMs are answered
+            # by the qualification flow, not the general auto-reply.
+            cap = await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or "")
+            if cap is not None:
+                if cap is False:
+                    reply_failed += 1
+                    if marked:
+                        await _clear_mid_marker(message_mid)
                 processed += 1
                 continue
-            # Dispatch to sidecar for async processing (if configured)
-            if sidecar_url:
-                try:
-                    import httpx
+            ok = await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
+            if ok is False:
+                reply_failed += 1
+                if marked:
+                    # Release the marker so Meta's redelivery can recover the
+                    # reply instead of being dedupe-skipped for 24h.
+                    await _clear_mid_marker(message_mid)
+            processed += 1
 
-                    async with httpx.AsyncClient(timeout=5) as client:
-                        await client.post(
-                            f"{sidecar_url}/process",
-                            json={
-                                "page_id": page_id,
-                                "sender_psid": sender_psid,
-                                "recipient_id": page_id,
-                                "message_text": message_text,
-                                "message_type": message_type,
-                                "postback_payload": postback_payload,
-                                "message_mid": message_mid,
-                                "timestamp": event.get("timestamp", 0),
-                            },
-                        )
-                    processed += 1
-                except Exception as e:
-                    logger.warning("Sidecar dispatch failed, falling back to inline: %s", e)
-                    # Fall back to inline processing
-                    await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
-                    processed += 1
-            else:
-                # No sidecar — process inline
-                await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
-                processed += 1
-
+    if reply_failed:
+        # Acknowledge NOTHING when a reply never went out: a 500 makes Meta
+        # redeliver, and the cleared dedupe markers let the redelivery
+        # actually process. Already-processed events are protected by their
+        # own markers, so the retry only replays the failures.
+        raise HTTPException(
+            status_code=500,
+            detail=f"{reply_failed} repl{'y' if reply_failed == 1 else 'ies'} failed to send — Meta will retry",
+        )
     if leadgen_failed:
         raise HTTPException(
             status_code=500,
@@ -933,10 +935,11 @@ async def _try_lead_capture_reply(
     message_text: str,
     message_type: str,
     postback_payload: str,
-) -> bool:
-    """Run the lead-capture state machine for a Page DM. Sends the flow's
-    reply and returns True when the message belongs to the capture flow
-    (trigger keyword/payload or an in-progress session); False → bot path."""
+) -> bool | None:
+    """Run the lead-capture state machine for a Page DM. Tri-state:
+    None → not part of the capture flow (fall through to the bot path);
+    True → in flow, reply sent; False → in flow but the send FAILED
+    (caller should release the dedupe marker for redelivery)."""
     try:
         result = await db.execute(
             select(SocialAccount).where(
@@ -945,9 +948,9 @@ async def _try_lead_capture_reply(
                 SocialAccount.account_type == "page",
             )
         )
-        account = result.scalar_one_or_none()
+        account = result.scalars().first()
         if not account:
-            return False
+            return None
 
         from app.models.lead import LeadSource
         from app.services.lead_capture import handle_lead_capture_message
@@ -966,17 +969,48 @@ async def _try_lead_capture_reply(
             },
         )
         if not reply:
-            return False
+            return None
 
         client = _get_messenger_client(account)
-        if reply.quick_replies:
-            await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
-        else:
-            await client.send_text(sender_psid, reply.text)
+        try:
+            if reply.quick_replies:
+                await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
+            else:
+                await client.send_text(sender_psid, reply.text)
+        except Exception as send_exc:
+            # In-flow but the prompt never reached the customer — signal
+            # failure so the caller can release the dedupe marker and let
+            # Meta's redelivery recover it.
+            logger.warning("Lead capture send failed: %s", _sanitize_log_text(str(send_exc)))
+            return False
         return True
     except Exception as exc:  # noqa: BLE001 — gate must never break dispatch
         logger.debug("Lead capture gate failed (non-fatal): %s", _sanitize_log_text(str(exc)))
-        return False
+        return None
+
+
+
+async def _clear_mid_marker(message_mid: str) -> None:
+    """Drop the dedupe marker so a redelivery can retry a failed reply."""
+    try:
+        from app.services.messenger_chatbot import _get_redis
+
+        r = await _get_redis()
+        await r.delete(f"messenger:seen_mid:{message_mid}")
+    except Exception:
+        pass
+
+
+async def _is_duplicate_mid(message_mid: str) -> bool:
+    """Return True if this Meta message id was already processed (Redis, 24h)."""
+    try:
+        from app.services.messenger_chatbot import _get_redis
+
+        r = await _get_redis()
+        key = f"messenger:seen_mid:{message_mid}"
+        return not await r.set(key, "1", nx=True, ex=86400)
+    except Exception:
+        return False  # Redis down — prefer a rare duplicate over a dropped reply
 
 
 async def _process_inline(
@@ -986,8 +1020,9 @@ async def _process_inline(
     message_text: str,
     message_type: str,
     postback_payload: str = "",
-) -> None:
-    """Process a message inline (fallback when sidecar is unavailable)."""
+) -> bool | None:
+    """Process a message inline. Returns False when the reply send failed
+    (so the caller can release the dedupe marker for redelivery)."""
     result = await db.execute(
         select(SocialAccount).where(
             SocialAccount.platform == "facebook",
@@ -995,28 +1030,31 @@ async def _process_inline(
             SocialAccount.account_type == "page",
         )
     )
-    account = result.scalar_one_or_none()
+    account = result.scalars().first()
     if not account:
         logger.warning("No Facebook Page account found for page_id=%s", _sanitize_log_text(str(page_id or "")))
-        return
+        return None
 
     # Lead capture (scaffold): handle simple qualification flow before AI bot.
-    if await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload):
-        return
+    cap = await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload)
+    if cap is not None:
+        return None
 
     meta = account.meta_data or {}
     auto_reply = meta.get("messenger_auto_reply", {})
     if not auto_reply.get("enabled", False):
-        return
+        return None
 
     try:
         await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
+        return True
     except Exception as e:
         logger.error(
             "Auto-reply failed for page_id=%s: %s",
             _sanitize_log_text(str(page_id or "")),
             _sanitize_log_text(str(e)),
         )
+        return False
 
 
 async def _generate_and_send_auto_reply(
@@ -1380,7 +1418,9 @@ async def update_personal_auto_reply(
 
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
-    meta["personal_messenger_auto_reply"] = config.model_dump()
+    existing = meta.get("personal_messenger_auto_reply", {})
+    merged = {**existing, **config.model_dump()}
+    meta["personal_messenger_auto_reply"] = merged
     account.meta_data = meta
     # Force SQLAlchemy to detect the JSONB mutation
     from sqlalchemy.orm.attributes import flag_modified

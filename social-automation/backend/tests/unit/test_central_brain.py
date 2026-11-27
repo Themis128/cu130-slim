@@ -600,3 +600,18 @@ class TestLLMAdjust:
             [_cand("linkedin")],
         )
         assert out is None
+
+
+def test_platform_fit_lines_unreadable_falls_back(monkeypatch):
+    import json as _json
+
+    from app.services import content_guides
+
+    real_loads = _json.loads
+    monkeypatch.setattr(_json, "loads", lambda s: (_ for _ in ()).throw(ValueError("broken")))
+    content_guides._platform_fit_lines.cache_clear()
+    try:
+        assert content_guides._platform_fit_lines() == {}
+    finally:
+        monkeypatch.setattr(_json, "loads", real_loads)
+        content_guides._platform_fit_lines.cache_clear()

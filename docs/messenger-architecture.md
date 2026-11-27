@@ -217,7 +217,7 @@ Messenger Platform API for Pages). Auto-reply uses a Celery polling task.
 
 ## Bot Architecture (messenger_chatbot.py)
 
-The bot engine is shared between Page webhook processing (sidecar) and
+The bot engine is shared between Page webhook processing (inline since 2026-11-27 — the sidecar dispatch was dropped) and
 personal polling (Celery). It provides intent detection, conversation
 memory, brand RAG, per-thread cooldowns, human handoff, and bot disclosure.
 
@@ -495,6 +495,26 @@ Bot Builder UI with a Resume button.
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## Webhook reliability contract (2026-11-27)
+
+- **Echo events** (`is_echo`, `message_echoes` field) are skipped in the
+  parser — the echo sender is the PAGE, and replying targets the page id
+  which Graph rejects with `(#100) No matching user found`.
+- **Dedupe**: every inbound `message_mid` is marked in Redis (24h) before
+  processing — covers both the lead-capture gate and the auto-reply path.
+  Known exceptions: postbacks carry no `mid` in Meta's payload (nothing to
+  dedupe on), icebreaker lead upserts run before the marker check (the
+  upsert is idempotent by thread, so a replay is a no-op), and a Redis
+  outage fails OPEN — a rare duplicate is deliberately preferred over a
+  dropped customer reply.
+- **Failure recovery**: when a reply fails to send, the marker is cleared
+  AND the webhook returns HTTP 500. Meta redelivers; the redelivery
+  replays only the failed mid-marked events because successful ones keep
+  their markers.
+- The sidecar `/process` dispatch lane is removed — inline is the single
+  reply path (the sidecar acked fire-and-forget while being unable to
+  authenticate to social-api, which produced zero customer replies).
+
 ## Data Flow: Page Message (Webhook → Auto-Reply)
 
 ```
@@ -506,8 +526,8 @@ to Facebook Page        (POST, 5s)          /webhook             /process
      │                    │  2. POST event      │                    │
      │                    │───────────────────▶│                    │
      │                    │                    │  3. Verify HMAC    │
-     │                    │                    │  4. Dispatch       │
-     │                    │                    │───────────────────▶│
+     │                    │                    │  4. Process inline │
+     │                    │                    │  (sidecar removed) │
      │                    │  5. Return 200     │                    │
      │                    │◀───────────────────│                    │
      │                    │                    │                    │

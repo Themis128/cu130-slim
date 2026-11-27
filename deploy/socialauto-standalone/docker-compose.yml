@@ -328,6 +328,9 @@ services:
       - "127.0.0.1:9230:9230"
     volumes:
       - messenger-browser-data:/data
+    networks:
+      - default
+      - cu130-backend
     restart: unless-stopped
 
 

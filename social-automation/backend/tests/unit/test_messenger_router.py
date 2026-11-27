@@ -655,10 +655,9 @@ class TestReceiveWebhook:
         assert posts == []  # sidecar never saw the capture-flow DM
         inline.assert_not_awaited()
 
-    async def test_sidecar_dispatch_success(self, monkeypatch):
+    async def test_events_process_inline(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
-        monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sc:9")
         monkeypatch.setattr(
             messenger,
             "parse_webhook_event",
@@ -666,22 +665,14 @@ class TestReceiveWebhook:
                 {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "timestamp": 1},
             ],
         )
-        posts = []
+        calls = []
 
-        class FakeHTTP:
-            async def __aenter__(self):
-                return self
+        async def proc(db, page_id, psid, text, mtype, payload):
+            calls.append(psid)
 
-            async def __aexit__(self, *a):
-                return False
-
-            async def post(self, url, json=None):
-                posts.append((url, json["sender_psid"]))
-                return SimpleNamespace(status_code=200)
-
-        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
+        monkeypatch.setattr(messenger, "_process_inline", proc)
         out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
-        assert posts == [("http://sc:9/process", "u1")] and out["auto_replies_sent"] == 1
+        assert calls == ["u1"] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_failure_falls_back_inline(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
@@ -714,6 +705,129 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger, "_process_inline", proc)
         out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
         assert calls == ["u1"] and out["auto_replies_sent"] == 1
+
+    async def test_failed_inline_reply_returns_500_and_clears_marker(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+            ],
+        )
+        cleared = []
+
+        async def dup(mid):
+            return False
+
+        async def clear(mid):
+            cleared.append(mid)
+
+        async def cap_none(*a, **kw):
+            return None
+
+        async def proc_fail(*a, **kw):
+            return False
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_clear_mid_marker", clear)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_none)
+        monkeypatch.setattr(messenger, "_process_inline", proc_fail)
+        with pytest.raises(HTTPException) as exc:
+            await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert exc.value.status_code == 500
+        assert cleared == ["mid-1"]
+
+    async def test_duplicate_mid_skipped(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+            ],
+        )
+        calls = []
+
+        async def dup(mid):
+            return True
+
+        async def proc(*a, **kw):
+            calls.append(1)
+            return True
+
+        async def cap_none(*a, **kw):
+            return None
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_none)
+        monkeypatch.setattr(messenger, "_process_inline", proc)
+        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert calls == [] and out["auto_replies_sent"] == 0
+
+    async def test_lead_capture_send_failure_returns_500(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-9", "timestamp": 1},
+            ],
+        )
+        cleared = []
+
+        async def dup(mid):
+            return False
+
+        async def clear(mid):
+            cleared.append(mid)
+
+        async def cap_fail(*a, **kw):
+            return False
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_clear_mid_marker", clear)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_fail)
+        with pytest.raises(HTTPException) as exc:
+            await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert exc.value.status_code == 500
+        assert cleared == ["mid-9"]
+
+    async def test_clear_mid_marker_success_path(self, monkeypatch):
+        deleted = []
+
+        class FakeRedis:
+            async def delete(self, key):
+                deleted.append(key)
+                return 1
+
+        async def good_redis():
+            return FakeRedis()
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", good_redis)
+        await messenger._clear_mid_marker("mid-ok")
+        assert deleted == ["messenger:seen_mid:mid-ok"]
+
+    async def test_is_duplicate_mid_redis_down_fails_open(self, monkeypatch):
+        async def boom():
+            raise ConnectionError("redis down")
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", boom)
+        assert await messenger._is_duplicate_mid("mid-x") is False
+
+    async def test_clear_mid_marker_swallows_errors(self, monkeypatch):
+        async def boom():
+            raise ConnectionError("redis down")
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", boom)
+        await messenger._clear_mid_marker("mid-x")  # must not raise
+
 
 
 # ---------------------------------------------------------------------------
@@ -1313,6 +1427,34 @@ class TestCoverageTails:
         monkeypatch.setattr(messenger, "decrypt_token", Mock(side_effect=ValueError("not encrypted")))
         c = messenger._get_messenger_client(acct)
         assert c.kw["access_token"] == "notEA" and c.kw["page_id"] == "pg-1"
+
+
+    async def test_lead_capture_send_failure_returns_false(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        reply = SimpleNamespace(text="hi", quick_replies=None)
+        monkeypatch.setattr(
+            "app.services.lead_capture.handle_lead_capture_message",
+            AsyncMock(return_value=reply),
+        )
+
+        class FailClient:
+            async def send_text(self, *a, **kw):
+                raise ConnectionError("graph down")
+
+        monkeypatch.setattr(messenger, "_get_messenger_client", lambda account: FailClient())
+        out = await messenger._try_lead_capture_reply(db, "pg-1", "u1", "hi", "text", "")
+        assert out is False
+
+    async def test_lead_capture_outer_exception_returns_none(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        monkeypatch.setattr(
+            "app.services.lead_capture.handle_lead_capture_message",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        out = await messenger._try_lead_capture_reply(db, "pg-1", "u1", "hi", "text", "")
+        assert out is None
 
     async def test_upsert_icebreaker_early_returns(self):
         db = FakeDB()

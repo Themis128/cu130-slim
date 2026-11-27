@@ -247,10 +247,16 @@ async def test_sidecar_dispatch_includes_postback_payload(client, db):
             calls.append({"url": url, "json": json})
             return _FakeResp()
 
-    with patch.dict(os.environ, {"MESSENGER_SIDECAR_URL": "http://messenger-sidecar:9230"}):
-        with patch("httpx.AsyncClient", _FakeAsyncClient):
-            resp = await _post_webhook(client, body)
-            assert resp.status_code == 200
+    # Inline-only processing (sidecar dispatch removed): assert the postback
+    # payload actually reaches the inline/lead-capture lane, not just a 200.
+    received: list[tuple] = []
 
-    assert calls, "Expected webhook to dispatch to sidecar"
-    assert calls[0]["json"]["postback_payload"] == "LEAD_CLOUD"
+    async def _spy_capture(db, pid, psid, text, mtype, payload):
+        received.append((psid, payload))
+        return None  # not-in-flow — lets the normal bot path continue
+
+    with patch("app.api.messenger._try_lead_capture_reply", _spy_capture):
+        resp = await _post_webhook(client, body)
+    assert resp.status_code == 200
+    assert received, "Expected the postback to reach the inline processing lane"
+    assert received[0] == (sender_psid, "LEAD_CLOUD")

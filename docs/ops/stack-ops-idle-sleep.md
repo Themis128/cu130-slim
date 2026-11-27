@@ -43,9 +43,16 @@ wake-on-request — same pattern (hold request → wake → pipe).
   dmr-watchdog, stack-ops itself.
 - **Sleep-managed** (21 keys, 18 canonical containers): browser-novnc
   (+ui/ui2/vnc aliases on 6080/6081/5900), the 4 platform sidecars,
-  messenger-sidecar, instagram-private-api, warp-proxy, languagetool,
+  messenger-sidecar¹, instagram-private-api, warp-proxy, languagetool,
   n8n-sandbox, metabase, social-jupyter, flower, portainer,
   env-manager-frontend+backend, linkedin/airbyte MCP servers, comfyui.
+
+**¹ Exception (2026-11-27):** `messenger-sidecar` carries
+`idle_min: 100000` (~69 days) — effectively pinned awake. It is the
+webhook processor for inbound page Messenger events; sleeping it made
+API dispatch hit the 5s timeout on every inbound message, and the
+sleep/wake fight with docker-wsl-sync recovery SIGTERM'd it every
+3-8 minutes. Real-time webhook receivers must never sleep.
 
 ## services.json schema
 

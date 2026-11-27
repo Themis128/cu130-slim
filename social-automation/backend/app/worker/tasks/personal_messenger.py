@@ -223,6 +223,20 @@ async def _process_account(
         convo_name = convo.get("name", "Unknown")
         is_e2ee = convo.get("e2ee", False)
 
+        # System-thread filter — never reply to Meta/Facebook system or
+        # support threads (e.g. "Meta Support" case notifications). Config
+        # may extend/override via ignored_names in personal_messenger_auto_reply.
+        # Exact-match (case-insensitive): substring matching false-positives
+        # on real contacts (e.g. "Northside Metalworks" contains "meta").
+        ignored_names = config.get(
+            "ignored_names",
+            ["meta support", "facebook", "meta", "meta ai", "support inbox"],
+        )
+        name_lower = (convo_name or "").strip().lower()
+        if name_lower in [n.strip().lower() for n in ignored_names]:
+            logger.debug("Skipping system thread %r (name filter)", convo_name)
+            continue
+
         try:
             # 2. Read recent messages (fast mobile-basic first, fallback to SPA)
             async with browser_session("facebook", bridge) as b:

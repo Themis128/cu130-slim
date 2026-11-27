@@ -555,6 +555,11 @@ def parse_webhook_event(body: dict) -> list[dict]:
 
             if "message" in messaging:
                 msg = messaging["message"]
+                if msg.get("is_echo"):
+                    # Echoes are the page's own outbound messages redelivered —
+                    # sender.id is the PAGE, not a user. Replying targets the
+                    # page id and Graph fails (#100) No matching user found.
+                    continue
                 event["message_id"] = msg.get("mid", "")
                 if "text" in msg:
                     event["message_type"] = "text"

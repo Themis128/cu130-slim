@@ -2296,6 +2296,9 @@ Because of this:
   and passes every file, so override files are kept.
 - `engagement-browser` stays on `cu130-backend` only, with no alias on the
   standalone network.
+- `messenger-sidecar` joins both `default` and `cu130-backend` so the API
+  network can reach it directly (webhook/browser lanes); without the join,
+  cross-project DNS resolution fails.
 | 5433 | social-postgres | App DB |
 
 ## Cloudflare platform updates (October 2026)

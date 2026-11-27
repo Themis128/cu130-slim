@@ -275,3 +275,21 @@ async def test_residual_optional_branches(monkeypatch):
     # get_user_profile with explicit fields → skip default
     await c.get_user_profile("999", fields=["first_name"])
     assert c._http.calls[-1][2]["params"]["fields"] == "first_name"
+
+
+def test_parse_webhook_event_echo_dropped():
+    body = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "pg",
+                "messaging": [
+                    {"sender": {"id": "pg"}, "recipient": {"id": "u1"}, "message": {"mid": "m1", "text": "own reply", "is_echo": True}},
+                    {"sender": {"id": "u2"}, "recipient": {"id": "pg"}, "message": {"mid": "m2", "text": "real"}},
+                ],
+            }
+        ],
+    }
+    events = M.parse_webhook_event(body)
+    assert len(events) == 1
+    assert events[0]["message_text"] == "real"
