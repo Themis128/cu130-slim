@@ -764,7 +764,10 @@ async def receive_webhook(
                 marked = True
             # Lead-capture gate first — trigger/mid-flow DMs are answered
             # by the qualification flow, not the general auto-reply.
-            if await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or ""):
+            cap = await _try_lead_capture_reply(db, str(page_id), str(sender_psid), message_text or "", message_type, postback_payload or "")
+            if cap is not None:
+                if cap is False and marked:
+                    await _clear_mid_marker(message_mid)
                 processed += 1
                 continue
             ok = await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
@@ -918,10 +921,11 @@ async def _try_lead_capture_reply(
     message_text: str,
     message_type: str,
     postback_payload: str,
-) -> bool:
-    """Run the lead-capture state machine for a Page DM. Sends the flow's
-    reply and returns True when the message belongs to the capture flow
-    (trigger keyword/payload or an in-progress session); False → bot path."""
+) -> bool | None:
+    """Run the lead-capture state machine for a Page DM. Tri-state:
+    None → not part of the capture flow (fall through to the bot path);
+    True → in flow, reply sent; False → in flow but the send FAILED
+    (caller should release the dedupe marker for redelivery)."""
     try:
         result = await db.execute(
             select(SocialAccount).where(
@@ -930,9 +934,9 @@ async def _try_lead_capture_reply(
                 SocialAccount.account_type == "page",
             )
         )
-        account = result.scalar_one_or_none()
+        account = result.scalars().first()
         if not account:
-            return False
+            return None
 
         from app.models.lead import LeadSource
         from app.services.lead_capture import handle_lead_capture_message
@@ -951,17 +955,24 @@ async def _try_lead_capture_reply(
             },
         )
         if not reply:
-            return False
+            return None
 
         client = _get_messenger_client(account)
-        if reply.quick_replies:
-            await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
-        else:
-            await client.send_text(sender_psid, reply.text)
+        try:
+            if reply.quick_replies:
+                await client.send_quick_replies(sender_psid, reply.text, reply.quick_replies)
+            else:
+                await client.send_text(sender_psid, reply.text)
+        except Exception as send_exc:
+            # In-flow but the prompt never reached the customer — signal
+            # failure so the caller can release the dedupe marker and let
+            # Meta's redelivery recover it.
+            logger.warning("Lead capture send failed: %s", _sanitize_log_text(str(send_exc)))
+            return False
         return True
     except Exception as exc:  # noqa: BLE001 — gate must never break dispatch
         logger.debug("Lead capture gate failed (non-fatal): %s", _sanitize_log_text(str(exc)))
-        return False
+        return None
 
 
 
@@ -1011,7 +1022,8 @@ async def _process_inline(
         return
 
     # Lead capture (scaffold): handle simple qualification flow before AI bot.
-    if await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload):
+    cap = await _try_lead_capture_reply(db, page_id, sender_psid, message_text, message_type, postback_payload)
+    if cap is not None:
         return
 
     meta = account.meta_data or {}
