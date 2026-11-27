@@ -731,7 +731,6 @@ async def receive_webhook(
             leadgen_failed += 1
 
     processed = 0
-    sidecar_url = settings.MESSENGER_SIDECAR_URL or os.getenv("MESSENGER_SIDECAR_URL", "")
 
     for event in events:
         page_id = event.get("page_id")
