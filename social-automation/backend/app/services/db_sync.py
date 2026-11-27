@@ -169,17 +169,15 @@ class SyncService:
             if not info:
                 # Table missing entirely — a previous repair died mid-swap.
                 # Finish whichever half survived instead of refusing forever.
-                rinfo = await d1_client.query_all(f"PRAGMA table_info({new_table})")
-                oinfo = await d1_client.query_all(f"PRAGMA table_info({old_table})")
-                if rinfo:
+                if await d1_client.query_all(f"PRAGMA table_info({new_table})"):
                     await d1_client.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
                     self._d1_pk_cache[table] = True
                     logger.info("Recovered D1 table %s from leftover %s", table, new_table)
                     return True
-                if oinfo:
+                info = await d1_client.query_all(f"PRAGMA table_info({old_table})")
+                if info:
                     await d1_client.execute(f"ALTER TABLE {old_table} RENAME TO {table}")
                     logger.info("Restored D1 table %s from leftover %s", table, old_table)
-                    info = oinfo
                 else:
                     return False
             col_defs = ", ".join(f"{c['name']} {c['type'] or 'TEXT'}{' NOT NULL' if c.get('notnull') else ''}" for c in info)
