@@ -1289,7 +1289,9 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      # 300s grace — the seed+alembic boot takes ~120s; at 30s the container
+      # went unhealthy mid-boot and autoheal restart-looped it (2026-11-27).
+      start_period: 300s
     mem_limit: 1024m
     memswap_limit: 4096m
     cpus: '4'
