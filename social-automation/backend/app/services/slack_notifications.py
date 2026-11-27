@@ -509,6 +509,37 @@ async def _tg_client():
         return None
 
 
+async def _archive_channel_post(channel: str, msg_id: int | None, text: str) -> None:
+    """Best-effort send-time archive into telegram_channel_messages.
+
+    The Bot API never emits ``channel_post`` updates for the bot's own
+    posts, so the webhook lane can't see bot-authored alerts — every send
+    dual-writes here (same row the Telethon archiver + webhook ingest
+    upsert). Never raises.
+    """
+    if not isinstance(msg_id, int):
+        return
+    try:
+        from datetime import UTC, datetime
+
+        from app.models.telegram_message import TelegramChannelMessage
+        from app.worker._async import task_session
+
+        async with task_session() as db:
+            db.add(
+                TelegramChannelMessage(
+                    channel=channel[:32],
+                    msg_id=msg_id,
+                    date=datetime.now(UTC),
+                    sender="Cloudless_newbot",
+                    text=str(text)[:8000],
+                )
+            )
+            await db.commit()
+    except Exception:
+        pass
+
+
 # ── digest batching (alert-architecture phase 3) ──────────────────────────
 # Informational severities never post standalone — they queue in redis and
 # flush as ONE batched message on the daily digest pass. The interception
@@ -591,7 +622,8 @@ async def flush_digest_queue() -> int:
     delivered = False
     if client is not None:
         try:
-            await client.send_message(TG_CHANNELS["digest"], body[:4000])
+            _m = await client.send_message(TG_CHANNELS["digest"], body[:4000])
+            await _archive_channel_post("digest", _m.get("message_id") if isinstance(_m, dict) else None, body[:4000])
             delivered = True
         except Exception:
             delivered = False
@@ -670,12 +702,14 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
         return False, None, None
     try:
         msg = await client.send_message(chat, text)
+        mid = msg.get("message_id") if isinstance(msg, dict) else None
+        await _archive_channel_post(severity, mid, text)
         if severity == "critical":
             try:
-                await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+                _m = await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+                await _archive_channel_post("ops", _m.get("message_id") if isinstance(_m, dict) else None, f"[P1] {text}")
             except Exception:
                 pass  # mirror is best-effort — never sacrifice the primary receipt
-        mid = msg.get("message_id") if isinstance(msg, dict) else None
     except Exception:
         return False, None, None
 
@@ -715,7 +749,8 @@ async def post_ops_closure(text: str) -> bool:
         client = await _tg_client()
         if client is None:
             return False
-        await client.send_message(TG_CHANNELS["ops"], text, disable_notification=True)
+        _m = await client.send_message(TG_CHANNELS["ops"], text, disable_notification=True)
+        await _archive_channel_post("ops", _m.get("message_id") if isinstance(_m, dict) else None, text)
         return True
     except Exception:
         return False

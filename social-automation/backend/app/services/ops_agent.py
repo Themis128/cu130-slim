@@ -496,7 +496,7 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
             body = header + "\n\n" + "\n".join(lines)
         body = body[:3900]
 
-        from app.services.slack_notifications import TG_CHANNELS, _tg_client
+        from app.services.slack_notifications import TG_CHANNELS, _archive_channel_post, _tg_client
 
         client = await _tg_client()
         if client is None:
@@ -523,6 +523,7 @@ async def _update_live_state(db: AsyncSession, now: datetime) -> bool:
 
         msg = await client.send_message(chat, body, disable_notification=True)
         mid = msg.get("message_id") if isinstance(msg, dict) else None
+        await _archive_channel_post("ops", mid, body)
         if isinstance(mid, int):
             try:
                 await client.pin_chat_message(chat, mid, disable_notification=True)
