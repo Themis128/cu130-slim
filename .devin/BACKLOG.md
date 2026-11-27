@@ -21,13 +21,14 @@ gone.
 
 ## Open — engineering
 
-- [ ] **platform_focus is a placebo action** (2026-11-20 crosscheck):
-  `_exec_platform_focus` returns `{"weight": "boost"}` but nothing consumes
-  it — no scheduler weight mechanism exists. The events are kept as
-  training data (outcome → training design), so the action stays, but it
-  needs either a real consumer (scheduler posting-order weight) or removal.
-  Event volume was fixed at the source by restricting the insights sweep
-  to active teams (#2417) — was ~510 events/day across 255 tenants.
+- [x] **platform_focus is a placebo action** — RESOLVED 2026-11-27 (PR
+  #2731): `_recent_focus()` reads the recorded `datalake_actions`
+  platform_focus events into `BrainSnapshot.focus_platforms` and
+  `_channel_score` gained `_W_FOCUS=0.30` — the best-converting funnel
+  platform now actually ranks up in the daily post-action plan. The LLM
+  prompt also gets a `focus=` marker per channel. Event volume stays
+  fixed at the source by restricting the insights sweep to active
+  teams (#2417).
 - [ ] **LinkedIn :9229 lane → patchright migration** (2026-11-21 incident):
   flagged-credential class proven — once `li_at`+`bcookie` are flagged
   server-side, every authed request is refused on ANY browser/profile while
@@ -40,6 +41,16 @@ gone.
   `li_session_heal.py` caps credential logins at 3/day (#2415), and
   `.devin/rules/linkedin-session-discipline.md` codifies the no-login-churn
   rule + flagged-credentials signature.
+  Research 2026-11-27 (oss-invisible/playwright wiki, lucasygu/lockedout,
+  vermarjun/LinkedinCLI): patchright removes `Runtime.enable`/`Console.enable`
+  CDP leaks + `--enable-automation`/`navigator.webdriver` at the driver
+  level — "a value never set beats a value hidden". Behavioral layer
+  matters equally: lockedout adds jitter + ~40/day quota + auto-cooldown
+  because static fingerprint defeat alone doesn't stop pattern detection.
+  Our sidecars already run patchright; the gap is only the :9229 debug
+  lane. Migration = launch debug chrome via patchright (persistent
+  profile) rather than vanilla — keeps CDP access for qualtrics-ops/
+  consent-root flows.
 - [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
   live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
   <Q_DL>` with a fresh app-bound Q_DL link from the products page
@@ -59,17 +70,19 @@ gone.
   Note: `spellcheck_applied` is only true when LanguageTool CHANGED text
   — clean assets legitimately stay false, so it is NOT a completion
   metric; `meta_data.quality` key presence is.
-- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
-  elevated (`sshd -t` clean, host keys present, "Failed to start service"
-  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
-  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
-  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
-  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
-  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
-  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
-  action calls pwsh.exe which resolves to a per-user Store stub
-  (0x80070002 every run). Repoint task action to conhost+powershell.exe
-  via the same elevated lane.
+- [x] Windows `sshd` on 192.168.1.23 — RESOLVED 2026-11-27. Real root
+  cause was NOT the service: sshd was RUNNING + LISTENING on :22 but LAN
+  connections timed out because `OpenSSH-Server-In-TCP` is scoped
+  Profile=Private while home Wi-Fi COSMOTE1 was categorized Public.
+  `sshd-repair.ps1` gained step 4b: flips any connection profile carrying
+  a private LAN IPv4 from Public→Private (elevated, self-heals every
+  15 min via Sshd-Watch). Verified live: WSL→192.168.1.23:22 OPEN,
+  tailnet :22 was already fine. Microsoft KB: incorrect
+  ProgramData\ssh ACLs was the earlier failure class — already covered
+  by steps 2/2b. NOTE: `\DevOptimizer\WSL-Permanent-Fix` verified ALIVE
+  2026-11-27 — action uses bundled `D:\DevOptimizer\pwsh\pwsh.exe`
+  (not the Store stub), manual run LastTaskResult=0. Stale backlog note
+  pruned.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
