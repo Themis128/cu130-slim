@@ -101,6 +101,10 @@ def _archive(sev: str, msg_id: int, text: str) -> None:
         import psycopg
     except ImportError:
         return
+    # bare severity keys -> canonical archiver slugs (mirror of the backend
+    # _archive_channel_post fix): the janitor's incident join and the
+    # telegram-incidents-ingest scanner only match the cloudless-* slugs.
+    channel = f"cloudless-{sev}" if sev in ("critical", "ops", "intel", "digest") else sev
     try:
         dsn = (
             f"host={_env('SOCIAL_PG_HOST') or '127.0.0.1'} "
@@ -114,7 +118,7 @@ def _archive(sev: str, msg_id: int, text: str) -> None:
                 """INSERT INTO telegram_channel_messages (id, channel, msg_id, date, sender, text, created_at)
                    VALUES (gen_random_uuid(), %s, %s, now(), 'Cloudless_newbot', %s, now())
                    ON CONFLICT (channel, msg_id) DO UPDATE SET text = EXCLUDED.text""",
-                (sev, msg_id, text),
+                (channel, msg_id, text),
             )
     except Exception:
         pass
