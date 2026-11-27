@@ -603,6 +603,39 @@ class TestLLMAdjust:
         assert out[0].priority == 88
 
     @pytest.mark.asyncio
+    async def test_focus_boost_marked_in_llm_prompt(self, monkeypatch):
+        import app.services.central_brain as cb
+
+        monkeypatch.setattr(cb, "settings", SimpleNamespace(CENTRAL_BRAIN_LLM_ENABLED=True))
+
+        prompts = []
+
+        async def fake_recall(*a, **k):
+            return {"hits": []}
+
+        async def fake_infer(prompt, **k):
+            prompts.append(prompt)
+            return {"text": '{"posts":[]}'}
+
+        monkeypatch.setattr("app.services.company_brain.recall_cited", fake_recall)
+        monkeypatch.setattr("app.services.inference.call_inference", fake_infer)
+
+        snap = BrainSnapshot(
+            team_id=uuid.uuid4(),
+            generated_at=NOW,
+            channels={"linkedin": ChannelState(platform="linkedin", followers=900)},
+            focus_platforms={"linkedin": 0.5},
+        )
+        out = await cb._llm_adjust(
+            None,
+            SimpleNamespace(id=uuid.uuid4()),
+            snap,
+            [_cand("linkedin")],
+        )
+        assert out is None  # empty posts payload → rule decisions kept
+        assert prompts and "focus=0.50" in prompts[0]
+
+    @pytest.mark.asyncio
     async def test_inference_failure_returns_none(self, monkeypatch):
         import app.services.central_brain as cb
 
