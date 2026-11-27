@@ -713,7 +713,8 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
             ],
         )
         cleared = []
@@ -746,7 +747,8 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
             ],
         )
         calls = []
@@ -774,7 +776,8 @@ class TestReceiveWebhook:
             messenger,
             "parse_webhook_event",
             lambda b: [
-                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-9", "timestamp": 1},
+                    {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi",
+                     "postback_payload": "", "message_id": "mid-9", "timestamp": 1},
             ],
         )
         cleared = []
