@@ -45,8 +45,10 @@ def _wa_token() -> str:
     (2026-11-27: env died 190/460 while the DB token was live). Env is
     the last-resort fallback when no DB row exists."""
     import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine
+
     from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     from app.core.security import decrypt_token
 
     async def _fetch() -> str:
