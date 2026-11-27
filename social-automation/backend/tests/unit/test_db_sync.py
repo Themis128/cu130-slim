@@ -65,11 +65,21 @@ async def test_repair_d1_pk(monkeypatch):
     monkeypatch.setattr(S.d1_client, "execute", ex)
     assert await svc._repair_d1_pk("post_targets", ["post_id", "acct"]) is True
     sqls = [c.args[0] for c in ex.await_args_list]
-    assert "CREATE TABLE IF NOT EXISTS post_targets_repaired" in sqls[0]
-    assert "PRIMARY KEY (post_id, acct)" in sqls[0]
-    assert sqls[2] == "DROP TABLE post_targets"
-    assert "RENAME TO post_targets" in sqls[3]
+    assert sqls[0] == "DROP TABLE IF EXISTS post_targets_repaired"
+    assert "CREATE TABLE post_targets_repaired" in sqls[1]
+    assert "PRIMARY KEY (post_id, acct)" in sqls[1]
+    assert sqls[3] == "DROP TABLE IF EXISTS post_targets_pre_repair"
+    assert sqls[4] == "ALTER TABLE post_targets RENAME TO post_targets_pre_repair"
+    assert sqls[5] == "ALTER TABLE post_targets_repaired RENAME TO post_targets"
+    assert sqls[6] == "DROP TABLE post_targets_pre_repair"
     assert svc._d1_pk_cache["post_targets"] is True
+
+    # table missing but _repaired leftover survives → finish the swap
+    monkeypatch.setattr(S.d1_client, "query_all", AsyncMock(side_effect=[[], [{"name": "id", "type": "TEXT", "pk": 1}]]))
+    ex2 = AsyncMock()
+    monkeypatch.setattr(S.d1_client, "execute", ex2)
+    assert await svc._repair_d1_pk("posts", ["id"]) is True
+    assert ex2.await_args_list[0].args[0] == "ALTER TABLE posts_repaired RENAME TO posts"
 
     # empty pragma → False; execute blowup → False
     monkeypatch.setattr(S.d1_client, "query_all", AsyncMock(return_value=[]))
