@@ -4,8 +4,8 @@
 Usage: python meta_oauth_drive.py <authorize_url> [--cdp http://localhost:9224]
 
 Handles: FB/IG login forms (creds via FB_EMAIL/FB_PASS env), consent screens,
-checkpoint/2FA pause (reports state, waits for human), success detection via
-redirect to social.cloudless.gr callback.
+2FA via TOTP when META_TOTP_SECRET* env is set (else reports state + waits for
+human), success detection via redirect to social.cloudless.gr callback.
 """
 import json
 import os
@@ -18,6 +18,22 @@ CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 DEBUG_PROFILE = r"C:\Users\tbaltzakis\chrome-debug-profile"
 EMAIL = os.environ.get("FB_EMAIL", "")
 PASSWORD = os.environ.get("FB_PASS", "")
+TOTP_SECRET = (os.environ.get("META_TOTP_SECRET") or
+               os.environ.get("META_TOTP_SECRET_AC") or
+               os.environ.get("META_TOTP_SECRET_IG") or "")
+
+
+def totp_code(secret: str) -> str:
+    """RFC-6238 TOTP, 30s/6-digit/SHA-1 — no external dep."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    key = base64.b32decode(secret.upper().replace(" ", ""))
+    counter = int(time.time() // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    off = digest[-1] & 0x0F
+    return str((int.from_bytes(digest[off:off + 4]) & 0x7FFFFFFF) % 1_000_000).zfill(6)
 
 _id = 0
 
@@ -169,6 +185,31 @@ def login_fb(p):
     return f"submitted ({c})"
 
 
+def handle_2fa(p):
+    """Unattended 2FA via TOTP. Returns True when a code was submitted."""
+    if not TOTP_SECRET:
+        return False
+    # Method picker → prefer the authenticator-app lane.
+    p.click_text(["Use a different method", "Try another way",
+                  "Choose a different way", "See more options"])
+    time.sleep(1.5)
+    p.click_text(["Authentication app", "Authenticator app",
+                  "Use an authentication app"])
+    time.sleep(1.5)
+    r = p.type_into(
+        "document.querySelector('input[name=approvals_code],input[name=code],"
+        "input[inputmode=numeric],input[autocomplete=one-time-code],"
+        "input[placeholder*=code i]')", totp_code(TOTP_SECRET))
+    if r != "TYPED":
+        return False
+    time.sleep(0.5)
+    c = p.click_text(["Continue", "Submit", "Verify", "Next", "Confirm"])
+    if not c:
+        p.js("(()=>{const f=document.querySelector('form');if(f){f.submit();return 'SUBMIT'}"
+             "return 'NOFORM'})()")
+    return True
+
+
 def main():
     url = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
     if not url:
@@ -188,6 +229,11 @@ def main():
             print("SUCCESS callback reached:", st.split(":", 1)[1][:120])
             return "OK"
         if st == "GATE_2FA":
+            if handle_2fa(p):
+                print("2FA submitted via TOTP", flush=True)
+                logged_in = True  # don't re-fill the login form after the gate
+                time.sleep(5)
+                continue
             print("HUMAN GATE: 2FA/checkpoint — approve on phone or complete in browser")
             # keep polling; user may approve on phone
             time.sleep(10)
