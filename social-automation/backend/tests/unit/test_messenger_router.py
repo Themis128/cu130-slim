@@ -799,6 +799,21 @@ class TestReceiveWebhook:
         assert exc.value.status_code == 500
         assert cleared == ["mid-9"]
 
+    async def test_clear_mid_marker_success_path(self, monkeypatch):
+        deleted = []
+
+        class FakeRedis:
+            async def delete(self, key):
+                deleted.append(key)
+                return 1
+
+        async def good_redis():
+            return FakeRedis()
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", good_redis)
+        await messenger._clear_mid_marker("mid-ok")
+        assert deleted == ["messenger:seen_mid:mid-ok"]
+
     async def test_is_duplicate_mid_redis_down_fails_open(self, monkeypatch):
         async def boom():
             raise ConnectionError("redis down")
