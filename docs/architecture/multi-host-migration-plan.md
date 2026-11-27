@@ -1,6 +1,11 @@
 # Multi-Host Architecture + Migration Plan
 
-**Status**: draft v1 (2026-11-27) — awaiting Phase 0 inventory verification
+**Status**: DEFERRED by owner decision 2026-11-27 — the hardened workstation
+remains the production host for now. Revisit when x86 always-on hardware
+joins the fleet. **Hard blocker discovered during review: the current
+always-on devices are all ARM SBCs (omv-ha verified aarch64/1GB RAM/SD
+boot); the ghcr fleet images are x86-only and cannot run on them at all —
+no migration is possible until x86 hardware exists.**
 **Author**: Devin (requested by Themistoklis)
 **Scope**: migrate production-critical SocialAuto lanes off the OFFICE
 workstation onto always-on infrastructure (existing k3s cluster, OMV, Pi
@@ -27,10 +32,10 @@ architectural fact: **production does not belong on a workstation**.
 
 | Host | Role today | Facts |
 |---|---|---|
-| OFFICE (office-1, 100.83.120.93) | everything: full SocialAuto compose fleet, DMR models, browser automation lanes, dev | 32GB RAM, production + dev mixed |
+| OFFICE (office-1, 100.83.120.93) | everything: full SocialAuto compose fleet, DMR models, browser automation lanes, dev | 32GB RAM x86-64, production + dev mixed — **currently the strongest machine in the fleet** |
 | **Existing k3s cluster** (kube-0, ingress-0, k3s-subnet-router-0, tailscale-operator — tagged tailnet devices) | already hosts EspoCRM + MariaDB, Loki, monitoring lanes | k3s already operational with a Tailscale operator + subnet router — the integration problem is *already solved* there |
 | github-omv (100.74.191.58) | NAS-ish always-on host, heavy traffic (19.6GB tx) | OMV base, hosts parts of the workspace stack |
-| omv-ha (100.95.117.84) | mail stack (postfix/dovecot relay) | idle most of the time |
+| omv-ha (100.95.117.84) | mail stack (postfix/dovecot relay) | **verified 2026-11-27: aarch64 ARM SBC, 4 cores, 954MB RAM, 29GB SD-card boot** — near capacity running mail alone |
 | Pi cluster (192.168.1.128, 192.168.1.200) | pi2: nextcloud/collabora/talk workspace + cloudflared-omv; both: go2rtc camera relay | ARM, power-cut fragile (docker networks corrupt on hard power loss — fixed 2026-11-26 with restart policies, but the class remains) |
 | galaxy-s22 | phone automation lane | stays as-is |
 
@@ -86,6 +91,11 @@ Lane assignment rationale:
   *burst* workloads — the machine being a workstation hurts them much less.
 - **Pis**: keep what already works there; do not add production load to
   power-cut-fragile ARM boards beyond light, restart-tolerant workers.
+  **Architecture blocker**: the ghcr fleet images are built x86-64 only —
+  they cannot run on ARM Pis/omv-ha at all without a multi-arch rebuild
+  (aarch64 variants of every image, untested dependencies, QEMU-speed
+  builds). This alone rules out the Pi cluster as a production target
+  regardless of capacity.
 
 Connectivity is already solved: the k3s tailscale operator + subnet router
 are live, so cluster services are reachable tailnet-wide; Cloudflare
@@ -151,8 +161,10 @@ always-on-home need:
 
 ### Phase 4 — optional x86 expansion
 
-If/when x86 hardware joins (a €150-200 used mini-PC outperforms the
-whole Pi cluster for production):
+If/when x86 hardware joins — **this is the enabling purchase for the
+whole plan** (a €150-250 used mini-PC, ThinkCentre/EliteDesk Tiny class,
+i5-8th-gen+, 16-32GB, NVMe, 10-15W idle — outperforms the entire Pi
+fleet for production and runs the existing x86 ghcr images unmodified):
 
 - [ ] Proxmox on the x86 node becomes legitimate — or simpler: make it a
       k3s server node and skip the hypervisor layer entirely; k3s HA
