@@ -502,9 +502,15 @@ Bot Builder UI with a Resume button.
   which Graph rejects with `(#100) No matching user found`.
 - **Dedupe**: every inbound `message_mid` is marked in Redis (24h) before
   processing — covers both the lead-capture gate and the auto-reply path.
+  Known exceptions: postbacks carry no `mid` in Meta's payload (nothing to
+  dedupe on), icebreaker lead upserts run before the marker check (the
+  upsert is idempotent by thread, so a replay is a no-op), and a Redis
+  outage fails OPEN — a rare duplicate is deliberately preferred over a
+  dropped customer reply.
 - **Failure recovery**: when a reply fails to send, the marker is cleared
   AND the webhook returns HTTP 500. Meta redelivers; the redelivery
-  replays only the failures because successful events keep their markers.
+  replays only the failed mid-marked events because successful ones keep
+  their markers.
 - The sidecar `/process` dispatch lane is removed — inline is the single
   reply path (the sidecar acked fire-and-forget while being unable to
   authenticate to social-api, which produced zero customer replies).
