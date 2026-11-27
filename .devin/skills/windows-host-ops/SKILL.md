@@ -163,8 +163,9 @@ Known non-task flash sources (audited + remediated 2026-11-14):
 - **vsock degradation**: `wsl.exe`/interop calls intermittently fail with
   `UtilAcceptVsock`/`accept4` errors; tasks may log `0x800704E0` once and recover.
   Persistent breakage → `wsl --shutdown` (kills Docker Desktop + all sessions — plan it).
-- **Docker Desktop bounces** under memory pressure: WSL capped at ~19–20GB,
-  dropcache reclaim, 16GB swap — watch `WSL-Memory-Watchdog` results.
+- **Docker Desktop bounces** under memory pressure: WSL capped at 9GB
+  (2026-11-15, see memory architecture section), `autoMemoryReclaim=gradual`,
+  32GB swap on D: — watch `WSL-Memory-Watchdog` results.
 - **Docker-WSL-Sync resurrects sleepers**: the task starts every Exited
   `unless-stopped` container every 30min — it now queries stack-ops
   `/status` (localhost:8787) and skips managed containers. If stack-ops is
@@ -517,6 +518,12 @@ exists, what is tuned, and where the ceiling is.
 | `\DevOptimizer\WSL-Memory-Watchdog` | 30 min | swap 80% warn / 90% cache-drop / 95% restart docker-desktop distro (2h cooldown) |
 | `DockerEngineRescue` | 3 min | dead engine probe -> `wsl --shutdown` -> relaunch DD -> verify (15-min debounce) |
 
+Scope boundary: `DockerEngineRescue` acts only when the engine itself is
+dead (`docker.exe info` fails) — it never restarts containers. Container-level
+resurrection stays with `compose-watchdog.sh` / `Docker-WSL-Sync` per the
+deploy-lock rules in AGENTS.md; after the engine verify the normal container
+lanes recover the fleet, so the two never act on the same layer.
+
 Scripts live in `D:\DevOptimizer\scripts\` (host-guard.ps1, dmr-ram-guard.ps1,
 check-wsl-memory-pressure.ps1, wsl-guardian.ps1) and
 `C:\Users\tbaltzakis\devin-scripts\` (docker-engine-rescue.ps1).
@@ -531,8 +538,10 @@ existing ladder already covers every tier.
   cap on 32GB** — raising it re-creates the starvation crashes.
 - `swap=32GB` on `D:\wsl-sys\swap.vhdx`; `processors=8`;
   `autoMemoryReclaim=gradual` (dropCache caused 4 engine crashes 2026-11-07);
-  `sparseVhd=true` (docker_data.vhdx auto-trims after prunes — never compact
-  it manually, it oscillates 182-230GB by design);
+  `sparseVhd=true` — strictly this only makes NEW vhds sparse, but the
+  docker_data.vhdx shrinkage after prunes is empirically observed
+  (230->182GB overnight 2026-11-26/27, oscillates 182-230GB with fleet churn).
+  Never compact it manually — the space returns on its own over hours;
   `vmIdleTimeout=-1` (idle shutdown killed IDE sessions); `virtiofs` REMOVED
   (breaks docker-desktop bootstrap).
 - `guiApplications=false` (2026-11-27): no Linux GUI apps in use — drops the
@@ -552,6 +561,11 @@ existing ladder already covers every tier.
   Control\Session Manager\Memory Management\PagingFiles`, MultiString).
   `Win32_PageFileSetting` WMI is empty even when configured — read the
   registry, not WMI.
+- **Post-reboot verification**: the registry records what was REQUESTED, not
+  what Windows actually uses. After any reboot following a pagefile change,
+  verify the ACTIVE path with `Get-CimInstance Win32_PageFileUsage` — if it
+  still shows C:, the fallback gotcha fired and the sizes were not explicit
+  enough.
 
 ### 2026-11-26 crash-chain resolution (reference incident)
 
