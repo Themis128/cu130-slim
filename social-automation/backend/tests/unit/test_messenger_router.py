@@ -706,6 +706,111 @@ class TestReceiveWebhook:
         out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
         assert calls == ["u1"] and out["auto_replies_sent"] == 1
 
+    async def test_failed_inline_reply_returns_500_and_clears_marker(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+            ],
+        )
+        cleared = []
+
+        async def dup(mid):
+            return False
+
+        async def clear(mid):
+            cleared.append(mid)
+
+        async def cap_none(*a, **kw):
+            return None
+
+        async def proc_fail(*a, **kw):
+            return False
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_clear_mid_marker", clear)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_none)
+        monkeypatch.setattr(messenger, "_process_inline", proc_fail)
+        with pytest.raises(HTTPException) as exc:
+            await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert exc.value.status_code == 500
+        assert cleared == ["mid-1"]
+
+    async def test_duplicate_mid_skipped(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-1", "timestamp": 1},
+            ],
+        )
+        calls = []
+
+        async def dup(mid):
+            return True
+
+        async def proc(*a, **kw):
+            calls.append(1)
+            return True
+
+        async def cap_none(*a, **kw):
+            return None
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_none)
+        monkeypatch.setattr(messenger, "_process_inline", proc)
+        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert calls == [] and out["auto_replies_sent"] == 0
+
+    async def test_lead_capture_send_failure_returns_500(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "message_id": "mid-9", "timestamp": 1},
+            ],
+        )
+        cleared = []
+
+        async def dup(mid):
+            return False
+
+        async def clear(mid):
+            cleared.append(mid)
+
+        async def cap_fail(*a, **kw):
+            return False
+
+        monkeypatch.setattr(messenger, "_is_duplicate_mid", dup)
+        monkeypatch.setattr(messenger, "_clear_mid_marker", clear)
+        monkeypatch.setattr(messenger, "_try_lead_capture_reply", cap_fail)
+        with pytest.raises(HTTPException) as exc:
+            await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        assert exc.value.status_code == 500
+        assert cleared == ["mid-9"]
+
+    async def test_is_duplicate_mid_redis_down_fails_open(self, monkeypatch):
+        async def boom():
+            raise ConnectionError("redis down")
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", boom)
+        assert await messenger._is_duplicate_mid("mid-x") is False
+
+    async def test_clear_mid_marker_swallows_errors(self, monkeypatch):
+        async def boom():
+            raise ConnectionError("redis down")
+
+        monkeypatch.setattr("app.services.messenger_chatbot._get_redis", boom)
+        await messenger._clear_mid_marker("mid-x")  # must not raise
+
+
 
 # ---------------------------------------------------------------------------
 # Inline processing + AI generation
