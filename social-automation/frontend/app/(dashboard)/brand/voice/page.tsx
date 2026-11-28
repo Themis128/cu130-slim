@@ -189,7 +189,7 @@ export default function BrandVoicePage() {
                 value={newPillarDesc}
                 onChange={(e) => setNewPillarDesc(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newPillar.trim()) {
+                  if (e.key === 'Enter' && newPillar.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                     e.preventDefault()
                     setMessagingPillars([...messagingPillars, { pillar: newPillar.trim(), description: newPillarDesc.trim() }])
                     setNewPillar('')
@@ -243,7 +243,7 @@ export default function BrandVoicePage() {
               value={newBanned}
               onChange={(e) => setNewBanned(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && newBanned.trim()) {
+                if (e.key === 'Enter' && newBanned.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault()
                   setBannedPhrases([...bannedPhrases, newBanned.trim()])
                   setNewBanned('')
@@ -281,7 +281,7 @@ export default function BrandVoicePage() {
               value={newPreferred}
               onChange={(e) => setNewPreferred(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && newPreferred.trim()) {
+                if (e.key === 'Enter' && newPreferred.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault()
                   setPreferredPhrases([...preferredPhrases, newPreferred.trim()])
                   setNewPreferred('')

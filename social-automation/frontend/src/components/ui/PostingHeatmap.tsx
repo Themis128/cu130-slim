@@ -90,7 +90,7 @@ export function PostingHeatmap({ topPosts = [] }: PostingHeatmapProps) {
 
   // Find top-3 cells
   const allCells = matrix.flatMap((row, d) => row.map((score, s) => ({ d, s, score })))
-  const top3 = [...allCells].sort((a, b) => b.score - a.score).slice(0, 3)
+  const top3 = allCells.toSorted((a, b) => b.score - a.score).slice(0, 3)
   const isTop = (d: number, s: number) => top3.some((c) => c.d === d && c.s === s)
 
   const usingBenchmarks = topPosts.filter(p => platform === 'all' || p.platform === platform).length < 3

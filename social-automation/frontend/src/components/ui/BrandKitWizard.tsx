@@ -199,7 +199,7 @@ export function BrandKitWizard({ onComplete }: BrandKitWizardProps) {
             <div>
               <Label>Values</Label>
               <div className="flex gap-2 mb-2">
-                <Input value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Innovation" onKeyDown={(e) => { if (e.key === 'Enter' && newValue) { setValues([...values, newValue]); setNewValue('') }}} />
+                <Input value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Innovation" onKeyDown={(e) => { if (e.key === 'Enter' && newValue && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { setValues([...values, newValue]); setNewValue('') }}} />
                 <Button variant="outline" onClick={() => { if (newValue) { setValues([...values, newValue]); setNewValue('') } }}>Add</Button>
               </div>
               <div className="flex flex-wrap gap-2">

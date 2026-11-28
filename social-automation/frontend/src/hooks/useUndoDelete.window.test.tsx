@@ -46,8 +46,8 @@ describe('useUndoDelete — undo window closes when the delete is sent', () => {
   })
 
   it('an Undo while the delete request is still in flight does not restore it', async () => {
-    let finish!: () => void
-    const onDelete = vi.fn(() => new Promise<void>((r) => { finish = r }))
+    const deleteResult = Promise.withResolvers<void>()
+    const onDelete = vi.fn(() => deleteResult.promise)
     const { result } = renderHook(() => useUndoDelete(onDelete))
     act(() => result.current.deleteWithUndo({ id: 'p2' }, 'Post'))
     const renderFn = toast.custom.mock.calls[0][0] as RenderFn
@@ -62,7 +62,7 @@ describe('useUndoDelete — undo window closes when the delete is sent', () => {
     expect(result.current.pendingIds.has('p2')).toBe(true)
 
     await act(async () => {
-      finish()
+      deleteResult.resolve()
     })
     expect(result.current.pendingIds.has('p2')).toBe(true)
     expect(toast.error).not.toHaveBeenCalled()

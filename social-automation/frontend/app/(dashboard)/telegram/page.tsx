@@ -670,6 +670,7 @@ function ConnectBotCard({ onConnected }: { onConnected: (id: string) => void }) 
         <label className="text-sm font-medium">BotFather token</label>
         <Input
           type="password"
+          autoComplete="new-password"
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder="123456:ABC-DEF..."
@@ -812,6 +813,7 @@ function CredentialsCard({ accountId }: { accountId: string }) {
             <label className="text-sm font-medium">Update BotFather token</label>
             <Input
               type="password"
+              autoComplete="new-password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder="123456:ABC-DEF..."
