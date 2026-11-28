@@ -19,6 +19,7 @@ Four bounded agents (per agent-workforce / agentic-bpm contracts):
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -103,14 +104,31 @@ def _services_line(services: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
+def _budget_exhausted(stats: dict[str, Any], budget: int | None, deadline: float | None) -> bool:
+    """Call-budget gate: count cap or wall-clock deadline reached (soft-limit safety)."""
+    if budget is not None and stats["spent"] >= budget:
+        return True
+    return deadline is not None and time.monotonic() > deadline
+
+
+async def _triage_local_leads(
+    db: AsyncSession,
+    team_id: uuid.UUID,
+    *,
+    budget: int | None = None,
+    deadline: float | None = None,
+) -> dict[str, int]:
     """Local ``leads`` rows that have not been triaged yet."""
     rows = (await db.execute(select(Lead).where(Lead.team_id == team_id).order_by(Lead.created_at.desc()).limit(200))).scalars().all()
-    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     for lead in rows:
         md = dict(lead.meta_data or {})
         if md.get("agency_triaged"):
             continue
+        if _budget_exhausted(stats, budget, deadline):
+            stats["deferred"] += 1
+            continue
+        stats["spent"] += 1
         blob = _lead_blob(lead)
         ranked = classify_services(blob)
         services = [slug for slug, _score, _hits in ranked]
@@ -153,9 +171,15 @@ async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str,
     return stats
 
 
-async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
+async def _triage_espo_leads(
+    db: AsyncSession,
+    team_id: uuid.UUID,
+    *,
+    budget: int | None = None,
+    deadline: float | None = None,
+) -> dict[str, int]:
     """EspoCRM-native leads (contact-form path) — note marker is the dedupe."""
-    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     leads = await espo.list_all(
         "Lead",
         select=["id", "name", "emailAddress", "website", "description", "status", "createdAt"],
@@ -174,6 +198,10 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
         if exists:
             stats["skipped"] += 1
             continue
+        if _budget_exhausted(stats, budget, deadline):
+            stats["deferred"] += 1
+            continue
+        stats["spent"] += 1
         notes = await espo.list_all(
             "Note",
             select=["id", "post"],
@@ -243,16 +271,25 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
 
 
 async def triage_sweep(*, session_factory=None) -> dict[str, Any]:
-    """Front Desk agent: classify untriaged leads, queue site audits."""
+    """Front Desk agent: classify untriaged leads, queue site audits (bounded per run)."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_TRIAGE_MAX_PER_RUN", 40)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_TRIAGE_BUDGET_S", 240)
+    empty: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     async with factory() as db:
         team_id = await _default_team_id(db)
         if not team_id:
             return {"status": "skipped", "reason": "no_team"}
-        local = await _triage_local_leads(db, team_id)
-        espo_stats = await _triage_espo_leads(db, team_id) if espo.configured() else {"triaged": 0, "audits": 0, "skipped": 0}
+        local = await _triage_local_leads(db, team_id, budget=budget, deadline=deadline)
+        remaining = max(0, budget - local["spent"])
+        espo_stats = (
+            await _triage_espo_leads(db, team_id, budget=remaining, deadline=deadline)
+            if espo.configured() and remaining and time.monotonic() < deadline
+            else empty
+        )
         await db.commit()
     stats: dict[str, Any] = {"status": "ok", "local": local, "espo": espo_stats}
     logger.info("agency triage sweep: %s", stats)
@@ -714,8 +751,11 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_PM_MAX_PER_RUN", 20)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_PM_BUDGET_S", 90)
     now = datetime.now(UTC)
-    stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
+    stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0, "deferred": 0, "spent": 0}
     drafts: list[str] = []
     async with factory() as db:
         projects = (await db.execute(select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.active))).scalars().all()
@@ -744,7 +784,12 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             # crm_engagement. Day 2: one gentle nudge. Day 4: Slack
             # escalate — the day-1 access milestone is slipping.
             md = dict(project.meta_data or {})
-            if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
+            nudge_due = day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged")
+            if nudge_due and _budget_exhausted(stats, budget, deadline):
+                stats["deferred"] += 1
+                nudge_due = False
+            if nudge_due:
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -813,6 +858,10 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     due_at = due_at.replace(tzinfo=UTC)
                 if now < due_at:
                     continue
+                if _budget_exhausted(stats, budget, deadline):
+                    stats["deferred"] += 1
+                    continue
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -858,6 +907,10 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     asked_at = asked_at.replace(tzinfo=UTC)
                 if now < asked_at + timedelta(days=step_day):
                     continue
+                if _budget_exhausted(stats, budget, deadline):
+                    stats["deferred"] += 1
+                    break
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -1268,8 +1321,11 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
     if not espo.configured():
         return {"status": "skipped", "reason": "espocrm_not_configured"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_POST_CONSULT_MAX_PER_RUN", 15)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_POST_CONSULT_BUDGET_S", 90)
     today = datetime.now(UTC).date().isoformat()
-    stats: dict[str, Any] = {"status": "ok", "sent": 0, "skipped": 0}
+    stats: dict[str, Any] = {"status": "ok", "sent": 0, "skipped": 0, "deferred": 0, "spent": 0}
     sent_lines: list[str] = []
     async with factory() as db:
         opps = await espo.list_all(
@@ -1285,6 +1341,10 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
             oid = opp.get("id") or ""
             if not oid:
                 continue
+            if _budget_exhausted(stats, budget, deadline):
+                stats["deferred"] += 1
+                continue
+            stats["spent"] += 1
             if await _opp_has_note(oid, POST_CONSULT_MARKER):
                 stats["skipped"] += 1
                 continue

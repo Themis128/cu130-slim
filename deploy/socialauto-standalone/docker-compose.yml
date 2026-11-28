@@ -666,6 +666,9 @@ services:
       - PORT=8080
       - HTTPS_ENABLED=false
       - TELEMETRY_ENABLED=true
+    ports:
+      - "127.0.0.1:8090:8080"
+      - "${INFISICAL_TAILNET_IP}:8090:8080"
     networks: [cu130-db, default]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/status || exit 1"]
@@ -706,7 +709,7 @@ services:
       - flower_data:/data
     networks: [cu130-backend, cu130-db, default]
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request,urllib.error; urllib.request.urlopen('http://localhost:5555/', timeout=5)\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import base64,os,urllib.request; a=base64.b64encode(os.environ['FLOWER_BASIC_AUTH'].encode()).decode(); urllib.request.urlopen(urllib.request.Request('http://localhost:5555/',headers={'Authorization':'Basic '+a}),timeout=5)\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

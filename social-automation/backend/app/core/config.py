@@ -765,6 +765,17 @@ class Settings(BaseSettings):
     # path (workforce_audit ladder) and defaults OFF.
     AGENCY_ENABLED: bool = True
     AGENCY_AUDIT_MAX_PER_RUN: int = 5
+    # Triage sweep external-call budget (soft limit is 300s): count cap bounds
+    # the happy path, the wall-clock budget bounds a wedged/slow EspoCRM —
+    # deferred leads resume on the next beat via the triage markers.
+    AGENCY_TRIAGE_MAX_PER_RUN: int = 40
+    AGENCY_TRIAGE_BUDGET_S: int = 240
+    # Same contract for the mail-sending sweeps (120s soft limit): cap
+    # external sends per run + wall-clock budget; unstamped rows resume.
+    AGENCY_PM_MAX_PER_RUN: int = 20
+    AGENCY_PM_BUDGET_S: int = 90
+    AGENCY_POST_CONSULT_MAX_PER_RUN: int = 15
+    AGENCY_POST_CONSULT_BUDGET_S: int = 90
     AGENCY_PROPOSAL_AUTOSEND: bool = False
     # Guarded autosend only fires when every deterministic check passes
     # (completed audit, catalog services, in-band price, valid non-synthetic
