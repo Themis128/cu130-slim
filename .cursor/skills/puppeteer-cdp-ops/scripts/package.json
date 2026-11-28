@@ -1,0 +1,9 @@
+{
+  "name": "puppeteer-cdp-ops-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Puppeteer-core CDP driver for :9229 debug-Chrome human-act lanes",
+  "dependencies": {
+    "puppeteer-core": "25.19.0"
+  }
+}
