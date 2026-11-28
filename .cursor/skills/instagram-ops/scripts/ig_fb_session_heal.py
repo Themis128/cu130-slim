@@ -44,6 +44,13 @@ REPO = HOME / "cu130-slim"
 ENV_FILE = REPO / ".env"
 SIDECAR_CONTAINER = os.environ.get("FB_SIDECAR_CONTAINER", "facebook-browser-sidecar")
 SIDECAR_URL = "http://localhost:9226"
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(_REPO_ROOT / ".devin/skills/social-stack-ops/scripts"))
+try:
+    from sidecar_wake import wake_service as _wake_service
+except Exception:  # noqa: BLE001
+    _wake_service = None
 FB_CODE = REPO / ".devin/skills/phone-2fa-ops/scripts/fb_code.py"
 TG_ALERT = REPO / ".devin/skills/telegram-alert-ops/scripts/tg_alert.py"
 STATE_DIR = HOME / ".local/state/ig-fb-heal"
@@ -135,6 +142,13 @@ def sidecar(path: str, payload: dict | None = None, timeout: int = 120) -> dict:
             ["docker", "exec", "-i", SIDECAR_CONTAINER, "node", "-e", js],
             input=req, capture_output=True, text=True, timeout=timeout,
         )
+        if out.returncode != 0 and _wake_service:
+            # Idle-slept container — wake via stack-ops and retry once.
+            if _wake_service(SIDECAR_CONTAINER, timeout=130):
+                out = subprocess.run(
+                    ["docker", "exec", "-i", SIDECAR_CONTAINER, "node", "-e", js],
+                    input=req, capture_output=True, text=True, timeout=timeout,
+                )
         if out.returncode != 0:
             return {"error": f"exec rc={out.returncode}: {out.stderr.strip()[:200]}"}
         return json.loads(out.stdout or "{}")

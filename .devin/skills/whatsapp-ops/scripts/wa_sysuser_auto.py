@@ -198,7 +198,14 @@ def main() -> int:
             else:
                 window = val
     env = load_env()
-    token = env.get("META_ACCESS_TOKEN", "")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    token = ""
+    try:
+        from wa_meta_token import resolve_token as _resolve_meta_token
+        token = _resolve_meta_token() or ""
+    except Exception:  # noqa: BLE001
+        token = ""
+    token = token or env.get("META_ACCESS_TOKEN", "")
     secret = env.get("FACEBOOK_CLIENT_SECRET", "")
     if not token or not secret:
         log("FATAL: META_ACCESS_TOKEN or FACEBOOK_CLIENT_SECRET missing in .env")
