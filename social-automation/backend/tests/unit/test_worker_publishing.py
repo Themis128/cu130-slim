@@ -1747,10 +1747,19 @@ async def test_notify_publish_failure_telegram_raises_swallowed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pq_run_budget_releases_unstarted_items(monkeypatch):
-    """Budget exhausted before the first target → hand rows back as PENDING."""
+    """Budget exhausted after post/account resolve → hand rows back PENDING.
+
+    The headroom check runs once post+account are fetched (PublishQueue has
+    no platform column), so the first item consumes those two selects before
+    the release commit.
+    """
     i1 = _qitem()
     i2 = _qitem()
-    db = _FakeDB([_res(scalars_all=[i1, i2])])
+    db = _FakeDB([
+        _res(scalars_all=[i1, i2]),
+        _res(one=_post(id=i1.post_id)),
+        _res(one=_acct(id=i1.social_account_id)),
+    ])
     _patch_db(monkeypatch, db)
     monkeypatch.setattr(W, "_RUN_BUDGET_S", 0.0)
     await W._process_publish_queue_async()
