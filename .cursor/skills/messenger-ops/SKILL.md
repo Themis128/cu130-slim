@@ -118,6 +118,17 @@ MESSENGER_E2EE_PIN=123456
 await bridge._handle_e2ee_pin_dialog(pin="123456")
 ```
 
+### No-PIN posture (owner has no E2EE PIN — 2026-11-28)
+
+The owner does not have a Messenger E2EE PIN, so PIN-gated E2EE threads are
+unreadable **by design** — not a defect. `MESSENGER_E2EE_PIN` stays unset;
+do not file it as a remaining human gate. The PIN-dialog check logs a warning
+once per process then drops to debug (browser_bridge `_e2ee_pin_warned`).
+
+For Messenger reads use the **matrix lane** (mautrix-meta bridge,
+`matrix-messenger-ops`) — it covers inbox traffic without the browser PIN
+dialog. Regular (non-E2EE) threads still read fine through the bridge.
+
 ### E2EE conversation detection
 
 E2EE conversations are detected by URL path:
