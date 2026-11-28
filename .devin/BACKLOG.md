@@ -5118,3 +5118,23 @@ Follow-ups:
 - [ ] **human: n8n owner login** — some lanes still need the n8n UI login
   (noted during TG-architecture work); TOTP path exists in
   `n8n-cloudless` skill if a headless login is wanted instead.
+
+## 2026-11-28 — deploy automation closed (code→image→container)
+- [x] **Baked-image gap CLOSED** — `build-and-push.yml` now runs a `detect`
+  job on every master push mapping changed paths → the services that
+  consume them (backend→social-api+social-worker-publishing, etc.), so
+  `.py`-only merges DO build images (PR #2759). Downstream was already
+  automated: `master-deploy-watch` (10min) pulls + recreates,
+  `stack-image-sync` (30min) catches digest drift.
+- [x] **publish_resurrect Part 5** — transient storage-skip targets
+  ("only X/Y media assets could be resolved") now auto-revive after a
+  per-asset head-check (PR #2758). Previously `skipped` was terminal to
+  every lane — no lane ever re-armed it.
+- [ ] **watch: Docker Desktop self-exit 12:04** — app quit entirely
+  (per-user install `AppData/Local/Programs/DockerDesktop`); relaunched
+  12:06 via DockerDashboardGuard/EngineRescue + manual start. Stack
+  auto-recovered via restart policies; if it recurs, check whether it was
+  an auto-update (29.9.3 is fresh).
+- [ ] **f5b8493d twitter publish** — deferred to 18:53 UTC x_web cap
+  slot (4/5 used). Other 6 platform targets correctly dedup-skipped
+  (content already published).
