@@ -63,8 +63,12 @@ Our application "Cloudless Analytics" (client ID {client_id}, app 264925843)
 was denied Matched Audiences API access with reason "business verification
 failed". We are appealing with precise, verifiable business details:
 
-- Legal entity: Cloudless (Greek sole-proprietorship / IKE), operating
-  cloudless.gr — registered Greek business, EU-based.
+- Legal entity: Θεμιστοκλής Μπαλτζάκης — Greek sole proprietorship
+  (individual enterprise, 100% owned by the applicant), Athens, Greece.
+- Tax ID (ΑΦΜ): 115307716 — verifiable via the Greek Independent Authority
+  for Public Revenue (AADE) tax registry.
+- Note: sole proprietorships are not registered in GEMI (Greek General
+  Commercial Registry) — the AFM is the official business identifier.
 - Business email: tbaltzakis@cloudless.gr (domain-verified mailbox).
 - Company LinkedIn Page: https://www.linkedin.com/company/cloudless-gr/
   (organization URN urn:li:organization:108614163, admin-verified on this app).
@@ -83,8 +87,10 @@ are first-party contacts who interacted with us.
 
 Requested permission: rw_dmp_segments on app 264925843.
 
-Happy to provide Greek business registration details (AFM/GEMI), a
-screen recording, or a call if the reviewer needs anything else.
+Business verification details are included above (legal entity name, AFM
+115307716, verified business email, admin-verified Company Page, active ad
+account). Happy to provide a Greek AFM registry extract, a screen recording,
+or a call if the reviewer needs anything else.
 
 Regards,
 Themistoklis Baltzakis

@@ -1,13 +1,13 @@
 # phone-ops — S22+ remote control over Tailscale ADB
 
-The S22+ (`galaxy-s22`, `100.84.31.85`) has wireless ADB on `:5555`. Trust is
+The S22+ (`galaxy-s22`, `100.84.31.85`) has wireless ADB on a rotating TLS port (`:42631` on 2026-11-28; legacy `:5555` may also be up). Trust is
 already seeded (the Windows `adbkey` in `C:\Users\tbaltzakis\.android\` —
 copy it to `~/.android/` on any Linux host).
 
 ## Quick ops
 
-    adb connect 100.84.31.85:5555
-    adb -s 100.84.31.85:5555 shell <cmd>
+    adb connect 100.84.31.85:42631   # port rotates — adb_rearm.py rediscovers
+    adb -s 100.84.31.85:42631 shell <cmd>
 
 ## adb_watch.py — reconnect + act when the phone comes back
 
