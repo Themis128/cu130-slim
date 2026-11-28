@@ -147,14 +147,14 @@ def _execute(key: str, send: bool, _dedupe_retries: int = 0) -> dict[str, Any]:
             return {"report": key, "skipped": "dedupe-unavailable"}
     try:
         result = run_async(_run_report(key, send))
-        if not (send and result.get("emailed")) and claimed:
+        if not (send and result.get("emailed")) and claimed and r is not None:
             try:
                 r.delete(lock_key)
             except Exception:  # noqa: BLE001
                 pass
         return result
     except Exception:
-        if claimed:
+        if claimed and r is not None:
             try:
                 r.delete(lock_key)
             except Exception:  # noqa: BLE001

@@ -23,6 +23,8 @@ import logging
 import os
 import re
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 from sqlalchemy import select
 
@@ -656,7 +658,7 @@ async def _conversation_list(account: SocialAccount) -> list[dict]:
     return []
 
 
-async def sync_rooms(team_id: uuid.UUID, session_factory=async_session_maker) -> dict[str, int]:
+async def sync_rooms(team_id: uuid.UUID, session_factory: Callable[[], Any] = async_session_maker) -> dict[str, int]:
     """Ensure one Talk room per active platform conversation."""
     created = mapped = 0
     async with session_factory() as db:
@@ -715,7 +717,7 @@ async def sync_rooms(team_id: uuid.UUID, session_factory=async_session_maker) ->
     return {"created": created, "mapped": mapped}
 
 
-async def inbound_sync(team_id: uuid.UUID, session_factory=async_session_maker) -> dict[str, int]:
+async def inbound_sync(team_id: uuid.UUID, session_factory: Callable[[], Any] = async_session_maker) -> dict[str, int]:
     """Post new platform messages into their mapped Talk rooms."""
     posted = 0
     async with session_factory() as db:

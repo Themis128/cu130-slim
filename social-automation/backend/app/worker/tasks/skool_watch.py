@@ -24,6 +24,7 @@ import json
 import logging
 import re
 import time
+from typing import Any
 
 from sqlalchemy import select
 
@@ -101,7 +102,7 @@ def _run_async(coro):
 from app.worker._async import task_session as _worker_db  # noqa: E402
 
 
-async def _redis():
+async def _redis() -> Any:
     import redis.asyncio as aioredis
 
     from app.core.config import get_settings

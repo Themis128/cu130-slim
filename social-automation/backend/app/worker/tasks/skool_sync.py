@@ -18,7 +18,11 @@ async def _run():
     from app.services import skool_sync
     from app.worker._async import task_session
 
+    diff = getattr(skool_sync, "diff_and_report", None)
+    if diff is None:
+        logger.warning("[skool] sync_skool: diff_and_report not implemented in app.services.skool_sync — skipped")
+        return {"skipped": "diff_and_report not implemented"}
     async with task_session() as db:
-        res = await skool_sync.diff_and_report(db)
+        res = await diff(db)
     logger.info("[skool] %s", res)
     return res
