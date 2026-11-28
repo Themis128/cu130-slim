@@ -130,6 +130,37 @@ python3 scripts/li_grant_watch.py --status   # last recorded state
   memberSnapshotData → 403 ACCESS_DENIED (correct), member analytics scopes
   already live.
 - Cron: `7 */2 * * *` user crontab → `~/logs/li-grant-watch.log`.
+
+## Product-state watcher — `li_product_watch.py` (2026-11-28)
+
+Covers the products `li_grant_watch` can't probe (no gated REST surface —
+e.g. **Live Events**, Pages DP, Member DP (Member)/(3rd Party)). Reads every
+product card on each app's `/developers/apps/<id>/products` page and diffs
+state per product (`added`/`REVIEW`/`FORM`/`REQ`/`DENIED`):
+
+```bash
+python3 scripts/li_product_watch.py            # probe + diff + TG #ops alert
+python3 scripts/li_product_watch.py --json     # machine-readable, no side effects
+python3 scripts/li_product_watch.py --status   # last recorded state
+python3 scripts/li_product_watch.py --via cdp|sidecar   # force a lane
+```
+
+- Apps watched: `265077368`, `264925843`, `265077464`, `265081467`,
+  `227354605`. Transport: linkedin-browser-sidecar `/debug/navigate` +
+  `/debug/eval` (wakes the idle-slept sidecar via stack-ops), Windows CDP
+  `:9229` fallback via ONE tab + `Page.navigate` per app.
+- Alerts on ANY transition — improvements (`DENIED`/`REQ`→`REVIEW`/`added`)
+  AND regressions (`added`→`DENIED` = new denial). First-seen products are
+  recorded silently into `~/.local/state/li-product-watch/state.json`.
+- Non-product cards (error banners, "Access was denied" page-level text)
+  are filtered out of the product map.
+- Verified live 2026-11-28: CDP lane returned the full 14-product state
+  table for app 265077368 (Matched Audiences DENIED, Community Mgmt
+  DENIED, Live Events REQ, Member DP ×2 + Pages DP REQ, rest added).
+  Sidecar `/debug/navigate` to linkedin.com was returning HTTP 500 /
+  chrome-error at probe time — watcher skips cleanly and retries next
+  pass; CDP watchdog owns :9229 revival.
+- Cron: `37 */2 * * *` user crontab → `~/logs/li-product-watch.log`.
 - **Re-consent caveat**: even after LinkedIn approves a product, the member
   token must be re-authorized to carry the new scope (e.g.
   `rw_dmp_segments`). The watcher alerts on "scope in token but API still
