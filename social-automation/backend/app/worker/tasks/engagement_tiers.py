@@ -28,13 +28,14 @@ async def _run():
 
     async with task_session() as db:
         # outbound volume per author — authors we've engaged get reciprocity credit
-        vol = dict(
-            (
+        vol: dict[str, int] = {
+            str(author): int(cnt)
+            for author, cnt in (
                 await db.execute(
                     select(EngagementAction.target_author, func.count()).where(EngagementAction.status == "acted").group_by(EngagementAction.target_author)
                 )
             ).all()
-        )
+        }
 
         cands = (await db.execute(select(EngagementCandidate))).scalars().all()
         bumped = {"high": 0, "medium": 0, "low": 0}

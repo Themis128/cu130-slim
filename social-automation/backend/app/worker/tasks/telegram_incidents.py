@@ -166,7 +166,7 @@ def telegram_incidents_ingest(self):
         from app.models.telegram_message import TelegramChannelMessage
         from app.services.ops_agent import report_incident
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         stats: dict[str, Any] = {"scanned": 0, "ingested": 0, "skipped": 0}
         try:
             import os

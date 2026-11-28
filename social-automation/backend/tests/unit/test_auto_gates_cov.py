@@ -7,8 +7,6 @@ import pytest
 
 import app.worker.tasks.auto_gates as AG
 
-pytestmark = pytest.mark.asyncio
-
 
 class _AsyncCM:
     def __init__(self, v):
@@ -35,6 +33,7 @@ def test_autonomy_level(monkeypatch):
     assert AG._autonomy_level() == 0
 
 
+@pytest.mark.asyncio
 async def test_engagement_autoapprove_levels(monkeypatch):
     monkeypatch.setenv("AUTONOMY_LEVEL", "1")
     assert (await AG._engagement_autoapprove())["off"] is True
@@ -47,7 +46,8 @@ async def test_engagement_autoapprove_levels(monkeypatch):
     monkeypatch.setattr(AG, "task_session", lambda: _AsyncCM(db))
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(SN, "notify_engagement_autoapprove", lambda r: None, raising=False)
+    sent = AsyncMock(return_value=True)
+    monkeypatch.setattr(SN, "send_telegram_alert", sent)
 
     monkeypatch.setenv("AUTONOMY_LEVEL", "2")
     out = await AG._engagement_autoapprove()
@@ -57,8 +57,11 @@ async def test_engagement_autoapprove_levels(monkeypatch):
     monkeypatch.setenv("AUTONOMY_LEVEL", "3")
     out = await AG._engagement_autoapprove()
     assert out["approved"] == 3
+    assert sent.await_count == 4
+    assert sent.await_args.args[0] == "ops"
 
 
+@pytest.mark.asyncio
 async def test_engagement_notify_exception(monkeypatch):
     monkeypatch.setenv("AUTONOMY_LEVEL", "3")
     r = SimpleNamespace(status="pending_human_gate", action="comment", comment_draft="x", score=99)
@@ -66,12 +69,14 @@ async def test_engagement_notify_exception(monkeypatch):
     monkeypatch.setattr(AG, "task_session", lambda: _AsyncCM(db))
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(SN, "notify_engagement_autoapprove", lambda r: (_ for _ in ()).throw(Exception("down")), raising=False)
+    monkeypatch.setattr(SN, "send_telegram_alert", AsyncMock(side_effect=Exception("down")))
     assert (await AG._engagement_autoapprove())["approved"] == 1
+    assert r.status == "pending"
 
 
 def test_wrappers(monkeypatch):
-    monkeypatch.setattr(AG, "run_async", lambda c: {"ok": 1})
+    # Close the coroutine so the wrappers don't leak never-awaited warnings.
+    monkeypatch.setattr(AG, "run_async", lambda c: (c.close(), {"ok": 1})[1])
     assert AG.survey_autosend() == {"ok": 1}
     assert AG.post_autoapprove() == {"ok": 1}
     assert AG.engagement_autoapprove() == {"ok": 1}

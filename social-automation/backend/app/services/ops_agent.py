@@ -615,7 +615,7 @@ async def _purge_resolved_alerts(db: AsyncSession, now: datetime) -> tuple[int, 
     purged = 0
     for inc in rows:
         try:
-            if await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id):
+            if inc.alert_chat_id and inc.alert_message_id is not None and await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id):
                 purged += 1
         except Exception as exc:
             logger.warning("ops-agent alert delete failed for %s: %s", inc.fingerprint, exc)
@@ -669,7 +669,8 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
                     try:
                         from app.services.slack_notifications import delete_telegram_alert
 
-                        await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id)
+                        if inc.alert_chat_id and inc.alert_message_id is not None:
+                            await delete_telegram_alert(inc.alert_chat_id, inc.alert_message_id)
                     except Exception as exc:
                         logger.warning("ops-agent superseded-alert delete failed: %s", exc)
                 inc.alert_chat_id = chat_id

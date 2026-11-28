@@ -102,6 +102,8 @@ async def _linkedin_token_health() -> str:
         if new and new.get("access_token"):
             async with task_session() as db:
                 acc2 = await db.get(SocialAccount, acc_id)
+                if acc2 is None:
+                    return "skip"
                 acc2.access_token_enc = encrypt_token(new["access_token"])
                 if new.get("refresh_token"):
                     acc2.refresh_token_enc = encrypt_token(new["refresh_token"])

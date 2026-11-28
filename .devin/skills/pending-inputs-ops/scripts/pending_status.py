@@ -72,8 +72,18 @@ def main() -> int:
            "human-gate-capture-ops/scripts/gate_capture.py status 2>&1")
     out["gate_watcher"] = "armed (15min)" if "watcher" in w or True else w[:60]
 
-    # news/issue fire
-    out["newsletter_3"] = "auto-fire 22:15Z (cron armed, circuit 22:14Z)"
+    # newsletter issue #3 (Weekly Cloud Computing Trends — Nov 02):
+    # PUBLISHED 2026-11-17 (autopilot, dup-loop deduped Nov 23).
+    # Series-page verify blocked: sidecar session dead (redirect_loop).
+    nl_state = ""
+    try:
+        nl_state = json.loads(Path(
+            f"{HOME}/logs/newsletter_verify.status.json").read_text()).get("state", "")
+    except Exception:
+        pass
+    out["newsletter_3"] = ("published Nov-17 (deduped) — verify blocked: "
+                            "LI sidecar session dead" if nl_state != "confirmed"
+                            else "confirmed ✅")
 
     # themis.baltzakis@gmail.com — second Gmail mailbox, no OAuth grant yet.
     # Token key: GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS_GMAIL_COM
