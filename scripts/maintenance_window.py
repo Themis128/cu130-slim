@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKERS = ["celery-beat", "social-worker-publishing", "social-worker-default",
-           "social-worker-messenger", "social-worker-media"]
+           "social-worker-messenger", "social-worker-media", "social-worker-reports"]
 
 cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
 
