@@ -1170,3 +1170,32 @@ split-tunnel — **keep it excluded**, Meta sockets are fragile under VPN
 MTU-1280 per phone-net-ops), mobile-data pinning (rmnet0), clock skew, stale
 app version, app cache. Clears on a profile switch (socket re-binds) or a
 device restart.
+
+### Tailscale split-tunnel set (applied on-device 2026-11-28)
+
+The phone's Tailscale routes through an exit node at MTU-1280 — the PMTU
+blackhole class that wedges realtime sockets (phone-net-ops). Verified
+excluded apps (Tailscale → ⋮ → App split tunneling, each confirmed
+checked in the app UI):
+
+- Meta family: `com.facebook.orca` (Messenger), `com.facebook.pages.app`
+  (Business Suite), `com.instagram.android`, `com.instagram.moonshot` (Threads)
+- Messaging/push: `com.whatsapp`, `com.viber.voip`, `com.Slack`,
+  `io.heckel.ntfy`
+- Banking (foreign-IP fraud checks): `com.revolut.revolut`,
+  `mbanking.NBG`, `gr.winbank.mobile.redesign`, `com.EurobankEFG`
+
+App-list quirks worth knowing: display names don't match package names —
+winbank lists as **"Piraeus app"**, NBG as **"NBG"**; the list sorts
+capitalized names first, then lowercase-starting names, then Greek; row
+checkboxes are `NAF` (not accessibility-friendly) — only taps on the
+checkbox itself toggle, row/name taps are no-ops. Apps pick up the
+exclusion on their next socket bind.
+
+### End-to-end notification verification (2026-11-28)
+
+Live loop test proved the full pipeline on-device: a personal→Page message
+sent via the browser bridge landed in the Business Suite inbox, the bot
+auto-reply (`messenger_chatbot` lane) fired, and the reply pushed a real
+Messenger notification to the phone — personal→Page→bot→personal
+notification, verified from ADB screenshots of the lockscreen shade.

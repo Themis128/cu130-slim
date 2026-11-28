@@ -134,7 +134,7 @@ def send_linkedin_invites(batch_size: int = 40) -> dict:
     """Send a daily batch of LinkedIn Page follow invitations."""
     from app.services.linkedin_invites import send_invite_batch
 
-    res = _run_async(send_invite_batch(batch_size))
+    res = _run_async(send_invite_batch(batch_size)) or {}
     logger.info("linkedin_invites: %s", res)
     try:
         _run_async(_log_invite_event(res))

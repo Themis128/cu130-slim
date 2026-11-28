@@ -32,7 +32,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import get_settings
+from app.core.config import get_settings, resolve_cf_token
 from app.services.facebook_api import _sanitize_log_text
 from app.services.messenger_chatbot import (
     _PRICING_RESPONSES,
@@ -826,7 +826,7 @@ async def process_inbound_message(
         logger.debug("WhatsApp lead capture failed (non-fatal): %s", exc)
 
     # 6. Detect message intent
-    cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
+    cf_token = resolve_cf_token()
     cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
     dmr_url = os.getenv("DMR_BASE_URL", "http://localhost:12435")
 
