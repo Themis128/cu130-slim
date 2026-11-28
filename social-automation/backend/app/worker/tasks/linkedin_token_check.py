@@ -188,7 +188,7 @@ async def _check() -> dict:
                     stats["healthy"] += 1
             # Merge only the token-health keys atomically — assigning the
             # whole meta_data doc would clobber concurrent heal writes.
-            patch = {"li_token_checked_at": meta["li_token_checked_at"]}
+            patch: dict = {"li_token_checked_at": meta["li_token_checked_at"]}
             if valid is not None:
                 patch["li_token_invalid"] = meta["li_token_invalid"]
             await db.execute(
