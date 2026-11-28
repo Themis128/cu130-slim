@@ -919,6 +919,24 @@ class LinkedInAPIClient:
                 v2_url = f"{LINKEDIN_V2_BASE}/socialActions/{encoded}/comments"
                 v2 = {"actor": creator_urn, "object": post_urn, "message": {"text": text[:MAX_COMMENTARY_CHARS]}}
                 resp = await client.post(v2_url, headers=self._headers(), json=v2)
+            if resp.status_code == 400:
+                # Group posts: voyager/feed URNs (urn:li:activity:…) are not the
+                # commentable thread — LinkedIn names the real one in the error
+                # ("actual threadUrn: urn:li:groupPost:<group>-<post>"). Retry
+                # once with the corrected URN instead of failing the action.
+                m = re.search(r"actual threadUrn:\s*(urn:li:[A-Za-z]+:[A-Za-z0-9_\-.]+)", resp.text)
+                if m and m.group(1) != post_urn:
+                    try:
+                        corrected = _validate_urn(m.group(1))
+                    except ValueError:
+                        corrected = ""
+                    if corrected:
+                        logger.info("linkedin comment threadUrn corrected %s -> %s", post_urn, corrected)
+                        payload["object"] = corrected
+                        post_urn = corrected
+                        encoded = quote(corrected, safe="")
+                        url = f"{LINKEDIN_REST_BASE}/socialActions/{encoded}/comments"
+                        resp = await client.post(url, headers=self._headers(), json=payload)
             if resp.status_code >= 400:
                 self._log_api_error(url, resp)
                 return LinkedInPostResult(
