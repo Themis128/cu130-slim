@@ -907,3 +907,19 @@ def get_settings() -> Settings:
 # Module-level binding for callers that do `from app.core.config import settings`.
 # Points to the same lru_cache singleton as get_settings() — not a second instance.
 settings = get_settings()
+
+
+def resolve_cf_token() -> str:
+    """Canonical Cloudflare token resolution for direct-env consumers.
+
+    Provisioning writes valid tokens under any of three names; the 2026-11-28
+    incident showed consumers reading only CLOUDFLARE_API_TOKEN run tokenless
+    even when a valid token exists (messenger sidecar weeks-long outage).
+    Order: canonical first, then provisioning alternates.
+    """
+    import os as _os
+    for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_TOKEN", "CLOUDFLARE_WORKERS_AI_TOKEN"):
+        tok = (_os.getenv(name, "") or "").strip()
+        if tok:
+            return tok
+    return ""
