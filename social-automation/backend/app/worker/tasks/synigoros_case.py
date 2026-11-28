@@ -32,6 +32,7 @@ import os
 import re
 import smtplib
 import urllib.parse
+import urllib.error
 import urllib.request
 from datetime import UTC, date, datetime, time
 from email.header import Header, decode_header

@@ -124,7 +124,8 @@ def keep_warm_dmr_models() -> dict:
     if r is not None:
         try:
             last = r.get(_KEEP_WARM_LAST)
-            if last and time.time() - float(last) < _KEEP_WARM_MIN_GAP:
+            last_ts = last.decode() if isinstance(last, bytes) else last
+            if last_ts and time.time() - float(last_ts) < _KEEP_WARM_MIN_GAP:
                 return {"warmed": [], "skipped": [], "reason": "recent-run"}
             locked = bool(r.set(_KEEP_WARM_LOCK, token, nx=True, ex=_KEEP_WARM_LOCK_TTL))
             if not locked:
@@ -135,7 +136,7 @@ def keep_warm_dmr_models() -> dict:
     try:
         return _run_async(_keep_warm())
     finally:
-        if locked:
+        if locked and r is not None:
             try:
                 if r.get(_KEEP_WARM_LOCK) == token:
                     r.delete(_KEEP_WARM_LOCK)

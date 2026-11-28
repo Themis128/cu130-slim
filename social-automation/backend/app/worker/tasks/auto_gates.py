@@ -116,9 +116,12 @@ async def _engagement_autoapprove() -> dict:
             r.status = "pending"  # same transition the manual /approve does
             approved += 1
             try:
-                from app.services.slack_notifications import notify_engagement_autoapprove
+                from app.services.slack_notifications import send_telegram_alert
 
-                notify_engagement_autoapprove(r)
+                await send_telegram_alert(
+                    "ops",
+                    f"engagement autopilot approved action={r.action} score={r.score}",
+                )
             except Exception:
                 logger.debug("autoapprove notify skipped", exc_info=True)
         await db.commit()

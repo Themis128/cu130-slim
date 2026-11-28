@@ -223,6 +223,8 @@ def _poll_inner() -> dict:
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
     )
+    if not out:
+        raise RuntimeError("synigoros status eval returned empty — bridge session likely dead")
     result = json.loads(out)
     if result.get("kpa") and result["kpa"] != KPA:
         raise RuntimeError(f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required")
