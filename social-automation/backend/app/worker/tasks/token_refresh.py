@@ -225,6 +225,13 @@ async def _refresh_expiring_tokens_async() -> dict:
                     token = await _refresh_instagram_business_token(decrypt_token(account.access_token_enc))
                 elif platform == "threads" and not account.refresh_token_enc:
                     token = await _refresh_threads_token(decrypt_token(account.access_token_enc))
+                elif not account.refresh_token_enc:
+                    # Access-token-only account — nothing to refresh with;
+                    # decrypt_token(None) would raise inside the try and get
+                    # misclassified as a platform rejection.
+                    logger.info("No refresh token for %s — skipping (needs re-auth)", account_label)
+                    summary["skipped"] += 1
+                    continue
                 else:
                     refresh_token = decrypt_token(account.refresh_token_enc)
                     token = await client.refresh_token(refresh_token)
