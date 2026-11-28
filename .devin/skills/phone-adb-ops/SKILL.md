@@ -9,7 +9,7 @@ Galaxy S22+ (SM-S906B) ADB access — three lanes, entrypoints
 | Lane | Transport | adb binary | Serial |
 |---|---|---|---|
 | `usb` | USB-C cable | **Windows** `adb.exe` (WSL2 cannot see USB) | `RFCTA0AEKZP` |
-| `net` | Tailscale wireless ADB (`adb tcpip 5555`) | WSL `adb` (or same adb.exe) | `100.84.31.85:5555` |
+| `net` | Tailscale wireless ADB — TLS port ROTATES (42631 on 2026-11-28) | WSL `adb` | `100.84.31.85:<port>` — `adb_rearm.py` discovers |
 | `tls` | Developer-options **Wireless debugging** (mDNS TLS, rotating port) | WSL `adb` | discovered per-session, e.g. `192.168.1.77:46439` |
 
 **WSL2 has no USB passthrough** — the Linux `adb` never sees the cable.
@@ -52,8 +52,11 @@ python3 $S --lane net shell wm size    # force tailnet
 python3 $S tcpip                       # USB → re-enable wireless ADB
 ```
 
-Auto-pick order: USB first, then tailnet `100.84.31.85:5555`, then
-LAN `192.168.1.77:5555`, then one `adb connect` retry.
+Auto-pick order: USB first, then any connected tailnet `100.*` serial
+(`_pick_serial` reads `adb devices` — port-agnostic), then LAN.
+Recovery: `phone-access/scripts/adb_rearm.py` tries the last-known port
+(`~/.local/state/phone-adb-port`, seeded 42631), then a parallel TCP scan
+of 20k-60k for the rotated TLS port, then Termux/settings fallbacks.
 
 ## Re-enabling wireless ADB
 
