@@ -114,6 +114,16 @@ type) into EspoCRM + `lead_created` conversion.
 - Dedup + daily-cap ledger = `analytics_events` rows `event_type=linkedin_engagement`
 - 401/403 on writes → logged as scope-missing, loop breaks (no hammering)
 
+## Version sunset guard
+
+`linkedin_token_check` (6h beat) also scans every `Linkedin-Version` pin in
+`app/`+`scripts/` and alerts ops weekly inside the 90-day runway before each
+version's nominal sunset (~12 months after release month, day 15 — e.g.
+202601 → 2027-01-15). Versions already past nominal sunset are skipped:
+enforcement is endpoint-specific and laxer than docs (the `202312` member-DP
+and `202510` demographics pins still serve live traffic). Bump pins to the
+latest verified monthly version (currently 202610) when an alert fires.
+
 ## Verify
 
 ```bash
