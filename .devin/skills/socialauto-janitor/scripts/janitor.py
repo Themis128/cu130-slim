@@ -9,6 +9,7 @@ Usage:
   janitor.py queue-status
   janitor.py queue-requeue <post_id_prefix> [--delay-minutes M] [--apply]
   janitor.py zombie-targets [--apply]
+  janitor.py stale-drafts [--apply]
   janitor.py fixtures [--apply]
   janitor.py accounts
   janitor.py sweep [--apply]   # fixtures + media-orphans + zombie-targets + queue-status + accounts
@@ -48,7 +49,8 @@ def main() -> int:
         extra = ["--apply"] if apply_ else []
         rc = 0
         for cmd in (["fixtures"] + extra, ["media-orphans", "--pattern", "branded-"] + extra,
-                    ["zombie-targets"] + extra, ["queue-status"], ["accounts"]):
+                    ["zombie-targets"] + extra, ["stale-drafts"] + extra,
+                    ["queue-status"], ["accounts"]):
             print(f"\n=== janitor {' '.join(cmd)} ===")
             rc |= run(cmd)
         return rc

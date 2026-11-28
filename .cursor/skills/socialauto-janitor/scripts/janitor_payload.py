@@ -8,6 +8,7 @@ Commands:
   queue-status
   queue-requeue <post_id_prefix> [--delay-minutes M] [--apply]
   zombie-targets [--apply]
+  stale-drafts [--apply] [--older-than-hours H]
   fixtures [--apply]
   accounts
 """
@@ -215,6 +216,41 @@ async def zombie_targets(args):
             print("dry-run — pass --apply to skip")
 
 
+_STALE_RE = re.compile(
+    r"\b(today|tonight|this morning|yesterday|right now|happening now|"
+    r"this week|day\s+\d+)\b", re.I)
+
+
+async def stale_drafts(args):
+    """Draft posts carrying day-relative copy that has already gone stale.
+
+    'Today's challenge…'/'Day 20…' drafts left unscheduled publish wrong
+    content if picked up later. --apply flips status to 'review' (UI
+    review lane — needs fresh copy or a human sign-off, not deletion).
+    """
+    apply_ = _flag(args, "--apply")
+    hours = float(_opt(args, "--older-than-hours", "24"))
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    async with async_session_maker() as db:
+        posts = (await db.execute(
+            select(Post).where(Post.status == "draft", Post.created_at < cutoff)
+        )).scalars().all()
+        hits = [p for p in posts if _STALE_RE.search(p.content_text or "")]
+        print(f"day-stamped drafts older than {hours}h: {len(hits)}")
+        for p in hits[:50]:
+            m = _STALE_RE.search(p.content_text or "")
+            print(f"  {p.id} marker={m.group(0)!r} head={(p.content_text or '')[:50]!r}")
+        if apply_ and hits:
+            ids = [p.id for p in hits]
+            await db.execute(
+                update(Post).where(Post.id.in_(ids)).values(status="review")
+            )
+            await db.commit()
+            print(f"MOVED {len(ids)} posts to review")
+        elif hits:
+            print("dry-run — pass --apply to move to review")
+
+
 async def accounts(_args):
     async with async_session_maker() as db:
         rows = (await db.execute(select(SocialAccount))).scalars().all()
@@ -236,6 +272,8 @@ async def main():
         await queue_requeue(rest)
     elif cmd == "zombie-targets":
         await zombie_targets(rest)
+    elif cmd == "stale-drafts":
+        await stale_drafts(rest)
     elif cmd == "fixtures":
         await fixtures(rest)
     elif cmd == "accounts":

@@ -12,8 +12,9 @@ default; every write requires `--apply`.
 | `queue-status` | `publish_queue` rows not `completed`, grouped counts + open rows | report only |
 | `queue-requeue` | Latest `failed` queue row for a post prefix | reset to `pending` at `now + --delay-minutes` (default 60), `attempts=0` |
 | `zombie-targets` | `post_targets.status='pending'` on failed/archived posts **with no open queue row** | `status → skipped` |
+| `stale-drafts` | `draft` posts with day-relative copy ("today", "Day N", "this week", "right now") older than `--older-than-hours` (default 24) | `status → review` |
 | `accounts` | `social_accounts` whose status isn't active/connected/ok | report only |
-| `sweep` | fixtures + branded-* orphans + zombie-targets + queue-status + accounts in one pass | `--apply` archives fixtures+orphans, skips zombie targets |
+| `sweep` | fixtures + branded-* orphans + zombie-targets + stale-drafts + queue-status + accounts in one pass | `--apply` archives fixtures+orphans, skips zombie targets, moves stale drafts to review |
 
 ## When to use
 
