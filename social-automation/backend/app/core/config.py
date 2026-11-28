@@ -1,7 +1,7 @@
 import logging
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # httpx logs every request URL at INFO; Graph API calls carry access_token
@@ -205,6 +205,22 @@ class Settings(BaseSettings):
     CLOUDFLARE_AI_API_TOKEN: str = ""
     CLOUDFLARE_WORKERS_AI_TOKEN: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
+
+    @model_validator(mode="after")
+    def _backfill_cf_token(self):
+        """Backfill the CF token chain: a valid token provisioned under
+        CLOUDFLARE_AI_API_TOKEN / CLOUDFLARE_WORKERS_AI_TOKEN must reach the
+        many consumers of CLOUDFLARE_API_TOKEN (12+ surfaces) when the
+        canonical name is empty. Never overrides an explicitly set value —
+        this fixes the absent-token class, not dead-token rotation.
+        (2026-11-28: messenger sidecar ran with zero CF env for weeks.)
+        """
+        if not (self.CLOUDFLARE_API_TOKEN or "").strip():
+            for alt in (self.CLOUDFLARE_AI_API_TOKEN, self.CLOUDFLARE_WORKERS_AI_TOKEN):
+                if (alt or "").strip():
+                    self.CLOUDFLARE_API_TOKEN = alt.strip()
+                    break
+        return self
 
     # Cloudflare D1 (primary SQL databases)
     D1_SOCIAL_AUTOMATION_ID: str = ""
