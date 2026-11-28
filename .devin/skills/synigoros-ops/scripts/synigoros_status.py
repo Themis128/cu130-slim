@@ -407,6 +407,7 @@ def _notify(payload: str) -> None:
         from app.db.session import async_session_maker
         from app.models import SocialAccount
         from app.services.telegram_api import TelegramAPIClient
+        from app.services.slack_notifications import _post_ntfy_alert
         from sqlalchemy import select
 
         async def _send():
@@ -427,9 +428,9 @@ def _notify(payload: str) -> None:
                     if enc
                     else decrypt_token(acc.access_token_enc)
                 )
-                await TelegramAPIClient(tok).send_message(
-                    CHAT, f"📋 Synigoros — status changed:\n{cur}"
-                )
+                text = f"📋 Synigoros — status changed:\n{cur}"
+                await TelegramAPIClient(tok).send_message(CHAT, text)
+                await _post_ntfy_alert("ops", text)
 
         asyncio.run(_send())
         print("telegram-notified")
