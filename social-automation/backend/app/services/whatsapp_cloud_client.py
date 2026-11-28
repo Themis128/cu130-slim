@@ -188,27 +188,23 @@ class WhatsAppApiError(WhatsAppError):
 
     @property
     def code(self) -> int | None:
-        if self.error and isinstance(self.error.get("code"), int):
-            return int(self.error["code"])
-        return None
+        v = self.error.get("code") if self.error else None
+        return int(v) if isinstance(v, int) else None
 
     @property
     def error_subcode(self) -> int | None:
-        if self.error and isinstance(self.error.get("error_subcode"), int):
-            return int(self.error["error_subcode"])
-        return None
+        v = self.error.get("error_subcode") if self.error else None
+        return int(v) if isinstance(v, int) else None
 
     @property
     def fbtrace_id(self) -> str:
-        if self.error and isinstance(self.error.get("fbtrace_id"), str):
-            return str(self.error["fbtrace_id"])
-        return ""
+        v = self.error.get("fbtrace_id") if self.error else None
+        return str(v) if isinstance(v, str) else ""
 
     @property
     def is_transient(self) -> bool | None:
-        if self.error and isinstance(self.error.get("is_transient"), bool):
-            return bool(self.error["is_transient"])
-        return None
+        v = self.error.get("is_transient") if self.error else None
+        return bool(v) if isinstance(v, bool) else None
 
 
 class WhatsAppAuthorizationError(WhatsAppApiError):
@@ -277,8 +273,10 @@ def _classify_error(
     rate_limit: RateLimitInfo,
 ) -> WhatsAppApiError:
     code = None
-    if error and isinstance(error.get("code"), int):
-        code = int(error["code"])
+    if error:
+        _c = error.get("code")
+        if isinstance(_c, int):
+            code = int(_c)
 
     # WhatsApp phone verification specific: Meta docs call out 136024 for request_code when already verified.
     if code == 136024:
