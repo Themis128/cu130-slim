@@ -212,6 +212,19 @@
         "/home/tbaltzakis/cu130-slim/.devin/skills/ntfy-ops/scripts/ntfy-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim"
+    },
+    "serena": {
+      "command": "/home/ubuntu/.local/bin/uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--project",
+        "/home/ubuntu/repos/cu130-slim"
+      ]
     }
   }
 }
