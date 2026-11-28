@@ -31,6 +31,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -94,7 +95,20 @@ def env_map(path):
     return out
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from wa_meta_token import resolve_token as _resolve_meta_token
+except Exception:  # noqa: BLE001
+    _resolve_meta_token = None
+
 def token():
+    if _resolve_meta_token:
+        try:
+            tok = _resolve_meta_token()
+            if tok:
+                return tok
+        except Exception:  # noqa: BLE001
+            pass
     return env_map(ENV).get("META_ACCESS_TOKEN")
 
 

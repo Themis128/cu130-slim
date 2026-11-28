@@ -62,39 +62,10 @@ async def m():
 asyncio.run(m())
 """
 
-VERIFY_PAYLOAD = """
-import asyncio
-from sqlalchemy import select, func
-from app.db.session import async_session_maker
-from app.models.content import PostTarget
-
-async def m():
-    async with async_session_maker() as db:
-        n = (await db.execute(select(func.count()).select_from(PostTarget).where(
-            PostTarget.post_id == '{pid}', PostTarget.status == 'pending'))).scalar_one()
-        print(n)
-asyncio.run(m())
-"""
-
-RESET_TARGET_PAYLOAD = """
-import asyncio
-from sqlalchemy import update
-from app.db.session import async_session_maker
-from app.models.content import PostTarget
-
-async def m():
-    async with async_session_maker() as db:
-        await db.execute(update(PostTarget).where(
-            PostTarget.post_id == '{pid}', PostTarget.status == 'skipped'
-        ).values(status='pending', error_message=None))
-        await db.commit()
-asyncio.run(m())
-"""
-
 
 def cexec(payload: str) -> str:
     r = subprocess.run(
-        ["docker.exe", "exec", "-i", "-w", "/app", "social-api", "python", "-"],
+        ["docker", "exec", "-i", "-w", "/app", "social-api", "python", "-"],
         input=payload, capture_output=True, text=True, timeout=120)
     lines = [l for l in (r.stdout + r.stderr).splitlines()
              if "sqlalchemy.engine" not in l and l.strip()]
@@ -178,18 +149,11 @@ def main() -> int:
                     f"{api}/api/v1/content/posts/{pid}/schedule"
                     f"?scheduled_at={urllib.parse.quote(when)}&team_id={tid}",
                     token=token)
-            # 2) PATCH media + recreate pending targets on the same accounts
+            # 2) PUT media + recreate pending targets on the same accounts
             body = {"media_ids": [asset_id],
                     "target_account_ids": [t["acct"] for t in c["targets"]]}
             request("PATCH", f"{api}/api/v1/content/posts/{pid}?team_id={tid}",
                     token=token, data=body)
-            # Verify a pending target exists — older deployed images lack the
-            # PATCH target-recreate block, so reset skipped->pending directly
-            # (target bookkeeping; the queue still drives the publish).
-            n = int(cexec(VERIFY_PAYLOAD.format(pid=pid)))
-            if n == 0:
-                cexec(RESET_TARGET_PAYLOAD.format(pid=pid))
-                print("  targets reset skipped->pending (image lacked recreate)")
             print("  re-scheduled + media attached — beat sweeps at due time")
     return 0
 

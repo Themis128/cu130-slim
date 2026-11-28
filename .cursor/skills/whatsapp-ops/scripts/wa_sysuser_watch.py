@@ -43,6 +43,15 @@ POLL_H = float(os.environ.get("POLL_H", "6"))
 LOG = os.path.expanduser("~/logs/wa-sysuser-watch.log")
 TOKEN_OUT = os.path.expanduser("~/logs/wa-sysuser-token.txt")
 
+_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")
+)
+sys.path.insert(0, os.path.join(_REPO_ROOT, ".devin/skills/social-stack-ops/scripts"))
+try:
+    from sidecar_wake import wake_service as _wake_service
+except Exception:  # noqa: BLE001
+    _wake_service = None
+
 
 def _log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
@@ -157,7 +166,14 @@ def attempt() -> str:
     try:
         _get("/health", timeout=15)
     except Exception as e:  # noqa: BLE001
-        return f"error: sidecar unreachable ({e})"
+        # Idle-slept sidecar — wake via stack-ops control API, retry once.
+        if _wake_service and _wake_service("facebook-browser-sidecar", timeout=130):
+            try:
+                _get("/health", timeout=15)
+            except Exception as e2:  # noqa: BLE001
+                return f"error: sidecar unreachable after wake ({e2})"
+        else:
+            return f"error: sidecar unreachable ({e})"
     _post("/debug/navigate", {"url": f"https://business.facebook.com/latest/settings/system_users?business_id={BUSINESS_ID}"}, timeout=90)
     time.sleep(3)
     r = _restricted()
