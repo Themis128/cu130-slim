@@ -5138,3 +5138,16 @@ Follow-ups:
 - [ ] **f5b8493d twitter publish** — deferred to 18:53 UTC x_web cap
   slot (4/5 used). Other 6 platform targets correctly dedup-skipped
   (content already published).
+
+## 2026-11-28 — tg-ingest classifier false-positives (PR #2797)
+- [x] **TelegramTips forwards → fake incidents** — `_INCIDENT_RE`/`_classify`
+  matched `down`/`oom`/`error`/`alert` as bare substrings; "download",
+  "zoom", "boom", "room" classified as oom_kill/infra_alert (20 triaged
+  noise rows). Word-boundary anchored; `\boom(?:kill(?:ed)?)?\b` preserved.
+- [ ] **live-mount hazard (dormant)** — root `docker-compose.yml`
+  `x-worker-volumes` anchor bind-mounts `./social-automation/backend/app:/app/app`
+  from the shared `~/cu130-slim` checkout. Nothing running consumes it now
+  (live workers are standalone-project baked images), but a `compose up` of
+  the root project's worker defs while the checkout sits on a feature branch
+  silently runs unmerged code live. Options: pin mount source to a dedicated
+  master worktree (`~/cu130-slim-live`), or drop the mount for the root stack.
