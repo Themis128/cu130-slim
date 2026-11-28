@@ -75,6 +75,18 @@ def main() -> int:
     # news/issue fire
     out["newsletter_3"] = "auto-fire 22:15Z (cron armed, circuit 22:14Z)"
 
+    # themis.baltzakis@gmail.com — second Gmail mailbox, no OAuth grant yet.
+    # Token key: GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS_GMAIL_COM
+    # Mint: python3 .devin/skills/gmail-ops/scripts/gmail.py login themis.baltzakis@gmail.com
+    # (loopback listener :50000; consent URL printed — human must approve AS that account)
+    env_has = subprocess.run(
+        "grep -c '^GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS_GMAIL_COM=' "
+        "/home/tbaltzakis/cu130-slim/.env",
+        shell=True, capture_output=True, text=True).stdout.strip()
+    out["gmail_themis"] = ("token live ✅" if env_has == "1"
+                          else "no grant — gmail.py login themis.baltzakis@gmail.com "
+                               "(consent click as that account)")
+
     # infra states
     out["observability"] = "guarded — auto-cancel at T-4d, daily pings Nov20+"
     out["sda1_disk"] = "60% — weekly auto-heal Sundays 04:20"
