@@ -66,7 +66,8 @@ def _run_async(coro):
 @celery_app.task(name="app.worker.tasks.linkedin_session_refresh.refresh_linkedin_sessions")
 def refresh_linkedin_sessions() -> dict:
     """Validate and refresh LinkedIn browser sessions."""
-    return _run_async(_refresh_linkedin_sessions_async())
+    result = _run_async(_refresh_linkedin_sessions_async())
+    return result if isinstance(result, dict) else {}
 
 
 async def _refresh_linkedin_sessions_async() -> dict:

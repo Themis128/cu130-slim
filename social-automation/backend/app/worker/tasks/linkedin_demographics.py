@@ -92,7 +92,7 @@ async def _sync_account(db, account: SocialAccount) -> dict[str, Any]:
             client,
             f"organizationPageStatistics?q=organization&organization={org}",
         )
-    payload = {"captured_at": now, "org_urn": org}
+    payload: dict = {"captured_at": now, "org_urn": org}
     if followers.get("status") == 200:
         payload["elements"] = (followers["data"].get("elements") or [])[:MAX_ELEMENTS_STORE]
         payload["count"] = len(payload["elements"])
@@ -100,7 +100,7 @@ async def _sync_account(db, account: SocialAccount) -> dict[str, Any]:
         payload["error"] = followers.get("status") or followers.get("error")
     db.add(_event(account, "linkedin_org_follower_demographics", payload))
 
-    stats_payload = {"captured_at": now, "org_urn": org}
+    stats_payload: dict = {"captured_at": now, "org_urn": org}
     if page_stats.get("status") == 200:
         stats_payload["elements"] = (page_stats["data"].get("elements") or [])[:MAX_ELEMENTS_STORE]
         stats_payload["count"] = len(stats_payload["elements"])
