@@ -41,8 +41,22 @@ app = FastAPI(title="Messenger Webhook Sidecar", version="1.0.0")
 SOCIAL_API_URL = os.getenv("SOCIAL_API_URL", "http://social-api:8083")
 ADMIN_EMAIL = os.getenv("SOCIAL_ADMIN_EMAIL", "")
 ADMIN_PASSWORD = os.getenv("SOCIAL_ADMIN_PASSWORD", "")
-CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+
+
+def _cf_token() -> str:
+    """Resolve the Workers AI token from every known provisioning name.
+
+    First-match single-name resolution silently broke all CF generation when
+    provisioning wrote the valid token under CLOUDFLARE_WORKERS_AI_TOKEN while
+    a dead token sat in CLOUDFLARE_API_TOKEN (2026-11-28 incident). Read at
+    call time so env edits land without a reimport.
+    """
+    for name in ("CLOUDFLARE_AI_API_TOKEN", "CLOUDFLARE_WORKERS_AI_TOKEN", "CLOUDFLARE_API_TOKEN"):
+        tok = os.getenv(name, "").strip()
+        if tok:
+            return tok
+    return ""
 DMR_BASE_URL = os.getenv("DMR_BASE_URL", "http://host.docker.internal:12435")
 DEFAULT_MODEL = os.getenv("MESSENGER_AI_MODEL", "@cf/meta/llama-4-scout-17b-16e-instruct")
 
@@ -315,13 +329,14 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
         logger.warning("DMR AI failed: %s", exc)
 
     # Fallback: Cloudflare Workers AI (cloud failover)
-    if CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID:
+    cf_token = _cf_token()
+    if cf_token and CLOUDFLARE_ACCOUNT_ID:
         try:
             url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model}"
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     url,
-                    headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
+                    headers={"Authorization": f"Bearer {cf_token}"},
                     json={
                         "messages": [
                             {"role": "system", "content": system_prompt},
@@ -334,9 +349,25 @@ async def _generate_ai_response(config: dict, user_message: str, page_name: str)
                     data = resp.json()
                     if data.get("result") and data["result"].get("response"):
                         return data["result"]["response"].strip()
+                    logger.warning("Cloudflare AI 200 but empty/malformed response: %s", str(data)[:200])
+                else:
+                    # Non-200 was previously swallowed silently — a dead 401
+                    # token hid behind the static fallback for days (2026-11-28).
+                    logger.warning(
+                        "Cloudflare AI error %s: %s%s",
+                        resp.status_code,
+                        resp.text[:200],
+                        " (token rejected — rotate CLOUDFLARE token)" if resp.status_code in (401, 403) else "",
+                    )
         except Exception as exc:
             logger.warning("Cloudflare AI failed: %s", exc)
+    elif not cf_token:
+        logger.warning("Cloudflare AI skipped: no token under CLOUDFLARE_AI_API_TOKEN/CLOUDFLARE_WORKERS_AI_TOKEN/CLOUDFLARE_API_TOKEN")
+    elif not CLOUDFLARE_ACCOUNT_ID:
+        logger.warning("Cloudflare AI skipped: CLOUDFLARE_ACCOUNT_ID not configured")
 
+    if fallback:
+        logger.info("AI reply degraded to static fallback text (DMR + CF both unavailable)")
     return fallback
 
 
