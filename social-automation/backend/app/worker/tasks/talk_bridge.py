@@ -49,7 +49,7 @@ def talk_bridge_sync() -> dict[str, Any]:
     try:
         return run_async(_run())
     finally:
-        if locked:
+        if locked and r is not None:
             try:
                 if r.get(_SYNC_LOCK) == token:
                     r.delete(_SYNC_LOCK)
