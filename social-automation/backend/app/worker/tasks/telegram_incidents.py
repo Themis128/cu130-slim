@@ -26,10 +26,14 @@ from app.worker.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 # Only alert-shaped posts become incidents; heartbeats/recovery notices don't.
+# `down`, `error`, `alert`, `oom` are word-boundary anchored — bare substrings
+# false-fired on "download", "zoom", "boom", "room" (forwarded TelegramTips
+# posts classified as oom_kill/infra_alert on 2026-11-28). `\boom(?:kill(?:ed)?)?\b`
+# still catches OOM/OOMKilled without matching zoom.
 _INCIDENT_RE = re.compile(
-    r"(down|unhealthy|crash|restart.?loop|failed|failure|error|alert|"
+    r"(\bdown\b|unhealthy|crash|restart.?loop|failed|failure|\berrors?\b|\balerts?\b|"
     r"expired|expiring|revoked|unauthorized|401|403|429|500|502|503|530|"
-    r"timeout|refused|unreachable|disk.*(full|pressure)|oom|flood|"
+    r"timeout|refused|unreachable|disk.*(full|pressure)|\boom(?:kill(?:ed)?)?\b|flood|"
     r"\bp[12]\b|incident|outage|stale|drift|blocked|degraded)",
     re.IGNORECASE,
 )
@@ -135,18 +139,18 @@ def _classify(channel: str, text: str) -> tuple[str, str] | None:
         target = next((tok for tok in _TARGET_RE.findall(body) if tok not in _GENERIC_TARGETS), "")
     kind = "infra_alert"
     t = text.lower()
-    for needle, k in (
-        ("unhealthy", "container_unhealthy"),
-        ("restart", "container_restart_loop"),
-        ("expired", "credential_expired"),
-        ("token", "credential_expired"),
-        ("503", "service_unavailable"),
-        ("530", "tunnel_down"),
-        ("disk", "disk_pressure"),
-        ("oom", "oom_kill"),
-        ("queue", "queue_backlog"),
+    for pattern, k in (
+        (r"\bunhealthy\b", "container_unhealthy"),
+        (r"\brestart\b", "container_restart_loop"),
+        (r"\bexpired\b", "credential_expired"),
+        (r"\btoken\b", "credential_expired"),
+        (r"\b503\b", "service_unavailable"),
+        (r"\b530\b", "tunnel_down"),
+        (r"\bdisk\b", "disk_pressure"),
+        (r"\boom(?:kill(?:ed)?)?\b", "oom_kill"),
+        (r"\bqueue\b", "queue_backlog"),
     ):
-        if needle in t:
+        if re.search(pattern, t):
             kind = k
             break
     return kind, target
