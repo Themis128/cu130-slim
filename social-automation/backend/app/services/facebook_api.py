@@ -378,6 +378,7 @@ class FacebookAPIClient:
                 _sanitize_log_text(resp.text)[:120],
             )
             payload = {"description": description} if description else {}
+            assert local_path is not None
             with open(local_path, "rb") as f:
                 resp = await client.post(
                     url,

@@ -209,7 +209,7 @@ def plan_post(now: datetime, pillar_stats: dict[str, dict[str, int]] | None = No
         else:
             # Adaptation: prefer the pillar with the best joins-per-post rate.
             scored = {k: v["joins"] / max(v["posts"], 1) for k, v in (pillar_stats or {}).items() if v.get("posts", 0) >= _MIN_PILLAR_POSTS}
-            pillar = max(scored, key=scored.get) if scored else ("authority" if week % 3 == 1 else "proof")
+            pillar = max(scored, key=lambda k: scored[k]) if scored else ("authority" if week % 3 == 1 else "proof")
     else:
         return None
 
@@ -415,7 +415,7 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
             ]
             kind = "document"
         elif image_url:
-            results = [await client.send_photo(chat_id, image_url, caption=caption, reply_markup=markup)]
+            results = [await client.send_photo(chat_id, image_url, caption=caption, reply_markup=markup or {})]
             kind = "photo"
         else:
             results = [await client.send_message_with_markup(chat_id, caption, reply_markup=markup)]

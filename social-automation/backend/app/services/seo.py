@@ -232,8 +232,10 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
     """Return a 0-100 SEO-style content score with recommendations."""
     report = ContentScoreReport()
     hints = _PLATFORM_HINTS.get(platform.lower(), _PLATFORM_HINTS["linkedin"])
-    max_chars = int(hints.get("max_chars") or 3000)
-    ideal_hashtags = hints.get("ideal_hashtags") or (3, 8)
+    _mc = hints.get("max_chars")
+    max_chars = int(_mc) if isinstance(_mc, int | float) else 3000
+    _ih = hints.get("ideal_hashtags")
+    ideal_hashtags = _ih if isinstance(_ih, tuple) else (3, 8)
 
     char_count = len(text)
     if char_count == 0:

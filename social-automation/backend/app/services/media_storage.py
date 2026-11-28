@@ -13,6 +13,7 @@ import os
 import pathlib
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import aiofiles
 from fastapi import HTTPException
@@ -117,7 +118,7 @@ def downscale_image_bytes(
 
     scale = max_edge / float(max(w, h))
     new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
-    resample = getattr(Image, "Resampling", Image).LANCZOS
+    resample: Any = getattr(Image, "Resampling", Image).LANCZOS
     out = img.convert("RGBA") if img.mode in ("P", "LA") else img
     if out.mode == "P":
         out = out.convert("RGBA")  # pragma: no cover

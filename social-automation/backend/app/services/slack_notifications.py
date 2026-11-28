@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 import httpx
 
@@ -558,7 +559,7 @@ async def queue_digest(severity: str, text: str) -> bool:
 
         import redis.asyncio as aioredis
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             import time as _time
 
@@ -576,7 +577,7 @@ async def _stamp_digest_flush() -> None:
 
         import redis.asyncio as aioredis
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             # UTC date — the flush window is UTC; a local-tz stamp at late-evening
             # UTC (already tomorrow local) would skip the next morning's digest
@@ -596,7 +597,7 @@ async def flush_digest_queue() -> int:
     try:
         import redis.asyncio as aioredis
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             raw = await r.lrange(DIGEST_QUEUE_KEY, 0, -1)
             if raw:
@@ -635,7 +636,7 @@ async def flush_digest_queue() -> int:
         try:
             import redis.asyncio as aioredis
 
-            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
             try:
                 await r.rpush(DIGEST_QUEUE_KEY, *raw)
             finally:
@@ -653,7 +654,7 @@ async def digest_flushed_today() -> bool:
 
         import redis.asyncio as aioredis
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             val = await r.get(DIGEST_FLUSH_KEY)
         finally:
@@ -689,7 +690,7 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
 
         from app.core.config import get_settings
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             if await r.exists(f"alert-dedup:{fp}"):
                 return True, None, None  # already reported — silent ack
@@ -723,7 +724,7 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
 
         from app.core.config import get_settings
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
         finally:
