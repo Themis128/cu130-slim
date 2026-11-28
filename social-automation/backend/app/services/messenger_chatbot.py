@@ -353,7 +353,7 @@ async def set_thread_config(account_id: str | uuid.UUID, thread_id: str, config:
 
 
 async def store_message_memory(
-    team_id: str,
+    team_id: str | uuid.UUID,
     account_id: str | uuid.UUID,
     thread_id: str,
     sender: str,

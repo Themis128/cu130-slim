@@ -169,6 +169,7 @@ class InstagramPrivateDMClient:
             else:
                 cl.login_by_sessionid(self._session_id)
             self._cl = cl
+        assert self._cl is not None
         return self._cl
 
     async def probe(self) -> None:
