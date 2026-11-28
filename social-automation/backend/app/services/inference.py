@@ -97,8 +97,22 @@ def _estimate_cost(provider: str, model: str, prompt: str, actual_neurons: int |
 
 
 def _ai_token() -> str:
-    """Return the Workers AI token, preferring CLOUDFLARE_AI_API_TOKEN over CLOUDFLARE_API_TOKEN."""
-    return (settings.CLOUDFLARE_AI_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    """Return the Workers AI token, trying every known provisioning name.
+
+    Resolution order matters: provisioning automation has written the valid
+    token under CLOUDFLARE_WORKERS_AI_TOKEN while a stale/dead token sat in
+    CLOUDFLARE_AI_API_TOKEN, silently breaking all Workers AI generation
+    (2026-11-28). Every name is tried, first non-empty wins.
+    """
+    for val in (
+        settings.CLOUDFLARE_AI_API_TOKEN,
+        getattr(settings, "CLOUDFLARE_WORKERS_AI_TOKEN", ""),
+        settings.CLOUDFLARE_API_TOKEN,
+    ):
+        tok = (val or "").strip()
+        if tok:
+            return tok
+    return ""
 
 
 # Pre-configured provider catalog (UI uses this to show provider cards)

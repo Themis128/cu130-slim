@@ -203,6 +203,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     CLOUDFLARE_API_TOKEN: str = ""
     CLOUDFLARE_AI_API_TOKEN: str = ""
+    CLOUDFLARE_WORKERS_AI_TOKEN: str = ""
     CLOUDFLARE_ACCOUNT_ID: str = ""
 
     # Cloudflare D1 (primary SQL databases)
