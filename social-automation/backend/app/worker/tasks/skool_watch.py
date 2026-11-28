@@ -19,6 +19,8 @@ Kill switch: ``SET skool:vec:disabled 1``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import json
 import logging
@@ -101,7 +103,7 @@ def _run_async(coro):
 from app.worker._async import task_session as _worker_db  # noqa: E402
 
 
-async def _redis():
+async def _redis() -> Any:
     import redis.asyncio as aioredis
 
     from app.core.config import get_settings

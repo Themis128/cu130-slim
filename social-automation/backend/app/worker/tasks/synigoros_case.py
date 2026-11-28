@@ -24,6 +24,8 @@ double-send; keep one lane authoritative per event window (see
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import imaplib
 import json
@@ -88,7 +90,7 @@ def _load_json(path: Path, default):
         return default
 
 
-async def _redis():
+async def _redis() -> Any:
     import redis.asyncio as aioredis
 
     from app.core.config import get_settings
