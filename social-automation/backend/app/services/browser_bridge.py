@@ -314,7 +314,11 @@ class BrowserBridgeClient:
         if not isinstance(res, dict):
             return {"logged_in": False, "url": None}
         url = res.get("url") or ""
-        if not res.get("loggedIn") and "x.com" not in url and "twitter.com" not in url:
+        # A negative probe on ANY page other than /home is inconclusive — a
+        # session parked on x.com/i/flow/login or the onboarding funnel can
+        # hold perfectly valid cookies. Always re-probe from /home before
+        # concluding logged-out (it costs one navigation).
+        if not res.get("loggedIn") and "x.com/home" not in url:
             try:
                 await self.navigate("https://x.com/home")
                 await asyncio.sleep(8)
