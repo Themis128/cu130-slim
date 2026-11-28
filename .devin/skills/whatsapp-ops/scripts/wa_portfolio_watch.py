@@ -37,6 +37,21 @@ LOG = os.environ.get(
 STATE_DIR = os.path.expanduser("~/.local/state/wa-portfolio-watch")
 RESTRICTED = "temporarily blocked from performing this action"
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from wa_meta_token import resolve_token as _resolve_meta_token
+except Exception:  # noqa: BLE001
+    _resolve_meta_token = None
+
+_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")
+)
+sys.path.insert(0, os.path.join(_REPO_ROOT, ".devin/skills/social-stack-ops/scripts"))
+try:
+    from sidecar_wake import wake_service as _wake_service
+except Exception:  # noqa: BLE001
+    _wake_service = None
+
 
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
@@ -73,7 +88,17 @@ def sidecar_alive() -> bool:
         get("/health", timeout=8)
         return True
     except Exception:  # noqa: BLE001
-        return False
+        pass
+    # Idle-slept container: the direct :9226 publish refuses while stack-ops
+    # holds it asleep — ask the control API to wake it, then re-probe once.
+    if _wake_service:
+        try:
+            _wake_service("facebook-browser-sidecar", timeout=130)
+            get("/health", timeout=8)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+    return False
 
 
 def eval_js(script: str):
@@ -172,13 +197,20 @@ def fill_app_id() -> bool:
 def graph_shows_app() -> bool:
     """Authoritative check: is APP_ID visible on the portfolio's app edges?"""
     try:
-        env = {}
-        with open(os.path.expanduser("~/cu130-slim/.env")) as fh:
-            for line in fh:
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.strip().split("=", 1)
-                    env[k] = v.strip().strip('"').strip("'")
-        token = env.get("META_ACCESS_TOKEN", "")
+        token = ""
+        if _resolve_meta_token:
+            try:
+                token = _resolve_meta_token()
+            except Exception:  # noqa: BLE001
+                token = ""
+        if not token:
+            env = {}
+            with open(os.path.expanduser("~/cu130-slim/.env")) as fh:
+                for line in fh:
+                    if "=" in line and not line.startswith("#"):
+                        k, v = line.strip().split("=", 1)
+                        env[k] = v.strip().strip('"').strip("'")
+            token = env.get("META_ACCESS_TOKEN", "")
         if not token:
             return False
         for edge in ("owned_apps", "client_apps", "pending_client_apps"):

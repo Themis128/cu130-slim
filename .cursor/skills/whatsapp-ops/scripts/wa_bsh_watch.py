@@ -48,6 +48,15 @@ TG_ALERT = os.path.expanduser(
     "~/cu130-slim/.devin/skills/telegram-alert-ops/scripts/tg_alert.py"
 )
 
+_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")
+)
+sys.path.insert(0, os.path.join(_REPO_ROOT, ".devin/skills/social-stack-ops/scripts"))
+try:
+    from sidecar_wake import wake_service as _wake_service
+except Exception:  # noqa: BLE001
+    _wake_service = None
+
 APPEAL_NOTE = (
     "We believe this restriction was applied in error. Our business "
     "(cloudless.gr) complies with the WhatsApp Business and Commerce "
@@ -106,7 +115,17 @@ def sidecar_alive() -> bool:
         get("/health", timeout=8)
         return True
     except Exception:  # noqa: BLE001
-        return False
+        pass
+    # Idle-slept container: direct :9226 refuses while stack-ops holds it
+    # asleep — wake via the control API, then re-probe once.
+    if _wake_service:
+        try:
+            _wake_service("facebook-browser-sidecar", timeout=130)
+            get("/health", timeout=8)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+    return False
 
 
 def eval_js(script: str):
