@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var storedTheme = localStorage.getItem('theme');
+        var scheme = storedTheme === 'light' || storedTheme === 'dark'
+          ? storedTheme
+          : storedTheme === 'system'
+            ? 'light dark'
+            : 'dark';
+        document.querySelector('meta[name="color-scheme"]').setAttribute('content', scheme);
+      } catch (e) {}
+    </script>
     <title>Social Automation Platform</title>
   </head>
   <body>

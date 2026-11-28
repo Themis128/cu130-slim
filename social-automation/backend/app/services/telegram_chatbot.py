@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.config import get_settings
+from app.core.config import get_settings, resolve_cf_token
 from app.services.messenger_chatbot import generate_contextual_reply, store_message_memory
 from app.services.whatsapp_chatbot import (
     INTENT_GREETING,
@@ -132,7 +132,7 @@ async def process_inbound_message(
         result["reason"] = "thread_paused"
         return result
 
-    cf_token = os.getenv("CLOUDFLARE_API_TOKEN", "") or getattr(settings, "CLOUDFLARE_API_TOKEN", "") or ""
+    cf_token = resolve_cf_token() or getattr(settings, "CLOUDFLARE_API_TOKEN", "") or ""
     cf_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "") or getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "") or ""
     dmr_url = os.getenv("DMR_BASE_URL", "") or getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12435")
 

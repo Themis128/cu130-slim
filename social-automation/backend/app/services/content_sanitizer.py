@@ -5,6 +5,7 @@ Fixes the three content bugs: Slack emoji-shortcodes leaking as raw text
 near-duplicate templated copy.
 """
 
+import json
 import re
 
 # Minimal shortcode→emoji map for the common Slack/GitHub names the DMR model emits.
@@ -103,10 +104,31 @@ def _dedupe_connectives(text: str) -> str:
     return " ".join(out)
 
 
+def _unwrap_embedded_json(text: str) -> str:
+    """Unwrap serialized LLM envelopes — copy stored as `{"text": "..."}`
+    (or content/body/copy/caption) would publish the literal JSON."""
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return text
+    try:
+        obj = json.loads(stripped)
+        if isinstance(obj, dict):
+            for key in ("text", "content", "body", "copy", "caption"):
+                v = obj.get(key)
+                if isinstance(v, str) and v.strip():
+                    return v
+    except Exception:
+        pass
+    # Raw newlines inside the payload break json.loads — grab the field span.
+    m = re.search(r'"(?:text|content|body|copy|caption)"\s*:\s*"(.*?)"\s*[,}]', stripped, re.S)
+    return m.group(1) if m else text
+
+
 def sanitize_post_text(text: str) -> str:
-    """The publish-path sanitizer — emoji + connective cleanup."""
+    """The publish-path sanitizer — JSON-envelope unwrap + emoji + connective cleanup."""
     if not text:
         return text
+    text = _unwrap_embedded_json(text)
     return _dedupe_connectives(_demojize(text)).strip()
 
 

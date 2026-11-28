@@ -558,9 +558,9 @@ async function navigate(url, timeout = 60000) {
       if (landing && isLinkedInPageUrl(landing) && !deadSession) {
         const err = new Error(
           `LinkedIn redirect loop (transient — session alive) navigating to ${url}`,
+          { cause: lastErr },
         );
         err.code = "REDIRECT_LOOP";
-        err.cause = lastErr;
         throw err;
       }
       if (deadSession) {
@@ -570,10 +570,10 @@ async function navigate(url, timeout = 60000) {
       }
       const err = new Error(
         `LinkedIn redirect loop (${deadSession ? "session dead — re-login required" : "likely rate-limited"}) navigating to ${url}`,
+        { cause: lastErr },
       );
       err.code = "RATE_LIMITED";
       err.status = 429;
-      err.cause = lastErr;
       throw err;
     }
     throw lastErr || new Error(`Failed to navigate to ${url}`);

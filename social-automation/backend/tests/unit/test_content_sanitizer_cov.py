@@ -30,3 +30,12 @@ def test_slop_and_voice():
     ok, reason = CS.voice_check(long_s)
     assert ok is False and "run-on" in reason
     assert CS.voice_check("short and clean.") == (True, "ok")
+
+
+def test_unwrap_embedded_json():
+    assert CS.sanitize_post_text('{"text": "clean copy"}') == "clean copy"
+    blob = '{"text": "raw\nnewline body", "hashtags": ["x"]}'
+    assert "raw\nnewline body" == CS.sanitize_post_text(blob)
+    assert CS.sanitize_post_text('{"content": "alt key"}') == "alt key"
+    assert CS.sanitize_post_text('{not json brace}') == '{not json brace}'
+    assert CS.sanitize_post_text("plain copy") == "plain copy"

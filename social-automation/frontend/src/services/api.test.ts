@@ -234,8 +234,8 @@ describe('API Service', () => {
     })
 
     it('should queue requests while refreshing and replay them with the new token', async () => {
-      let finishRefresh!: (v: unknown) => void
-      mockedAxios.post.mockReturnValueOnce(new Promise((r) => { finishRefresh = r }))
+      const refreshResult = Promise.withResolvers<unknown>()
+      mockedAxios.post.mockReturnValueOnce(refreshResult.promise)
       mockAxiosInstance.mockImplementation((cfg: any) => Promise.resolve({ data: cfg.url }))
       apiModule.setTokens('old-access', 'old-refresh')
 
@@ -246,7 +246,7 @@ describe('API Service', () => {
 
       // Only one refresh is in flight; the second 401 waits in the queue.
       expect(mockedAxios.post).toHaveBeenCalledTimes(1)
-      finishRefresh({ data: { access_token: 'fresh', refresh_token: 'fresh-r' } })
+      refreshResult.resolve({ data: { access_token: 'fresh', refresh_token: 'fresh-r' } })
 
       await expect(p1).resolves.toEqual({ data: '/a' })
       await expect(p2).resolves.toEqual({ data: '/b' })
@@ -256,13 +256,13 @@ describe('API Service', () => {
     })
 
     it('should reject queued requests when the refresh fails', async () => {
-      let failRefresh!: (e: Error) => void
-      mockedAxios.post.mockReturnValueOnce(new Promise((_, rej) => { failRefresh = rej }))
+      const failedRefresh = Promise.withResolvers<unknown>()
+      mockedAxios.post.mockReturnValueOnce(failedRefresh.promise)
       apiModule.setTokens('old-access', 'old-refresh')
 
       const p1 = mockResponseInterceptor({ response: { status: 401 }, config: { headers: {} } })
       const p2 = mockResponseInterceptor({ response: { status: 401 }, config: { headers: {} } })
-      failRefresh(new Error('refresh expired'))
+      failedRefresh.reject(new Error('refresh expired'))
 
       await expect(p1).rejects.toThrow('refresh expired')
       await expect(p2).rejects.toThrow('refresh expired')

@@ -63,13 +63,7 @@ function useEnvData(auth: { user: string; token: string } | null) {
       const data = await res.json() as EnvVariable[]
       
       // Group variables by category
-      const grouped = data.reduce<Record<string, EnvVariable[]>>((acc, variable) => {
-        if (!acc[variable.category]) {
-          acc[variable.category] = []
-        }
-        acc[variable.category].push(variable)
-        return acc
-      }, {})
+      const grouped = Object.groupBy(data, (variable) => variable.category)
       
       // Convert to EnvCategory[] format
       const categoryIcons: Record<string, string> = {
@@ -90,7 +84,7 @@ function useEnvData(auth: { user: string; token: string } | null) {
       }
       const categorized: EnvCategory[] = Object.keys(grouped).map(categoryName => ({
         name: categoryName,
-        variables: grouped[categoryName],
+        variables: grouped[categoryName] ?? [],
         icon: categoryIcons[categoryName] || "Key",
         color: categoryColors[categoryName] || "text-gray-500",
       }))
@@ -151,6 +145,8 @@ function Dashboard() {
   // Apply theme to document
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark")
+    const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]')
+    if (colorSchemeMeta) colorSchemeMeta.setAttribute("content", theme)
     localStorage.setItem("env_manager_theme", theme)
   }, [theme])
 

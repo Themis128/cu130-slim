@@ -571,8 +571,7 @@ export default function CalendarPage() {
           ) : (
             <div className="divide-y">
               {selectedDayPosts
-                .slice()
-                .sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
+                .toSorted((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
                 .map(post => {
                   const platforms = getPlatforms(post)
                   const time = post.scheduled_at ? formatTime(post.scheduled_at) : ''

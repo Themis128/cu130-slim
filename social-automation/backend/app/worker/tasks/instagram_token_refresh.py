@@ -128,7 +128,8 @@ def _run_async(coro):
 @celery_app.task(name="app.worker.tasks.instagram_token_refresh.refresh_instagram_tokens")
 def refresh_instagram_tokens() -> dict:
     """Refresh Instagram long-lived access tokens before they expire."""
-    return _run_async(_refresh_instagram_tokens_async())
+    res = _run_async(_refresh_instagram_tokens_async())
+    return res if isinstance(res, dict) else {}
 
 
 async def _refresh_instagram_tokens_async() -> dict:

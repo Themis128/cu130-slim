@@ -30,6 +30,10 @@ checks. Both live in `home-ops/scripts/` (deployed at `~/scripts/`).
    zero notifications. Telegram/ntfy survive via FCM/HTTPS. Fix:
    `phone_exitnode.py --off` — keeps tailnet (ADB on 100.84.31.85 still
    works; that's tailnet-internal, not exit-node traffic).
+   Alternative that keeps the exit node ON: per-app split-tunnel
+   exclusions (verified set applied 2026-11-28 — Meta/Messaging/push
+   apps + banking apps; full list + UI quirks in `messenger-phone-ops`
+   SKILL.md "Tailscale split-tunnel set").
 4. **Slack logged out** — `topResumedActivity` = `SignInActivity`.
    Needs one manual sign-in (human gate).
 5. **Slack "Notifications paused" snooze** — in-app pause survives all

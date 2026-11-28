@@ -233,6 +233,7 @@ export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
                 />
                 <Input
                   type="password"
+                  autoComplete="current-password"
                   placeholder="Password"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}

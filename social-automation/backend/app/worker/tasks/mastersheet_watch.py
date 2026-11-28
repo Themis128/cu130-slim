@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.core.security import decrypt_token
 from app.models import AnalyticsEvent, SocialAccount
+from app.services.slack_notifications import _post_ntfy_alert
 from app.services.telegram_api import TelegramAPIClient
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
@@ -116,6 +117,7 @@ async def _notify(db, text: str) -> None:
     enc = acc.meta_data.get("bot_token_enc")
     tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
     await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, text)
+    await _post_ntfy_alert("ops", text)
 
 
 @celery_app.task(name="app.worker.tasks.mastersheet_watch.watch_mastersheet")

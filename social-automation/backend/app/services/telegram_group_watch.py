@@ -19,6 +19,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
+from app.services.slack_notifications import _post_ntfy_alert
 from app.services.telegram_api import MAX_MESSAGE_CHARS, TelegramAPIClient, TelegramAPIError
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,7 @@ async def notify_owner(
 ) -> bool:
     try:
         await client.send_message(owner_chat_id, text)
+        await _post_ntfy_alert("ops", text)
         return True
     except (TelegramAPIError, ValueError) as exc:
         logger.warning("Telegram owner notify failed: %s", exc)

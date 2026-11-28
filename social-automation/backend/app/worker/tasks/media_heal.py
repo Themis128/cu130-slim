@@ -241,7 +241,7 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 meta["media_heal_rewrite_done"] = True
                 meta["media_heal_attempts"] = _MAX_HEAL_ATTEMPTS - 1
                 post.meta_data = meta
-                post.content_text = new_copy
+                post.content_text = str(new_copy)
                 healable.append(post)
                 logger.info("media-heal rewrote copy for post %s", post.id)
             else:
