@@ -281,7 +281,7 @@ def _lead_answers(resp: dict, qmap: dict | None = None) -> dict[str, str]:
             value = str((details["textQuestionAnswer"] or {}).get("answer") or "")
         elif "multipleChoiceAnswer" in details:
             opts = (details["multipleChoiceAnswer"] or {}).get("options") or []
-            meta = qmap.get(int(qid)) if str(qid).isdigit() else None
+            meta = qmap.get(int(str(qid))) if str(qid).isdigit() else None
             labels = []
             for o in opts:
                 hit = next((op["text"] for op in (meta or {}).get("options", []) if str(op.get("id")) == str(o)), None)
