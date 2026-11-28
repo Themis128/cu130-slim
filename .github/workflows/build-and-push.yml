@@ -10,11 +10,10 @@ on:
   push:
     branches:
       - master
-    paths:
-      - "**/Dockerfile*"
-      - "**/pyproject.toml"
-      - "**/requirements*.txt"
-      - ".github/workflows/build-and-push.yml"
+    # No paths: filter — code-only pushes must produce images too (the live
+    # stack runs baked images, pull_policy: never). The `detect` job below
+    # maps changed paths → the services that consume them and builds just
+    # those; an empty matrix skips the build jobs entirely.
 
 permissions:
   contents: write
@@ -26,8 +25,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect:
+    name: Detect affected services
+    runs-on: ubuntu-24.04
+    outputs:
+      services: ${{ steps.s.outputs.services }}
+      comfyui: ${{ steps.s.outputs.comfyui }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Map changed paths to services
+        id: s
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ALL='["social-api","social-worker-publishing","social-sidecar-base","env-manager-backend","env-manager-frontend","social-frontend","cloudflared"]'
+          S="[]"; C="false"
+          add() {
+            case "$S" in *"\"$1\""*) return ;; esac
+            if [ "$S" = "[]" ]; then S="[\"$1\"]"; else S="${S%]},\"$1\"]"; fi
+          }
+
+          if [ "$EVENT" != "push" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
+            S="$ALL"; C="true"
+          elif ! CHANGED=$(git diff --name-only "$BEFORE" "$SHA" 2>/dev/null); then
+            echo "diff failed (shallow history?) — building all"; S="$ALL"; C="true"
+          else
+            echo "changed files:"; echo "$CHANGED"
+            # Dep/toolchain files can touch any image — rebuild everything.
+            grep -qE 'requirements[^/]*\.txt|pyproject\.toml|\.github/workflows/build-and-push\.yml' <<<"$CHANGED" \
+              && { S="$ALL"; C="true"; }
+            grep -qE '^social-automation/backend/' <<<"$CHANGED" \
+              && { add social-api; add social-worker-publishing; }
+            grep -qE '^social-automation/frontend/' <<<"$CHANGED" \
+              && add social-frontend
+            # docker/ holds Dockerfile.sidecar-base; env-manager-backend
+            # FROMs it — rebuild both (ordering race bounded by next build).
+            grep -qE '^docker/' <<<"$CHANGED" \
+              && { add social-sidecar-base; add env-manager-backend; }
+            grep -qE '^env-manager/backend/' <<<"$CHANGED" && add env-manager-backend
+            grep -qE '^env-manager/frontend/' <<<"$CHANGED" && add env-manager-frontend
+            grep -qE '^social-automation/Dockerfile\.cloudflared|^cloudflared/' <<<"$CHANGED" \
+              && add cloudflared
+            grep -qE '^Dockerfile$|^comfyui/' <<<"$CHANGED" && C="true"
+          fi
+          echo "services=$S" >> "$GITHUB_OUTPUT"
+          echo "comfyui=$C" >> "$GITHUB_OUTPUT"
+
   build-and-push:
     name: Build and push ${{ matrix.service }}
+    needs: detect
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -41,17 +94,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service:
-          # Backend builds twice with shared base layers: social-api → slim
-          # `social-backend-api` (core deps), social-worker-publishing → full
-          # `social-backend` (worker extra). Legacy aliases publish alongside.
-          - social-api
-          - social-worker-publishing
-          - social-sidecar-base
-          - env-manager-backend
-          - env-manager-frontend
-          - social-frontend
-          - cloudflared
+        # detect emits only the services whose source paths changed;
+        # workflow_dispatch emits the full set. Backend builds twice with
+        # shared base layers: social-api → slim `social-backend-api` (core
+        # deps), social-worker-publishing → full `social-backend` (worker
+        # extra). Legacy aliases publish alongside.
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -157,6 +205,8 @@ jobs:
 
   build-and-push-comfyui:
     name: Build and push ComfyUI
+    needs: detect
+    if: needs.detect.outputs.comfyui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     continue-on-error: true
