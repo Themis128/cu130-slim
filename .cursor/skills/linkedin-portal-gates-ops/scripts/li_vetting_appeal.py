@@ -52,6 +52,7 @@ APPS = {
     "264925843": {"client_id": "77j8kzfi1a6jn8", "name": "Cloudless Analytics"},
     "265077368": {"client_id": "77fd3pui3m2jwm", "name": "cloudless-gr-member"},
     "227354605": {"client_id": "77tf4oysp8u3fz", "name": "Cloudless API App"},
+    "265081467": {"client_id": "778ys0q6bnh5ly", "name": "cloudless-gr-live"},
 }
 DEFAULT_APP = "264925843"  # Matched Audiences lives here
 
@@ -215,13 +216,19 @@ def main():
         print(json.dumps(json.loads(res[0]) if res and res[0] else {}, indent=1)[:4000])
         return 0
 
-    client_id = APPS[DEFAULT_APP]["client_id"]
+    app_key = DEFAULT_APP
+    if "--app" in sys.argv:
+        app_key = sys.argv[sys.argv.index("--app") + 1]
+    client_id = APPS.get(app_key, {}).get("client_id") or APPS[DEFAULT_APP]["client_id"]
     if "--client-id" in sys.argv:
         client_id = sys.argv[sys.argv.index("--client-id") + 1]
     program = "Matched Audiences API"
     if "--program" in sys.argv:
         program = sys.argv[sys.argv.index("--program") + 1]
     description = APPEAL_TEXT.format(client_id=client_id)
+    if "--desc-file" in sys.argv:
+        with open(sys.argv[sys.argv.index("--desc-file") + 1]) as fh:
+            description = fh.read()
 
     # Step 1: dump the form so dropdown option values can be matched live.
     res = _drive(base, FORM_URL, [EVAL_DUMP])
