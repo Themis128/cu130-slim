@@ -57,3 +57,13 @@ async def test_probe_network_error_is_failure_not_exception() -> None:
 @pytest.mark.asyncio
 async def test_probe_empty_list() -> None:
     assert await probe_public_media([]) == []
+
+
+@pytest.mark.asyncio
+async def test_probe_rejects_unexpected_content_type() -> None:
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("https://cdn.example.com/a.pdf").mock(return_value=httpx.Response(200, headers={"content-type": "application/pdf"}))
+        out = await probe_public_media(["https://cdn.example.com/a.pdf"])
+    assert out[0]["ok"] is False
+    assert out[0]["content_type"] == "application/pdf"
+    assert "unexpected content-type" in out[0]["error"]
