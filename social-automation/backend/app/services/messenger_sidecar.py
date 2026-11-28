@@ -41,6 +41,7 @@ app = FastAPI(title="Messenger Webhook Sidecar", version="1.0.0")
 SOCIAL_API_URL = os.getenv("SOCIAL_API_URL", "http://social-api:8083")
 ADMIN_EMAIL = os.getenv("SOCIAL_ADMIN_EMAIL", "")
 ADMIN_PASSWORD = os.getenv("SOCIAL_ADMIN_PASSWORD", "")
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 
 
@@ -49,10 +50,14 @@ def _cf_token() -> str:
 
     First-match single-name resolution silently broke all CF generation when
     provisioning wrote the valid token under CLOUDFLARE_WORKERS_AI_TOKEN while
-    a dead token sat in CLOUDFLARE_API_TOKEN (2026-11-28 incident). Read at
-    call time so env edits land without a reimport.
+    a dead token sat in CLOUDFLARE_API_TOKEN (2026-11-28 incident). The module
+    constant is honored first (import-time env + test monkeypatching), then
+    the alternate provisioning names are tried live so env edits land without
+    a reimport.
     """
-    for name in ("CLOUDFLARE_AI_API_TOKEN", "CLOUDFLARE_WORKERS_AI_TOKEN", "CLOUDFLARE_API_TOKEN"):
+    if CLOUDFLARE_API_TOKEN.strip():
+        return CLOUDFLARE_API_TOKEN.strip()
+    for name in ("CLOUDFLARE_AI_API_TOKEN", "CLOUDFLARE_WORKERS_AI_TOKEN"):
         tok = os.getenv(name, "").strip()
         if tok:
             return tok
