@@ -770,6 +770,12 @@ class Settings(BaseSettings):
     # deferred leads resume on the next beat via the triage markers.
     AGENCY_TRIAGE_MAX_PER_RUN: int = 40
     AGENCY_TRIAGE_BUDGET_S: int = 240
+    # Same contract for the mail-sending sweeps (120s soft limit): cap
+    # external sends per run + wall-clock budget; unstamped rows resume.
+    AGENCY_PM_MAX_PER_RUN: int = 20
+    AGENCY_PM_BUDGET_S: int = 90
+    AGENCY_POST_CONSULT_MAX_PER_RUN: int = 15
+    AGENCY_POST_CONSULT_BUDGET_S: int = 90
     AGENCY_PROPOSAL_AUTOSEND: bool = False
     # Guarded autosend only fires when every deterministic check passes
     # (completed audit, catalog services, in-band price, valid non-synthetic

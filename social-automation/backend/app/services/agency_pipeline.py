@@ -751,8 +751,11 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_PM_MAX_PER_RUN", 20)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_PM_BUDGET_S", 90)
     now = datetime.now(UTC)
-    stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
+    stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0, "deferred": 0, "spent": 0}
     drafts: list[str] = []
     async with factory() as db:
         projects = (await db.execute(select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.active))).scalars().all()
@@ -781,7 +784,12 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             # crm_engagement. Day 2: one gentle nudge. Day 4: Slack
             # escalate — the day-1 access milestone is slipping.
             md = dict(project.meta_data or {})
-            if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
+            nudge_due = day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged")
+            if nudge_due and _budget_exhausted(stats, budget, deadline):
+                stats["deferred"] += 1
+                nudge_due = False
+            if nudge_due:
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -850,6 +858,10 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     due_at = due_at.replace(tzinfo=UTC)
                 if now < due_at:
                     continue
+                if _budget_exhausted(stats, budget, deadline):
+                    stats["deferred"] += 1
+                    continue
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -895,6 +907,10 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                     asked_at = asked_at.replace(tzinfo=UTC)
                 if now < asked_at + timedelta(days=step_day):
                     continue
+                if _budget_exhausted(stats, budget, deadline):
+                    stats["deferred"] += 1
+                    break
+                stats["spent"] += 1
                 from app.services.email_digest import send_email
                 from app.services.funnel_email import FUNNEL_FROM_ADDR, render_funnel_html
 
@@ -1305,8 +1321,11 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
     if not espo.configured():
         return {"status": "skipped", "reason": "espocrm_not_configured"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_POST_CONSULT_MAX_PER_RUN", 15)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_POST_CONSULT_BUDGET_S", 90)
     today = datetime.now(UTC).date().isoformat()
-    stats: dict[str, Any] = {"status": "ok", "sent": 0, "skipped": 0}
+    stats: dict[str, Any] = {"status": "ok", "sent": 0, "skipped": 0, "deferred": 0, "spent": 0}
     sent_lines: list[str] = []
     async with factory() as db:
         opps = await espo.list_all(
@@ -1322,6 +1341,10 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
             oid = opp.get("id") or ""
             if not oid:
                 continue
+            if _budget_exhausted(stats, budget, deadline):
+                stats["deferred"] += 1
+                continue
+            stats["spent"] += 1
             if await _opp_has_note(oid, POST_CONSULT_MARKER):
                 stats["skipped"] += 1
                 continue
