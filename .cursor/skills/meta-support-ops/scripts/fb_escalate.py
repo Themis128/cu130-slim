@@ -71,6 +71,25 @@ ISSUES = {
                  "the protection suspension, and an account-recovery path "
                  "for Instagram cloudless.gr that does not depend on "
                  "receiving SMS/WhatsApp codes.")},
+    "waba-verify-sms": {
+        "asset": "WhatsApp Business phone +30 697 777 7838 (Greece) — WABA "
+                 "1717901383017723, business portfolio 1558125105019725, "
+                 "app 1936126137016578",
+        "text": ("WhatsApp Business phone-number verification for +30 697 "
+                 "777 7838 (Greece) is undeliverable: the verification SMS "
+                 "and voice call never arrive. Last successfully delivered "
+                 "WhatsApp code was 2026-11-24; every resend attempt since "
+                 "then (SMS and 'call me' lanes, spread over days) produces "
+                 "no message, while unrelated SMS reach the device normally "
+                 "and the number receives calls fine. This looks like a "
+                 "number-level verification throttle or a dispatch failure "
+                 "on Meta's side, not a carrier or device issue. Requesting: "
+                 "(1) investigate WhatsApp verification dispatch for this "
+                 "number, (2) lift any number-level send throttle, (3) an "
+                 "alternate verification path (voice call, email code, or "
+                 "manual verification) so the number can complete "
+                 "registration in WhatsApp Business / WABA "
+                 "1717901383017723.")},
 }
 
 def snap_text(page):
