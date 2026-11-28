@@ -1837,7 +1837,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl --socks5-hostname 127.0.0.1:1080 -sL https://cloudflare.com/cdn-cgi/trace | grep -q 'warp=on' || exit 1",
+          "curl -4 --socks5-hostname 127.0.0.1:1080 -sL https://cloudflare.com/cdn-cgi/trace | grep -q 'warp=on' || exit 1",
         ]
       interval: 30s
       timeout: 10s
