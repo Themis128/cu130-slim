@@ -88,6 +88,7 @@ async def m():
             PostTarget.post_id == '{pid}', PostTarget.status == 'skipped'
         ).values(status='pending', error_message=None))
         await db.commit()
+        print('reset ok')
 asyncio.run(m())
 """
 
