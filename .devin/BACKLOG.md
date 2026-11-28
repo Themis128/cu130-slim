@@ -5089,3 +5089,32 @@ Follow-ups:
   cosmetic, no action.
 - [x] watch: prefixed stragglers converged (media/publishing/meta/
   task-runner recreated bare under standalone, 2026-11-28 01:08-01:35).
+
+## 2026-11-28 — X publishing credit outage + leftover gates
+
+- [ ] **human: X API credits $0** — every write call on the X developer
+  account returns HTTP 402 "credits depleted" (`POST /2/tweets`,
+  `/2/media/metadata`; media upload init/append stay free). Either top up
+  at console.x.com or keep riding the free fallbacks indefinitely:
+  `x_web` (tweety, cookie-auth) → browser bridge. Video posts can ONLY go
+  via x_web — the browser bridge cannot attach video.
+- [ ] **watch: x_web daily cap** — the guard allows ~5 posts/rolling-24h;
+  at cap the queue *defers* (does not fail). 2026-11-28: 4/5 slots used,
+  deferred targets auto-publish at the next free slot (~18:53 UTC). If
+  sustained X volume matters, the cap + pacing constants live in
+  `app/services/x_web.py` (`XWebGuard`).
+- [ ] `X_WEB_FALLBACK_ENABLED` was `false` in
+  `deploy/socialauto-standalone/.env` despite valid cookies → flipped
+  `true` 2026-11-28. The flag is the only gate on the whole x_web tier —
+  keep it on while X API write capacity is paid.
+- [ ] **Baked-image gap** — `deploy/socialauto-standalone` runs
+  `pull_policy: never` ghcr images, so backend fixes only reach
+  containers after CI `build-and-push` + `docker compose pull` +
+  recreate. Applies to the `browser_bridge.py` `/home` re-probe fix
+  (PR #2745): after merge, pull + recreate `social-worker-publishing` /
+  `social-api` or the old probe bug stays live in the running image.
+- [ ] **human: greptile MCP OAuth** — still needs browser re-auth in the
+  Devin app; cannot be automated (the gate itself).
+- [ ] **human: n8n owner login** — some lanes still need the n8n UI login
+  (noted during TG-architecture work); TOTP path exists in
+  `n8n-cloudless` skill if a headless login is wanted instead.
