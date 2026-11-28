@@ -32,6 +32,7 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,11 +130,11 @@ class InstagramPrivateDMClient:
         self._session_id = session_id
         self._proxy = proxy
         self._settings_blob = settings_blob
-        self._cl: object | None = None
+        self._cl: Any | None = None
 
     def _client(self):
         if self._cl is None:
-            from instagrapi import Client
+            from instagrapi import Client  # pyright: ignore[reportMissingImports]
 
             cl = Client()
             if self._proxy:
@@ -231,7 +232,8 @@ class InstagramPrivateDMClient:
 @celery_app.task(name="app.worker.tasks.instagram_messenger.poll_instagram_messenger")
 def poll_instagram_messenger() -> dict:
     """Poll Instagram DM conversations and send AI auto-replies."""
-    return _run_async(_poll_instagram_messenger_async())
+    res = _run_async(_poll_instagram_messenger_async())
+    return res if isinstance(res, dict) else {}
 
 
 async def _poll_instagram_messenger_async() -> dict:
