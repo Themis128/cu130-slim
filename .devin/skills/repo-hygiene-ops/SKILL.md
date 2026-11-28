@@ -72,6 +72,13 @@ while the container ran it — resynced WSL→C: and restarted stack-watchers.
 8. **Dependabot** — `gh api repos/<o>/<r>/dependabot/alerts` lists open
    alerts with fix versions; for npm transitive bumps:
    `npm update <pkg>` then PR the lockfile.
+9. **Stale local branches shadow PR branches** — `git checkout <name>`
+   prefers a *local* branch over `origin/<name>`; an old local branch can
+   hide the real PR tip entirely (bit us reviewing #2793 — LSP flagged
+   pre-fix errors that were already fixed upstream). Always
+   `git checkout -B <name> origin/<name>` when reviewing PR branches, and
+   prune merged locals: `git branch --merged master | grep -v master |
+   xargs -r git branch -d`.
 
 ## Safety
 
