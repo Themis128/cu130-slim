@@ -918,6 +918,32 @@ messenger-sidecar:
 | `captain-claw/meta_webhook_bridge.py` | Python | Webhook signature verification | **Pattern adopted** — HMAC-SHA256 verification implemented |
 | `hookdeck/facebook-webhooks` | Docs | Webhook verification skill | **Reference** — used for signature verification best practices |
 
+## Phone client surface (verified on-device 2026-11-28)
+
+The human-facing read/manage surfaces for both lanes live on the owner's
+Galaxy S22+. Canonical split (matches Meta's product layout):
+
+- **Meta Business Suite** (`com.facebook.pages.app`) — the **business inbox**
+  for the cloudless.gr Page: Inbox tab, labels (Qualified/Important), away
+  status, saved replies. Bot replies flow here.
+- **Messenger app** (`com.facebook.orca`) — the **personal lane**. The Page
+  profile also appears under Menu → Switch profile for basic thread viewing,
+  but Business Suite is the management surface.
+
+Operational facts:
+
+- `com.facebook.orca` is excluded from the phone's Tailscale tunnel
+  (split-tunnel) — Meta realtime sockets are fragile under VPN MTU-1280
+  (phone-net-ops). Keep it excluded.
+- A persistent "Waiting for network" banner in the Messenger app with a
+  working inbox is a **cosmetic** stale-socket state — not connectivity.
+  Clears on a profile switch or device restart. Verified non-causes: VPN,
+  mobile-data pinning, clock skew, stale version, cache.
+- On-device strings map to code lanes: `🤖 Auto-reply: ` prefix = first-reply
+  Meta disclosure (`messenger_chatbot.py` `disclosure_prefix`); the Greek
+  pricing reply = the deterministic `_PRICING_RESPONSES` guardrail. Full map
+  in `docs/messenger-architecture.md` → "Phone Client Surface".
+
 ## Messenger Upgrades (Master Index)
 
 Index of all Messenger and browser bridge upgrades implemented in the
