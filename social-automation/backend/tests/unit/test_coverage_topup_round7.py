@@ -127,3 +127,16 @@ def test_content_quality_gate_empty_text():
     ok, reason = content_quality_gate("   ", ["anything"])
     assert ok is False
     assert reason == "empty"
+
+
+def test_content_quality_gate_skips_degenerate_recent_shingles():
+    """A recent_text too short to form word-trigrams yields empty shingles
+    and must be skipped, not divide-by-zero."""
+    from app.services.content_sanitizer import content_quality_gate
+
+    ok, reason = content_quality_gate(
+        "cloudless.gr runs your whole digital department for small businesses",
+        ["hi"],
+    )
+    assert ok is True
+    assert reason == "ok"
