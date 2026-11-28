@@ -287,7 +287,7 @@ class SecretStore:
             async with async_session_maker() as session:
                 result = await session.execute(sa_delete(SocialSecret).where(SocialSecret.key == key))
                 await session.commit()
-                return bool(result.rowcount)
+                return bool(getattr(result, "rowcount", 0))
         except Exception as exc:
             _log_secret_failure("Postgres secret delete failed", key, exc)
             return False

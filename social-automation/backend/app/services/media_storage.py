@@ -8,6 +8,8 @@ save.
 
 from __future__ import annotations
 
+from typing import Any
+
 import io
 import os
 import pathlib
@@ -117,7 +119,7 @@ def downscale_image_bytes(
 
     scale = max_edge / float(max(w, h))
     new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
-    resample = getattr(Image, "Resampling", Image).LANCZOS
+    resample: Any = getattr(Image, "Resampling", Image).LANCZOS
     out = img.convert("RGBA") if img.mode in ("P", "LA") else img
     if out.mode == "P":
         out = out.convert("RGBA")  # pragma: no cover

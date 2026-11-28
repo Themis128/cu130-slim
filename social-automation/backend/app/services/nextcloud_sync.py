@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -204,7 +205,7 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
     return {"inserted": inserted, "existing": skipped, "updated": updated}
 
 
-def _row_cells(row: dict) -> dict[int, object]:
+def _row_cells(row: dict) -> dict[Any, object]:
     data = row.get("data", [])
     if isinstance(data, dict):
         return {int(k): v for k, v in data.items()}

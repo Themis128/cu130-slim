@@ -495,7 +495,7 @@ async def schedule_report_actions(
                 from app.worker.tasks.media import generate_video_asset_task
 
                 prompt = _media_subject(content) or action.instruction
-                res = generate_video_asset_task.delay(
+                res = generate_video_asset_task.delay(  # type: ignore[union-attr]
                     str(team.id),
                     str(owner.id) if owner else "",
                     prompt,

@@ -673,7 +673,7 @@ _OVERRIDE_STORE_BACKOFF = 30.0  # seconds to skip Redis after a failure
 _keep_alive_endpoint_warned: set[str] = set()
 
 
-def _redis_client():
+def _redis_client() -> Any:
     import redis.asyncio as aioredis
 
     return aioredis.from_url(
