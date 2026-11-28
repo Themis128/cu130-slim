@@ -10,6 +10,8 @@ Agent skills live under `.devin/skills/`. Each skill may include `scripts/` tool
 | `linkedin-ads-ops` | LinkedIn Campaign Manager ads, promo credit, sponsored posts | `scripts/linkedin_cm.py` |
 | `monitoring-ops` | Prometheus metrics, Grafana dashboards, k3s EspoCRM exporter | `deploy/monitoring/*/apply.sh` |
 | `ops-control-plane-ops` | ops_watchers/ops_services registries — watcher/service status, toggle, run, action queue | `scripts/ops_ctl.py` |
+| `serena-ops` | Serena code-index queries when the MCP server is down — locate strings/symbols, class-audits | `scripts/serena_call.py` |
+| `messenger-phone-ops` | Galaxy S22+ Meta-app surface — Business Suite vs Messenger lanes, profile switch, banner triage | `scripts/messenger_phone_check.sh` |
 
 Rules (auto context): `.cursor/rules/cloudless-social-stack.mdc` (+ file-scoped rules).
 
