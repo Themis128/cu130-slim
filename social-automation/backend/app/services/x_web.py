@@ -333,9 +333,11 @@ def is_capacity_reason(reason: str | None) -> bool:
 class GuardStore(Protocol):
     def lock(self) -> contextlib.AbstractAsyncContextManager[None]:
         """Exclusive lock around a load → mutate → save cycle."""
+        ...
 
     async def load(self) -> dict[str, Any]:
         """Return the current guard state document ({} when absent)."""
+        ...
 
     async def save(self, state: dict[str, Any]) -> None:
         """Persist the guard state document."""
@@ -435,7 +437,7 @@ async def default_guard_store() -> GuardStore:
     try:
         import redis.asyncio as aioredis
 
-        client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        client: Any = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
         await client.ping()
         return RedisGuardStore(client)
     except Exception as exc:  # noqa: BLE001 — degrade to file persistence
@@ -676,7 +678,7 @@ async def _default_tweety_client() -> Any:
 
     _patch_tweety_home_fallback()
     proxy = (get_settings().X_WEB_PROXY or "").strip() or None
-    app = TwitterAsync(MemorySession(), proxy=proxy)
+    app = TwitterAsync(MemorySession(), proxy=proxy)  # pyright: ignore[reportArgumentType]
     await app.load_cookies(load_cookies())
     return app
 
@@ -1006,7 +1008,7 @@ async def _default_twscrape_api(username: str) -> Any:
     os.chmod(workdir, 0o700)
     proxy = (get_settings().X_WEB_PROXY or "").strip() or None
     api = API(os.path.join(workdir, "accounts.db"), proxy=proxy, raise_when_no_account=True)
-    api._x_web_workdir = workdir
+    api._x_web_workdir = workdir  # type: ignore[attr-defined]
     await api.pool.add_account_cookies(username, _cookie_header(load_cookies()))
     return api
 

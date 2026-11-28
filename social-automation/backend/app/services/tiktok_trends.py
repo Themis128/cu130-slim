@@ -85,6 +85,8 @@ def _normalize(item: dict, combo: dict[str, Any], week_end: str) -> dict[str, An
     metrics = item.get("itemMetrics") or {}
     handle = author.get("handlerName") or ""
     item_id = info.get("itemID") or ""
+    order_metric = combo.get("orderByMetric")
+    content_label = combo.get("contentLabelIDs") or ""
     title = (info.get("title") or "").strip()
     views = _int(metrics.get("videoViews"))
     organic = _int(metrics.get("organicVideoViews"))
@@ -105,8 +107,8 @@ def _normalize(item: dict, combo: dict[str, Any], week_end: str) -> dict[str, An
             "weekly_organic_views": organic,
             "engagement_rate": metrics.get("engagementRate"),
             "six_second_vtr": metrics.get("sixSecondsVTR"),
-            "label": CONTENT_LABELS.get(combo.get("contentLabelIDs", ""), "all"),
-            "order_metric": ORDER_METRICS.get(combo.get("orderByMetric"), "?"),
+            "label": CONTENT_LABELS.get(str(content_label), "all"),
+            "order_metric": ORDER_METRICS.get(order_metric if isinstance(order_metric, int) else -1, "?"),
             "organic_only": combo.get("organicOnly") == "true",
             "week_ending": week_end,
         },

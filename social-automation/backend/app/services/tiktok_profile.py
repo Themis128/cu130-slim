@@ -291,7 +291,7 @@ class _TikTokPrivateClient:
             resp = await client.post(
                 url,
                 params=params,
-                data=data_str,
+                content=data_str,
                 headers=headers,
                 cookies={"sessionid": self.session_id},
             )
