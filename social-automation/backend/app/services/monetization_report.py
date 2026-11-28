@@ -269,7 +269,7 @@ async def _gather_gates(db: AsyncSession, team_id) -> list[AccountGate]:
         if program:
             gate_targets = [c.target for c in program.criteria if isinstance(c.target, int | float) and c.met is False]
             if gate_targets and isinstance(followers, int):
-                eta = days_to_goal(followers, min(gate_targets), gain)
+                eta = days_to_goal(followers, int(min(gate_targets)), gain)
         gates.append(
             AccountGate(
                 platform=a.platform,

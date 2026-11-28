@@ -255,6 +255,9 @@ async def process_group_message_watch(
     result: dict[str, Any] = {"buffered": False, "alerted": False, "reason": ""}
     chat_id = inbound.get("chat_id")
     chat_type = inbound.get("chat_type")
+    if chat_id is None:
+        result["reason"] = "no_chat_id"
+        return result
     if not is_chat_watched(cfg, chat_id, chat_type):
         result["reason"] = "not_watched"
         return result

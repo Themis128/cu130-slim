@@ -142,7 +142,7 @@ async def _recover_stale_claims(db: AsyncSession) -> int:
         )
     )
     await db.commit()
-    return res.rowcount or 0
+    return getattr(res, "rowcount", 0) or 0
 
 
 async def claim_due(db: AsyncSession, *, limit: int = 1) -> list[NewsletterIssue]:

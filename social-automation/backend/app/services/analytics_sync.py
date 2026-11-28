@@ -1115,7 +1115,7 @@ async def sync_linkedin_account(
             num_to_post_id: dict[str, uuid.UUID] = {}
             for urn, pid in urn_to_post_id.items():
                 tail = urn.rsplit(":", 1)[-1]
-                if tail.isdigit():
+                if tail.isdigit() and pid is not None:
                     num_to_post_id[tail] = pid
             try:
                 from app.services.linkedin_sidecar import LinkedInSidecarClient
