@@ -71,7 +71,7 @@ async def _sync(folder: str | None) -> dict[str, Any]:
     s = get_settings()
     if not getattr(s, "NEXTCLOUD_SYNC_ENABLED", True):
         return {"skipped": "disabled"}
-    folder = folder or getattr(s, "NEXTCLOUD_SYNC_FOLDER", "") or "Photos"
+    folder = folder or str(getattr(s, "NEXTCLOUD_SYNC_FOLDER", "") or "Photos")
 
     try:
         files = [f for f in await nextcloud_list(folder) if not f.is_dir and f.mime_type.startswith(("image/", "video/"))]
@@ -109,7 +109,7 @@ async def _sync(folder: str | None) -> dict[str, Any]:
                     original_filename=f.name,
                     mime_type=mime,
                     alt_text=f"Nextcloud sync — {f.name}",
-                    tags="nextcloud,auto-sync",
+                    tags=["nextcloud", "auto-sync"],
                     width=0,
                     height=0,
                 )

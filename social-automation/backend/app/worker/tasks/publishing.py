@@ -1009,7 +1009,7 @@ async def _process_publish_queue_async(
                             # The post may be live despite the error — feed
                             # indexing can lag minutes beyond the in-path
                             # checks. Re-verify a few times before settling.
-                            reconcile_instagram_publish.apply_async(
+                            reconcile_instagram_publish.apply_async(  # pyright: ignore[reportCallIssue] — celery shared_task resolves to untyped Proxy; .apply_async is runtime-valid
                                 args=[str(post.id), str(account.id)],
                                 countdown=300,
                             )

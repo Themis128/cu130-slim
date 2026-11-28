@@ -49,9 +49,20 @@ not connectivity. Verified non-causes: Tailscale VPN, mobile-data pinning
 Switch profile → switch once (socket re-binds) — clears the banner without
 a reboot. A device restart also clears it but kills wireless debugging.
 
-**Keep `com.facebook.orca` excluded from the phone's Tailscale tunnel**
-(split-tunnel: Tailscale → ⋮ → App split tunneling → Messenger checked).
-Meta sockets are fragile under VPN MTU-1280 (phone-net-ops).
+**Tailscale split-tunnel set** (applied + verified 2026-11-28 —
+Tailscale → ⋮ → App split tunneling, each confirmed checked):
+
+- Meta: `com.facebook.orca`, `com.facebook.pages.app`,
+  `com.instagram.android`, `com.instagram.moonshot`
+- Messaging/push: `com.whatsapp`, `com.viber.voip`, `com.Slack`,
+  `io.heckel.ntfy`
+- Banking (foreign-IP fraud checks): `com.revolut.revolut`,
+  `mbanking.NBG`, `gr.winbank.mobile.redesign`, `com.EurobankEFG`
+
+Meta/realtime sockets are fragile under the exit-node VPN MTU-1280
+(phone-net-ops). List quirks: winbank displays as **"Piraeus app"**,
+NBG as **"NBG"**; sort order is capitals A-Z → lowercase a-z → Greek;
+checkboxes are `NAF` — only checkbox taps toggle, row taps are no-ops.
 
 ## On-device → code-lane verification
 
