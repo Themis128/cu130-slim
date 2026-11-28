@@ -819,7 +819,7 @@ async def publish_to_platform(
 ) -> PublishResult:
     from app.services.content_sanitizer import sanitize_post_text
 
-    post.content_text = sanitize_post_text(post.content_text)
+    post.content_text = sanitize_post_text(post.content_text or "")
 
     # Generation-prompt leak guard: small DMR models sometimes return the
     # instruction wrapper verbatim ("PLAIN ENGLISH RULES (must follow): …
@@ -946,7 +946,7 @@ async def publish_to_platform(
             content=content_key,
         )
         if tagged_link != raw_link:
-            post = _TaggedLinkPost(post, tagged_link)
+            post = _TaggedLinkPost(post, tagged_link)  # type: ignore[assignment]
 
     media_paths = await _resolve_media_paths(post, db)
     storage_paths = await _resolve_media_storage_paths(post, db)
@@ -1286,6 +1286,8 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
         asset = result.scalar_one_or_none()
     else:
         asset = await _auto_music_asset(post, db)
+    if asset is None:
+        return None
     return await _asset_file_path(asset)
 
 
@@ -1955,13 +1957,14 @@ async def _refresh_oauth2_token(account: SocialAccount, db: AsyncSession | None)
     marked the account expired. Persisting the rotated refresh token is
     critical on X: refresh tokens are single-use.
     """
-    if db is None or not getattr(account, "refresh_token_enc", None):
+    rt_enc = getattr(account, "refresh_token_enc", None)
+    if db is None or not rt_enc:
         return None
     try:
         from app.api.auth import twitter_client
         from app.core.security import encrypt_token as _enc
 
-        refresh_token = decrypt_token(account.refresh_token_enc)
+        refresh_token = decrypt_token(rt_enc)
         token = await twitter_client.refresh_token(refresh_token)
         new_access = token.get("access_token")
         if not new_access:

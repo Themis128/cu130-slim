@@ -411,7 +411,7 @@ async def build_attribution() -> FunnelReport:
         "Takeaway",
         f"• {total_bookings} attributed bookings, {booked} opportunities from "
         f"{sum(v for v in sa.values()) + sum(max(v, 0) for v in espo.values())} leads this week"
-        + (" — top consult source: " + max(ccounts, key=ccounts.get) if ccounts else ""),
+        + (" — top consult source: " + max(ccounts, key=lambda k: ccounts.get(k) or 0) if ccounts else ""),
     )
     return report
 

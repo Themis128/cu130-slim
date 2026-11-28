@@ -138,7 +138,7 @@ async def _fetch_stylesheets(client: httpx.AsyncClient, soup: BeautifulSoup, bas
     """Fetch same-origin linked stylesheets (capped) for token scanning."""
     base_host = urlparse(base_url).netloc
     hrefs: list[str] = []
-    for link in soup.find_all("link", rel=lambda v: v and "stylesheet" in v):
+    for link in soup.find_all("link", rel=lambda v: isinstance(v, str) and "stylesheet" in v):
         href = _get_attr(link, "href")
         if not href:
             continue

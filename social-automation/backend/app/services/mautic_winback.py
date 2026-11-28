@@ -83,7 +83,7 @@ def _parse_ts(raw: str) -> datetime | None:
 
 
 async def _lifecycle_bands(lead_ids: list[str]) -> dict[str, str]:
-    r = await _redis()
+    r = _redis()
     if r is None or not lead_ids:
         return {}
     try:
@@ -136,7 +136,7 @@ def _tier(lead: dict, email: str, hot_emails: set[str], bands: dict[str, str]) -
 async def _email_ids() -> dict[str, int]:
     """Map email-slot index → Mautic email ID. Redis-cached; self-heals by
     matching template names from ``GET /emails``."""
-    r = await _redis()
+    r = _redis()
     if r is None:
         return {}
     try:
@@ -205,7 +205,7 @@ async def run_mautic_winback_sweep(*, dry_run: bool = False, limit: int = 1000) 
     bands = await _lifecycle_bands([str(lead.get("id")) for lead in leads])
     hot_emails = await _socialauto_hot_emails()
     email_ids = await _email_ids()
-    r = await _redis()
+    r = _redis()
     if r is None:
         stats["errors"] += 1
         return stats

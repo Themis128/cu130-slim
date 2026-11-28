@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -58,7 +58,7 @@ def _no_pg(monkeypatch):
 def redis(monkeypatch):
     store = {}
     fake = FakeRedis(store)
-    monkeypatch.setattr(mw, "_redis", AsyncMock(return_value=fake))
+    monkeypatch.setattr(mw, "_redis", Mock(return_value=fake))
     return fake
 
 
@@ -128,11 +128,11 @@ async def test_lifecycle_bands(monkeypatch):
             "espo:leadscore:l4": json.dumps({"band": "hot"}),
         }
     )
-    monkeypatch.setattr(mw, "_redis", AsyncMock(return_value=fake))
+    monkeypatch.setattr(mw, "_redis", Mock(return_value=fake))
     out = await mw._lifecycle_bands(["l1", "l2", "l3", "l4"])
     assert out == {"l1": "cold", "l4": "hot"}
     assert await mw._lifecycle_bands([]) == {}
-    monkeypatch.setattr(mw, "_redis", AsyncMock(return_value=None))
+    monkeypatch.setattr(mw, "_redis", Mock(return_value=None))
     assert await mw._lifecycle_bands(["l1"]) == {}
 
 
@@ -203,7 +203,7 @@ async def test_email_ids_partial_match_not_cached(redis, mautic):
 
 @pytest.mark.asyncio
 async def test_email_ids_no_redis(monkeypatch, mautic):
-    monkeypatch.setattr(mw, "_redis", AsyncMock(return_value=None))
+    monkeypatch.setattr(mw, "_redis", Mock(return_value=None))
     assert await mw._email_ids() == {}
 
 
@@ -230,7 +230,7 @@ async def test_mautic_last_active(mautic):
 
 @pytest.mark.asyncio
 async def test_sweep_redis_down(leads, mautic, monkeypatch):
-    monkeypatch.setattr(mw, "_redis", AsyncMock(side_effect=[None, None, None, None]))
+    monkeypatch.setattr(mw, "_redis", Mock(side_effect=[None, None, None, None]))
     leads.return_value = [_lead()]
     out = await mw.run_mautic_winback_sweep(dry_run=True)
     assert out["errors"] >= 1
