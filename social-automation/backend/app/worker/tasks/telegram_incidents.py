@@ -110,7 +110,9 @@ _SKIP_CHANNELS = {"intel", "digest", "slack:socialauto", "slack:socialauto-teleg
 _AGENT_ALERT_RE = re.compile(r"^\s*\[ops-agent/", re.MULTILINE)
 # GitHub notification relays carry PR comments and coverage reports that are
 # not incidents; only actions-failure markers classify from that surface.
-_GH_RELAY_RE = re.compile(r"^\s*\[[^\]\s]+/[^\]\s]+\]", re.MULTILINE)
+# Email lanes prefix subjects with "Re:"/"Fwd:" — the [owner/repo] tag must
+# still be detected or the failure-marker gate never applies.
+_GH_RELAY_RE = re.compile(r"^\s*(?:(?:re|fwd?)\s*:\s*)?\[[^\]\s]+/[^\]\s]+\]", re.IGNORECASE | re.MULTILINE)
 _GH_FAILURE_RE = re.compile(r"run failed|workflow run|checks? failed|build failed|ci fail", re.IGNORECASE)
 
 
