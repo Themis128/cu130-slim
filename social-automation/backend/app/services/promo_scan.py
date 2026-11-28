@@ -217,11 +217,11 @@ def _extract_offer(subject: str, excerpt: str) -> tuple[str, str]:
     return amount, expiry
 
 
-def _imap_search(mail: imaplib.IMAP4_SSL, since: str) -> list[bytes]:
+def _imap_search(mail: imaplib.IMAP4_SSL, since: str) -> list[str]:
     status, data = mail.search(None, "SINCE", since)
     if status != "OK" or not data or not data[0]:
         return []
-    return data[0].split()
+    return [i.decode("ascii", "replace") for i in data[0].split()]
 
 
 def scan_promo_emails(lookback_days: int = 2) -> tuple[list[PromoOpportunity], list[str]]:
@@ -256,7 +256,7 @@ def scan_promo_emails(lookback_days: int = 2) -> tuple[list[PromoOpportunity], l
             mail.login(user, password)
             mail.select("INBOX", readonly=True)
             ids = _imap_search(mail, since)
-            candidates: list[tuple[bytes, str, str, str]] = []
+            candidates: list[tuple[str, str, str, str]] = []
             for msg_id in ids[-400:]:  # cap: a busy mailbox still scans newest 400
                 status, data = mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
                 if status != "OK" or not data or not isinstance(data[0], tuple):
