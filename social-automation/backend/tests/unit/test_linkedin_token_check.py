@@ -104,7 +104,7 @@ def _wire(monkeypatch, rows, client):
 @pytest.mark.asyncio
 async def test_no_accounts(monkeypatch):
     db, _ = _wire(monkeypatch, [], _Client())
-    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0, "inconclusive": 0}
+    assert await task._check() == {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0, "inconclusive": 0, "version_alerts": 0}
     assert db.committed
 
 
@@ -189,3 +189,80 @@ def test_wrapper_dispatches(monkeypatch):
     monkeypatch.setattr(task, "run_async", sent)
     assert task.check_linkedin_tokens() == {"ok": 1}
     sent.assert_called_once()
+
+
+# --- Linkedin-Version sunset guard ---------------------------------------
+
+
+def test_version_sunset_same_month_next_year():
+    from datetime import date
+
+    assert task._version_sunset("202610") == date(2027, 10, 15)
+    assert task._version_sunset("202601") == date(2027, 1, 15)
+
+
+def test_collect_linkedin_versions_finds_literals_and_constants(tmp_path):
+    (tmp_path / "svc.py").write_text(
+        'HDRS = {"Linkedin-Version": "202610"}\n', encoding="utf-8"
+    )
+    li = tmp_path / "linkedin_foo.py"
+    li.write_text('API_VERSION = "202604"\n', encoding="utf-8")
+    other = tmp_path / "other_api.py"
+    other.write_text('API_VERSION = "199901"\n', encoding="utf-8")
+
+    found = task._collect_linkedin_versions(roots=[tmp_path])
+    assert found["202610"] == [str(tmp_path / "svc.py")]
+    assert found["202604"] == [str(li)]
+    # constants in non-linkedin files must not be picked up
+    assert "199901" not in found
+
+
+def test_collect_linkedin_versions_empty_root(tmp_path):
+    assert task._collect_linkedin_versions(roots=[tmp_path / "nope"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_check_version_sunset_alerts_only_inside_runway(monkeypatch):
+    alerts = []
+
+    async def _fake_alert(severity, text):
+        alerts.append((severity, text))
+        return True
+
+    monkeypatch.setattr(task, "send_telegram_alert", _fake_alert)
+    monkeypatch.setattr(
+        task,
+        "_collect_linkedin_versions",
+        lambda: {
+            "202610": ["app/services/x.py"],   # sunsets 2027-10-15 — outside runway
+            "299912": ["app/services/y.py"],   # far future — outside runway
+            "202312": ["app/services/z.py"],   # past nominal sunset — skipped
+        },
+    )
+    stats = {"version_alerts": 0}
+    await task._check_version_sunset(stats)
+    # 202610 sunsets 2027-10-15 — far outside the 90d runway → no alert.
+    # 299912 sunsets 3000-12-15 — also outside → nothing fires.
+    assert alerts == []
+    assert stats["version_alerts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_check_version_sunset_fires_inside_runway(monkeypatch):
+    from datetime import date, timedelta
+
+    alerts = []
+
+    async def _fake_alert(severity, text):
+        alerts.append((severity, text))
+        return True
+
+    monkeypatch.setattr(task, "send_telegram_alert", _fake_alert)
+    # _version_sunset is monkeypatched below — no need to compute a real
+    # version string for the ~30d-out sunset.
+    monkeypatch.setattr(task, "_version_sunset", lambda v: date.today() + timedelta(days=30))
+    monkeypatch.setattr(task, "_collect_linkedin_versions", lambda: {"202601": ["a.py"]})
+    stats = {"version_alerts": 0}
+    await task._check_version_sunset(stats)
+    assert stats["version_alerts"] == 1
+    assert alerts and "202601" in alerts[0][1] and "a.py" in alerts[0][1]
