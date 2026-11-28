@@ -283,3 +283,10 @@ async def test_queue_post_gate_ignores_nlp(monkeypatch):
     out = await E.queue_engagement(_cand(post_text=good_post, is_followed=True, is_connection=True, posted_seconds_ago=3600), db)
     assert "quality gate" not in str(out.get("skipped", ""))
     assert out.get("queued") in ("like", "repost", "comment")
+
+
+def test_env_int_valueerror_returns_default(monkeypatch):
+    """_env_int falls back to default on non-integer env values (missed
+    except-branch lines were holding master under the 99.0% line gate)."""
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "not-a-number")
+    assert E._env_int("ENGAGE_MIN_SCORE", 80) == 80
