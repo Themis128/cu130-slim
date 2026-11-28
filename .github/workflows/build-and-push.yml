@@ -99,6 +99,9 @@ jobs:
   build-and-push:
     name: Build and push ${{ matrix.service }}
     needs: detect
+    # An empty service set (e.g. a docs- or root-scripts-only merge) must be
+    # a clean skip — an empty matrix errors the whole workflow at eval time.
+    if: needs.detect.outputs.services != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
