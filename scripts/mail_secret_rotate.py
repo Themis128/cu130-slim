@@ -54,7 +54,8 @@ INFISICAL_WS = "27660119-de58-4d8b-adaf-a39c8fc8c79e"  # cloudless-infra
 INFISICAL_ENV = "prod"
 INFISICAL_PATH = "/"
 CONSUMERS = ["social-api", "social-worker-publishing", "social-worker-media",
-             "social-worker-default", "social-worker-messenger", "celery-beat"]
+             "social-worker-default", "social-worker-messenger", "celery-beat",
+             "social-worker-reports"]
 ENV_FILES = [REPO_ROOT / ".env",
              Path("/mnt/c/Users/tbaltzakis/cu130-slim/.env")]
 # Windows-side callers (mail-pipeline-watch / mail-outbound-heal.py under

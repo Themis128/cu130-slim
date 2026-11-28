@@ -15,7 +15,8 @@ import time
 REPO = r"C:\Users\tbaltzakis\cu130-slim"
 DEFAULT_PRS = ["1302", "1308", "1309", "1301"]
 SERVICES = ["social-api", "social-worker-publishing", "social-worker-media",
-            "social-worker-default", "social-worker-messenger", "celery-beat"]
+            "social-worker-default", "social-worker-messenger", "celery-beat",
+            "social-worker-reports"]
 
 
 def sh(args, cwd=REPO, timeout=120):

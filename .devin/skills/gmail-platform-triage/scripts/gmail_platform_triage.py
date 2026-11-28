@@ -73,7 +73,7 @@ def _load_env() -> dict[str, str]:
     return env
 
 
-def _access_token(env: dict[str, str]) -> tuple[str, bool]:
+def _access_token(env: dict[str, str], key: str = "") -> tuple[str, bool]:
     """Return (access_token, can_modify)."""
     cid, csec = env.get("GMAIL_OAUTH_CLIENT_ID"), env.get("GMAIL_OAUTH_CLIENT_SECRET")
 
@@ -84,6 +84,19 @@ def _access_token(env: dict[str, str]) -> tuple[str, bool]:
         }).encode()
         r = urllib.request.urlopen(urllib.request.Request(TOKEN_URL, data=data), timeout=20)
         return json.loads(r.read())["access_token"]
+
+    if key:
+        # explicit env-var override for a specific account's token
+        raw = env.get(key)
+        if not raw:
+            raise SystemExit(f"no {key} in .env")
+        rt = raw
+        try:
+            rt = json.loads(raw)["refresh_token"]
+        except Exception:
+            pass
+        can_mod = "MODIFY" in key or "SEND" in key or key.endswith("GMAIL_COM")
+        return _refresh(rt), can_mod
 
     # Prefer the modify-scoped token so trash works.
     for key, can_mod in (("GMAIL_SEND_TOKEN_JSON", True), ("GMAIL_TOKEN_JSON", False)):
@@ -98,6 +111,10 @@ def _access_token(env: dict[str, str]) -> tuple[str, bool]:
     for key in ("GMAIL_REFRESH_TOKEN", "GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS"):
         if env.get(key):
             return _refresh(env[key]), False
+    # gmail.modify refresh token minted via OAuth consent for
+    # themis.baltzakis@gmail.com — scan + trash capable.
+    if env.get("GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS_GMAIL_COM"):
+        return _refresh(env["GMAIL_REFRESH_TOKEN_THEMIS_BALTZAKIS_GMAIL_COM"]), True
     raise SystemExit("No Gmail token in .env (GMAIL_SEND_TOKEN_JSON / GMAIL_TOKEN_JSON / GMAIL_REFRESH_TOKEN)")
 
 
@@ -141,10 +158,11 @@ def main() -> int:
     ap.add_argument("--include-security", action="store_true", help="also trash security categories when named")
     ap.add_argument("--limit", type=int, default=500, help="max messages per category")
     ap.add_argument("--yes", action="store_true", help="required for trash")
+    ap.add_argument("--token-key", default="", help="use this .env var's refresh token instead of the default precedence")
     args = ap.parse_args()
 
     env = _load_env()
-    at, can_mod = _access_token(env)
+    at, can_mod = _access_token(env, args.token_key)
     me = _api(at, "profile").get("emailAddress", "?")
     print(f"mailbox: {me}  scope: {'gmail.modify' if can_mod else 'READ-ONLY (trash unavailable)'}")
 
