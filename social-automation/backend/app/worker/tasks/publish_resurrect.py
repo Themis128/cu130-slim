@@ -415,7 +415,7 @@ def _revive_video_post(post: Post, now: datetime) -> int:
     from app.worker.tasks.media import generate_video_asset_task
 
     try:
-        res = generate_video_asset_task.delay(
+        res = generate_video_asset_task.delay(  # pyright: ignore[reportCallIssue]  # untyped celery Proxy.__getattr__ unions list[str] into attrs
             str(post.team_id),
             str(post.user_id or ""),
             prompt[:2000],
