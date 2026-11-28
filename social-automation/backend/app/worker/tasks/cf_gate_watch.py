@@ -8,7 +8,6 @@ human gate (agentic-bpm escalation lane).
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -64,7 +63,7 @@ def run() -> dict:
     if not _token_active(token):
         ok, out = _run("cf_token_automint.py", timeout=300)
         if ok:
-            token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+            token = resolve_cf_token()
         else:
             _escalate(HUMAN_GATE_MESSAGE)
             return {"status": "blocked", "gate": "token", "tail": out}
