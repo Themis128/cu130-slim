@@ -19,13 +19,12 @@ Kill switch: ``SET skool:vec:disabled 1``.
 
 from __future__ import annotations
 
-from typing import Any
-
 import asyncio
 import json
 import logging
 import re
 import time
+from typing import Any
 
 from sqlalchemy import select
 
