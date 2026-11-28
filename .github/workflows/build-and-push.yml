@@ -106,7 +106,14 @@ jobs:
       - name: Resolve built image reference
         id: image
         run: |
-          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+          # Profile-gated services (["dev"], ["build-only"]) vanish from
+          # `config` output unless their profiles are enabled — the bare
+          # query misses them and the fallback guesses "<svc>-latest", which
+          # does NOT match the compose `image:` name for social-api
+          # (social-backend-api-latest) / social-worker-publishing
+          # (social-backend-latest), so `docker tag` then fails.
+          REF=$(docker compose --profile dev --profile build-only \
+            --project-name cu130-slim --env-file .github/test.env config --format json \
             | jq -r '.services["${{ matrix.service }}"].image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
             REF="${{ steps.meta.outputs.package }}:${{ matrix.service }}-latest"
@@ -196,7 +203,8 @@ jobs:
       - name: Resolve built image reference
         id: image
         run: |
-          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+          REF=$(docker compose --profile dev --profile build-only \
+            --project-name cu130-slim --env-file .github/test.env config --format json \
             | jq -r '.services.comfyui.image // empty')
           if [ -z "$REF" ] || [ "$REF" = "null" ]; then
             REF="${{ steps.meta.outputs.package }}:comfyui-latest"
