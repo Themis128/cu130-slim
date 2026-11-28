@@ -205,7 +205,7 @@ STUN binding requests) and prints an honest pass/fail summary.
     `nas-auto-remediate --docker-health` restarts a persistently
     unhealthy bridge as a third tier. ntfy via the shared
     wedge-watchdog env file. Repo mirror: `host-scripts/`.
-- **Talk SIP dial-in** (linphone `cloudlessgr`, container
+  - **Talk SIP dial-in** (linphone `cloudlessgr`, container
   `talk-sip-bridge`, `/srv/dev-disk-by-uuid-…/talk-sip-bridge/`):
   caller dials `sip:cloudlessgr@sip.linphone.org` → bridge answers
   (`BRIDGE_CONFERENCE_NUMBERS=cloudlessgr`) → spoken IVR
@@ -222,7 +222,7 @@ STUN binding requests) and prints an honest pass/fail summary.
   auth in `sip_messages/sip_requests/sip_registrar/sip_call` +
   IVR `fallback_token` — both only on omv host source, not upstream.
 - Only real fixes for WAN loss itself: dual-WAN/4G failover on the
-  router, or an ISP ticket for the recurring CGNAT drops.
+    router, or an ISP ticket for the recurring CGNAT drops.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
 
 ## nextcloud-integration

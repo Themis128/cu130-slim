@@ -61,6 +61,17 @@ Failure sequence (observed 2026-11-13, ~3 recurrences in one evening):
   agent-owned.
 
 
+
+## virtiofs root fix (2026-11-25, LIVE)
+
+The 9p plane is the load behind the vsock/fsbridge flap class. WSL 3.0.1+
+(incl. the drive-automount fix #40773) supports replacing it with virtiofs:
+`.wslconfig` → `[wsl2]` section → `virtiofs=true` on its OWN line (strict bool
+parse — no trailing inline comment, and NOT in `[experimental]`). Verify:
+`mount | grep 'on /mnt/c'` → `type virtiofs`. Enabled on this host 2026-11-25
+(WSL 3.0.5.0); the earlier 2026-11-16 experiment failed only because the key
+was `experimental.virtiofs` — wrong section+name for every build.
+
 ## Auto-retire of transplant overrides (2026-11-15+)
 
 Flap #4 response transplanted six services onto named volumes via
@@ -253,6 +264,32 @@ previously needed a manual rebind or `wsl --shutdown`:
 5. **Restart** every `Exited(127)` container; TG alert on heal / unmapped /
    failure (30-min dedup). Throttle: 10 min between REAL rebinds only —
    skip/orphan-only passes don't delay the next wave.
+6. **Stale-running watch** (2026-11-25): a RUNNING container keeps its
+   poisoned mount namespace — the VM-side rebind does NOT propagate into
+   it (verified: `/notebooks` hash rebound OK while workers still saw the
+   dir empty). Every pass therefore probes each running container's bind
+   dests (`docker exec` — source non-empty + dest empty = stale) and
+   `compose up -d --force-recreate --no-deps` the stale ones, with a
+   per-name cooldown in `state["watch"]` (5 min, 30 min after 3 tries).
+   This also heals containers recreated DURING the dead-proxy window on a
+   later clean pass — the case where the VM probe shows nothing suspect.
+7. **Wedged-proxy restart** (2026-11-25): the proxy can be ALIVE but
+   functionally dead — process running, hvs channel to Docker Desktop
+   gone. Every new mount then materializes empty AND each mass-recreate
+   re-poisons hashes the rebind just healed (verified: proxy up 30 min
+   while 36 mounts were empty; `systemctl restart dd-user-distro-proxy`
+   via `wsl.exe -u root` restored fresh mounts instantly). Whenever the
+   pass finds suspects or stale containers it attempts this restart
+   FIRST — it is the root-cause fix; rebind/recreate then land on a
+   working translation layer. Best-effort: wsl.exe may be dead mid-flap.
+8. **Proactive proxy probe** (2026-11-25): step 7 only fires AFTER damage
+   is found — a wedged proxy kept poisoning mounts between passes while
+   every pass reported clean (no suspects + no stale containers yet).
+   Every pass now FIRST runs `proxy_probe()`: a ~1-2 s liveness check
+   (`docker run --rm -v /etc/hostname:/ph:ro alpine test -s /ph`) — a
+   fresh bind-mount of a known-nonempty file must materialize non-empty.
+   Fail → `restart_proxy()` → re-probe → TG `proxy-healed` /
+   `proxy-wedged` (escalates to the nightly `wsl --shutdown` task).
 
 Verified live 2026-11-23: detected + correctly skipped the
 `/var/lib/docker/containers` empty-source false-positive, removed 2 orphan

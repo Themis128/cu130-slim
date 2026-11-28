@@ -95,6 +95,18 @@ device / WhatsApp +**38 / Backup code.
 `C:\Users\tbaltzakis\chrome-debug-profile` headless chrome, CDP :9330.
 Use for flows needing a real browser (Threads consent, IG session checks).
 
+**TOTP unattended 2FA (2026-11-27)** — `meta_oauth_drive.py` now self-serves
+the `GATE_2FA` state: tries "Use a different method/Try another way" →
+"Authentication app" → fills a code input
+(`approvals_code`/`one-time-code`/`inputmode=numeric`) with an inline
+RFC-6238 TOTP (no pyotp dep) → submits. Secret source env, first hit wins:
+`META_TOTP_SECRET` → `META_TOTP_SECRET_AC` → `META_TOTP_SECRET_IG` — all
+three already exist in the social-api container env (Accounts Center TOTP is
+enrolled; FB+IG+Threads share it while linked). With `FB_EMAIL`+`FB_PASS`+
+secret exported, the full chain mint→login→2FA→consent→callback runs
+unattended. Falls back to the old human-wait poll when no secret is set.
+`sidecar_fb_login.py` already had the same lane (`META_TOTP_SECRET` env).
+
 - `Page(url_match=...)` attaches by URL **substring** (not regex) — use
   `dialog/oauth`, `force_authentication`, `two_step_verification`.
 - Tabs wedge randomly (ws recv timeout) — probe each target, close dead
