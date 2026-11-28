@@ -27,7 +27,6 @@ from sqlalchemy import select
 
 from app.core.security import decrypt_token
 from app.models import AnalyticsEvent, SocialAccount
-from app.services.slack_notifications import _post_ntfy_alert
 from app.services.telegram_api import TelegramAPIClient
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
@@ -224,6 +223,8 @@ def _poll_inner() -> dict:
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
     )
+    if not out:
+        raise RuntimeError("synigoros status eval returned empty — bridge session likely dead")
     result = json.loads(out)
     if result.get("kpa") and result["kpa"] != KPA:
         raise RuntimeError(f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required")
@@ -284,8 +285,6 @@ async def _run() -> dict:
         if changed:
             enc = acc.meta_data.get("bot_token_enc")
             tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
-            text = f"📋 Synigoros — status changed:\n{confirmed}"
-            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, text)
-            await _post_ntfy_alert("ops", text)
+            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{confirmed}")
             result["telegram_notified"] = True
     return result
