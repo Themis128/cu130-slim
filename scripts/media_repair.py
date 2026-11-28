@@ -94,7 +94,7 @@ asyncio.run(m())
 
 def cexec(payload: str) -> str:
     r = subprocess.run(
-        ["docker", "exec", "-i", "-w", "/app", "social-api", "python", "-"],
+        ["docker.exe", "exec", "-i", "-w", "/app", "social-api", "python", "-"],
         input=payload, capture_output=True, text=True, timeout=120)
     lines = [l for l in (r.stdout + r.stderr).splitlines()
              if "sqlalchemy.engine" not in l and l.strip()]
