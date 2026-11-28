@@ -33,7 +33,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import shared_task
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.security import decrypt_token
 from app.models.content import PostTarget
@@ -161,7 +161,7 @@ async def _sweep() -> dict:
                 if active_q is None and bl_target is None:
                     # repoint queue rows (any non-completed status)
                     await db.execute(
-                        PublishQueue.__table__.update()
+                        update(PublishQueue)
                         .where(
                             PublishQueue.post_id == tgt.post_id,
                             PublishQueue.social_account_id == tgt.social_account_id,
@@ -178,7 +178,7 @@ async def _sweep() -> dict:
                     )
                     # repoint the target row itself (PK includes social_account_id)
                     await db.execute(
-                        PostTarget.__table__.update()
+                        update(PostTarget)
                         .where(
                             PostTarget.post_id == tgt.post_id,
                             PostTarget.social_account_id == tgt.social_account_id,
@@ -199,7 +199,7 @@ async def _sweep() -> dict:
                     # broken lane's queue rows and mark its target skipped
                     # so nothing retries the dead account.
                     await db.execute(
-                        PublishQueue.__table__.update()
+                        update(PublishQueue)
                         .where(
                             PublishQueue.post_id == tgt.post_id,
                             PublishQueue.social_account_id == tgt.social_account_id,

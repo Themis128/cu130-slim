@@ -118,6 +118,17 @@ MESSENGER_E2EE_PIN=123456
 await bridge._handle_e2ee_pin_dialog(pin="123456")
 ```
 
+### No-PIN posture (owner has no E2EE PIN — 2026-11-28)
+
+The owner does not have a Messenger E2EE PIN, so PIN-gated E2EE threads are
+unreadable **by design** — not a defect. `MESSENGER_E2EE_PIN` stays unset;
+do not file it as a remaining human gate. The PIN-dialog check logs a warning
+once per process then drops to debug (browser_bridge `_e2ee_pin_warned`).
+
+For Messenger reads use the **matrix lane** (mautrix-meta bridge,
+`matrix-messenger-ops`) — it covers inbox traffic without the browser PIN
+dialog. Regular (non-E2EE) threads still read fine through the bridge.
+
 ### E2EE conversation detection
 
 E2EE conversations are detected by URL path:
@@ -906,6 +917,32 @@ messenger-sidecar:
 | `@warriorteam/messenger-sdk` | TypeScript | Full SDK with webhook types | **Not integrated** — TypeScript, our backend is Python |
 | `captain-claw/meta_webhook_bridge.py` | Python | Webhook signature verification | **Pattern adopted** — HMAC-SHA256 verification implemented |
 | `hookdeck/facebook-webhooks` | Docs | Webhook verification skill | **Reference** — used for signature verification best practices |
+
+## Phone client surface (verified on-device 2026-11-28)
+
+The human-facing read/manage surfaces for both lanes live on the owner's
+Galaxy S22+. Canonical split (matches Meta's product layout):
+
+- **Meta Business Suite** (`com.facebook.pages.app`) — the **business inbox**
+  for the cloudless.gr Page: Inbox tab, labels (Qualified/Important), away
+  status, saved replies. Bot replies flow here.
+- **Messenger app** (`com.facebook.orca`) — the **personal lane**. The Page
+  profile also appears under Menu → Switch profile for basic thread viewing,
+  but Business Suite is the management surface.
+
+Operational facts:
+
+- `com.facebook.orca` is excluded from the phone's Tailscale tunnel
+  (split-tunnel) — Meta realtime sockets are fragile under VPN MTU-1280
+  (phone-net-ops). Keep it excluded.
+- A persistent "Waiting for network" banner in the Messenger app with a
+  working inbox is a **cosmetic** stale-socket state — not connectivity.
+  Clears on a profile switch or device restart. Verified non-causes: VPN,
+  mobile-data pinning, clock skew, stale version, cache.
+- On-device strings map to code lanes: `🤖 Auto-reply: ` prefix = first-reply
+  Meta disclosure (`messenger_chatbot.py` `disclosure_prefix`); the Greek
+  pricing reply = the deterministic `_PRICING_RESPONSES` guardrail. Full map
+  in `docs/messenger-architecture.md` → "Phone Client Surface".
 
 ## Messenger Upgrades (Master Index)
 

@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.content import PostTarget
-from app.models.queue import PublishQueue
+from app.models.queue import PublishQueue, QueueStatus
 from app.services.error_taxonomy import TERMINAL, classify_publish_error, is_auth_terminal
 from app.worker._async import run_async, task_session
 
@@ -116,7 +116,7 @@ async def _sweep() -> dict:
                     meta["auth_resurrected"] = done
                     post.meta_data = meta
                     flag_modified(post, "meta_data")
-            qr.status = "pending"
+            qr.status = QueueStatus.PENDING
             qr.attempts = 0
             qr.locked_at = None
             tgt.status = "pending"

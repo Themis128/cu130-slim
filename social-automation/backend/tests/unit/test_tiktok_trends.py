@@ -131,6 +131,13 @@ def test_trend_line_routes_platform(monkeypatch):
     assert "google signal" in trend_context.trend_line("tiktok")
 
 
+def test_trend_line_empty_when_no_signal(monkeypatch):
+    monkeypatch.setattr(trend_context, "top_tiktok_signal", lambda: None)
+    monkeypatch.setattr(trend_context, "top_relevant_signal", lambda *a, **k: None)
+    assert trend_context.trend_line("tiktok") == ""
+    assert trend_context.trend_line() == ""
+
+
 def test_scenarios_carry_tiktok_format():
     from scripts.tiktok_trendwatch import FORMAT_GUIDE, model_scenarios
 

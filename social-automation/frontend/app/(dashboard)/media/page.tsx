@@ -560,14 +560,14 @@ export default function MediaPage() {
                     role={selectMode ? 'button' : undefined}
                     tabIndex={selectMode ? 0 : undefined}
                     onKeyDown={(e) => {
-                      if (selectMode && e.key === 'Enter') toggleSelect(item.id)
+                      if (selectMode && e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) toggleSelect(item.id)
                     }}
                   >
                     {/* Media preview — portrait 4:5 ratio like a social post */}
                     <div
                       className={`relative aspect-4/5 bg-muted/50 overflow-hidden ${!selectMode ? 'cursor-zoom-in' : ''}`}
                       onClick={() => { if (!selectMode) setViewerItem(item) }}
-                      onKeyDown={(e) => { if (!selectMode && e.key === 'Enter') setViewerItem(item) }}
+                      onKeyDown={(e) => { if (!selectMode && e.key === 'Enter' && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) setViewerItem(item) }}
                       role={!selectMode ? 'button' : undefined}
                       tabIndex={!selectMode ? 0 : undefined}
                     >

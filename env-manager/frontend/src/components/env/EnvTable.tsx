@@ -54,7 +54,7 @@ export const EnvTable: React.FC<EnvTableProps> = ({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleSave(editingKey!)
+    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) handleSave(editingKey!)
     if (e.key === "Escape") handleCancel()
   }
 

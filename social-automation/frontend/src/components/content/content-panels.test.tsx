@@ -117,16 +117,16 @@ describe('NlpPanel — fair band, singular issue, stale responses', () => {
   })
 
   it('ignores a response that resolves after the content changed', async () => {
-    let resolveFirst!: (v: unknown) => void
+    const firstResult = Promise.withResolvers<unknown>()
     api.aiApi.nlpCheck
-      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r }))
+      .mockImplementationOnce(() => firstResult.promise)
       .mockResolvedValueOnce({ data: { ...fair, score: 91, issue_count: 0 } })
     const { rerender } = render(<NlpPanel content={LONG} />)
     act(() => { vi.advanceTimersByTime(900) }) // first request in flight
     rerender(<NlpPanel content={`${LONG} Edited.`} />)
     act(() => { vi.advanceTimersByTime(900) })
     await screen.findByText('91')
-    await act(async () => { resolveFirst({ data: { ...fair, score: 12 } }) })
+    await act(async () => { firstResult.resolve({ data: { ...fair, score: 12 } }) })
     expect(screen.queryByText('12')).toBeNull() // stale result discarded
     expect(screen.getByText('91')).toBeInTheDocument()
   })
@@ -327,15 +327,15 @@ describe('SeoPanel — pending state and partial meta', () => {
   })
 
   it('shows the analyzing state and disables the button while pending', async () => {
-    let finish!: (v: unknown) => void
-    api.aiApi.analyzeSeo.mockImplementation(() => new Promise((r) => { finish = r }))
+    const seoResult = Promise.withResolvers<unknown>()
+    api.aiApi.analyzeSeo.mockImplementation(() => seoResult.promise)
     render(<SeoPanel content={LONG} />, { wrapper })
     fireEvent.click(screen.getByText('Analyze'))
     expect(await screen.findByText('Analyzing content…')).toBeInTheDocument()
     expect(screen.getByText('Analyze').closest('button')).toBeDisabled()
     expect(screen.queryByText(/Click .Analyze. to get an SEO score/)).toBeNull()
     await act(async () => {
-      finish({ data: { platform: 'x', score: 50, keywords: [], meta: { title: '', description: '' }, open_graph: {}, character_count: 1, hashtag_count: 0, link_count: 0 } })
+      seoResult.resolve({ data: { platform: 'x', score: 50, keywords: [], meta: { title: '', description: '' }, open_graph: {}, character_count: 1, hashtag_count: 0, link_count: 0 } })
     })
     expect(screen.queryByText('Analyzing content…')).toBeNull()
   })

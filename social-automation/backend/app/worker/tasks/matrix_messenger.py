@@ -128,7 +128,8 @@ async def _set_sync_since(value: str):
 @celery_app.task(name="app.worker.tasks.matrix_messenger.poll_matrix_messenger")
 def poll_matrix_messenger() -> dict:
     """Poll the Matrix bridge for new personal-Messenger messages and reply."""
-    return _run_async(_poll_matrix_messenger_async())
+    res = _run_async(_poll_matrix_messenger_async())
+    return res if isinstance(res, dict) else {}
 
 
 async def _poll_matrix_messenger_async() -> dict:

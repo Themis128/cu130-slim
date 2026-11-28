@@ -195,7 +195,8 @@ async def _member_dp(
                 logger.debug("member-dp diff alert failed", exc_info=True)
 
     # Changelog — incremental via Redis cursor (latest processedAt).
-    cursor = r.get(CHANGELOG_CURSOR_KEY) if r else None
+    _raw_cursor = r.get(CHANGELOG_CURSOR_KEY) if r else None
+    cursor = _raw_cursor if isinstance(_raw_cursor, str) else None
     cl = await lp.member_changelog(client, token, start_time=cursor, count=50)
     changelog_payload: dict[str, Any] = {"cursor_in": cursor}
     if cl.get("ok"):

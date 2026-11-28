@@ -33,3 +33,21 @@ def test_worker_failure_still_classifies():
 def test_recovered_post_is_skipped():
     text = "Worker task failed `x.y` — RECOVERED, all healthy again"
     assert _classify("critical", text) is None
+
+
+def test_substring_false_positives_are_skipped():
+    # @TelegramTips forwards: "download"/"zoom"/"room" contain the incident
+    # needles "down"/"oom" — word-boundary matching must not classify them.
+    for text in (
+        "Pinch to Zoom Media. Instantly expand photos and videos in chats",
+        "Download Manager. Control your media and file downloads",
+        "Autoplaying videos and auto-download settings",
+        "Storage Usage. Telegram needs zero extra space — make room",
+    ):
+        assert _classify("ops", text) is None, text
+
+
+def test_real_oom_still_classifies():
+    for text in ("container OOMKilled", "worker hit OOM", "oom kill detected"):
+        out = _classify("ops", text)
+        assert out is not None and out[0] == "oom_kill", text

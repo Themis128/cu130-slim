@@ -105,7 +105,7 @@ describe('useTheme', () => {
   })
 
   it('applies dark class to document when resolved theme is dark', async () => {
-    document.documentElement.classList.remove('dark')
+    document.documentElement.className = ''
     const { result } = renderHook(() => useTheme(), { wrapper })
     await waitFor(() => expect(result.current.theme).toBe('dark'))
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))

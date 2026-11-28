@@ -136,7 +136,7 @@ export default function BrandPage() {
                       value={extractUrl}
                       onChange={(e) => setExtractUrl(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && extractUrl.trim()) {
+                        if (e.key === 'Enter' && extractUrl.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                           e.preventDefault()
                           handleExtract()
                         }

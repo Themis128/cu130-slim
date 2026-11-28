@@ -531,19 +531,18 @@ async def _maybe_send_publish_summary(db: AsyncSession, post: Post) -> None:
         if not rows:
             return
         claim = hashlib.sha1(",".join(sorted(str(r.id) for r in rows)).encode()).hexdigest()[:16]
-        claimed = (
-            await db.execute(
-                text(
-                    "UPDATE posts SET platform_specific ="
-                    " COALESCE(platform_specific, '{}'::jsonb) ||"
-                    " jsonb_build_object('publish_summary_claim', :claim)"
-                    " WHERE id = :pid"
-                    " AND platform_specific->>'publish_summary_claim'"
-                    " IS DISTINCT FROM :claim"
-                ),
-                {"claim": claim, "pid": post.id},
-            )
-        ).rowcount
+        claim_res = await db.execute(
+            text(
+                "UPDATE posts SET platform_specific ="
+                " COALESCE(platform_specific, '{}'::jsonb) ||"
+                " jsonb_build_object('publish_summary_claim', :claim)"
+                " WHERE id = :pid"
+                " AND platform_specific->>'publish_summary_claim'"
+                " IS DISTINCT FROM :claim"
+            ),
+            {"claim": claim, "pid": post.id},
+        )
+        claimed = getattr(claim_res, "rowcount", 0) or 0
         await db.commit()
         if not claimed:
             return  # another worker already sent this exact summary
@@ -659,26 +658,6 @@ async def _process_publish_queue_async(
         await db.commit()  # commit once: releases row locks; status keeps them claimed
 
         for idx, item in enumerate(items):
-            elapsed = time.monotonic() - run_started
-            # Per-platform headroom — a tiktok can need ~660s of polling, so
-            # it must start earlier than a standard 420s target.
-            _need = 660.0 if (item.platform if hasattr(item, "platform") else "") == "tiktok" else _WORST_CASE_TARGET_S
-            if elapsed + _need > _RUN_BUDGET_S:
-                # Out of budget: hand the unstarted rows back instead of
-                # letting SoftTimeLimitExceeded cancel us mid-publish.
-                remaining = items[idx:]
-                for rest in remaining:
-                    rest.status = QueueStatus.PENDING
-                    rest.locked_at = None
-                    rest.locked_by = None
-                await db.commit()
-                logger.warning(
-                    "[publishing] run budget reached after %.0fs — released %d unstarted queue row(s) for the next beat",
-                    elapsed,
-                    len(remaining),
-                )
-                break
-
             try:
                 post_result = await db.execute(select(Post).where(Post.id == item.post_id))
                 post = post_result.scalar_one_or_none()
@@ -705,6 +684,28 @@ async def _process_publish_queue_async(
                         reason="Social account not found for publish queue item",
                     )
                     continue
+
+                # Per-platform headroom — a tiktok can need ~660s of polling,
+                # so it must start earlier than a standard 420s target. Runs
+                # after post/account resolve because PublishQueue has no
+                # platform column (the old item.platform probe never existed).
+                elapsed = time.monotonic() - run_started
+                _need = 660.0 if account.platform == "tiktok" else _WORST_CASE_TARGET_S
+                if elapsed + _need > _RUN_BUDGET_S:
+                    # Out of budget: hand the unstarted rows back instead of
+                    # letting SoftTimeLimitExceeded cancel us mid-publish.
+                    remaining = items[idx:]
+                    for rest in remaining:
+                        rest.status = QueueStatus.PENDING
+                        rest.locked_at = None
+                        rest.locked_by = None
+                    await db.commit()
+                    logger.warning(
+                        "[publishing] run budget reached after %.0fs — released %d unstarted queue row(s) for the next beat",
+                        elapsed,
+                        len(remaining),
+                    )
+                    break
 
                 target_result = await db.execute(
                     select(PostTarget).where(
@@ -895,7 +896,8 @@ async def _process_publish_queue_async(
                 pub = await asyncio.wait_for(publish_to_platform(account, post, db), timeout=_item_deadline)
 
                 deferred = False
-                if not pub.success and getattr(pub, "retry_after", None) is not None:
+                retry_at = pub.retry_after
+                if not pub.success and retry_at is not None:
                     # Soft deferral (X API credits/429, x_web daily cap / min
                     # gap / breaker): re-queue for when capacity returns
                     # without burning an attempt — bounded by age/count.
@@ -905,7 +907,7 @@ async def _process_publish_queue_async(
                         target=target,
                         post=post,
                         account_id=account.id,
-                        retry_after=pub.retry_after,
+                        retry_after=retry_at,
                         error=pub.error,
                         now=datetime.now(UTC),
                         max_hours=float(getattr(cfg, "PUBLISH_DEFER_MAX_HOURS", 72.0)),
@@ -1007,7 +1009,7 @@ async def _process_publish_queue_async(
                             # The post may be live despite the error — feed
                             # indexing can lag minutes beyond the in-path
                             # checks. Re-verify a few times before settling.
-                            reconcile_instagram_publish.apply_async(
+                            reconcile_instagram_publish.apply_async(  # pyright: ignore[reportCallIssue] — celery shared_task resolves to untyped Proxy; .apply_async is runtime-valid
                                 args=[str(post.id), str(account.id)],
                                 countdown=300,
                             )
@@ -1342,7 +1344,7 @@ async def _cleanup_publish_queue_async(days: int = 3) -> dict:
             )
         )
         await db.commit()
-        deleted = result.rowcount or 0
+        deleted = getattr(result, "rowcount", 0) or 0
         logger.info("Publish queue cleanup: deleted %s terminal rows older than %sd", deleted, days)
         return {"deleted": deleted, "older_than_days": days}
 

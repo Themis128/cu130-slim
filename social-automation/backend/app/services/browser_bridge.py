@@ -990,7 +990,13 @@ class BrowserBridgeClient:
                 logger.info("E2EE PIN entered successfully")
                 return True
             elif data.get("hasPinPrompt") and not pin:
-                logger.warning("E2EE PIN dialog detected but no PIN provided — set MESSENGER_E2EE_PIN env var or pass pin parameter")
+                # No PIN configured — for users without an E2EE PIN this is
+                # expected, not actionable: warn once, then stay quiet.
+                if not getattr(self, "_e2ee_pin_warned", False):
+                    self._e2ee_pin_warned = True
+                    logger.warning("E2EE PIN dialog detected but no PIN provided — set MESSENGER_E2EE_PIN env var or pass pin parameter")
+                else:
+                    logger.debug("E2EE PIN dialog detected (no PIN configured)")
                 return True  # Dialog found but can't enter PIN
             return False
         except Exception as exc:

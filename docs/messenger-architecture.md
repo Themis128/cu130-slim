@@ -1130,3 +1130,72 @@ All 9 accounts tested with 4 message types (English greeting, English pricing, G
 | TikTok | cloudless.gr | PASS | PASS | PASS | PASS |
 | Twitter | TBaltzakis | PASS | PASS | PASS | PASS |
 | WhatsApp | Themistoklis | PASS | PASS | PASS | PASS |
+
+## Phone Client Surface (verified on-device 2026-11-28, Galaxy S22+)
+
+The owner's phone carries the human-facing read/manage surfaces for both
+Messenger lanes. Verified live via ADB/uiautomator; the split matches Meta's
+canonical product layout.
+
+### Canonical app split
+
+| App | Package | Lane | Role |
+|-----|---------|------|------|
+| Meta Business Suite | `com.facebook.pages.app` | **Page** (cloudless.gr) | Canonical business inbox — Page Messenger + IG + comments, labels (Qualified/Important), away status, saved replies, assignment |
+| Messenger | `com.facebook.orca` | **Personal** (Themistoklis Baltzakis) | Personal inbox only. The cloudless.gr Page profile also appears under Menu → Switch profile for basic thread viewing, but Business Suite is the management surface |
+
+- Business Suite is logged into the cloudless.gr business portfolio; Inbox is
+  live with bot auto-replies flowing into Page threads.
+- The Messenger app hosts **both** profiles — switch via Menu (bottom-right) →
+  "Switch profile". Default after session work: personal profile active,
+  Page profile remains signed in.
+
+### On-device → code-lane verification map
+
+Strings observed in live threads on the phone trace to these code paths:
+
+| Observed on phone | Source |
+|---|---|
+| `🤖 Auto-reply: Hi! Thanks for your message…` (personal inbox, shown as "You:") | `app/services/messenger_chatbot.py` — `disclosure_prefix = "🤖 Auto-reply: "` fired on first bot reply per thread (`has_disclosed`/`mark_disclosed`, Meta policy); body generated under the injected disclosure instruction ("automated reply on behalf of Themis") |
+| `🤖 Γεια! Είμαι το Cloudless bot. Η τιμή εξαρτάται από τις ανάγκες σας…` (cloudless.gr Page thread) | `messenger_chatbot.py` `_PRICING_RESPONSES["greek"]` — the deterministic pricing guardrail that intercepts price questions before the LLM (anti-fabrication) and steers with a question |
+| Page-lane fallback text "I'll get back to you soon" | `messenger_chatbot.py` `fallback_text` default |
+| Sidecar-lane fallback "We'll get back to you soon" (plural "We" is the tell) | `messenger-sidecar/app.py` `fallback_text` default |
+
+### "Waiting for network" banner (cosmetic class)
+
+The Messenger app can show a persistent "Waiting for network" banner while the
+inbox loads and sends fine — a stale realtime-socket state, not connectivity.
+Verified non-causes (2026-11-28): Tailscale VPN (orca now excluded via
+split-tunnel — **keep it excluded**, Meta sockets are fragile under VPN
+MTU-1280 per phone-net-ops), mobile-data pinning (rmnet0), clock skew, stale
+app version, app cache. Clears on a profile switch (socket re-binds) or a
+device restart.
+
+### Tailscale split-tunnel set (applied on-device 2026-11-28)
+
+The phone's Tailscale routes through an exit node at MTU-1280 — the PMTU
+blackhole class that wedges realtime sockets (phone-net-ops). Verified
+excluded apps (Tailscale → ⋮ → App split tunneling, each confirmed
+checked in the app UI):
+
+- Meta family: `com.facebook.orca` (Messenger), `com.facebook.pages.app`
+  (Business Suite), `com.instagram.android`, `com.instagram.moonshot` (Threads)
+- Messaging/push: `com.whatsapp`, `com.viber.voip`, `com.Slack`,
+  `io.heckel.ntfy`
+- Banking (foreign-IP fraud checks): `com.revolut.revolut`,
+  `mbanking.NBG`, `gr.winbank.mobile.redesign`, `com.EurobankEFG`
+
+App-list quirks worth knowing: display names don't match package names —
+winbank lists as **"Piraeus app"**, NBG as **"NBG"**; the list sorts
+capitalized names first, then lowercase-starting names, then Greek; row
+checkboxes are `NAF` (not accessibility-friendly) — only taps on the
+checkbox itself toggle, row/name taps are no-ops. Apps pick up the
+exclusion on their next socket bind.
+
+### End-to-end notification verification (2026-11-28)
+
+Live loop test proved the full pipeline on-device: a personal→Page message
+sent via the browser bridge landed in the Business Suite inbox, the bot
+auto-reply (`messenger_chatbot` lane) fired, and the reply pushed a real
+Messenger notification to the phone — personal→Page→bot→personal
+notification, verified from ADB screenshots of the lockscreen shade.

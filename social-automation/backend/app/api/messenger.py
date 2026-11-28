@@ -30,7 +30,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.auth import get_current_user
 from app.api.deps import TeamId
-from app.core.config import settings
+from app.core.config import resolve_cf_token, settings
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.social_account import SocialAccount
@@ -1121,7 +1121,7 @@ async def _generate_ai_response(
     import httpx
 
     # Try Cloudflare Workers AI first (free tier)
-    cf_api_token = os.getenv("CLOUDFLARE_API_TOKEN", "")
+    cf_api_token = resolve_cf_token()
     cf_account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 
     if cf_api_token and cf_account_id:

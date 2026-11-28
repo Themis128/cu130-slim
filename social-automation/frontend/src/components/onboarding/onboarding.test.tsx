@@ -137,13 +137,13 @@ describe('StepConnectAccount — non-redirect, error and summary fallbacks', () 
   })
 
   it('shows a busy, disabled tile while connecting', async () => {
-    let finish!: (v: unknown) => void
-    api.accountsApi.connect.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const connectResult = Promise.withResolvers<unknown>()
+    api.accountsApi.connect.mockImplementationOnce(() => connectResult.promise)
     render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
     fireEvent.click(await screen.findByText('Threads'))
     expect(await screen.findByText('Connecting…')).toBeInTheDocument()
     expect(screen.getByText('Threads').closest('button')).toBeDisabled()
-    finish({ data: { authorization_url: 'https://oauth.example/threads' } })
+    connectResult.resolve({ data: { authorization_url: 'https://oauth.example/threads' } })
     await waitFor(() => expect(window.location.href).toBe('https://oauth.example/threads'))
     expect(screen.queryByText('Connecting…')).toBeNull()
   })

@@ -193,7 +193,8 @@ describe('VoiceRecorder — fallbacks and WAV encoding', () => {
       fr.readAsArrayBuffer(file)
     })
     const view = new DataView(bytes)
-    const tag = (o: number) => String.fromCharCode(...new Uint8Array(bytes, o, 4))
+    const tagDecoder = new TextDecoder()
+    const tag = (o: number) => tagDecoder.decode(new Uint8Array(bytes, o, 4))
     expect([tag(0), tag(8), tag(12), tag(36)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data'])
     expect(view.getUint32(24, true)).toBe(16000) // sample rate
     expect(view.getUint16(22, true)).toBe(1) // mono
