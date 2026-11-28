@@ -90,30 +90,39 @@ def incident_sets(con) -> tuple[dict[str, set[int]], dict[str, set[int]]]:
     A mid lands in openish if ANY of its incidents is unresolved — the stale
     and resolved rules both consult openish so live work is never deleted."""
     rows = con.execute(
-        "SELECT alert_chat_id, alert_message_id, status, "
-        "detail->>'msg_id', detail->>'channel' FROM ops_incidents").fetchall()
+        "SELECT alert_chat_id, alert_message_id, status, detail "
+        "FROM ops_incidents").fetchall()
     resolved = {n: set() for n in CHANNELS}
     openish = {n: set() for n in CHANNELS}
     chat_map = {_norm_chat(cid): n for n, (cid, _) in CHANNELS.items()}
-    for achat, amid, status, dmid, dchan in rows:
-        targets = set()
-        if achat and _norm_chat(achat) in chat_map:
-            targets.add(chat_map[_norm_chat(achat)])
+    for achat, amid, status, detail in rows:
+        if isinstance(detail, str):
+            import json as _json
+            try:
+                detail = _json.loads(detail)
+            except ValueError:
+                detail = {}
+        detail = detail or {}
+        # linkage candidates: (channel_name, msg_id) pairs from every lane —
+        # the legacy channel/msg_id pair plus the accumulating src:<chan>
+        # namespaces the ingest writes for mirrored posts.
+        links = []
+        if achat and _norm_chat(achat) in chat_map and amid:
+            links.append((chat_map[_norm_chat(achat)], amid))
+        dchan = detail.get("channel")
         if dchan:
-            n = str(dchan).removeprefix("cloudless-")
-            if n in CHANNELS:
-                targets.add(n)
-        if not targets:
-            continue
-        mids = set()
-        for raw in (amid, dmid):
-            if raw:
-                try:
-                    mids.add(int(raw))
-                except (TypeError, ValueError):
-                    pass
-        for n in targets:
-            (resolved if status == "resolved" else openish)[n] |= mids
+            links.append((str(dchan).removeprefix("cloudless-"), detail.get("msg_id")))
+        for k, v in detail.items():
+            if k.startswith("src:"):
+                links.append((k[4:].removeprefix("cloudless-"), v))
+        for n, raw_mid in links:
+            if n not in CHANNELS or not raw_mid:
+                continue
+            try:
+                mid = int(raw_mid)
+            except (TypeError, ValueError):
+                continue
+            (resolved if status == "resolved" else openish)[n].add(mid)
     return resolved, openish
 
 

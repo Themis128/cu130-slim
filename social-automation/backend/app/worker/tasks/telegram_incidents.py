@@ -214,6 +214,11 @@ def telegram_incidents_ingest(self):
                         # is a scheduled-workflow failure: ops-grade, never the
                         # channel's #critical bump.
                         msg_severity = "ops" if _GH_RELAY_RE.search(msg.text or "") else severity
+                        # detail || merges on fingerprint collisions: a bare
+                        # channel/msg_id pair gets overwritten by the last
+                        # lane reporting (the same alert lands as a TG post
+                        # AND an ntfy mirror row). src:<channel> namespaces
+                        # accumulate every lane's linkage for the janitor.
                         await report_incident(
                             db,
                             source="telegram-channel",
@@ -221,7 +226,11 @@ def telegram_incidents_ingest(self):
                             title=(msg.text or "")[:160],
                             target=target,
                             severity=msg_severity,
-                            detail={"channel": channel, "msg_id": msg.msg_id},
+                            detail={
+                                "channel": channel,
+                                "msg_id": msg.msg_id,
+                                f"src:{channel}": msg.msg_id,
+                            },
                         )
                         stats["ingested"] += 1
                     new_cursors[channel] = cursor_ms
