@@ -421,7 +421,7 @@ export function MessengerInbox({ accountId, accountType }: MessengerInboxProps) 
                   placeholder="Type a reply..."
                   className="min-h-[40px] max-h-[80px] resize-none"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                       e.preventDefault()
                       handleSend()
                     }

@@ -193,7 +193,7 @@ export default function BrandIdentityPage() {
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && newValue.trim()) {
+                if (e.key === 'Enter' && newValue.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault()
                   setValues([...values, newValue.trim()])
                   setNewValue('')
@@ -241,7 +241,7 @@ export default function BrandIdentityPage() {
               value={newCompetitor}
               onChange={(e) => setNewCompetitor(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && newCompetitor.trim()) {
+                if (e.key === 'Enter' && newCompetitor.trim() && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
                   e.preventDefault()
                   setCompetitors([...competitors, newCompetitor.trim()])
                   setNewCompetitor('')

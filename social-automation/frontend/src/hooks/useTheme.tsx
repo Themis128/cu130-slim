@@ -21,6 +21,15 @@ const resolveFromMedia = (t: Theme): 'light' | 'dark' => {
   return 'light'
 }
 
+// Keep <meta name="color-scheme"> in sync with the stored theme override
+// ("light dark" follows the system, "light"/"dark" pin a scheme).
+const syncColorSchemeMeta = (t: Theme) => {
+  const meta = document.querySelector('meta[name="color-scheme"]')
+  if (meta) {
+    meta.setAttribute('content', t === 'system' ? 'light dark' : t)
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('dark')
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark')
@@ -35,6 +44,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeState(initialTheme)
     setResolvedTheme(resolved)
     document.documentElement.classList.toggle('dark', resolved === 'dark')
+    syncColorSchemeMeta(initialTheme)
   }, [])
 
   useEffect(() => {
@@ -45,6 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const resolved = e.matches ? 'dark' : 'light'
         setResolvedTheme(resolved)
         document.documentElement.classList.toggle('dark', resolved === 'dark')
+        syncColorSchemeMeta('system')
       }
     }
     mediaQuery.addEventListener('change', handleChange)
@@ -57,6 +68,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const resolved = resolveFromMedia(newTheme)
     setResolvedTheme(resolved)
     document.documentElement.classList.toggle('dark', resolved === 'dark')
+    syncColorSchemeMeta(newTheme)
   }
 
   const toggleTheme = () => {

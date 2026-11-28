@@ -269,8 +269,7 @@ describe('Auth Pages', () => {
     })
 
     it('should show loading state during login', async () => {
-      let resolveLogin: (value: boolean) => void
-      const loginPromise = new Promise<boolean>((resolve) => { resolveLogin = resolve })
+      const { promise: loginPromise, resolve: resolveLogin } = Promise.withResolvers<boolean>()
       mockAuthValue.login = vi.fn(() => loginPromise)
       
       render(<LoginPage />, { wrapper })
@@ -287,7 +286,7 @@ describe('Auth Pages', () => {
       expect(screen.getByText('Loading...')).toBeInTheDocument()
       expect(submitButton).toBeDisabled()
       
-      resolveLogin!(true)
+      resolveLogin(true)
       await waitFor(() => {
         expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
       })
@@ -453,8 +452,7 @@ describe('Auth Pages', () => {
     })
 
     it('should show loading state during registration', async () => {
-      let resolveRegister: (value: boolean) => void
-      const registerPromise = new Promise<boolean>((resolve) => { resolveRegister = resolve })
+      const { promise: registerPromise, resolve: resolveRegister } = Promise.withResolvers<boolean>()
       mockAuthValue.register = vi.fn(() => registerPromise)
       
       render(<RegisterPage />, { wrapper })
@@ -477,7 +475,7 @@ describe('Auth Pages', () => {
       expect(screen.getByText('Loading...')).toBeInTheDocument()
       expect(submitButton).toBeDisabled()
       
-      resolveRegister!(true)
+      resolveRegister(true)
       await waitFor(() => {
         expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
       })

@@ -37,7 +37,7 @@ function addTarget(name: string) {
 describe('TourOverlay', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    document.body.innerHTML = ''
+    document.body.replaceChildren()
     mockPathname = '/dashboard'
     tour.currentStep = 0
     tour.isOpen = true
@@ -101,7 +101,7 @@ describe('TourOverlay', () => {
 
   it('positions the tooltip per placement without crashing', async () => {
     for (const [idx, target] of [[2, 'stats'], [3, 'top-posts']] as const) {
-      document.body.innerHTML = ''
+      document.body.replaceChildren()
       tour.currentStep = idx
       addTarget(target)
       const { unmount } = render(<TourOverlay />)

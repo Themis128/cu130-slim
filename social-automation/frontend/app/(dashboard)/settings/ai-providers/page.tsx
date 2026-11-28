@@ -176,7 +176,7 @@ export default function AIProvidersPage() {
   }
 
   // Sort: enabled first, then disabled
-  const sorted = [...catalog].sort((a, b) => {
+  const sorted = catalog.toSorted((a, b) => {
     const aEnabled = savedMap[a.name]?.is_enabled ? 1 : 0
     const bEnabled = savedMap[b.name]?.is_enabled ? 1 : 0
     return bEnabled - aEnabled
