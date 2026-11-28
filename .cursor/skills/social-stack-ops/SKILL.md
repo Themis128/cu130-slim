@@ -36,6 +36,7 @@ triggers:
 - `social-worker-publishing` — Celery, `publishing` queue; **restart after publishing.py / worker task / celery_app.py changes**
 - `social-worker-media` — Celery, `media` queue; **restart after media task / celery_app.py changes**
 - `social-worker-default` — Celery, `default` + `celery` queues; **restart after analytics/workflow/digest task / celery_app.py changes**
+- `social-worker-reports` — Celery, `reports` queue (notebook reports, digests, funnel, promo, linkedin-ads email tasks); **restart after report task / celery_app.py changes**
 - `celery-beat` — single scheduler instance; **restart after beat_schedule or queue routing changes**
 - `social-worker-messenger` — Celery, `messenger` queue; **restart after messenger task / celery_app.py changes**
 - `comfyui` — GPU image+video generation (`COMFYUI_PROFILE=flux` → lowvram + fp8 text-enc). Serves FLUX.1-schnell GGUF (images), Wan2.2 TI2V-5B GGUF (video, t2v+i2v — only video model). Custom-node deps (gguf, opencv, colour-science…) are pinned in the Dockerfile — nodes are bind-mounted so their own requirements.txt never install.
