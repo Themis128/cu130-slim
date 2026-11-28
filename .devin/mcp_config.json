@@ -214,7 +214,7 @@
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "serena": {
-      "command": "/home/ubuntu/.local/bin/uvx",
+      "command": "uvx",
       "args": [
         "--from",
         "git+https://github.com/oraios/serena",
@@ -223,7 +223,9 @@
         "--context",
         "ide-assistant",
         "--project",
-        "/home/ubuntu/repos/cu130-slim"
+        "/home/tbaltzakis/cu130-slim",
+        "--open-web-dashboard",
+        "false"
       ]
     }
   }
