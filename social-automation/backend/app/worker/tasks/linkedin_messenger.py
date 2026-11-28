@@ -88,7 +88,8 @@ def _run_async(coro):
 @celery_app.task(name="app.worker.tasks.linkedin_messenger.poll_linkedin_messenger")
 def poll_linkedin_messenger() -> dict:
     """Poll LinkedIn DM conversations and send AI auto-replies."""
-    return _run_async(_poll_linkedin_messenger_async())
+    res = _run_async(_poll_linkedin_messenger_async())
+    return res if isinstance(res, dict) else {}
 
 
 async def _poll_linkedin_messenger_async() -> dict:
