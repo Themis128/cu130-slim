@@ -572,16 +572,18 @@ A `failed` post has **no** queue row to reset — create one. Every NOT NULL
 column must be explicit:
 
 ```sql
-INSERT INTO publish_queue (id, post_id, team_id, status, attempts,
+INSERT INTO publish_queue (id, post_id, social_account_id, status, attempts,
                            scheduled_at, priority, created_at, updated_at)
-SELECT gen_random_uuid(), p.id, p.team_id, 'pending', 0,
+SELECT gen_random_uuid(), t.post_id, t.social_account_id, 'pending', 0,
        now(), 5, now(), now()
-FROM posts p WHERE p.id = '<post_id>';
+FROM post_targets t
+WHERE t.post_id = '<post_id>' AND t.status = 'pending';
 ```
 
-`post_targets.status` for that post should be reset to `'pending'` at the
-same time — the dispatcher iterates pending targets, not the queue row
-alone.
+Queue rows are **per-target** — `social_account_id` is NOT NULL and each
+row maps one post to one account. `post_targets.status` for that post
+should be reset to `'pending'` at the same time — the dispatcher
+iterates pending targets, not the queue row alone.
 
 ### Zombie pending targets on dead posts
 
@@ -607,6 +609,17 @@ DNS failure **inside** the media/render container during a stack bounce —
 the render tried to resolve a sibling service while compose was mid-recreate.
 Transient: re-queue once `docker ps` is stable. Not a content problem, not
 a TikTok problem — do not touch tokens.
+
+### `has no media — every post must carry at least one image/video`
+
+The media-required gate suppressed a media-less post (`posts.status=
+'suppressed'`, targets `skipped`). Repair is automated:
+`scripts/media_repair.py --apply` generates a branded slideshow video
+(branded-video-pipeline, ~40s, no GPU), uploads it via
+`/api/v1/media/upload`, then re-attaches + re-schedules through the API
+(`POST /posts/{id}/schedule` lifts `suppressed`→`scheduled`, then
+`PATCH /posts/{id}` sets `media_ids` + recreates pending targets). Daily
+cron at 05:45 handles `--limit 2`; dry-run lists candidates.
 
 ### `Deferred #N until … X web daily cap reached (4/5 posts in 24h)`
 
