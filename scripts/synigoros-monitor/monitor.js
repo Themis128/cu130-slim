@@ -206,16 +206,40 @@ async function submitOtp(page) {
   return clicked;
 }
 
-function botToken() {
-  if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
+function envVal(key) {
+  if (process.env[key]) return process.env[key];
   try {
     const env = fs.readFileSync(path.join(DIR, '..', '..', '.env'), 'utf8');
-    const m = env.match(/^TELEGRAM_BOT_TOKEN=(.+)$/m);
+    const m = env.match(new RegExp('^' + key + '=(.+)$', 'm'));
     return m && m[1].trim().replace(/^["']|["']$/g, '');
   } catch { return null; }
 }
 
+function botToken() {
+  return envVal('TELEGRAM_BOT_TOKEN');
+}
+
+function ntfy(text) {
+  // Best-effort ntfy fan-out — mirrors ops alerts to the phone lane.
+  try {
+    const base = (envVal('NTFY_ALERT_BASE_URL') || '').replace(/\/+$/, '');
+    const tok = envVal('NTFY_ALERT_TOKEN');
+    const topic = envVal('NTFY_ALERT_TOPIC') || 'cloudless-alerts';
+    if (!base || !tok) return;
+    const u = new URL(base + '/' + topic);
+    const body = String(text).slice(0, 3900);
+    const req = https.request({ hostname: u.hostname, port: u.port || 443, path: u.pathname, method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + tok, 'Title': '[ops] synigoros', 'Priority': '4', 'Tags': 'ops',
+        'Content-Type': 'text/plain', 'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) ntfy-alert/1.0' } },
+      (res) => { res.resume(); });
+    req.on('error', () => {});
+    req.end(body);
+  } catch {}
+}
+
 async function notify(text) {
+  ntfy(text);
   // Direct Bot API — channel-scoped, no social-api account auth needed.
   // (The old path via /api/v1/telegram/{accountId}/send 403s for non-owner
   // users — observed "Not authorized to manage this account".)

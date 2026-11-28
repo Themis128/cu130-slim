@@ -26,7 +26,23 @@ def _inbox_hit() -> str:
         return ""
 
 
+def _ntfy(text: str):
+    """Best-effort ntfy fan-out — mirrors ops alerts to the phone lane."""
+    try:
+        d = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(6):
+            p = os.path.join(d, "scripts", "ntfy_alert.py")
+            if os.path.exists(p):
+                subprocess.run([sys.executable, p, text, "ops"],
+                               timeout=15, capture_output=True)
+                return
+            d = os.path.dirname(d)
+    except Exception:
+        pass
+
+
 def _tg(text: str):
+    _ntfy(text)
     tok = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat = "7017840434"
     if not tok:

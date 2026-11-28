@@ -82,7 +82,24 @@ class Tab:
             pass
 
 
+def _ntfy(text):
+    """Best-effort ntfy fan-out — mirrors ops alerts to the phone lane."""
+    try:
+        import subprocess
+        d = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(6):
+            p = os.path.join(d, "scripts", "ntfy_alert.py")
+            if os.path.exists(p):
+                subprocess.run([sys.executable, p, text, "ops"],
+                               timeout=15, capture_output=True)
+                return
+            d = os.path.dirname(d)
+    except Exception:
+        pass
+
+
 def _tg(text):
+    _ntfy(text)
     try:
         bot = open(KEYS + "/tg-bot-token").read().strip()
         urllib.request.urlopen(
