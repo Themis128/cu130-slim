@@ -5138,3 +5138,34 @@ Follow-ups:
 - [ ] **f5b8493d twitter publish** — deferred to 18:53 UTC x_web cap
   slot (4/5 used). Other 6 platform targets correctly dedup-skipped
   (content already published).
+
+## 2026-11-28 — agency sweep call-budget + ops fixes (PR #2785)
+- [x] **agency triage SoftTimeLimitExceeded** — recurring failure root-caused:
+  `_triage_espo_leads` looped ≤300 EspoCRM leads × 1-2 Espo calls each on a 300s
+  soft limit. Fixed via `_budget_exhausted` gate (`spent`/`deferred` counters +
+  wall-clock deadline); `AGENCY_TRIAGE_MAX_PER_RUN=40` + `AGENCY_TRIAGE_BUDGET_S=240`.
+  Resumable via existing triage markers.
+- [x] **same class in pm_sweep + post_consult_sweep** — Serena audit of all 7
+  sweeps found both unbounded on 120s limits (5 SMTP sends/project, ~4 Espo calls
+  ×50 opps). Gated with `AGENCY_PM_*` / `AGENCY_POST_CONSULT_*` budgets.
+- [x] **omv pihole DNS dead** — real cause was NOT host load:
+  `/etc/systemd/resolved.conf.d/retry.conf` set `DNSStubListener=yes` → resolved
+  held TCP :53 → dnsmasq wildcard bind "Address in use". Flipped to `no`,
+  retargeted `/etc/resolv.conf` to non-stub. DNS answers on all paths.
+- [x] **flower + warp-proxy "unhealthy"** — both were bad probes, not bad
+  services: flower healthcheck hit a basic-auth'd `/` (now sends Authorization
+  header); warp-proxy probe dialed IPv6 which isn't routed through WARP (now `-4`).
+- [x] **slack-token-sync rc=1** — Infisical lost its :8090 publish; restored
+  `127.0.0.1:8090` + `${INFISICAL_TAILNET_IP}:8090` → 8080 in standalone compose.
+- [x] **Synigoros OTP mails** — all 3 trashed via the Windows
+  `gmail-send-token.json` (gmail.modify); client creds live in
+  `secrets/gcp-oauth.keys.json` for refresh when the access token expires.
+- [ ] **worker-layer call-budget audit (28 sites)** — Serena found one
+  `for…await external` site per task file across the worker layer; spot-checked
+  `instagram_messenger` (poll-bounded DMs) and `linkedin_portability_sync`
+  (≤10-domain alert) — both bounded. Remaining ~26 are the same bounded-shape
+  but unverified; audit when a task next hits SoftTimeLimitExceeded.
+- [ ] **shared-checkout churn** — parallel agents in `~/cu130-slim` run
+  `git checkout`/`reset` sweeps that wipe uncommitted work (twice today).
+  Mitigation in use: dedicated worktree `~/cu130-slim-wt-devin`. Consider
+  writing into repo-hygiene-ops that agents should worktree-isolate.
