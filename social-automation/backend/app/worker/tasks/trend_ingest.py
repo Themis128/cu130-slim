@@ -90,7 +90,7 @@ async def _run() -> dict:
         stmt = stmt.on_conflict_do_nothing(constraint="uq_trend_signal")
         res = await db.execute(stmt)
         await db.commit()
-    return {"fetched": len(signals), "inserted": res.rowcount}
+    return {"fetched": len(signals), "inserted": getattr(res, "rowcount", 0)}
 
 
 @shared_task(name="app.worker.tasks.trend_ingest.ingest_trends", bind=True, max_retries=0)

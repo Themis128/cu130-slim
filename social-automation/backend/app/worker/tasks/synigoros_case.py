@@ -31,12 +31,14 @@ import logging
 import os
 import re
 import smtplib
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, date, datetime, time
 from email.header import Header, decode_header
 from email.mime.text import MIMEText
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -87,7 +89,7 @@ def _load_json(path: Path, default):
         return default
 
 
-async def _redis():
+async def _redis() -> Any:
     import redis.asyncio as aioredis
 
     from app.core.config import get_settings
@@ -180,7 +182,7 @@ def _imap_hits(domain: str, since: str, require: re.Pattern | None) -> list[dict
     try:
         mail.login(user, pw)
         mail.select("INBOX")
-        _, data = mail.uid("SEARCH", None, "FROM", f'"{domain}"', "SINCE", _imap_since(since))
+        _, data = mail.uid("SEARCH", None, "FROM", f'"{domain}"', "SINCE", _imap_since(since))  # pyright: ignore[reportArgumentType] — imaplib charset=None is the documented idiom
         for uid in (data[0].split() if data and data[0] else [])[-20:]:
             _, msg = mail.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
             raw = ""
@@ -241,7 +243,7 @@ def _smtp_send(to: list[str], subject: str, body: str) -> None:
     msg = MIMEText(body, "plain", "utf-8")
     msg["From"] = frm
     msg["To"] = ", ".join(to)
-    msg["Subject"] = Header(subject, "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")  # pyright: ignore[reportArgumentType] — Header is the canonical non-ASCII subject encoding
     with smtplib.SMTP(host, port, timeout=30) as smtp:
         smtp.ehlo()
         smtp.starttls()
@@ -376,7 +378,7 @@ def _scan_replies_sync(domains: list[tuple[str, str | None]], since: str) -> lis
                 mail.select("INBOX")
                 for dom, req_src in domains:
                     req = re.compile(req_src, re.I) if req_src else None
-                    _, data = mail.uid("SEARCH", None, "FROM", f'"{dom}"', "SINCE", _imap_since(since))
+                    _, data = mail.uid("SEARCH", None, "FROM", f'"{dom}"', "SINCE", _imap_since(since))  # pyright: ignore[reportArgumentType] — imaplib charset=None is the documented idiom
                     for uid in data[0].split() if data and data[0] else []:
                         key = f"imap:{dom}:{uid.decode()}"
                         _, msg = mail.uid(

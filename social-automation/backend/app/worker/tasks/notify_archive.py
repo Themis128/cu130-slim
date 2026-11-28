@@ -364,7 +364,7 @@ def notify_archive_ingest(self):
         from app.core.config import get_settings
         from app.models.telegram_message import TelegramChannelMessage
 
-        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         stats: dict[str, Any] = {"scanned": 0, "inserted": 0, "dupes": 0}
         try:
             from sqlalchemy import select
