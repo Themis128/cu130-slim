@@ -154,6 +154,21 @@ Appeal copy rules baked into the script: precise verifiable facts only,
 never overstate the legal entity (reviewers cross-check), real ΑΦΜ/ΓΕΜΗ
 only if the user supplies them.
 
+Flags: `--app <app_id>` picks the client_id (264925843 / 265077368 /
+227354605 / 265081467), `--program "<name>"` sets the API Program select,
+`--desc-file <path>` overrides the description body. The dsapi form is
+label-mapped live: `form_type=vetting_appeal` reveals
+`api_program_you_are_appealing` + Subject/Description textareas; the real
+submit is the bare "Submit" button (NOT the header "Submit search").
+
+### Case log
+
+- **Matched Audiences** (app 264925843): appeal filed 2026-11-28 →
+  `CAS-12515147-Z9F1G9` (sole-prop entity, ΑΦΜ 115307716).
+- **Live Events Dev Tier** (app 265081467 `cloudless-gr-live`, client_id
+  `778ys0q6bnh5ly`): product went DENIED after the earlier form
+  submission — re-appealed 2026-11-28 → `CAS-12515304-X1Z3J8`.
+
 ## Member DP request — full flow already exists
 
 `linkedin-devapp-ops/scripts/li_devapp_ops.py request 265077368 "<heading>"`
