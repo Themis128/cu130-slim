@@ -1629,6 +1629,58 @@ services:
     memswap_limit: 3072m
     cpus: '4'
     restart: unless-stopped
+  social-worker-reports:
+    profiles: ["dev"]
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: always
+    build:
+      context: ./social-automation/backend
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_BASE_IMAGE:-mirror.gcr.io/library/python:3.11-slim}
+      target: worker
+      additional_contexts:
+        browser: ./browser-novnc
+    container_name: social-worker-reports
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
+    networks:
+      - backend
+      - db
+    environment: *worker-env
+    volumes: *worker-volumes
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
+    depends_on: *worker-depends
+    <<: *public-dns
+    # Dedicated `reports` queue lane: email-producing reports (notebook
+    # papermill, digests, funnel, promo, linkedin-ads) — isolated from the
+    # `default`/`celery` beat flood so multi-minute runs are never starved
+    # (observed 2026-11-28: ~2.9k backlog buried delivery resends for hours).
+    # conc=2: one slot for papermill, one for quick sends.
+    command: celery -A app.worker.celery_app worker -Q reports --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=reports@%h
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.worker.celery_app inspect ping -d reports@$$HOSTNAME | grep -q pong || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # celery cold-boot is ~90-120s (mingle+fork+broker connect, slower
+      # under RAM pressure); 30s made autoheal kill workers right as they
+      # became ready -> restart amplification loop (2026-11-13 incident).
+      start_period: 180s
+    stop_grace_period: 90s
+    mem_limit: 1280m
+    memswap_limit: 3072m
+    cpus: '4'
+    restart: unless-stopped
   celery-beat:
     profiles: ["dev"]
     image: ghcr.io/themis128/cu130-slim:social-backend-latest

@@ -248,6 +248,45 @@ services:
       - default
       - cu130-backend
 
+  social-worker-reports:
+    # Dedicated `reports` queue lane — email-producing reports (notebook
+    # papermill, digests, funnel, promo, linkedin-ads) get their own worker
+    # so multi-minute runs are never starved behind the `default`/`celery`
+    # beat flood (observed 2026-11-28: ~2.9k backlog buried resends for
+    # hours; deploy recreates then tombstoned the runs).
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    pull_policy: never
+    container_name: social-worker-reports
+    command: celery -A app.worker.celery_app worker -Q reports --loglevel=info --concurrency=2 --max-tasks-per-child=50 --hostname=reports@%h
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER:-social_user}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_automation}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - MESSENGER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis/0
+      - PYTHONPATH=/app
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
+      - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
+      - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+      # mail.cloudless.gr has a valid LE cert but no public :587 —
+      # map the LAN postfix IP so STARTTLS hostname verification
+      # passes with SMTP_SSL_VERIFY=true.
+      - mail.cloudless.gr:${MAIL_HOST_LAN_IP:-192.168.1.130}
+    depends_on:
+      - social-postgres
+      - redis
+    restart: unless-stopped
+    networks:
+      - default
+      - cu130-backend
+
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: never

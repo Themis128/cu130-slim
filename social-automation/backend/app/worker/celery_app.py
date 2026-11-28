@@ -361,15 +361,26 @@ celery_app.conf.update(
         # default/celery queue tasks (observed 2026-10-27: llen=20 stuck).
         "app.worker.tasks.dmr_health.keep_warm_dmr_models": {"queue": "media"},
         "app.worker.tasks.dmr_health.check_dmr_health": {"queue": "media"},
+        # ── reports queue: email-producing reports — isolated from the ─────
+        # beat flood on `default`/`celery` so multi-minute papermill runs and
+        # report sends are never starved (observed 2026-11-28: ~2.9k backlog
+        # buried delivery-watch resends for hours).
+        "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "reports"},
+        "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "reports"},
+        "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "reports"},
+        "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "reports"},
+        "app.worker.tasks.promo_scan.run_promo_scan": {"queue": "reports"},
+        "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "reports"},
+        "app.worker.tasks.funnel_reports.run_lead_pulse": {"queue": "reports"},
+        "app.worker.tasks.funnel_reports.run_attribution_digest": {"queue": "reports"},
+        "app.worker.tasks.funnel_reports.run_content_weekly": {"queue": "reports"},
+        "app.worker.tasks.funnel_reports.run_funnel_monthly": {"queue": "reports"},
+        "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "reports"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
         "app.worker.tasks.workflows.execute_workflow": {"queue": "default"},
         "app.worker.tasks.workflows.deploy_workflow": {"queue": "default"},
-        "app.worker.tasks.digest.send_daily_slack_digest": {"queue": "default"},
-        "app.worker.tasks.digest.send_weekly_slack_digest": {"queue": "default"},
-        "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "default"},
-        "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
         "app.worker.tasks.synigoros_case.run_synigoros_followups": {"queue": "default"},
@@ -386,7 +397,6 @@ celery_app.conf.update(
         "app.worker.tasks.meta_infra_retry.run_meta_infra_retry": {"queue": "meta"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
-        "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.linkedin_token_check.check_linkedin_tokens": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
@@ -408,7 +418,6 @@ celery_app.conf.update(
         "app.worker.tasks.email_campaigns.send_campaign": {"queue": "default"},
         "app.worker.tasks.auto_gates.survey_autosend": {"queue": "default"},
         "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
-        "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
