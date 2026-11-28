@@ -19,6 +19,7 @@ Four bounded agents (per agent-workforce / agentic-bpm contracts):
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -103,14 +104,31 @@ def _services_line(services: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
+def _budget_exhausted(stats: dict[str, Any], budget: int | None, deadline: float | None) -> bool:
+    """Call-budget gate: count cap or wall-clock deadline reached (soft-limit safety)."""
+    if budget is not None and stats["spent"] >= budget:
+        return True
+    return deadline is not None and time.monotonic() > deadline
+
+
+async def _triage_local_leads(
+    db: AsyncSession,
+    team_id: uuid.UUID,
+    *,
+    budget: int | None = None,
+    deadline: float | None = None,
+) -> dict[str, int]:
     """Local ``leads`` rows that have not been triaged yet."""
     rows = (await db.execute(select(Lead).where(Lead.team_id == team_id).order_by(Lead.created_at.desc()).limit(200))).scalars().all()
-    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     for lead in rows:
         md = dict(lead.meta_data or {})
         if md.get("agency_triaged"):
             continue
+        if _budget_exhausted(stats, budget, deadline):
+            stats["deferred"] += 1
+            continue
+        stats["spent"] += 1
         blob = _lead_blob(lead)
         ranked = classify_services(blob)
         services = [slug for slug, _score, _hits in ranked]
@@ -153,9 +171,15 @@ async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str,
     return stats
 
 
-async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
+async def _triage_espo_leads(
+    db: AsyncSession,
+    team_id: uuid.UUID,
+    *,
+    budget: int | None = None,
+    deadline: float | None = None,
+) -> dict[str, int]:
     """EspoCRM-native leads (contact-form path) — note marker is the dedupe."""
-    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     leads = await espo.list_all(
         "Lead",
         select=["id", "name", "emailAddress", "website", "description", "status", "createdAt"],
@@ -174,6 +198,10 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
         if exists:
             stats["skipped"] += 1
             continue
+        if _budget_exhausted(stats, budget, deadline):
+            stats["deferred"] += 1
+            continue
+        stats["spent"] += 1
         notes = await espo.list_all(
             "Note",
             select=["id", "post"],
@@ -243,16 +271,25 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
 
 
 async def triage_sweep(*, session_factory=None) -> dict[str, Any]:
-    """Front Desk agent: classify untriaged leads, queue site audits."""
+    """Front Desk agent: classify untriaged leads, queue site audits (bounded per run)."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
+    settings = get_settings()
+    budget = max(1, int(getattr(settings, "AGENCY_TRIAGE_MAX_PER_RUN", 40)))
+    deadline = time.monotonic() + getattr(settings, "AGENCY_TRIAGE_BUDGET_S", 240)
+    empty: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0, "deferred": 0, "spent": 0}
     async with factory() as db:
         team_id = await _default_team_id(db)
         if not team_id:
             return {"status": "skipped", "reason": "no_team"}
-        local = await _triage_local_leads(db, team_id)
-        espo_stats = await _triage_espo_leads(db, team_id) if espo.configured() else {"triaged": 0, "audits": 0, "skipped": 0}
+        local = await _triage_local_leads(db, team_id, budget=budget, deadline=deadline)
+        remaining = max(0, budget - local["spent"])
+        espo_stats = (
+            await _triage_espo_leads(db, team_id, budget=remaining, deadline=deadline)
+            if espo.configured() and remaining and time.monotonic() < deadline
+            else empty
+        )
         await db.commit()
     stats: dict[str, Any] = {"status": "ok", "local": local, "espo": espo_stats}
     logger.info("agency triage sweep: %s", stats)

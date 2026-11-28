@@ -666,6 +666,9 @@ services:
       - PORT=8080
       - HTTPS_ENABLED=false
       - TELEMETRY_ENABLED=true
+    ports:
+      - "127.0.0.1:8090:8080"
+      - "${INFISICAL_TAILNET_IP}:8090:8080"
     networks: [cu130-db, default]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/status || exit 1"]
