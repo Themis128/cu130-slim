@@ -92,7 +92,7 @@ def _redispatch_video(post: Post, meta: dict) -> str | None:
     prompt = (meta.get("instruction") or post.content_text or "").strip()
     if not prompt:
         return None
-    res = generate_video_asset_task.delay(
+    res = generate_video_asset_task.delay(  # pyright: ignore[reportCallIssue]  # untyped celery Proxy.__getattr__ unions list[str] into attrs
         str(post.team_id),
         str(post.user_id or ""),
         prompt[:2000],
