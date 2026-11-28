@@ -109,9 +109,9 @@ class TestPrivateClient:
         assert out == {"status_code": 0}
         _, url, kw = c.calls[0]
         assert "commit/user" in url
-        assert "signature=new+bio" in kw["data"] or "signature" in kw["data"]
+        assert "signature=new+bio" in kw["content"] or "signature" in kw["content"]
         assert kw["cookies"] == {"sessionid": "sess123"}
-        assert "uid=999" in kw["data"]
+        assert "uid=999" in kw["content"]
 
     @pytest.mark.asyncio
     async def test_post_403_blocked(self, monkeypatch):
@@ -135,7 +135,7 @@ class TestPrivateClient:
         await self._client().edit_username("newname")
         _, url, kw = c.calls[0]
         assert "login_name/update" in url
-        assert "uid" not in kw["data"]
+        assert "uid" not in kw["content"]
 
     @pytest.mark.asyncio
     async def test_check_username(self, monkeypatch):
@@ -235,7 +235,7 @@ class TestProfileService:
         out = await svc.update_nickname("NewName")
         assert out["success"] is True
         assert out["updated_fields"] == ["nickname"]
-        assert "nickname=NewName" in c.calls[0][2]["data"]
+        assert "nickname=NewName" in c.calls[0][2]["content"]
 
     @pytest.mark.asyncio
     async def test_update_signature(self, monkeypatch):
