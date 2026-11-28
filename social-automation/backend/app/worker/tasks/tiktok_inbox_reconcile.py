@@ -70,14 +70,17 @@ async def _reconcile_async() -> dict:
             summary["checked"] += 1
             try:
                 client = clients.get(str(account.id))
+                open_id = (account.meta_data or {}).get("open_id")
                 if client is None:
+                    if not open_id:
+                        raise ValueError("account meta_data missing open_id")
                     client = TikTokAPIClient(
                         access_token=decrypt_token(account.access_token_enc),
-                        open_id=(account.meta_data or {}).get("open_id"),
+                        open_id=open_id,
                     )
                     clients[str(account.id)] = client
 
-                resp = await client.check_publish_status(t.platform_post_id)
+                resp = await client.check_publish_status(t.platform_post_id or "")
                 status_data = resp.get("data") or {}
                 status_value = str(status_data.get("status") or "")
 
@@ -116,13 +119,13 @@ async def _reconcile_async() -> dict:
                         t.error_message = f"TikTok publish {status_value.lower()}: {clarified}"
                         summary["failed"] += 1
                 elif status_value == "SEND_TO_USER_INBOX":
-                    published_at = t.published_at or (t.post.published_at if t.post else None) or t.created_at
+                    published_at = t.published_at or (t.post.published_at if t.post else None) or t.updated_at
                     age = datetime.now(UTC) - (published_at or datetime.now(UTC))
                     if age > INBOX_PENDING_AFTER and not t.error_message:
                         t.error_message = INBOX_PENDING_MESSAGE
                     summary["pending"] += 1
             except Exception as exc:  # noqa: BLE001
-                summary["errors"].append(f"target {t.id}: {exc}")
+                summary["errors"].append(f"target {t.platform_post_id or t.post_id}: {exc}")
 
         await db.commit()
     return summary

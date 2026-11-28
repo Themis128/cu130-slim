@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 async def track_bot_reply(
-    account_id: str | uuid.UUID,
+    account_id: str,
     thread_id: str,
     *,
     provider: str,
@@ -94,7 +94,7 @@ async def track_bot_reply(
 
             event = AnalyticsEvent(
                 team_id=team_id,
-                social_account_id=(uuid.UUID(str(account_id)) if _is_valid_uuid(account_id) else None),
+                social_account_id=(uuid.UUID(account_id) if _is_valid_uuid(account_id) else None),
                 event_type="bot_reply",
                 platform="messenger",
                 occurred_at=datetime.now(UTC),
@@ -118,10 +118,10 @@ async def track_bot_reply(
             logger.debug("Failed to track bot analytics event: %s", exc)
 
 
-def _is_valid_uuid(val: str | uuid.UUID) -> bool:
+def _is_valid_uuid(val: str) -> bool:
     """Check if a string is a valid UUID."""
     try:
-        uuid.UUID(str(val))
+        uuid.UUID(val)
         return True
     except (ValueError, AttributeError):
         return False
@@ -166,7 +166,7 @@ async def _get_redis() -> Any:
     return aioredis.from_url(url)
 
 
-async def check_cooldown(account_id: str | uuid.UUID, thread_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> bool:
+async def check_cooldown(account_id: str, thread_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> bool:
     """Return True if we can reply (cooldown has expired or was never set)."""
     try:
         r = await _get_redis()
@@ -180,7 +180,7 @@ async def check_cooldown(account_id: str | uuid.UUID, thread_id: str, cooldown_s
         return True  # If Redis is down, allow reply
 
 
-async def set_cooldown(account_id: str | uuid.UUID, thread_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> None:
+async def set_cooldown(account_id: str, thread_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> None:
     """Set the cooldown for a conversation after sending a reply."""
     try:
         r = await _get_redis()
@@ -208,7 +208,7 @@ async def set_instagram_app_rate_limited(seconds: int = IG_APP_LIMIT_BACKOFF_SEC
         pass
 
 
-async def is_thread_paused(account_id: str | uuid.UUID, thread_id: str) -> bool:
+async def is_thread_paused(account_id: str, thread_id: str) -> bool:
     """Check if human handoff is active for a specific thread."""
     try:
         r = await _get_redis()
@@ -218,7 +218,7 @@ async def is_thread_paused(account_id: str | uuid.UUID, thread_id: str) -> bool:
         return False
 
 
-async def pause_thread(account_id: str | uuid.UUID, thread_id: str, reason: str = "human_handoff") -> None:
+async def pause_thread(account_id: str, thread_id: str, reason: str = "human_handoff") -> None:
     """Pause the bot for a specific thread (human handoff)."""
     try:
         r = await _get_redis()
@@ -228,7 +228,7 @@ async def pause_thread(account_id: str | uuid.UUID, thread_id: str, reason: str 
         pass
 
 
-async def resume_thread(account_id: str | uuid.UUID, thread_id: str) -> None:
+async def resume_thread(account_id: str, thread_id: str) -> None:
     """Resume the bot for a specific thread."""
     try:
         r = await _get_redis()
@@ -292,7 +292,7 @@ def is_frustrated_message(text: str) -> bool:
 # ── First-contact disclosure (Meta policy) ──────────────────────────
 
 
-async def has_disclosed(account_id: str | uuid.UUID, thread_id: str) -> bool:
+async def has_disclosed(account_id: str, thread_id: str) -> bool:
     """Check if the bot has already disclosed its automated nature in this thread.
 
     Meta's Messenger Platform policy requires that automated chat experiences
@@ -309,7 +309,7 @@ async def has_disclosed(account_id: str | uuid.UUID, thread_id: str) -> bool:
         return False
 
 
-async def mark_disclosed(account_id: str | uuid.UUID, thread_id: str) -> None:
+async def mark_disclosed(account_id: str, thread_id: str) -> None:
     """Mark that the bot has disclosed its automated nature in this thread.
 
     The key expires after 24 hours, so the bot re-discloses after a significant
@@ -326,7 +326,7 @@ async def mark_disclosed(account_id: str | uuid.UUID, thread_id: str) -> None:
 # ── Per-conversation config ──────────────────────────────────────────
 
 
-async def get_thread_config(account_id: str | uuid.UUID, thread_id: str) -> dict[str, Any]:
+async def get_thread_config(account_id: str, thread_id: str) -> dict[str, Any]:
     """Get per-conversation config from Redis (overrides global config)."""
     try:
         r = await _get_redis()
@@ -339,7 +339,7 @@ async def get_thread_config(account_id: str | uuid.UUID, thread_id: str) -> dict
     return {}
 
 
-async def set_thread_config(account_id: str | uuid.UUID, thread_id: str, config: dict[str, Any]) -> None:
+async def set_thread_config(account_id: str, thread_id: str, config: dict[str, Any]) -> None:
     """Set per-conversation config in Redis."""
     try:
         r = await _get_redis()
@@ -354,7 +354,7 @@ async def set_thread_config(account_id: str | uuid.UUID, thread_id: str, config:
 
 async def store_message_memory(
     team_id: str | uuid.UUID,
-    account_id: str | uuid.UUID,
+    account_id: str,
     thread_id: str,
     sender: str,
     text: str,
@@ -393,7 +393,7 @@ async def store_message_memory(
 
 
 async def get_conversation_memory(
-    account_id: str | uuid.UUID,
+    account_id: str,
     thread_id: str,
     n_messages: int = DEFAULT_MEMORY_MESSAGES,
 ) -> list[dict[str, str]]:
@@ -787,7 +787,7 @@ async def generate_contextual_reply(
     config: dict,
     user_message: str,
     account_name: str,
-    account_id: str | uuid.UUID,
+    account_id: str,
     thread_id: str,
     cf_token: str,
     cf_account: str,
