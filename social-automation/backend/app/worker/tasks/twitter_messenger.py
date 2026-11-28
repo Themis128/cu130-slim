@@ -90,7 +90,8 @@ def _run_async(coro):
 @celery_app.task(name="app.worker.tasks.twitter_messenger.poll_twitter_messenger")
 def poll_twitter_messenger() -> dict:
     """Poll Twitter DM conversations and send AI auto-replies via browser bridge."""
-    return _run_async(_poll_twitter_messenger_async())
+    res = _run_async(_poll_twitter_messenger_async())
+    return res if isinstance(res, dict) else {}
 
 
 async def _poll_twitter_messenger_async() -> dict:

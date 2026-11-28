@@ -31,5 +31,5 @@ async def _run(days: int):
         a = await db.execute(update(EngagementAction).where(EngagementAction.created_at < cutoff).values(comment_draft=None))
         c = await db.execute(update(EngagementCandidate).where(EngagementCandidate.ingested_at < cutoff).values(post_text=""))
         await db.commit()
-    logger.info("[ledger] compacted: %d actions, %d candidates", a.rowcount, c.rowcount)
-    return {"actions_pruned": a.rowcount, "candidates_pruned": c.rowcount}
+    logger.info("[ledger] compacted: %d actions, %d candidates", getattr(a, "rowcount", 0), getattr(c, "rowcount", 0))
+    return {"actions_pruned": getattr(a, "rowcount", 0), "candidates_pruned": getattr(c, "rowcount", 0)}
