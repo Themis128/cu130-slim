@@ -8,12 +8,13 @@ human gate (agentic-bpm escalation lane).
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 from celery import shared_task
+
+from app.core.config import resolve_cf_token
 
 SCRIPTS = Path(__file__).resolve().parents[4] / "scripts"
 CHAIN = [
@@ -58,11 +59,11 @@ def _token_active(token: str) -> bool:
 
 @shared_task(name="app.worker.tasks.cf_gate_watch.run")
 def run() -> dict:
-    token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+    token = resolve_cf_token()
     if not _token_active(token):
         ok, out = _run("cf_token_automint.py", timeout=300)
         if ok:
-            token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+            token = resolve_cf_token()
         else:
             _escalate(HUMAN_GATE_MESSAGE)
             return {"status": "blocked", "gate": "token", "tail": out}
