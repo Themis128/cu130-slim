@@ -28,6 +28,7 @@ from app.models import SocialAccount
 from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.services.telegram_api import TelegramAPIClient
+from app.services.slack_notifications import _post_ntfy_alert
 async def go():
     eng = create_async_engine(get_settings().DATABASE_URL)
     S = sessionmaker(eng, class_=AsyncSession)
@@ -39,6 +40,7 @@ async def go():
         tok = decrypt_token(enc.encode() if isinstance(enc,str) else enc) \
             if enc else decrypt_token(acc.access_token_enc)
         await TelegramAPIClient(tok).send_message(%r, %r)
+        await _post_ntfy_alert("ops", %r)
 asyncio.run(go())
 """
 
@@ -94,7 +96,7 @@ def main():
         for s in flagged[:4]:
             lines.append(f"⚠️ {s['subject'][:60]}")
         lines.append(f"Actual posts ({DAYS}d): {actual}")
-        script = SEND_PY % ("-1004436942504", "\\n".join(lines))
+        script = SEND_PY % ("-1004436942504", "\\n".join(lines), "\\n".join(lines))
         subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
                        input=script, capture_output=True, text=True, timeout=60)
         print("telegram sent")

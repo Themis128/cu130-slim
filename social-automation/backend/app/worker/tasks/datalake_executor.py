@@ -22,6 +22,7 @@ from sqlalchemy import and_, func, select, text
 
 from app.core.security import decrypt_token
 from app.models import AnalyticsEvent, Post, SocialAccount
+from app.services.slack_notifications import _post_ntfy_alert
 from app.services.telegram_api import TelegramAPIClient
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
@@ -133,7 +134,9 @@ async def _exec_audit_escalation(db, team_id, action) -> dict:
     acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))).scalar_one()
     enc = acc.meta_data.get("bot_token_enc")
     tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
-    await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, "📞 Audit requests pending booking:\n" + "\n".join(emails[:8]))
+    text = "📞 Audit requests pending booking:\n" + "\n".join(emails[:8])
+    await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, text)
+    await _post_ntfy_alert("ops", text)
     return {"pinged": len(emails)}
 
 
