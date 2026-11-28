@@ -205,6 +205,36 @@ async def test_create_comment_group_post_retry_still_fails(client):
     assert len(_Client.calls) == 2  # one correction retry, then give up
 
 
+@pytest.mark.asyncio
+async def test_create_comment_400_without_thread_hint_no_retry(client):
+    # 400 with no "actual threadUrn" hint, and a hint naming the same URN: no retry.
+    _use(_Resp(400, {}, text="bad request"))
+    out = await client.create_comment("urn:li:activity:111", "x", creator_urn="urn:li:person:1")
+    assert out.success is False and len(_Client.calls) == 1
+
+    _Client.calls.clear()
+    same = '{"message":"actual threadUrn: urn:li:activity:111","status":400}'
+    _use(_Resp(400, {}, text=same))
+    out = await client.create_comment("urn:li:activity:111", "x", creator_urn="urn:li:person:1")
+    assert out.success is False and len(_Client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_comment_thread_hint_failing_validation_no_retry(client, monkeypatch):
+    real = api._validate_urn
+
+    def _strict(urn):
+        if "groupPost" in urn:
+            raise ValueError("rejected")
+        return real(urn)
+
+    monkeypatch.setattr(api, "_validate_urn", _strict)
+    bad = '{"message":"actual threadUrn: urn:li:groupPost:961087-222","status":400}'
+    _use(_Resp(400, {}, text=bad))
+    out = await client.create_comment("urn:li:activity:111", "x", creator_urn="urn:li:person:1")
+    assert out.success is False and len(_Client.calls) == 1
+
+
 # ── delete_post v2 fallback ──────────────────────────────────────────────
 
 

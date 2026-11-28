@@ -108,6 +108,21 @@ def test_ai_token_precedence(monkeypatch):
     assert I._ai_token() == "cf-tok"
 
 
+def test_ai_token_workers_ai_name_and_empty(monkeypatch):
+    """CLOUDFLARE_WORKERS_AI_TOKEN sits between the dedicated AI token and the
+    generic API token (#2756); all-empty resolves to ""."""
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_WORKERS_AI_TOKEN", " wai-tok ", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_API_TOKEN", "cf-tok", raising=False)
+    assert I._ai_token() == "wai-tok"
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "ai-tok", raising=False)
+    assert I._ai_token() == "ai-tok"
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_WORKERS_AI_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_API_TOKEN", "  ", raising=False)
+    assert I._ai_token() == ""
+
+
 def test_validate_workers_ai_model():
     assert I._validate_workers_ai_model("@cf/meta/llama-3.2-3b") == "@cf/meta/llama-3.2-3b"
     for bad in ("", None, "no-at-sign", "@cf/../escape", "@cf/a b"):
