@@ -178,6 +178,33 @@ async def test_create_comment_v2_fallback(client):
     assert out.success and out.platform_post_id == "urn:li:comment:5"
 
 
+@pytest.mark.asyncio
+async def test_create_comment_group_post_thread_urn_retry(client):
+    """Group posts 400 with 'actual threadUrn: urn:li:groupPost:…' — retry once."""
+    bad = (
+        '{"message":"Provided threadUrn: urn:li:activity:111 is not the same as '
+        'the actual threadUrn: urn:li:groupPost:961087-222","status":400}'
+    )
+    _use(
+        _Resp(400, {}, text=bad),
+        _Resp(200, {"id": "comment-9"}),
+    )
+    out = await client.create_comment("urn:li:activity:111", "nice", creator_urn="urn:li:person:1")
+    assert out.success and out.platform_post_id == "comment-9"
+    assert len(_Client.calls) == 2
+    assert "groupPost" in _Client.calls[1]["url"]
+    assert _Client.calls[1]["json"]["object"] == "urn:li:groupPost:961087-222"
+
+
+@pytest.mark.asyncio
+async def test_create_comment_group_post_retry_still_fails(client):
+    bad = '{"message":"actual threadUrn: urn:li:groupPost:961087-222","status":400}'
+    _use(_Resp(400, {}, text=bad), _Resp(400, {}, text="still bad"))
+    out = await client.create_comment("urn:li:activity:111", "x", creator_urn="urn:li:person:1")
+    assert out.success is False
+    assert len(_Client.calls) == 2  # one correction retry, then give up
+
+
 # ── delete_post v2 fallback ──────────────────────────────────────────────
 
 
