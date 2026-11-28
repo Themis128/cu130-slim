@@ -25,7 +25,27 @@ function envVal(key) {
   } catch { return null; }
 }
 
+function ntfy(text) {
+  // Best-effort ntfy fan-out — mirrors ops alerts to the phone lane.
+  try {
+    const base = (envVal('NTFY_ALERT_BASE_URL') || '').replace(/\/+$/, '');
+    const tok = envVal('NTFY_ALERT_TOKEN');
+    const topic = envVal('NTFY_ALERT_TOPIC') || 'cloudless-alerts';
+    if (!base || !tok) return;
+    const u = new URL(base + '/' + topic);
+    const body = String(text).slice(0, 3900);
+    const req = https.request({ hostname: u.hostname, port: u.port || 443, path: u.pathname, method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + tok, 'Title': '[ops] synigoros', 'Priority': '4', 'Tags': 'ops',
+        'Content-Type': 'text/plain', 'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) ntfy-alert/1.0' } },
+      (res) => { res.resume(); });
+    req.on('error', () => {});
+    req.end(body);
+  } catch {}
+}
+
 function tg(text) {
+  ntfy(text);
   return new Promise((resolve) => {
     const tok = process.env.TELEGRAM_BOT_TOKEN || envVal('TELEGRAM_BOT_TOKEN');
     if (!tok) return resolve(false);

@@ -44,10 +44,27 @@ def status(phase, detail=""):
     except Exception:
         pass
 
+def _ntfy(text):
+    """Best-effort ntfy fan-out — mirrors ops alerts to the phone lane."""
+    try:
+        import subprocess
+        d = os.path.dirname(os.path.abspath(__file__))
+        for _ in range(6):
+            p = os.path.join(d, "scripts", "ntfy_alert.py")
+            if os.path.exists(p):
+                subprocess.run([sys.executable, p, text, "ops"],
+                               timeout=15, capture_output=True)
+                return
+            d = os.path.dirname(d)
+    except Exception:
+        pass
+
+
 def alert(text, pg=None):
     """Telegram alert via x_tg_alert.json ({token, chat}) — silent if absent.
     With a live page, attaches a screenshot so the human sees the exact
     challenge (ID/selfie/Arkose) instead of a text description."""
+    _ntfy("X-recovery: " + text)
     try:
         cfg = json.load(open(os.path.join(DIR, "x_tg_alert.json")))
         chat, tok = cfg["chat"], cfg["token"]
