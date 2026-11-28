@@ -164,9 +164,9 @@ async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:
         return stats
 
     seen: set[str] = set()
-    r = None
+    r: Any = None
     try:
-        r: Any = aioredis.from_url(get_settings().REDIS_URL)
+        r = aioredis.from_url(get_settings().REDIS_URL)
         raw = await r.smembers(_REDIS_KEY)
         seen = {x.decode() if isinstance(x, bytes) else x for x in raw}
     except Exception as exc:  # noqa: BLE001 — dedupe is a cache; down Redis just

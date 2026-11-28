@@ -636,7 +636,7 @@ async def flush_digest_queue() -> int:
         try:
             import redis.asyncio as aioredis
 
-            r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+            r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
             try:
                 await r.rpush(DIGEST_QUEUE_KEY, *raw)
             finally:
@@ -724,7 +724,7 @@ async def send_telegram_alert_tracked(severity: str, text: str) -> tuple[bool, s
 
         from app.core.config import get_settings
 
-        r: Any = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
         try:
             await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
         finally:
