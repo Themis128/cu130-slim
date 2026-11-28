@@ -376,7 +376,7 @@ def test_sweep_empty(monkeypatch):
     db = _DB([_Result([]), _Result([])])
     _wire(monkeypatch, db)
     out = R.run_publish_resurrect_sweep()
-    assert out == {"targets_revived": 0, "posts_revived": 0, "targets_skipped": 0}
+    assert out == {"targets_revived": 0, "posts_revived": 0, "targets_skipped": 0, "storage_revived": 0}
     assert db.commits == 1
 
 
@@ -545,3 +545,91 @@ def test_sweep_no_dead_posts_leaves_targets(monkeypatch):
 
     assert out["targets_skipped"] == 0
     assert tgt.status == "pending"
+
+
+# ── sweep: transient storage-skip targets ───────────────────────────────
+
+
+def _skipped_target(post_id, error="Post media incomplete: only 0/1 media assets "
+                    "could be resolved from storage", account_id=None):
+    return SimpleNamespace(
+        post_id=post_id,
+        status="skipped",
+        error_message=error,
+        error_class=None,
+        social_account_id=account_id or uuid.uuid4(),
+    )
+
+
+def _storage_skip_results(tgt, *, active=0, rows=1):
+    return [
+        _Result([]),  # failed targets
+        _Result([]),  # failed posts
+        _Result([]),  # orphaned posts
+        _Result([]),  # dead_post_ids
+        _Result([tgt]),  # storage skips
+        _Result([], scalar=active),  # active queue rows
+        _Result([], scalar=rows),  # lifetime queue rows
+        _Result([SimpleNamespace(storage_path="media/x.mp4", storage_backend="r2")]),  # MediaAsset
+    ]
+
+
+def test_sweep_revives_transient_storage_skip(monkeypatch):
+    pid, acct, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    post = _post(pid=pid, status=PostStatus.PUBLISHING)
+    post.media_ids = [mid]
+    tgt = _skipped_target(pid, account_id=acct)
+    db = _DB(_storage_skip_results(tgt), posts={pid: post})
+    from app.services import r2_storage
+
+    monkeypatch.setattr(r2_storage, "object_exists", AsyncMock(return_value=True))
+    _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["storage_revived"] == 1
+    assert tgt.status == "pending"
+    assert tgt.error_message is None
+    assert len(db.added) == 1
+
+
+def test_sweep_keeps_storage_skip_when_bytes_missing(monkeypatch):
+    pid, acct, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    post = _post(pid=pid, status=PostStatus.PUBLISHING)
+    post.media_ids = [mid]
+    tgt = _skipped_target(pid, account_id=acct)
+    db = _DB(_storage_skip_results(tgt), posts={pid: post})
+    from app.services import r2_storage
+
+    monkeypatch.setattr(r2_storage, "object_exists", AsyncMock(return_value=False))
+    _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["storage_revived"] == 0
+    assert tgt.status == "skipped"
+    assert not db.added
+
+
+def test_sweep_ignores_non_storage_skips(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, status=PostStatus.PUBLISHING)
+    post.media_ids = [uuid.uuid4()]
+    tgt = _skipped_target(pid, error="duplicate media already published")
+    db = _DB(
+        [
+            _Result([]),
+            _Result([]),
+            _Result([]),
+            _Result([]),
+            _Result([tgt]),
+        ],
+        posts={pid: post},
+    )
+    _wire(monkeypatch, db)
+
+    out = R.run_publish_resurrect_sweep()
+
+    assert out["storage_revived"] == 0
+    assert tgt.status == "skipped"
+    assert not db.added
